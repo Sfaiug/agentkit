@@ -187,12 +187,13 @@ class Machines(tuple):
         """Have the origin fail `machines`, or else all, `how`, till `mend_remote`: "unreachable",
         every git call to it failing; "silent", each taken and never answered, mended meanwhile
         or not, till its caller ends it, a machine's `held` released for each; "lost", each push
-        taken whole and its writer told that it failed; "between", the next push of each finding
-        `refs`, each named with a commit origin holds or None, on the origin in the place of the
-        values it expected, as when another machine wrote between this one's read and its
-        push."""
+        taken whole and its answer lost, its writer told no more than the refs the origin held
+        and that the connection broke; "between", the next push of each finding `refs`, each
+        named with a commit origin holds or None, on the origin in the place of the values it
+        expected, as when another machine wrote between this one's read and its push."""
         for machine in machines or self:
-            machine.remote = (how, refs)
+            with machine._faulting:     # never between a push taking its write and clearing it
+                machine.remote = (how, dict(refs or {}))
 
     def mend_remote(self, *machines):
         """Have the origin answer `machines`, or else all, again."""
@@ -248,9 +249,15 @@ def _session(peer, caller, machines):
                     hung = True
                     caller.held.release()
                 else:
+                    out = fds[1]
+                    if lost:
+                        answers, out = os.pipe()
+                        fds.append(out)     # closed with the rest once receive-pack holds it
+                        threading.Thread(target=_advertise, args=(answers, os.dup(fds[1])),
+                                         daemon=True).start()
                     proc = subprocess.Popen(shlex.split(command),
                                             cwd=machines[0].install.bare.parents[1],
-                                            stdin=fds[0], stdout=fds[1], stderr=fds[2],
+                                            stdin=fds[0], stdout=out, stderr=fds[2],
                                             env={"PATH": os.pathsep.join(SYSTEM)},
                                             start_new_session=True)
             elif machine is None:
@@ -281,3 +288,15 @@ def _session(peer, caller, machines):
         with contextlib.suppress(OSError):      # gone meanwhile
             # killed, or its answer lost once the push is whole: 255, as ssh says
             peer.sendall(b"%d" % (255 if lost or code < 0 else code))
+
+
+def _advertise(answers, writer):
+    """Pass receive-pack's `answers` to `writer` through the flush ending its advertisement of the
+    refs, git's pkt-lines, and drop the rest: what it tells of the push never reaches its writer."""
+    with open(answers, "rb") as told:
+        with contextlib.suppress(OSError), open(writer, "wb") as sent:     # gone meanwhile
+            while (size := told.read(4)) not in (b"", b"0000"):
+                sent.write(size + told.read(int(size, 16) - 4))
+            sent.write(size)
+        while told.read(1 << 16):
+            pass
