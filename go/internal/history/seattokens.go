@@ -19,14 +19,15 @@ import (
 // seatTables are the tables what seats spend is kept in, each its columns in order, as Python's
 // seat_tokens.TABLES declares them: a table made before a column was added gets it at its end.  A
 // usage row's account is the login of the seat that owned its file when the tick read it; its
-// model and counts by type are NULL where its harness does not tell them.
+// model and counts by type are NULL where its harness does not tell them; its listed_usd is what its
+// counts cost at listed prices as it was written (pricing), as a turn's row's.
 var seatTables = []struct {
 	name    string
 	columns []string
 }{
 	{"seat_sources", []string{"path TEXT PRIMARY KEY", "harness TEXT", "repo TEXT", "cursor TEXT", "account TEXT"}},
 	{"seat_usage", []string{"event TEXT PRIMARY KEY", "repo TEXT", "at REAL", "tokens INTEGER", "account TEXT",
-		"model TEXT", "input INTEGER", "cache_write INTEGER", "cache_read INTEGER", "output INTEGER"}},
+		"model TEXT", "input INTEGER", "cache_write INTEGER", "cache_read INTEGER", "output INTEGER", "listed_usd REAL"}},
 }
 
 // errUntold is a source Go cannot tell from another file as Python does here.
@@ -110,6 +111,7 @@ func SeatTokens() (uncounted []string, read bool) {
 		if err != nil {
 			return err
 		}
+		price := pricing()
 		for _, row := range known {
 			path, own := row.Text("path"), row.Text("harness")
 			saved, _ := run.DecodeShown([]byte(row.Text("cursor")))
@@ -132,19 +134,24 @@ func SeatTokens() (uncounted []string, read bool) {
 				if event == "" {
 					event = path + ":" + strconv.FormatInt(spend.Start, 10)
 				}
-				counts := []any{nil, nil, nil, nil}
-				for i, count := range spend.Counts {
-					counts[i] = count
+				counts, listed := []any{nil, nil, nil, nil}, any(nil)
+				if len(spend.Counts) == len(counts) {
+					var priced [4]int64
+					for i, count := range spend.Counts {
+						counts[i], priced[i] = count, int64(count)
+					}
+					listed = price(spend.Model, priced)
 				}
-				// a repeat counting more replaces all its line set, so the counts, model and login
-				// stay those of the line that set the tokens
-				if err := db.exec("INSERT INTO seat_usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
+				// a repeat counting more replaces all its line set, so the counts, model, login and
+				// dollars stay those of the line that set the tokens
+				if err := db.exec("INSERT INTO seat_usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
 					"ON CONFLICT(event) DO UPDATE SET tokens = excluded.tokens, "+
 					"account = excluded.account, model = excluded.model, "+
 					"input = excluded.input, cache_write = excluded.cache_write, "+
-					"cache_read = excluded.cache_read, output = excluded.output "+
-					"WHERE excluded.tokens > tokens",
-					append([]any{own + ":" + event, row["repo"], spend.At, spend.Tokens, row["account"], spend.Model}, counts...)...); err != nil {
+					"cache_read = excluded.cache_read, output = excluded.output, "+
+					"listed_usd = excluded.listed_usd WHERE excluded.tokens > tokens",
+					append([]any{own + ":" + event, row["repo"], spend.At, spend.Tokens, row["account"], spend.Model},
+						append(counts, listed)...)...); err != nil {
 					return err
 				}
 			}

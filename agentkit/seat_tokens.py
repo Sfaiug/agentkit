@@ -10,13 +10,15 @@ from . import config, harness, history
 
 # Each table's columns, in order: a table made before a column was added gets it at its end.
 # A usage row's account is the login of the seat that owned its conversation when the tick read
-# it; its model and counts by type are NULL where its harness does not tell them.
+# it; its model and counts by type are NULL where its harness does not tell them; its listed_usd
+# is what its counts cost at listed prices as it was written, as a turn's row's
+# (`history.TURN_USAGE_SCHEMA`).
 TABLES = {
     "seat_sources": ("path TEXT PRIMARY KEY", "harness TEXT", "repo TEXT", "cursor TEXT",
                      "account TEXT"),
     "seat_usage": ("event TEXT PRIMARY KEY", "repo TEXT", "at REAL", "tokens INTEGER",
                    "account TEXT", "model TEXT", "input INTEGER", "cache_write INTEGER",
-                   "cache_read INTEGER", "output INTEGER"),
+                   "cache_read INTEGER", "output INTEGER", "listed_usd REAL"),
 }
 
 
@@ -41,7 +43,7 @@ def read(since, until):
                     db.execute(f"ALTER TABLE {table} ADD COLUMN {column}")
         db.execute("CREATE INDEX IF NOT EXISTS seat_usage_at ON seat_usage(at)")
         missing, owners = [], {}
-        cfg = orch.loaded()
+        cfg, priced = orch.loaded(), history._listed_usd()
         for name, seat in seats.items():
             plugin = orch.seat_plugin(seat, cfg=cfg)
             try:
@@ -88,16 +90,19 @@ def read(since, until):
                         except (ValueError, TypeError, KeyError, AttributeError):
                             continue
                         event = f"{adapter}:{key or f'{source}:{start}'}"
+                        counts = counts or [None] * 4
                         # A repeat counting more replaces all its line set, so the counts,
-                        # model and login stay those of the line that set the tokens.
-                        db.execute("INSERT INTO seat_usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                        # model, login and dollars stay those of the line that set the tokens.
+                        db.execute("INSERT INTO seat_usage VALUES "
+                                   "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                                    "ON CONFLICT(event) DO UPDATE SET tokens = excluded.tokens, "
                                    "account = excluded.account, model = excluded.model, "
                                    "input = excluded.input, cache_write = excluded.cache_write, "
-                                   "cache_read = excluded.cache_read, output = excluded.output "
+                                   "cache_read = excluded.cache_read, output = excluded.output, "
+                                   "listed_usd = excluded.listed_usd "
                                    "WHERE excluded.tokens > tokens",
-                                   (event, repo, at, tokens, account, model,
-                                    *(counts or [None] * 4)))
+                                   (event, repo, at, tokens, account, model, *counts,
+                                    priced(model, counts)))
                     cursor.update(identity=identity, offset=offset)
                     db.execute("UPDATE seat_sources SET cursor = ? WHERE path = ?",
                                (json.dumps(cursor), source))

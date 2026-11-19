@@ -43,13 +43,13 @@ def stamp(at):
     return datetime.fromtimestamp(at, timezone.utc).isoformat(timespec="milliseconds")[:-6] + "Z"
 
 
-def said(message, at, fresh, written, read, output):
+def said(message, at, fresh, written, read, output, model="claude-opus-5-5"):
     """A line Claude Code writes for a block of an assistant message, the message's usage on it."""
     return {"parentUuid": None, "isSidechain": False, "userType": "external",
             "sessionId": CONVERSATION, "version": "2.1.30", "type": "assistant",
             "uuid": str(uuid.uuid4()), "timestamp": stamp(at),
             "message": {"id": message, "type": "message", "role": "assistant",
-                        "model": "claude-opus-5-5", "content": [{"type": "text", "text": "Done."}],
+                        "model": model, "content": [{"type": "text", "text": "Done."}],
                         "usage": {"input_tokens": fresh, "cache_creation_input_tokens": written,
                                   "cache_read_input_tokens": read, "output_tokens": output,
                                   "service_tier": "standard"}}}
