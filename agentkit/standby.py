@@ -43,6 +43,7 @@ A home keeps a record of each machine that says it copied it (`_keep`), which `a
 there (`_copies`): no pass says so yet.
 """
 
+import contextlib
 import fcntl
 import glob
 import math
@@ -257,20 +258,24 @@ def _keep(host, seconds, takes):
     """Keep `host`'s record, whole or not at all: this machine's stamp now, both clocks set back by
     `seconds`, when the copy was taken by this machine's clocks alone, a wall clock off there
     changing nothing, and whether it `takes` over.  0, or 1 for a record that cannot be written."""
-    now, ago, folder = pair_clock.now(), int(seconds), config.TMP / COPIES
-    began = now._replace(wall=now.wall - ago, since=now.since - ago)
-    new = None
+    ago, folder = int(seconds), config.TMP / COPIES
     try:
+        now = pair_clock.now()      # whose boot Linux may not say
+        began = now._replace(wall=now.wall - ago, since=now.since - ago)
         folder.mkdir(parents=True, exist_ok=True)
         # a name no host name is, as none begins with a dot, so no listing shows one
         handle, new = tempfile.mkstemp(dir=folder, prefix=".")
-        with open(handle, "w") as record:
-            record.write(f"{began.line()}\n{takes}\n")
-        os.replace(new, folder / host)
+        try:
+            with open(handle, "w") as record:
+                record.write(f"{began.line()}\n{takes}\n")
+            os.replace(new, folder / host)
+        except OSError:
+            with contextlib.suppress(OSError):  # a folder no longer writable keeps it, unlisted
+                os.unlink(new)
+            raise
     except OSError as error:
-        if new:
-            Path(new).unlink(missing_ok=True)
-        print(f"ak standby: the record of {host} could not be written: {error.strerror}",
+        where = f" ({config.tilde(error.filename)})" if error.filename else ""
+        print(f"ak standby: the record of {host} could not be written: {error.strerror}{where}",
               file=sys.stderr)
         return 1
     return 0
@@ -279,7 +284,10 @@ def _keep(host, seconds, takes):
 def _age(stamp):
     """How old the copy taken at `stamp` is, by the older of the two clocks: one set back never
     makes a copy look younger."""
-    age = stamp.age_at_most()
+    try:
+        age = stamp.age_at_most()
+    except OSError:     # no age is read across a boot Linux cannot say
+        return "of an age unknown here, as this boot cannot be read"
     return f"{terminal.format_age(age)} old" if age < math.inf else "from before this boot"
 
 
@@ -294,8 +302,9 @@ def _copies():
     if not hosts:
         print("no machine copies this one")
     for host in hosts:
-        try:
-            line, takes = (folder / host).read_text().splitlines()
+        try:    # its first KiB alone: ak's are under 100 bytes, a damaged one any size
+            with open(folder / host, "rb") as record:
+                line, takes = record.read(1024).decode().splitlines()
         except (OSError, ValueError):     # one that may not be read, or not two lines of text
             line = takes = None
         stamp = pair_clock.read(line) if takes in ("yes", "no") else None
