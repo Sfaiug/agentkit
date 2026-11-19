@@ -36,8 +36,8 @@ def listed(cfg, provider, account, since, until):
 
     A row is the login's where its account is and its harness is the provider's (`_ours`).  A
     row it cannot price, its model listing no price, its counts unknown or its cost no float's,
-    costs what the login's priced rows cost a token.  A turn row costs the dollars it kept
-    (`history`), whatever the boards list now; one without is priced as it is read.
+    costs what the login's priced rows cost a token.  A row costs the dollars it kept
+    (`history`, `seat_tokens`), whatever the boards list now; one without is priced as it is read.
     """
     return _listed(_ours(cfg, provider), _pricing(), account, since, until)
 
@@ -155,7 +155,8 @@ def roles(cfg):
             "SELECT run_id, executor, executor_effort, reviewer, (SELECT CASE WHEN "
             "COUNT(DISTINCT effort) = 1 THEN MIN(effort) END FROM reviews WHERE "
             "reviews.run_id = runs.run_id), counted_turns, turn, role, account, model, "
-            f"{{kept}}, {', '.join(PRICES)} FROM runs LEFT JOIN turn_usage USING (run_id) "
+            f"{{kept[turn_usage]}}, {', '.join(PRICES)} FROM runs "
+            "LEFT JOIN turn_usage USING (run_id) "
             "WHERE kind = 'task' AND finished_at IS NOT NULL"):
         if turn is not None:
             kept.setdefault((run, role), []).append((turn, account, model, counts, listed_usd))
@@ -189,14 +190,15 @@ def _rows(account, since, until):
     `began` to its `at`, that falls between them, one with no `began` at its `at`.  A seat row's
     harness is its event's text before the first `:`, a turn row's the one its turn's `harness`
     receipt names, None once that is gone; a seat row's tokens are its own, a turn row's its
-    counts summed; a seat row keeps no dollars, a turn row those it kept, if any."""
+    counts summed; a row's dollars are those it kept, if any, a turn row's that share of them."""
     columns = ", ".join(PRICES)
-    for event, model, tokens, *counts in _select(
-            f"SELECT event, model, tokens, {columns} FROM seat_usage "
+    for event, model, tokens, kept, *counts in _select(
+            f"SELECT event, model, tokens, {{kept[seat_usage]}}, {columns} FROM seat_usage "
             "WHERE account = ? AND at >= ? AND at <= ?", account, since, until):
-        yield event.split(":", 1)[0], model, tokens, counts, None
+        yield event.split(":", 1)[0], model, tokens, counts, kept
     for turn, model, began, at, kept, *counts in _select(
-            f"SELECT turn, model, COALESCE(began, at), at, {{kept}}, {columns} FROM turn_usage "
+            f"SELECT turn, model, COALESCE(began, at), at, {{kept[turn_usage]}}, {columns} "
+            "FROM turn_usage "
             "WHERE account = ? AND at >= ? AND COALESCE(began, at) <= ?", account, since, until):
         share = (min(at, until) - max(began, since)) / (at - began) if at > began else 1
         if not share:   # it only touches the time at an end: none of it was spent then
@@ -290,15 +292,18 @@ def _receipt(turn, name):
 
 def _select(query, *args):
     """What `query` finds in history.db; nothing where it cannot answer, as before a table is.
-    Its `{kept}` is a turn row's dollars kept, `listed_usd`, or NULL in a history.db no write has
-    added it to yet, as a read connection adds no column.  Looked for in the query's own read:
-    a write adding it and a row between a look and the query left that row's dollars unread."""
+    Its `{kept[<table>]}` is the dollars a usage table's row kept, `listed_usd`, or NULL in a
+    history.db no write has added it to yet, as a read connection adds no column.  Looked for in
+    the query's own read: a write adding it and a row between a look and the query left that
+    row's dollars unread."""
     try:
         with contextlib.closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")     # one snapshot for the look and the query; in WAL no write waits
-            kept = db.execute("SELECT 1 FROM pragma_table_info('turn_usage') "
-                              "WHERE name = 'listed_usd'").fetchone()
-            return db.execute(query.format(kept="listed_usd" if kept else "NULL"), args).fetchall()
+            kept = {table: "listed_usd" if db.execute(
+                        "SELECT 1 FROM pragma_table_info(?) WHERE name = 'listed_usd'",
+                        (table,)).fetchone() else "NULL"
+                    for table in ("seat_usage", "turn_usage")}
+            return db.execute(query.format(kept=kept), args).fetchall()
     except (OSError, sqlite3.Error):
         return []
 

@@ -888,9 +888,10 @@ def _turn_usage(connection, plugin, run_id, out, priced):
 
 
 def _listed_usd():
-    """What a turn row's counts cost at the prices the stored boards list for its model, the
-    boards read once at the first row priced (`spend._dollars` of `spend._prices`): None where
-    they list none, and where they cannot be read or priced, as no board fails a row's write."""
+    """What a turn's or a seat's usage row's counts cost at the prices the stored boards list for
+    its model, the boards read once at the first row priced (`spend._dollars` of `spend._prices`):
+    None where they list none, and where they cannot be read or priced, as no board fails a
+    row's write."""
     from . import spend     # here, not at the top: spend reads this module as it loads
     prices = spend._pricing()
 
