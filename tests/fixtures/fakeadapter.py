@@ -203,11 +203,12 @@ def install(home, **harnesses):
         text = shipped.read_text() if shipped.exists() else "version = 1\n"
         kept = "".join(re.findall(r"(?m)^(?:sessions|lent_for) = .*\n", text))
         text = re.sub(r"(?ms)^\[worker\]\n.*?(?=^\[|\Z)", "", text).rstrip()
-        # read back as templates (`config.manifest_paths`), where `$$` is a dollar as written
-        # unescaped: TOML refuses the surrogate pair JSON escapes a character past U+FFFF into
-        state = json.dumps([str(path).replace("$", "$$")
-                            for path in (directory, Path(AK).parent)],     # a turn hands in through AK
-                           ensure_ascii=False)
+        # read back as templates (`config.manifest_paths`), where `$$` is a dollar as written;
+        # all ASCII, past it TOML's own escape: TOML refuses JSON's for a character past U+FFFF
+        # and a bare DEL, and the locale's encoding would write the rest as TOML cannot read
+        state = re.sub(r"[^ -~]", lambda c: f"\\U{ord(c[0]):08x}", json.dumps(
+            [str(path).replace("$", "$$") for path in (directory, Path(AK).parent)],
+            ensure_ascii=False))     # a turn hands in through AK
         fake.manifest.write_text(f"{text}\n\n[worker]\nstate = {state}\n{kept}")
     return fakes
 
