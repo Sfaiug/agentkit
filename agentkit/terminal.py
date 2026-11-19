@@ -1421,6 +1421,20 @@ def on_screen():
     return list(_PAINTED)
 
 
+def fits():
+    """Whether the terminal holds the screen up on the rows counted for its lines: it wraps a
+    line wider than it is, and scrolls where they leave the cursor no row under them
+    (`written`).  The size is the terminal's own, the padding in it, where stdout is one that
+    says it: an exported COLUMNS or LINES (`width`, `height`) is the size before a resize."""
+    try:
+        columns, lines = os.get_terminal_size(sys.stdout.fileno())
+    except (AttributeError, OSError, ValueError):
+        columns = lines = 0
+    columns, lines = columns or width() + 2 * _PAD, lines or height() + 2 * _PAD
+    return _PAD + len(_PAINTED) < lines and all(_PAD + cells(line) <= columns
+                                                 for line in _PAINTED)
+
+
 def lights():
     """What the screen up has lit (`on_screen`), each run of a row's cells on the theme's
     selection by what it is (`held`), {what: [(row, first, last)]}, rows and columns from 1: the
@@ -1738,13 +1752,13 @@ def choose(choices, default=None, around=None, wait=None, warn=None, above=list)
     and a click on nothing is let go; a button that went down before the list moved is no click.
     The pointer on a choice moves the highlight to it, and its screen is drawn again for what
     else it lights.
-    A screen of more lines than the terminal has rows (`height`), when drawn or when the pointer
-    is read, scrolled its lines off the rows counted for them: the pointer answers nothing there.
+    A screen the terminal does not hold on the rows counted for its lines (`fits`), when drawn
+    or when the pointer is read, takes no click and no move of the pointer.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
     """
-    global _PRESSED
+    global _PRESSED, _AWAY
     at = (choices.index(default) if default in choices
           else 0 if default is None and choices else None)
     drawn, top, rows, whole = 0, None, {}, True
@@ -1761,22 +1775,27 @@ def choose(choices, default=None, around=None, wait=None, warn=None, above=list)
             top = around(lines, None if at is None else choices[at])
             if top is None:
                 return None       # the screen it is asked on has no row for it any more
+            whole = fits()
+            # each there where it is lit, and none on a screen that does not fit: a press on
+            # one is no click on the next that does
             moved = {top + len(lines) - len(choices) + number: (number, [(2, end, None)])
-                     for number, end in enumerate(ends)}      # each there where it is lit
+                     for number, end in enumerate(ends)} if whole else {}
             if moved.keys() != rows.keys():
                 _PRESSED = False  # a press where a choice was is no click on what is there now
             rows = moved
             # its screen's key line and its own choices are what the pointer lands on; that
             # screen's rows -- the seats under a question -- are nothing while it is asked
             relight({**{row: spot for row, spot in _SPOTS.items() if spot[0] is None}, **rows})
-            whole = len(_PAINTED) < height()
         else:
             over("", (f"\033[{drawn}A" if drawn else "")
                  + "".join(f"\r{line}\033[K\n" for line in lines))
             drawn = len(lines)
+        away = _AWAY
         key = read_key() if wait is None else wait()
-        if key is None or (around and key.name in ("click", "point")
-                           and not (whole and len(_PAINTED) < height())):
+        if key is None:
+            continue
+        if around and key.name in ("click", "point") and not (whole and fits()):
+            _AWAY = away          # read against rows nothing is on: the highlight as it was
             continue
         cell = under(key, _SPOTS).cell if key.name == "click" and around else None
         if cell in ("⏎", "enter", "esc"):

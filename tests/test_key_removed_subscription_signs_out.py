@@ -53,6 +53,8 @@ def row_at(screen, row, mark="[› ]"):
 class Subscriptions(unittest.TestCase):
     """`c`'s Subscriptions page open on Claude's three subscriptions and ChatGPT's one."""
 
+    exported = {}       # what the shell ak is started from exports besides
+
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
@@ -70,7 +72,7 @@ class Subscriptions(unittest.TestCase):
                             "worker\n")) for account in ("", "a1", "b2")}
         self.codex = self.home.write(".codex/auth.json", {"tokens": {"access_token": "chatgpt"}})
         akconfig.write(self.home, {"fable": "claude", "astra": "codex"}, providers=ACCOUNTS)
-        self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})
+        self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1", **self.exported})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
         self.term.wait(lambda screen: MAIN_KEYS in lines(screen))
