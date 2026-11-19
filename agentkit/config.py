@@ -1294,11 +1294,14 @@ def launched_effort(record, name, role):
     """The effort run `record`'s receipt holds for model `name` in `role` (run_marks), the one
     at_efforts runs it at; None where it holds none, or none that is a word: unlike at_efforts,
     no entry's own stands in."""
+    held = record.get("efforts")
+    entry = held.get(name) if isinstance(held, dict) and isinstance(name, str) else None
     try:
-        effort = role_effort(record["efforts"][name], role)
-    except (KeyError, TypeError, AttributeError):
+        effort = role_effort(entry, role) if isinstance(entry, dict) else None
+    except KeyError:        # an entry holding no `effort`
         return None
-    return effort if isinstance(effort, str) else None
+    # a blank names no effort, and a lone surrogate is text SQLite refuses, losing the row
+    return effort if isinstance(effort, str) and effort.strip() and effort.isprintable() else None
 
 
 def as_launched(cfg, record):
