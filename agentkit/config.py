@@ -2370,14 +2370,16 @@ def instruction_ceiling():
 
 def manifest_paths(names, env, cwd=None):
     """Manifest paths resolved for `env`, the environment the harness runs in: `~/` is its home,
-    `$VARIABLE` and `${VARIABLE:-default}` its variables, and an unset or empty one with no
-    default skips that path; a relative path is under `cwd`."""
+    `$VARIABLE` and `${VARIABLE:-default}` its variables, a value taken as written, and an unset
+    or empty one with no default skips that path; a relative path is under `cwd`."""
     values = {key: value for key, value in env.items() if value}
     values.setdefault("HOME", str(Path.home()))
     for name in names:
-        # `$$` is a dollar as written, left whole for Template: no default starts at its second
-        name = re.sub(r"\$\$|\$\{(\w+):-([^}]*)\}",
-                      lambda m: m[0] if m[1] is None else values.get(m[1]) or m[2], name)
+        # `$$` is a dollar as written, left whole for Template: no default starts at its second.
+        # A value goes to Template escaped, so it stays as written, as `$NAME`'s does; a default
+        # is part of the manifest's template and is expanded there.
+        name = re.sub(r"\$\$|\$\{(\w+):-([^}]*)\}", lambda m: m[0] if m[1] is None else
+                      values[m[1]].replace("$", "$$") if m[1] in values else m[2], name)
         if name.startswith("~/"):
             name = "$HOME/" + name[2:]
         try:
