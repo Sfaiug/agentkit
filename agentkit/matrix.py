@@ -474,19 +474,27 @@ def compared(cfg):
 
 
 def off(cfg):
-    """The configured models ak never uses: each running a listed release that is not on, the
-    one whose rows of the lineup last stored, as `rank` reads it, hold its harness and model in
-    their `yours`.  A model running an unlisted release, or none, is not the list's to turn
+    """The configured models ak never uses: each running a listed release that is not on, or
+    one `models_off` holds however the boards list it, as its owner said of a model off: "ak
+    never uses it".  The release a model runs is the one whose rows of the lineup last stored, as
+    `rank` reads it, hold its harness and model in their `yours`, scored or not; else, once no
+    row holds it, a slug of `models_off` its own id (`config.model_id`) names (`found`).  A
+    model running an unlisted release nobody turned off, or none, is not the list's to turn
     off.  The picks leave them out (usage.pick_order, usage.unready, orch.in_order), and a turn
     or a seat named on one outright is refused (`refuse_off`)."""
-    lineup, found = listed()
-    if not found:
+    lineup, makers = listed()
+    turned = set(cfg.get("models_off") or ())
+    if not makers and not turned:
         return set()
-    gone = set(found) - compared(cfg)
-    runs = {(one["harness"], one["model"]): row["release"]
-            for row in lineup for one in row["yours"]}
-    return {name for name in config.offered(cfg)
-            if runs.get((cfg["models"][name]["harness"], cfg["models"][name]["model"])) in gone}
+    gone = set(makers) - compared(cfg) | turned
+    named = _release_index({"slug": slug, "name": None} for slug in turned)
+
+    def is_off(entry):
+        mine = {"harness": entry["harness"], "model": entry.get("model")}
+        held = [row["release"] for row in lineup if mine in row["yours"]]
+        own = config.model_id(entry)
+        return held[0] in gone if held else bool(own and found(named, own))
+    return {name for name in config.offered(cfg) if is_off(cfg["models"][name])}
 
 
 OFF = "off in the model list"     # why a pick leaves out a model of `off`

@@ -5,7 +5,8 @@ compares only the models on, and counts them among your companies' listed ones. 
 model running a listed release that is off is never picked, as `ak usage` shows its pick order
 and review pair, nor does a seat start on it; with every model off `ak orch` refuses, naming
 the model list, as `ak worker` and `ak orch --model` do one named outright, reaching no harness.
-A model running a release without a score is not the list's to turn off.
+A model running a release without a score is not the list's to turn off, but for one
+`models_off` holds: that stays off once the board takes its scores, or its row.
 
 Black-box: the program `AK_BIN` names runs from outside (tests/fixtures/akbin.py), its
 harnesses fakes listing invented models and the boards held as just asked with the invented
@@ -23,7 +24,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, aa, boards as scored
+from test_key_models_answer import ENV, NOW, aa, boards as scored
 
 # each configured model: its harness, the release it runs and the effort it lists
 MODELS = {"mid": {"harness": "claude", "model": "acme-mid-5", "effort": "high"},
@@ -111,6 +112,33 @@ class ModelsOn(unittest.TestCase):
         self.assertEqual(self.fakes["codex"].n, 0)
         done = self.ak("orch", "fix-api", "--model", "crux", "--dry-run", code=2)
         self.assertIn("model list", done.err)
+
+    def test_a_model_turned_off_stays_off_when_the_boards_list_it_no_more(self):
+        # bolt runs Bolt 3, which you turned off: the boards take its scores, then its rows
+        held = boards()
+        for day, kept in enumerate((lambda row: {**row, "values": {}}, lambda row: None), 1):
+            for board in held.values():
+                board["rows"] = [one for row in board["rows"]
+                                 for one in [kept(row) if row["model"] == "Bolt 3" else row] if one]
+                board["fetched_at"] = NOW + day * 86400     # read anew: `ak models` stores it
+            self.home.write(".agentkit/state/boards.json", held)
+            self.configure(orchestrator="bolt", workers=["mid", "bolt"],
+                           reviewers=["bolt", "mid"], companies=["Acme", "Bolt"],
+                           models_off=["bolt-3"])
+            answer = json.loads(self.ak("usage", "--json").out)
+            self.assertEqual(answer["pick_order"], ["mid"])
+            self.assertEqual((answer["review"]["executor"], answer["review"]["reviewer"]),
+                             ("mid", "mid"))
+            shown = self.ak("orch", "fix-api", "--dry-run").out.splitlines()
+            self.assertEqual(next(line.split()[1] for line in shown if line.startswith("orch: ")),
+                             "mid")
+            task = str(self.home.write("task.md", "Say hello.\n"))
+            done = self.ak("worker", "bolt", task, "--workspace", str(self.home.path),
+                           "--out", str(self.home.path / "out"), code=2)
+            self.assertIn("model list", done.err)
+            done = self.ak("orch", "fix-api", "--model", "bolt", "--dry-run", code=2)
+            self.assertIn("model list", done.err)
+        self.assertEqual(self.fakes["codex"].n, 0)
 
 
 if __name__ == "__main__":
