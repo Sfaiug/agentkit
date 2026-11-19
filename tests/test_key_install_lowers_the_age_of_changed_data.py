@@ -48,7 +48,7 @@ class ChangedDataAge(unittest.TestCase):
         source = (REPO / "install.sh").read_text()
         body = (source[source.index("# --- a crashed program leaves no core dump file"):
                        source.index("# --- (g2a)")]
-                + source[source.index("# --- changed data waits at most ten seconds"):
+                + source[source.index("# --- the kernel writes changed data out sooner"):
                          source.index("# --- every session has room for its inotify")])
         prelude = (f'set -euo pipefail\nSANDBOX={sandbox}\nROLE={role}\n'
                    'have() { command -v "$1" >/dev/null 2>&1; }\n'
@@ -112,7 +112,9 @@ class ChangedDataAge(unittest.TestCase):
         self.assertIn("sudo -v", note)
         self.assertEqual({tuple(argv) for argv in self.sudo_calls()}, {("-n", "true")})
 
-    def test_e_a_client_a_sandbox_or_a_host_with_no_values_sets_nothing(self):
+    def test_e_a_client_a_sandbox_or_a_host_with_no_numbers_sets_nothing(self):
+        self.install()
+        self.set_live("", "")
         self.install()
         self.set_live(3000, 500)
         self.install(role="client")
