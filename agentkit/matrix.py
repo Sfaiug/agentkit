@@ -480,9 +480,8 @@ def off(cfg):
     `rank` reads it, hold its harness and model in their `yours`, scored or not; else, once no
     row holds it, a slug of `models_off` its own id (`config.model_id`) names (`found`).  A
     model running an unlisted release nobody turned off, or none, is not the list's to turn
-    off.  The picks
-    leave them out (usage.pick_order, usage.unready, orch.in_order), and a turn or a seat named
-    on one outright is refused (`refuse_off`)."""
+    off.  The picks leave them out (usage.pick_order, usage.unready, orch.in_order), and a turn
+    or a seat named on one outright is refused (`refuse_off`)."""
     lineup, makers = listed()
     turned = set(cfg.get("models_off") or ())
     if not makers and not turned:
