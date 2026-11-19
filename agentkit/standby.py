@@ -34,10 +34,13 @@ take (`notify.retry_pending`), whether the home answers or not.  A pass that end
 when it began, and from which home, then why ak here stayed where it was, if it did, and at its
 end does with the last move here what the end of a tick does on a home (`versions.final`): a pass
 of the version that move put live makes it final.
-That is all a pass keeps: one that fails, however it fails, writes nothing and makes nothing
-final, for it cannot tell a silent home from code that is broken, and `ak standby`, which reads
-the copy's age from the stamp, shows passes failing as an age that goes on growing.  A pass's
-exit is its copy's alone: the copy is what a takeover needs first.
+That is all a pass keeps: one that fails, however it fails, writes nothing of its own and makes
+nothing final, for it cannot tell a silent home from code that is broken, and `ak standby`, which
+reads the copy's age from the stamp, shows passes failing as an age that goes on growing.  One
+that fails with a reason, once the copy is `SILENT` old by the clock calling it younger, asks
+`notify.page` to tell the owner, under a key of the home and the stamp: notify alone keeps whether
+that went out, and sends it once.  A pass's exit is its copy's alone: the copy is what a takeover
+needs first.
 
 A home keeps a record of each machine that says it copied it (`_keep`), which `ak standby` lists
 there (`_copies`): no pass says so yet.
@@ -46,6 +49,7 @@ there (`_copies`): no pass says so yet.
 import contextlib
 import fcntl
 import glob
+import io
 import math
 import os
 from pathlib import Path
@@ -110,6 +114,9 @@ while folders:
             sys.stdout.buffer.write(entry.path + b"\\0")
 """.encode()
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
+# The copy's age at which a failed pass pages the owner: on a Mac, ak's own check starts a dead
+# Linux machine again after 10 minutes without an answer, and 20 leave it the time to come back.
+SILENT = 20 * 60
 # This machine's own folder of the copy, in ak's tmp folder: the stamp of the last pass that ended
 # well, and the lock a pass holds, which the kernel lets go of when the pass ends, however it ends.
 # Names, not paths: each follows HOME, as config's places do.  install.sh keeps the runs, checkouts
@@ -324,17 +331,44 @@ def _stamp(own, *lines):
     new.replace(own / COPIED)
 
 
+def _copied(alias):
+    """The stamp of the last pass from `alias` that ended well, and why ak here stayed where it
+    was, if it did; no stamp for none yet, one cut short or one of another home."""
+    try:
+        line, of, *stayed = (config.TMP / FOLDER / COPIED).read_text().splitlines()
+    except (OSError, ValueError):     # none yet, or one cut short
+        return None, []
+    return pair_clock.read(line) if of == alias else None, stayed
+
+
+def _page(alias, why):
+    """Tell the owner the pass from `alias` failed, `why`, once the copy is SILENT old: asked
+    again at every failed pass, notify sends it once per stamp, and owed still after a move of
+    ak here, which leaves the copy no younger.  What notify says of a page the webhook did not
+    take is not the pass's: the next failed pass asks again."""
+    try:
+        stamp = _copied(alias)[0]
+        # no age is read across a boot Linux cannot say, which may have gone since the pass began
+        if not stamp or (age := stamp.age_at_least()) < SILENT:
+            return
+        # red, as the page of a project down is
+        line = (f"\U0001f534 the copy of {alias} is {terminal.format_age(age)} old; the pass from "
+                f"it failed: {why}")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            notify.page(f"standby:{alias}:{stamp.line()}", alias, line, line=line, owed=True)
+    except Exception as exc:    # whatever it meets, the pass's exit is its copy's
+        # one line, however the error reads, and its kind where it says nothing
+        said = " ".join(str(exc).split()) or type(exc).__name__
+        print(f"ak standby: the owner could not be told: {said}", file=sys.stderr)
+
+
 def _shown():
     """Show the home this machine copies and the copy's age, from the stamp of the last pass
     that ended well: 0 only for a stamp of that home.  On no home's client, what copies it."""
     alias = config.server_alias()
     if not alias:
         return _copies()
-    try:
-        line, of, *stayed = (config.TMP / FOLDER / COPIED).read_text().splitlines()
-    except (OSError, ValueError):     # none yet, or one cut short
-        line = of = None
-    stamp = pair_clock.read(line) if of == alias else None
+    stamp, stayed = _copied(alias)
     if not stamp:
         print(f"this machine copies {alias}: no pass from it has ended well yet")
         return 1
@@ -391,6 +425,7 @@ def main(argv):
         began = pair_clock.now()
         if why := _copy(alias, home, copied):
             print(f"ak standby: the pass from {alias} failed: {why}", file=sys.stderr)
+            _page(alias, why)
             return 1
         _stamp(own, began.line(), alias)
         if why := update.follow(alias)[1]:
