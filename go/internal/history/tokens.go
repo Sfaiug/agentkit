@@ -125,10 +125,10 @@ func (db *DB) turnUsage(id any, name, out string, price func(any, [4]int64) any)
 	return rows, nil
 }
 
-// pricing is what a turn row's counts of a model cost at the prices the stored boards list for it,
-// the boards read once at the first row priced, Python's _listed_usd: nil where they list none.
-// Kept with the row, they stay what its turn spent when a board later reprices its model or drops
-// it for its maker's next.
+// pricing is what a turn's or a seat's usage row's counts of a model cost at the prices the stored
+// boards list for it, the boards read once at the first row priced, Python's _listed_usd: nil where
+// they list none.  Kept with the row, they stay what it spent when a board later reprices its model
+// or drops it for its maker's next.
 func pricing() func(model any, counts [4]int64) any {
 	index := sync.OnceValue(func() boards.Index { return boards.IndexOf(boards.Current(boards.Cached())) })
 	return func(model any, counts [4]int64) any {
