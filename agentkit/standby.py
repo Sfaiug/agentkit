@@ -298,8 +298,8 @@ def _copies():
     if not hosts:
         print("no machine copies this one")
     for host in hosts:
-        # A MiB at most, more than any record ak writes, whose boot from AK_NOW Linux keeps under
-        # 128 KiB: a damaged one may be any size.
+        # A MiB at most, more than any record ak writes, whose boot from `pair_clock.NOW` Linux keeps
+        # under 128 KiB: a damaged one may be any size.
         try:
             with open(folder / host, "rb") as record:
                 held = record.read(2**20 + 1)
