@@ -1738,6 +1738,8 @@ def choose(choices, default=None, around=None, wait=None, warn=None, above=list)
     and a click on nothing is let go; a button that went down before the list moved is no click.
     The pointer on a choice moves the highlight to it, and its screen is drawn again for what
     else it lights.
+    A screen of more lines than the terminal has rows (`height`), when drawn or when the pointer
+    is read, scrolled its lines off the rows counted for them: the pointer answers nothing there.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
@@ -1745,7 +1747,7 @@ def choose(choices, default=None, around=None, wait=None, warn=None, above=list)
     global _PRESSED
     at = (choices.index(default) if default in choices
           else 0 if default is None and choices else None)
-    drawn, top, rows = 0, None, {}
+    drawn, top, rows, whole = 0, None, {}, True
     while True:
         lines, ends = above(), []
         for number, choice in enumerate(choices):
@@ -1767,12 +1769,14 @@ def choose(choices, default=None, around=None, wait=None, warn=None, above=list)
             # its screen's key line and its own choices are what the pointer lands on; that
             # screen's rows -- the seats under a question -- are nothing while it is asked
             relight({**{row: spot for row, spot in _SPOTS.items() if spot[0] is None}, **rows})
+            whole = len(_PAINTED) < height()
         else:
             over("", (f"\033[{drawn}A" if drawn else "")
                  + "".join(f"\r{line}\033[K\n" for line in lines))
             drawn = len(lines)
         key = read_key() if wait is None else wait()
-        if key is None:
+        if key is None or (around and key.name in ("click", "point")
+                           and not (whole and len(_PAINTED) < height())):
             continue
         cell = under(key, _SPOTS).cell if key.name == "click" and around else None
         if cell in ("⏎", "enter", "esc"):
