@@ -488,11 +488,13 @@ def verify_work(lp, cmds=None):
                      checked=(lp.run_dir, lp.rnd, "done-when", head))
     if named := round_tests.chosen(lp):
         # One more check, on no suite turn: the line given just those tests (`AK_ONLY`), red by
-        # its exit, a pass that does not name each one as run among them (`gate.unnamed`).
+        # its exit, a pass that does not name each one as run among them (`gate.unnamed`).  Its
+        # re-run asks for no part its tree lacks: on 18 Nov 2026 one removed on 7 Nov, still
+        # timed, failed six runs' rounds in a quarter of an hour.
         passed, more = gate.run_done_when(
             [named[0]], lp.wt, lp.round_dir / "donewhen.log", lp.artifacts, lp.done_when_limit,
             lp.log, silence=lp.turn_limit, run_dir=lp.run_dir, shard="1/1", only=named[1],
-            checked=(lp.run_dir, lp.rnd, "done-when", head))
+            checked=(lp.run_dir, lp.rnd, "done-when", head), rerun_held=True)
         ok, text = ok and passed, f"{text}\n\n{more}"
     if not lp.scratch and not lp.state.get("review_pr") and (
             not clean or gitcall.commit_identity(lp.wt) != lp.validation or

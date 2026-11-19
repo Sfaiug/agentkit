@@ -30,19 +30,24 @@ from fixtures.notes import Notes
 # A runner that reports to ak: each test in tests/ is a shell script it names `./tests/<name>`,
 # timing each that passes as ak reads a time, running just those AK_ONLY lists where it is set
 # and naming them as run in AK_RAN.  A failing one is named in upper case, so that no prompt reads
-# it off the command.
+# it off the command.  A handed part ending `::removed` its file no longer holds: as
+# tests/every_file.py names one, not there (AK_NOT_THERE) and failed (AK_FAILED), not run, and the
+# run exits 1.
 SUITE = """import os, socket, subprocess, sys
 only = os.environ.get("AK_ONLY")
 tests = (open(only).read().split() if only else
          [os.path.join(".", "tests", name) for name in sorted(os.listdir("tests"))])
 socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM).sendto(
     ("suite " + (" ".join(tests) if only else "whole")).encode(), {said!r})
+gone = [test for test in tests if test.endswith("::removed")]
+tests = [test for test in tests if test not in gone]
 failed = [test for test in tests if subprocess.run(["sh", test]).returncode]
 for test in tests:
     print(test.upper() + " IS BROKEN" if test in failed else "PASS  " + test + " (0.1s)")
-if os.environ.get("AK_RAN"):
-    open(os.environ["AK_RAN"], "w").write("".join(test + "\\n" for test in tests))
-sys.exit(bool(failed))
+for name, named in (("AK_RAN", tests), ("AK_NOT_THERE", gone), ("AK_FAILED", gone)):
+    if os.environ.get(name):
+        open(os.environ[name], "w").write("".join(test + "\\n" for test in named))
+sys.exit(bool(failed or gone))
 """
 SAID = "./TESTS/GADGET.SH IS BROKEN"
 # One task each, in turn: its check is that its file exists.
