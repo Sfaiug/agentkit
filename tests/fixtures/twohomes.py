@@ -65,14 +65,6 @@ with socket.socket(socket.AF_UNIX) as asked:
     sys.exit(int(asked.recv(16) or 255))
 """
 
-# The hook git runs on the origin (githooks(5)) for a push of a machine whose remote is broken so:
-# an answer lost ends receive-pack once the push's refs are written, before it tells the writer;
-# a write that comes between sets each ref the push writes to $AK_BETWEEN before receive-pack
-# swaps it, by compare-and-swap, for the value pushed.
-HOOKS = {"lost": ("reference-transaction",
-                  '#!/bin/sh\n[ "$1" != committed ] || kill -9 "$PPID"\n'),
-         "between": ("update", '#!/bin/sh\nexec git update-ref "$1" "$AK_BETWEEN"\n')}
-
 
 class Machine(Home):
     """A machine, `name`, with its root at `at`, its HOME at `home` in it, and its install a
@@ -87,6 +79,7 @@ class Machine(Home):
         self.name = name
         self.down = None    # how ssh to it fails: "silent", or "hang"
         self.remote = (None, None)      # how its git calls to the origin fail: `break_remote`
+        self._faulting = threading.Lock()   # while a call takes its fault: a write's, one push's
         self.held = threading.Semaphore(0)      # released for each call the origin holds silent
         self._starting, self._started = threading.Lock(), []
         self.sshd = self.tmux_dir / "sshd.sock"     # short, as a socket's path must be
@@ -175,11 +168,6 @@ class Machines(tuple):
         origin = make(at)     # beside the machines' roots, in no machine
         machines = super().__new__(cls, [Machine(name, at, origin, (homes or {}).get(name, "home"))
                                          for name in names])
-        machines.hooks = at / "hooks"     # beside the origin: those of each way a push fails
-        for how, (hook, script) in HOOKS.items():
-            (machines.hooks / how).mkdir(parents=True)
-            (machines.hooks / how / hook).write_text(script)
-            (machines.hooks / how / hook).chmod(0o755)
         machines.sshds = []
         for machine in machines:
             listener = socket.create_server(str(machine.sshd), family=socket.AF_UNIX)
@@ -195,15 +183,16 @@ class Machines(tuple):
     def __exit__(self, *_exc):
         self.close()
 
-    def break_remote(self, how, *machines, value=None):
+    def break_remote(self, how, *machines, refs=None):
         """Have the origin fail `machines`, or else all, `how`, till `mend_remote`: "unreachable",
         every git call to it failing; "silent", each taken and never answered, mended meanwhile
         or not, till its caller ends it, a machine's `held` released for each; "lost", each push
-        taken and its writer told that it failed; "between", the next push of each finding
-        `value`, a commit origin holds, in the place of the value it expected, as when another
-        machine wrote between this one's read and its push."""
+        taken whole and its writer told that it failed; "between", the next push of each finding
+        `refs`, each named with a commit origin holds or None, on the origin in the place of the
+        values it expected, as when another machine wrote between this one's read and its
+        push."""
         for machine in machines or self:
-            machine.remote = (how, value)
+            machine.remote = (how, refs)
 
     def mend_remote(self, *machines):
         """Have the origin answer `machines`, or else all, again."""
@@ -235,7 +224,7 @@ def _session(peer, caller, machines):
     exit; an ssh gone before it ends ends it, as sshd does."""
     with peer:
         asked, fds, _, _ = socket.recv_fds(peer, 1 << 16, 3)
-        proc = hung = None
+        proc = hung = lost = None
         try:     # whatever it asks, its input and outputs are this side's no longer
             while not asked.endswith(b"\n"):     # the rest of its line
                 more = peer.recv(1 << 16)
@@ -245,9 +234,13 @@ def _session(peer, caller, machines):
             name, command = json.loads(asked)
             machine = next((machine for machine in machines if machine.name == name), None)
             if (name, command) in (FETCH, PUSH):    # as GitHub runs it, where its repositories are
-                how, value = caller.remote
-                if how == "between" and (name, command) == PUSH:     # its next push alone
-                    caller.remote = (None, None)
+                with caller._faulting:
+                    how, refs = caller.remote
+                    if how == "between" and (name, command) == PUSH:     # its next push alone
+                        caller.remote = (None, None)
+                        for ref, value in refs.items():
+                            machines[0].install.set_ref(ref, value)
+                lost = how == "lost" and (name, command) == PUSH
                 if how == "unreachable":
                     os.write(fds[2], "ssh: connect to host github.com port 22: "
                                      f"{os.strerror(errno.EHOSTUNREACH)}\n".encode())
@@ -255,13 +248,10 @@ def _session(peer, caller, machines):
                     hung = True
                     caller.held.release()
                 else:
-                    hooks = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath",
-                             "GIT_CONFIG_VALUE_0": str(machines.hooks / how),
-                             "AK_BETWEEN": value or ""} if how else {}
                     proc = subprocess.Popen(shlex.split(command),
                                             cwd=machines[0].install.bare.parents[1],
                                             stdin=fds[0], stdout=fds[1], stderr=fds[2],
-                                            env={"PATH": os.pathsep.join(SYSTEM), **hooks},
+                                            env={"PATH": os.pathsep.join(SYSTEM)},
                                             start_new_session=True)
             elif machine is None:
                 os.write(fds[2], f"ssh: Could not resolve hostname {name}: "
@@ -289,4 +279,5 @@ def _session(peer, caller, machines):
                 return _end(proc)
             code = proc.wait()
         with contextlib.suppress(OSError):      # gone meanwhile
-            peer.sendall(b"%d" % (code if code >= 0 else 255))     # killed: 255, as ssh says
+            # killed, or its answer lost once the push is whole: 255, as ssh says
+            peer.sendall(b"%d" % (255 if lost or code < 0 else code))

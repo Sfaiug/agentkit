@@ -229,13 +229,14 @@ class TwoHomes(unittest.TestCase):
             install.set_ref(ref, value)
             self.assertEqual([self.read(machine) for machine in self.machines], [read] * 2)
 
-    def broken(self, how, *machines, value=None):
-        """The machines' origin broken `how` for `machines`, or both, till the test ends; the ref
-        the test reads and writes there, absent then too."""
+    def broken(self, how, *machines, between=None):
+        """The origin broken `how` for `machines`, or both, till the test ends, a write that comes
+        between putting `between` on the one ref the test reads and writes there, absent at its
+        end too; the install that reads the origin, and that ref."""
         install, ref = self.machines[0].install, "refs/agentkit/home"
         self.addCleanup(install.set_ref, ref, None)
         self.addCleanup(self.machines.mend_remote)
-        self.machines.break_remote(how, *machines, value=value)
+        self.machines.break_remote(how, *machines, refs={ref: between})
         return install, ref
 
     def test_an_unreachable_remote_fails_each_way_for_its_machine_alone_till_mended(self):
@@ -280,7 +281,7 @@ class TwoHomes(unittest.TestCase):
     def test_a_write_that_comes_between_refuses_that_machines_next_push_alone(self):
         mini, vm = self.machines
         between = mini.install.origin()
-        install, ref = self.broken("between", mini, value=between)
+        install, ref = self.broken("between", mini, between=between)
         theirs, mine = self.commit_on(vm), self.commit_on(mini)
         self.assertEqual(self.push(vm, ref, None, theirs).code, 0)    # vm's push meets none
         read = self.read(mini)[ref]
