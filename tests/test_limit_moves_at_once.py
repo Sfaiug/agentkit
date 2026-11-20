@@ -4,20 +4,25 @@ Claude Code ends a turn that fails on an API error with `StopFailure`, not `Stop
 that event starts settles the seat's account before its word is told, as the tick does: with
 another subscription having room the seat moves there at once, and no word is told before it
 has moved; with none it reads `out of usage`.  A tick after the hook's look moves it no second
-time.
+time.  Claude Code records the refusal after that hook begins, so the look settles only once the
+record holds the words the hook heard.
 
 The fixture is `test_seat_account`'s: temporary HOME, fake tmux and meters, offline.
 """
 
+import json
 import os
 import unittest
 from unittest.mock import patch
 
 import test_seat_account as seats
 from agentkit import config, statusbar, watch
+from agentkit.harness.claude import transcript_path
+from fixtures.clock import Clock
 
 NAME = seats.NAME
 LIMIT = "You've hit your weekly limit · resets 2pm (Europe/Berlin)"
+READ = watch.recorded_error     # the harness's own record, which the fixture stands in for
 
 
 class LimitMovesAtOnce(unittest.TestCase):
@@ -73,6 +78,41 @@ class LimitMovesAtOnce(unittest.TestCase):
         self.assertEqual(before, "asking")
         self.assertEqual(config.session_records()[NAME]["account"], "second")
         self.assertEqual([account for _, account in told], ["second"])
+
+    def test_its_look_settles_once_the_record_holds_its_own_words(self):
+        # Before this turn's refusal lands the conversation ends on an earlier one, untyped, whose
+        # words begin with these: settled on that one, the next tick parked the login it moved to.
+        self.meters(20, 20)
+        os.environ.update(TMUX="/tmp/acme-socket,1,0", TMUX_PANE="%1")
+        # every login reads the usual one's conversations, as Claude's adapter links them
+        (self.root / ".claude-second").mkdir()
+        (self.root / ".claude-second/projects").symlink_to(self.root / ".claude/projects")
+        record = config.session_records()[NAME]
+        transcript = transcript_path(record, record["conversation"])
+        transcript.parent.mkdir(parents=True, exist_ok=True)    # a long path's is hashed
+        words = "You've hit your session limit · resets 1am"
+        unwritten = [words]
+
+        def refused(text, kind="usage_limit_reached"):
+            with transcript.open("a") as conversation:
+                print(json.dumps({"type": "assistant", "isApiErrorMessage": True, "apiError": kind,
+                                  "message": {"content": [{"type": "text", "text": text}]}}),
+                      file=conversation)
+        refused(f"{words}\nResets at 1am (Europe/Berlin)", None)
+        config.record_hook_fact(NAME, {"session": NAME, "event": "StopFailure", "kind": "",
+                                       "text": words, "at": self.now}, lambda _: False)
+        self.stack.enter_context(patch.object(watch, "recorded_error", READ))
+        # this turn's refusal lands as the look first waits, and by its end in any case
+        with patch.object(watch, "time", Clock(lambda _: unwritten and refused(unwritten.pop()))):
+            watch.hook_look(NAME, records=[])
+        if unwritten:
+            refused(unwritten.pop())
+        self.assertEqual(config.session_records()[NAME]["account"], "second")
+        self.assertEqual(watch.seat_read(NAME)["usage_refusal"]["line"],
+                         f"{words}\nusage_limit_reached")
+        self.tick()
+        accounts = json.loads((config.STATE / "usage.json").read_text())["providers"]
+        self.assertFalse(accounts["anthropic"]["accounts"]["second"].get("exhausted_until"))
 
     def test_with_no_room_it_reads_out_of_usage_from_that_look(self):
         self.meters(100, 100)
