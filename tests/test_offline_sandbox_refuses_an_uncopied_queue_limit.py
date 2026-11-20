@@ -18,7 +18,7 @@ from test_the_offline_sandbox_holds_its_host_s_unread_notes import line
 class UncopiedQueueLimit(unittest.TestCase):
     def test_a_read_only_proc_sys_runs_no_suite(self):
         code, printed, said = line(
-            "mount --rbind /proc/sys /proc/sys && mount -o remount,bind,ro /proc/sys && ")
+            "mount --rbind /proc/sys /proc/sys && mount -o remount,bind,ro=recursive /proc/sys && ")
         self.assertEqual((code, printed), (1, []), said)
 
 
