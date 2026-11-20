@@ -19,11 +19,12 @@ PIECE = (Path(__file__).resolve().parents[1] / "tools/helper/piece.sh").read_tex
 # piece.sh's own lines: `fail`, from the sandbox's size to its preflight, and the command's launch.
 FAIL, SANDBOX, LAUNCH = (re.search(lines, PIECE, re.M).group(0) for lines in (
     r"^fail\(\).*\n", r"^notes=(?s:.*?)^offline .*\n", r"^offline .*\$command.*\n"))
-# A recursive bind: where a host holds mounts under /proc/sys, the kernel refuses a user namespace
-# a plain one.  Each mount that comes along is then made read-only by itself, since a remount
-# reaches only the mount it names and one at /proc/sys/net would stay writable.
-READ_ONLY = ("mount --rbind /proc/sys /proc/sys && for at in $(findmnt -rno TARGET -R /proc/sys); "
-             'do mount -o remount,bind,ro "$at" || exit; done')
+# A read-only /proc/sys as a sandbox meets it: read-only is each mount's own, and /proc/sys/net is
+# the last directory on the way to HELD that network namespaces share, so a sandbox writes through
+# the last mount on it, this bind.  What a host mounts below is on another namespace's directory,
+# and what it mounts elsewhere under /proc/sys is never named.  Recursive, since the kernel
+# refuses a user namespace a plain bind of a directory a host holds mounts under.
+READ_ONLY = "mount --rbind /proc/sys/net /proc/sys/net && mount -o remount,bind,ro /proc/sys/net"
 
 
 def piece(outside, start="", launch=""):

@@ -4,7 +4,7 @@ write took: under a /proc/sys mounted read-only the suite ran holding the kernel
 37, the hang the copy was to end.
 
 Real namespaces, as test_the_offline_sandbox_holds_its_host_s_unread_notes.py, whose namespace
-holding 37 this one mounts /proc/sys read-only in.
+holding 37 this one mounts /proc/sys/net read-only in.
 """
 
 import sys
