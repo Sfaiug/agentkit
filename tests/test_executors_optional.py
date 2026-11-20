@@ -38,7 +38,7 @@ class ExecutorsOptional(Sandbox):
         config.save_session(self.cfg, "fix-api", "opus", [],
                             {"reviewers": ["astra"], "cwd": str(self.root), "created": 100})
         # a seat launches only with an open line in its plan
-        plan.write("fix-api", [plan.compose("Fix the api", "check: `false`", "acme", False,
+        plan.write("fix-api", [plan.compose("Fix the api", "check: `false`", "acme",
                                             "2026-10-23 09:00", None)])
         self.task = self.root / "task.md"
         self.task.write_text("---\nrepo: none\n---\n# Fix the endpoint\n\n"

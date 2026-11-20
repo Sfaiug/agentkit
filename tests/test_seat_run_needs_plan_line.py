@@ -1,8 +1,9 @@
 """A seat's own launch, of a task or of a PR review, waits for an open line in its plan: the plan
 is what its bar counts and what a review of its pull request checks against, so a seat with no
 plan, or one whose every line is done, is refused and told to `ak plan add` first.  Any open line
-lets it go, a deferred follow-up's too.  A launch from no seat, or from inside a run (a queued
-child `spawn_bg` starts under the seat's name), goes ahead plan or no plan.
+lets it go, a deferred one an earlier ak wrote too, which a launch never verifies away.  A launch
+from no seat, or from inside a run (a queued child `spawn_bg` starts under the seat's name), goes
+ahead plan or no plan.
 
 Offline: the bin/ak entry point with a temporary HOME and launch effects mocked out.
 """
@@ -24,10 +25,10 @@ from agentkit import box, config, plan
 AK_MAIN = runpy.run_path(str(REPO / "bin/ak"))["main"]
 SEAT = "fix-api"
 PR = "https://github.com/acme/widget/pull/7"
-OPEN = plan.compose("The api answers", "check: `python3 tests/test_api.py`", "acme", False,
+OPEN = plan.compose("The api answers", "check: `python3 tests/test_api.py`", "acme",
                     "2026-10-23 09:00", "1234567")
-DEFERRED = plan.compose("The api retries", "check: `python3 tests/test_retry.py`", "acme", True,
-                        "2026-10-23 09:00", "1234567")
+DEFERRED = ("- [ ] The api retries · check: `python3 tests/test_retry.py` · acme · deferred · "
+            "written 2026-10-23 09:00 on 1234567")
 DONE = OPEN.replace("- [ ] ", "- [x] ", 1) + " · done 89abcde 2026-10-23 10:00"
 
 

@@ -472,17 +472,18 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual([record.read_state(child)["repo"] for child in children],
                          [str(self.repo)] * 2)
 
-    def test_the_ending_offers_a_recheck_as_making_the_line_the_seats_only_for_a_deferred_one(self):
+    def test_an_earlier_receipt_tells_a_deferred_line_as_its_fix_runs_and_offers_a_recheck_for_an_owed_one(self):
         ending = handback.planned_followups({"followup_plan": [
             {"outcome": "Fix a.py:1 - x", "deferred": True}, {"outcome": "Fix b.py:2 - y", "deferred": False}]})
-        deferred, owed = ending.split("Review follow-ups now in your plan, yours to build")
-        self.assertIn("puts your own test in its place and makes the line yours. ", deferred)
-        self.assertIn("puts your own test in its place. ", owed)
-        self.assertNotIn("makes the line yours", owed)
+        # the deferred line leaves the plan at its next verification: no number reaches it
+        self.assertEqual(ending, "Review follow-ups handed to fix runs: Fix a.py:1 - x. "
+                         "Review follow-ups now in your plan, yours to build: Fix b.py:2 - y, each "
+                         "checked by the reviewer's probe until its fix is on the default branch or "
+                         "`ak plan check N` puts your own test in its place. ")
 
     def test_a_line_an_earlier_merge_wrote_stays_as_it_was_once_a_run_takes_its_check(self):
-        plan.add("seat", "Fix " + DEFECT, CHECK, self.repo,
-                 proven=self.git(self.repo, "rev-parse", "origin/main"), deferred=False)
+        plan.write("seat", [plan.compose("Fix " + DEFECT, f"check: `{CHECK}`", plan.named(self.repo),
+                                         "2026-11-18 09:00", self.git(self.repo, "rev-parse", "origin/main")[:12])])
         text = config.plan_path("seat").read_text()
         later, state = self.source("later", followup_checks={DEFECT: CHECK})
         self.assertEqual(len(self.start(later, state)), 1)

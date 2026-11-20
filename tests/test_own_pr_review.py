@@ -221,8 +221,9 @@ class OwnPrReview(unittest.TestCase):
         self.assertNotIn("## The plan this PR serves", theirs)
 
     def test_a_rename_while_the_plan_is_read_keeps_its_lines(self):
-        line = plan.add("fix-api", "the fence holds", check="test -f fence.txt",
-                        repo=self.repo, proven=self.base)
+        line = plan.compose("the fence holds", "check: `test -f fence.txt`", plan.named(self.repo),
+                            "2026-11-18 09:00", self.base[:12])
+        plan.write("fix-api", [line])
         renamed, errors = threading.Event(), []
 
         def rename():       # as `ak orch rename` does, under both names' locks
