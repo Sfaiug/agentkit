@@ -91,7 +91,7 @@ class IntentOncePerDelivery(Sandbox):
             except BlockingIOError:
                 raise AssertionError("the done waited on the seat lock it holds") from None
         self.harness.said.append(NOW - 12 * HOUR)
-        # its project named bare: asking which run delivered it takes the seat's lock
+        # a fix run's line, its project named bare
         plan.write("fix-api", ["- [x] exports finish · check: `make test` · acme · deferred · "
                                "written 2026-10-20 09:00 · done 1a2b3c4 2026-10-20 10:00"])
         with patch.object(notify.fcntl, "flock", never_waits):

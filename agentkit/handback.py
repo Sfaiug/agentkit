@@ -49,19 +49,12 @@ def followup_place(text):
     return text.splitlines()[0].strip()
 
 
-def followup_moving(state):
-    """Whether this fix run is running or about to: its delivery, its next step, checks its plan
-    line, which a verification of the seat's plan leaves to it (`plan._verify_held`)."""
+def followup_open(state):
+    """Whether this fix run is still on its way: running, about to, or resuming itself -- and a
+    FAIL on a conflict with main, which the tick parks and resumes (`parkable_conflict`)."""
     return (state.get("state") == "running"
             or (state.get("state") == "queued"
-                and (run_record.process_active(state) or state.get("slot_waiting"))))
-
-
-def followup_open(state):
-    """Whether this fix run is still on its way: running, about to (`followup_moving`), or
-    resuming itself -- and a FAIL on a conflict with main, which the tick parks and resumes
-    (`parkable_conflict`)."""
-    return (followup_moving(state)
+                and (run_record.process_active(state) or state.get("slot_waiting")))
             or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error")
                 and transitions.going(state))
             or (state.get("state") == "interrupted" and transitions.loop_death(state)
@@ -89,19 +82,15 @@ def repair_open(state, tip):
         and time.time() - (state.get("finished_at") or 0) < turns.TRANSIENT_HOURLY)
 
 
-def open_followup(state, text, repair=None, tip=None, split=None, check=None, held=None,
-                  going=followup_open):
+def open_followup(state, text, repair=None, tip=None, split=None, check=None):
     """The open run already fixing `text`, or None.
 
     A review follow-up is the same `check` in the same repository from the same seat: a run
     whose done-when is that command fixes it, whatever its words; any other follow-up is the
-    same site of another run's: this run's own are each another defect (`roundloop`).  Its run
-    is open as `going` reads it.  With `held`, the time its deferred line
-    was written, a run that ended delivering it since counts too: the line's work is that
-    run's, never a done's (`plan.outcomes`); one that delivered before had only an earlier
-    line.  A `repair` is the same repository, target and command from any seat, open at the
-    target's `tip`: the target is everybody's.  A suite split holds its line forever, and its repository while
-    open.
+    same site of another run's: this run's own are each another defect (`roundloop`), its run
+    open (`followup_open`).  A `repair` is the same repository, target and command from any
+    seat, open at the target's `tip`: the target is everybody's.  A suite split holds its line
+    forever, and its repository while open.
     """
     for directory, other in run_record.runs_now():
         if split:
@@ -117,8 +106,7 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
                      and ((other["followup"].get("check") or "").strip() == check.strip() if check
                           else followup_place(other["followup"]["text"]) == followup_place(text)
                           and other["followup"].get("run") != state.get("run_id"))
-                     and (going(other) or held is not None and transitions.delivered(other)
-                          and (other.get("finished_at") or 0) >= held))):
+                     and followup_open(other))):
             return directory.name
     return None
 
@@ -716,21 +704,20 @@ def failed_check(state):
 
 
 def planned_followups(state):
-    """The review follow-ups a merge handed to its seat, as the ending's sentence about them:
-    the lines a fix run took (deferred, holding no done), the lines that are the seat's own
-    to build, and the lines its plan refused."""
+    """The review follow-ups a merge of an earlier ak handed to its seat's plan, as the
+    ending's sentence about them: those it handed to fix runs, whose deferred lines
+    leave the plan at its next verification (`plan.handed_off`), the lines that are the seat's
+    own to build, and the lines its plan refused."""
     entries = state.get("followup_plan") or []
     planned = [entry for entry in entries if "refused" not in entry]
     deferred = [entry["outcome"] for entry in planned if entry.get("deferred")]
     owed = [entry["outcome"] for entry in planned if not entry.get("deferred")]
     refused = [f"{entry['outcome']} ({entry['refused']})" for entry in entries
                if "refused" in entry]
-    checked = ("checked by the reviewer's probe until its fix is on the default branch or "
-               "`ak plan check N` puts your own test in its place")
-    return ((f"Review follow-ups now deferred in your plan: {'; '.join(deferred)}, each fixed "
-             f"by a run of its own and {checked} and makes the line yours. " if deferred else "")
+    return ((f"Review follow-ups handed to fix runs: {'; '.join(deferred)}. " if deferred else "")
             + (f"Review follow-ups now in your plan, yours to build: {'; '.join(owed)}, each "
-               f"{checked}. " if owed else "")
+               "checked by the reviewer's probe until its fix is on the default branch or "
+               "`ak plan check N` puts your own test in its place. " if owed else "")
             + (f"Review follow-ups your plan refused, yours to judge: {'; '.join(refused)}. "
                if refused else ""))
 
@@ -1035,7 +1022,7 @@ def _unserved_line(session, going):
     served = {other.get("plan_line") for other in going}
     try:
         for line in plan.lines(session):
-            if plan.owed(session, line):
+            if plan.is_open(line):
                 found = plan.LINE.match(line.strip())
                 if not found or plan.link(found) not in served:
                     return True
@@ -1115,21 +1102,15 @@ def carries_live(state, records=None):
 
 def settle_delivered_line(state, log):
     """A run that delivered -- merged, or found its fix not needed -- runs its seat's plan
-    checks once, as it ends.  A fix run runs its own line's check alone (`plan.delivery`): the
-    line ticks where its fix is on the default branch, and is the seat's own where its check
-    still fails or could not run.  Any other run runs every open line's (`plan.verify_delivered`),
-    so a line its merge proved ticks before the seat hears of it, and a plan it finished reads
-    done (`plan.finished`) with nobody declaring it -- unless another process verifies: that one
-    runs again for this delivery once it lets go, the lines ticking then, and this ending goes
-    on to its follow-ups."""
-    check, session = (state.get("followup") or {}).get("check"), transitions.launched_session(state)
+    checks once, as it ends (`plan.verify_delivered`), so a line its merge proved ticks before
+    the seat hears of it, and a plan it finished reads done (`plan.finished`) with nobody
+    declaring it -- unless another process verifies: that one runs again for this delivery
+    once it lets go, the lines ticking then, and this ending goes on to its follow-ups."""
+    session = transitions.launched_session(state)
     if not (session and transitions.delivered(state)):
         return
     try:
-        if check:
-            plan.delivery(session, check)
-        else:
-            plan.verify_delivered(session)
+        plan.verify_delivered(session)
     except (config.Error, OSError) as exc:
         log(f"WARN could not check {session}'s plan: {exc}")
 

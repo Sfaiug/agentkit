@@ -1,6 +1,8 @@
 package seat
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"agentkit/internal/terminal"
@@ -11,7 +13,7 @@ import (
 
 func TestTheBarsFormatsAreStatusbarsOwn(t *testing.T) {
 	one := "#{?#{e|<=:#{e|+:#{w:@ak_top},#{e|+:#{w:@ak_need},2}},#{client_width}},#[align=left]#{@ak_top} #[align=right]#{@ak_need},#{?#{e|<=:#{e|+:#{w:@ak_top1},#{e|+:#{w:@ak_need},2}},#{client_width}},#[align=left]#{@ak_top1} #[align=right]#{@ak_need},#{?#{e|<=:#{e|+:#{w:@ak_top2},#{e|+:#{w:@ak_need},2}},#{client_width}},#[align=left]#{@ak_top2} #[align=right]#{@ak_need},#{?#{e|<=:#{e|+:#{w:@ak_top},#{e|+:#{w:@ak_fold},2}},#{client_width}},#[align=left]#{@ak_top} #[align=right]#{@ak_fold},#{?#{e|<=:#{e|+:#{w:@ak_top1},#{e|+:#{w:@ak_fold},2}},#{client_width}},#[align=left]#{@ak_top1} #[align=right]#{@ak_fold},#{?#{e|<=:#{e|+:#{w:@ak_top2},#{e|+:#{w:@ak_fold},2}},#{client_width}},#[align=left]#{@ak_top2} #[align=right]#{@ak_fold},#[align=left]#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_fold},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_fold},2}}/…:@ak_top2},} #[align=right]#{@ak_fold}}}}}}}"
-	two := "#[align=left]#{?#{e|<=:#{w:@ak_why},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why},#{?#{e|<=:#{w:@ak_why1},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why1},#{?#{e|<=:#{w:@ak_why2},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why2},#{?#{e|<=:#{w:@ak_why3},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why3},#{?#{e|<=:#{w:@ak_why4},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why4},#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}/…:@ak_why4},}}}}}} #[align=right]#{@ak_key}"
+	two := "#[align=left]#{?#{e|<=:#{w:@ak_why},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why},#{?#{e|<:#{e|+:#{w:@ak_why1},3},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}/…:@ak_why},},#{?#{e|<=:#{w:@ak_why1},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why1},#{?#{e|<=:#{w:@ak_why2},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why2},#{?#{e|<:#{e|+:#{w:@ak_why3},3},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}/…:@ak_why2},},#{?#{e|<=:#{w:@ak_why3},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why3},#{?#{e|<=:#{w:@ak_why4},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why4},#{?#{e|<:#{e|+:#{w:@ak_why5},3},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}/…:@ak_why4},},#{?#{e|<=:#{w:@ak_why5},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why5},#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}/…:@ak_why5},}}}}}}}}}} #[align=right]#{@ak_key}"
 	if got := barLineOne(); got != one {
 		t.Fatalf("line one:\n%s", got)
 	}
@@ -22,25 +24,28 @@ func TestTheBarsFormatsAreStatusbarsOwn(t *testing.T) {
 
 func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
+	sandbox(t) // the theme in force is the home's
 	screen := terminal.For(nil)
 	needs := " #[fg=#000000,bg=#d79200,bold] ! needs you #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]   "
 	done := " #[fg=#000000,bg=#33b65f] ✓ done #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]   "
 	idle := " #[fg=#000000,bg=#868d97] ○ idle #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]"
 	crew := "  #[fg=#acb4bd]build: Opus 5.5, Astra   review: Opus 5.5, Spark#[default]"
+	// line two with no task in flight: the crew, and those squares alone, nothing
 	for _, each := range []struct {
-		word, reason, why string
-		done, total       int
-		tops              [3]string
+		word, reason string
+		why          [2]string
+		done, total  int
+		tops         [3]string
 	}{
-		{"needs you", "session #1 closed", "  session ##1 closed", 1, 3, [3]string{
+		{"needs you", "session #1 closed", [2]string{"  session ##1 closed", "  session ##1 closed"}, 1, 3, [3]string{
 			needs + "#[fg=#d79200]━━━━━━━━━╸#[fg=#3a3f46]───────────────────#[default] #[fg=#acb4bd]1 of 3#[default]",
 			needs + "#[fg=#d79200]━━━━━╸#[fg=#3a3f46]───────────#[default] #[fg=#acb4bd]1 of 3#[default]",
 			needs + "#[fg=#d79200]━╸#[fg=#3a3f46]───#[default] #[fg=#acb4bd]1 of 3#[default]"}},
-		{"done", "it shipped", crew, 3, 3, [3]string{
+		{"done", "it shipped", [2]string{crew, ""}, 3, 3, [3]string{
 			done + "#[fg=#33b65f]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━#[default] #[fg=#acb4bd]3 of 3#[default]",
 			done + "#[fg=#33b65f]━━━━━━━━━━━━━━━━━#[default] #[fg=#acb4bd]3 of 3#[default]",
 			done + "#[fg=#33b65f]━━━━━#[default] #[fg=#acb4bd]3 of 3#[default]"}},
-		{"idle", "session closed: press 1 to reopen", crew, 1, 3, [3]string{idle, idle, idle}},
+		{"idle", "session closed: press 1 to reopen", [2]string{crew, ""}, 1, 3, [3]string{idle, idle, idle}},
 	} {
 		seat := Seat{Name: "acme", Word: each.word, reason: each.reason}
 		told := map[string]string{}
@@ -55,8 +60,8 @@ func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 				t.Errorf("%s %s:\n%s\nwant\n%s", each.word, option, told[option], each.tops[i])
 			}
 		}
-		for _, option := range barWhys {
-			if told[option] != each.why {
+		for i, option := range barWhys {
+			if told[option] != each.why[i%2] {
 				t.Errorf("%s %s: %q", each.word, option, told[option])
 			}
 		}
@@ -75,6 +80,32 @@ func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 	options := seat.barOptions(screen, "", nil, nil, 0, 0)
 	if last := options[len(options)-1]; last != [3]string{"=a#b%:", "set-titles-string", "a##b%% · idle"} {
 		t.Errorf("the title is told last, as tmux reads it: %q", last)
+	}
+}
+
+// Line two opens with each task in flight as menu.squares draws it, then the crew, then those
+// squares alone; again with them cut to six, then to one and the count of the rest.
+func TestLineTwoDrawsTheTasksFirst(t *testing.T) {
+	t.Setenv("LC_ALL", "C.UTF-8")
+	sandbox(t) // the theme in force is the home's
+	var mine []ran
+	for _, task := range append([]Task{{Stage: 0, Moving: true}, {Stage: 1}}, slices.Repeat([]Task{{Stage: 2}}, 6)...) {
+		mine = append(mine, ran{view: &runView{task: &task}})
+	}
+	building, reviewing := "#[fg=#4da3ff]■#[default]#[fg=#868d97]□□#[default]", "#[fg=#868d97]■■#[default]#[fg=#868d97]□#[default]"
+	landing, crew := "  #[fg=#868d97]■■■#[default]", "   #[fg=#acb4bd]build: Opus 5.5, Astra   review: Opus 5.5, Spark#[default]"
+	every := building + "  " + reviewing + strings.Repeat(landing, 6)
+	six := building + "  " + reviewing + strings.Repeat(landing, 4) + "  #[fg=#868d97]+2#[default]"
+	one := building + "  #[fg=#868d97]+7#[default]"
+	told := map[string]string{}
+	seat := Seat{Name: "acme", Word: "working", mine: mine}
+	for _, option := range seat.barOptions(terminal.For(nil), "", []string{"Opus 5.5", "Astra"}, []string{"Opus 5.5", "Spark"}, 0, 0) {
+		told[option[1]] = option[2]
+	}
+	for i, want := range []string{every + crew, every, six + crew, six, one + crew, one} {
+		if told[barWhys[i]] != "  "+want {
+			t.Errorf("%s:\n%s\nwant\n  %s", barWhys[i], told[barWhys[i]], want)
+		}
 	}
 }
 

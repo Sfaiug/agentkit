@@ -70,6 +70,8 @@ class GoLiveRetriesInstall(unittest.TestCase):
         git(seed, "push", "-q", "origin", "main")
         subprocess.run(["git", "clone", "-q", str(origin), str(self.clone)],
                        check=True, capture_output=True, timeout=60)
+        # a host that may not push: the tick's push of `live` goes nowhere
+        git(self.clone, "remote", "set-url", "--push", "origin", str(self.root / "gone.git"))
         (seed / "notes").write_text("second\n")
         git(seed, "add", "-A")
         git(seed, "commit", "-q", "-m", "second")

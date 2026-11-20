@@ -182,11 +182,11 @@ def git_env():
     return env
 
 
-def root(repo, rev="HEAD"):
-    """The repository a checkout holds, as no other one can: the root commit of `rev` there
-    (the first of several), abbreviated; None where it has none to read."""
+def root(repo):
+    """The repository a checkout holds, as no other one can: the root commit of its HEAD (the
+    first of several), abbreviated; None where it has none to read."""
     try:
-        out = subprocess.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", rev],
+        out = subprocess.run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"],
                              capture_output=True, text=True, timeout=30, env=git_env(),
                              stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
@@ -382,67 +382,13 @@ def is_open(line):
     return bool(BOX.match(line))
 
 
-def deferred(line):
-    """A line deferred to a run of its own (a review follow-up): open until its check passes,
-    and what the seat owes only once no run has it (`taken`)."""
+def handed_off(line):
+    """An open line deferred to a fix run, as review follow-ups were once written: the next
+    verification takes it out of its plan before it checks anything (`_verify_held`), whatever
+    became of that run, whose record holds the follow-up -- such lines held a seat open with
+    nothing of its own to do (18 Nov 2026).  Ticked, it stays, a run's work (`outcomes`)."""
     found = LINE.match(line.strip())
-    return bool(found and found["deferred"])
-
-
-def owed(name, line):
-    """Whether the seat owes the line, which holds its done and its turn (`stop.owed`): an
-    open line, never a deferred one a run is on its way with (`taken`)."""
-    return is_open(line) and not taken(name, line)
-
-
-def taken(name, line, delivered=False, moving=False):
-    """Whether a deferred line is a run's: one of the seat's with the line's check in the
-    line's project is on its way with it (`handback.open_followup`) -- with `moving`, running
-    or about to (`handback.followup_moving`) -- or, with `delivered`, merged or found it not
-    needed since the line was written, for the done's work (`outcomes`).
-    Read with the line, never written at an ending: once the fix run ended, whichever way,
-    the line is the seat's own until its check passes, which a delivery runs at once
-    (`delivery`)."""
-    found = LINE.match(line.strip())
-    if not (found and found["deferred"]):
-        return False
-    repo = place(name, found["project"])
-    written = time.mktime(time.strptime(found["when"], STAMP))
-    from . import handback  # here, not at the top: the loop is heavy for a seat's small verb
-    return bool(repo and handback.open_followup({"repo": str(repo.resolve()), "launched_session": name},
-                                           "", check=found["check"],
-                                           held=written if delivered else None,
-                                           going=handback.followup_moving if moving
-                                           else handback.followup_open))
-
-
-def delivery(name, check):
-    """A fix run of the seat delivered `check`'s line -- merged, or found it not needed: that
-    line's check runs, ticking it where its fix is on the default branch.  Where its check
-    still fails, or could not run, no run has it and the seat owes it, which the line then says
-    too, its deferred mark dropped as `recheck` drops it: built by the seat, the done lists it
-    (`outcomes`), never taking it for that delivery's work (`taken`).  Then what deliveries
-    left owed meanwhile (`settle`)."""
-    try:
-        # waits for whoever verifies: the line's deferred mark is settled here, from this
-        # check's result, which an owed verification of every line would have to carry
-        with verifying(name):
-            _verify_held(name, check)       # that line's check alone: the seat's others are its own
-    except config.Error:
-        pass        # unchecked: the line stays open
-    mine = {line.strip() for line in lines(name) if deferred(line)
-            and (LINE.match(line.strip())["check"] or "").strip() == check.strip()
-            and owed(name, line)}
-    if mine:
-        with held(name) as current:
-            text = lines(current)
-            for at, line in enumerate(text):
-                if line.strip() in mine:
-                    found = LINE.match(line.strip())
-                    lead = len(line) - len(line.lstrip())
-                    text[at] = line[:lead + found.start("deferred")] + line[lead + found.end("deferred"):]
-            write(current, text)
-    settle(name)
+    return bool(found and found["deferred"]) and is_open(line)
 
 
 def undone(line, found):
@@ -477,8 +423,8 @@ def served_line(name, commands):
 
 
 def finished(name):
-    """The words of the plan's last done line where the plan holds done work and owes none
-    (`owed`), nor the done check a plan with every line done owes (`done_check.owed`): the
+    """The words of the plan's last done line where the plan holds done work and no open line,
+    nor owes the done check a plan with every line done owes (`done_check.owed`): the
     seat's work is done, which ak reads here and nobody declares.  None for no plan, one with
     nothing done, one still owing a line or its check, or one nothing can read."""
     from . import done_check    # here, not at the top: it reads the plan through this module
@@ -486,7 +432,7 @@ def finished(name):
         text = lines(name)
     except config.Error:
         return None
-    if any(owed(name, line) for line in text):
+    if any(is_open(line) for line in text):
         return None
     done = _done(text)
     return done[-1] if done and not done_check.owed(name, text) else None
@@ -511,7 +457,7 @@ def _done(text):
 
 def outcomes(name, runs=True):
     """The plan's done work, independent of order, repetition, checks and renewed proof stamps;
-    without `runs`, the lines a run has or delivered (`taken`) count too: every line ticked.
+    without `runs`, a fix run's, by its deferred mark, count too: every line ticked.
 
     An open line is no done work yet. Keep format knowledge here: old eye lines and hand-kept
     outcomes count as work too.
@@ -520,8 +466,8 @@ def outcomes(name, runs=True):
     for line in lines(name):
         line = line.strip()
         found = LINE.match(line)
-        if found and (is_open(line) or runs and taken(name, line, delivered=True)):
-            continue        # not done, or a run's: it has the line, or delivered it
+        if found and (is_open(line) or runs and found["deferred"]):
+            continue        # not done, or a fix run's
         if found:
             result.append((found["project"], found["what"]))
         elif line.startswith("- [x] ") and not is_open(line):
@@ -530,10 +476,10 @@ def outcomes(name, runs=True):
 
 
 def verify(name):
-    """Run the open check lines on their project's default branch now, but a deferred one
-    whose fix run is running or about to (`taken`): each that passes is ticked, naming that
-    commit, each check from a clean checkout of it.  The results are written onto the plan as
-    it reads after the checks, each onto its own line however another listing ticked it
+    """Take the open deferred lines out of the plan (`handed_off`), then run its open check
+    lines on their project's default branch: each that passes is ticked, naming that commit,
+    each check from a clean checkout of it.  The results are written onto the plan as it
+    reads after the checks, each onto its own line however another listing ticked it
     meanwhile, so a line added meanwhile stays and these results are the ones the open lines
     are counted from.  Then, where it checked every line, what deliveries left owed meanwhile
     (`settle`).  Returns the plan's open lines its own verification left."""
@@ -545,10 +491,10 @@ def verify(name):
 
 
 def verify_delivered(name):
-    """`verify` for a run that just delivered, a fix run aside (`delivery`), never waiting for
-    another process's: the delivery counts itself owed a verification begun after it, which it
-    runs where none runs (`settle`), and which the one verifying runs once it lets go, every
-    open line on main as it is by then.  Delivered runs once waited for the lock in their
+    """`verify` for a run that just delivered, never waiting for another process's: the
+    delivery counts itself owed a verification begun after it, which it runs where none runs
+    (`settle`), and which the one verifying runs once it lets go, every open line on main as
+    it is by then.  Delivered runs once waited for the lock in their
     endings, their follow-ups not handed on and their memory held: 14 behind one verification
     of 81 lines, the oldest for 81 minutes (6 Nov 2026)."""
     with held(name) as current:
@@ -595,24 +541,21 @@ def _owe(current, more):
         path.unlink(missing_ok=True)
 
 
-def _verify_held(name, check=None):
+def _verify_held(name):
     """`verify` under the lock: (the plan's open lines it left, whether each line it took in
     had a verdict)."""
     checks = {}
     with held(name) as current:
-        snapshot = lines(current)
+        present = lines(current)
+        # taken out first: a fetch or check failing below keeps none
+        snapshot = [line for line in present if not handed_off(line)]
+        if snapshot != present:
+            write(current, snapshot)
         # read as it begins, before it fetches: main then holds each delivery counted so far
-        counted = 0 if check else _owed(current)
+        counted = _owed(current)
     for line in snapshot:
         found = LINE.match(line.strip())
-        if (found and found["check"] and is_open(line)
-                # never a deferred line whose fix run is running or about to (`taken`): that
-                # run's delivery checks it, and these proofs, often rebuilding in fresh caches,
-                # made most of an hour-long verification of a seat's 80 lines (6 Nov 2026).  A
-                # paused one -- waiting for a login, a window or a retry -- may deliver hours
-                # later, so a fix landing meanwhile ticks its line here
-                and (not taken(name, line, moving=True) if check is None
-                     else found["check"].strip() == check.strip())):
+        if found and found["check"] and is_open(line):
             # lines alike are one check, run once: its result is every one of theirs
             checks.setdefault(found["project"], {})[identity(line)] = found
     results, passing, whole = {}, {}, True
@@ -675,20 +618,14 @@ def retire(repo, found, commit):
             stop.end(directory, keep=False, why=why, only_if=repeats)
 
 
-def compose(what, proof, where, deferred, stamp, base):
+def compose(what, proof, where, stamp, base):
     """An open line as `add` writes it."""
-    return (f"- [ ] {what} · {proof} · {where}" + (DEFERRED if deferred else "")
-            + f" · written {stamp}" + (f" on {base}" if base else ""))
+    return f"- [ ] {what} · {proof} · {where} · written {stamp}" + (f" on {base}" if base else "")
 
 
-def add(name, what, check, repo=None, proven=None, deferred=False):
-    """Append an open line to the seat's plan, or keep the open line that already holds this
-    check in this project, deferred or the seat's own as this call asks.  A review follow-up
-    names the run's project as `repo`, and as `proven` the commit its check already failed on
-    (the review's base, or the reviewed commit for a defect of the change): the check is not
-    run again first, and that commit's history names the repository, whatever is checked out;
-    and it is `deferred` where a run has it, so the line holds no done, the seat's own where
-    none has it any more."""
+def add(name, what, check, repo=None):
+    """Append an open line to the seat's plan, on the project `repo` or the seat's own, or keep
+    the open line that already holds this check in this project, the seat's own."""
     what = " ".join(what.split())
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
@@ -698,22 +635,16 @@ def add(name, what, check, repo=None, proven=None, deferred=False):
     from . import retire
     retire.vet_check(repo, check)
     passed = None
-    if proven:
-        found, base = root(repo, proven), proven[:12]
-        if not found:
-            raise config.Error(f"{repo.name} does not hold {proven[:12]}, the commit this "
-                               "check failed on")
-    else:
-        failing, found, base = fails_on_main(repo, check)
-        if not failing:
-            # The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, work done
-            # there proves itself, so a check already passing is written done on that commit
-            # and a job finished in that one turn reads `done`.
-            if not guard.reached_live(name):
-                raise config.Error(f"this check already passes on {repo.name}'s default "
-                                   "branch, so it proves nothing; write one that fails until "
-                                   "the work is done")
-            passed, base = base, None
+    failing, found, base = fails_on_main(repo, check)
+    if not failing:
+        # The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, work done
+        # there proves itself, so a check already passing is written done on that commit
+        # and a job finished in that one turn reads `done`.
+        if not guard.reached_live(name):
+            raise config.Error(f"this check already passes on {repo.name}'s default "
+                               "branch, so it proves nothing; write one that fails until "
+                               "the work is done")
+        passed, base = base, None
     where = named(repo, found)
     if "·" in where:
         raise config.Error(f"{where}: a project a line names holds no `·`")
@@ -724,15 +655,14 @@ def add(name, what, check, repo=None, proven=None, deferred=False):
             parsed = LINE.match(old.strip())
             if (parsed and is_open(old) and parsed["check"] == check
                     and parsed["project"] == where):
-                # the open line already holding this check here is kept, its mark as asked
-                kept = ticked(compose(parsed["what"], proof, where, deferred, parsed["when"],
+                # the open line already holding this check here is kept, the seat's own
+                kept = ticked(compose(parsed["what"], proof, where, parsed["when"],
                                        parsed["base"]), passed)
                 if kept != old.strip():
                     write(current, [*text[:index], kept, *text[index + 1:]])
                 return kept
-        # on the clock a run's `finished_at` reads, which `taken` compares it with
         stamp = time.strftime(STAMP, time.localtime(time.time()))
-        line = ticked(compose(what, proof, where, deferred, stamp, base), passed)
+        line = ticked(compose(what, proof, where, stamp, base), passed)
         write(current, [*text, line])
     return line
 
@@ -781,8 +711,7 @@ def numbered(text, number):
 
 def recheck(name, number, check):
     """Put `check` in place of plan line `number`'s check, the line open again until it
-    passes, and the seat's own: a line deferred to a fix run takes the seat's own test as the
-    seat's, since no run has the new check.  It must fail where the line's check did: on the
+    passes, and the seat's own.  It must fail where the line's check did: on the
     commit the line names -- the code before the work, however long ago the work landed.  A
     line from before lines named one takes it unproven, as it reads: nothing recorded where
     its check failed, and a missing proof never blocks (the owner, 7 Oct)."""
@@ -804,7 +733,7 @@ def recheck(name, number, check):
                                f"{number} names, so it proves nothing; write one that fails "
                                "until the work is done")
     # the line as it reads, open, the seat's own, with only its check changed
-    new = compose(found["what"], f"check: `{check}`", found["project"], False, found["when"], found["base"])
+    new = compose(found["what"], f"check: `{check}`", found["project"], found["when"], found["base"])
     with held(name) as current:
         text = lines(current)
         same = [at for at, old in enumerate(text) if old.strip() == line]

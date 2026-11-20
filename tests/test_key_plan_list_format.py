@@ -1,10 +1,9 @@
 """`ak plan` lists every box line of the plan numbered, wrapped to the terminal, and leaves an
-eye line as written while a deferred line ticks, its mark kept, once its check passes.
+eye line as written.
 
 The listing is how a seat and the owner read what is left, and line numbers are what
 `ak plan check <n>` takes, so the numbering and the wrapping must hold at any width.  An eye
-line is the owner's to judge live, never the seat's to prove, and a deferred line is a run's
-until it ticks.  Black-box: the program `AK_BIN` names runs from outside through
+line is the owner's to judge live, never the seat's to prove.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py in a seat's environment, over a project whose origin is a bare
 repository on disk, and this test fails against `/bin/false`.
 """
@@ -29,7 +28,6 @@ class PlanListing(unittest.TestCase):
         cls.rig = Rig(cls.home, "acme")
         cls.root = cls.rig.git("rev-list", "--max-parents=0", "HEAD")[:12]
         cls.where = f"~/code/acme#{cls.root}"
-        cls.head = cls.rig.commit({"fixed.txt": "fixed\n"}, "add fixed")[:12]
         Seat(cls.home, "fix-api", alive=False, cwd=cls.rig.path,
              record={"repo": str(cls.rig.path)})
 
@@ -72,15 +70,6 @@ class PlanListing(unittest.TestCase):
         out, stored = self.listed([eye, check], 250)
         self.assertEqual(out, [f" 1  {eye}", f" 2  {check}"])
         self.assertEqual(stored, [eye, check])
-
-    def test_a_deferred_line_ticks_once_its_check_passes_and_stays_deferred(self):
-        fixed, later = ("the follow-up is fixed · check: `test -f fixed.txt`",
-                        "the importer is gone · check: `test -f gone.txt`")
-        mark = f"· {self.where} · deferred · written 2026-10-20 09:00"
-        out, stored = self.listed([f"- [ ] {fixed} {mark}", f"- [ ] {later} {mark}"], 250)
-        ticked = f"- [x] {fixed} {mark} · done {self.head} add fixed"
-        self.assertEqual(out, [f" 1  {ticked}", f" 2  - [ ] {later} {mark}"])
-        self.assertEqual(stored, [ticked, f"- [ ] {later} {mark}"])
 
 
 if __name__ == "__main__":

@@ -96,6 +96,8 @@ class HarnessGateHoldsCheckout(unittest.TestCase):
         git(seed, "push", "-q", "origin", "main")
         subprocess.run(["git", "clone", "-q", str(origin), str(self.clone)],
                        check=True, capture_output=True, timeout=60)
+        # a host that may not push: the tick's push of `live` goes nowhere
+        git(self.clone, "remote", "set-url", "--push", "origin", str(root / "gone.git"))
         self.old = git(self.clone, "rev-parse", "HEAD")
         (seed / "notes").write_text("second\n")
         git(seed, "add", "-A")

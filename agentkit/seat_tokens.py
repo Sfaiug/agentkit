@@ -12,14 +12,28 @@ from . import config, harness, history
 # A usage row's account is the login of the seat that owned its conversation when the tick read
 # it; its model and counts by type are NULL where its harness does not tell them; its listed_usd
 # is what its counts cost at listed prices as it was written, as a turn's row's
-# (`history.TURN_USAGE_SCHEMA`).
+# (`history.TURN_USAGE_SCHEMA`); its orchestrator and effort are `orchestrating`'s.
 TABLES = {
     "seat_sources": ("path TEXT PRIMARY KEY", "harness TEXT", "repo TEXT", "cursor TEXT",
                      "account TEXT"),
     "seat_usage": ("event TEXT PRIMARY KEY", "repo TEXT", "at REAL", "tokens INTEGER",
                    "account TEXT", "model TEXT", "input INTEGER", "cache_write INTEGER",
-                   "cache_read INTEGER", "output INTEGER", "listed_usd REAL"),
+                   "cache_read INTEGER", "output INTEGER", "listed_usd REAL", "orchestrator TEXT",
+                   "effort TEXT"),
 }
+
+
+def orchestrating(cfg, seat):
+    """The model and effort seat record `seat` orchestrates with, as a run it launched now would
+    keep them as its `orchestrator` and `orchestrator_effort`: neither where that run would keep
+    no effort, as for a model `cfg` does not hold.  Read from the record as each line is, so
+    nothing stored needs repair when the seat, its models or its conversations change."""
+    model = seat.get("orchestrator")
+    try:
+        effort = config.launched_effort(config.run_marks(cfg, seat), model, "orchestrator")
+    except TypeError:       # efforts ak did not write: a number, or a word where it writes a table
+        effort = None
+    return (None, None) if effort is None else (model, effort)
 
 
 def read(since, until):
@@ -42,7 +56,7 @@ def read(since, until):
                 if column.split()[0] not in have:
                     db.execute(f"ALTER TABLE {table} ADD COLUMN {column}")
         db.execute("CREATE INDEX IF NOT EXISTS seat_usage_at ON seat_usage(at)")
-        missing, owners = [], {}
+        missing, owners, marks = [], {}, {}
         cfg, priced = orch.loaded(), history._listed_usd()
         for name, seat in seats.items():
             plugin = orch.seat_plugin(seat, cfg=cfg)
@@ -55,7 +69,7 @@ def read(since, until):
                 continue
             for path in sources:
                 path = str(Path(path).resolve())
-                owners[path] = name
+                owners[path], marks[path] = name, orchestrating(cfg, seat)
                 db.execute("INSERT INTO seat_sources VALUES (?, ?, ?, '{}', ?) ON CONFLICT(path) "
                            "DO UPDATE SET repo = excluded.repo, account = excluded.account",
                            (path, plugin.name, Path(seat.get("repo") or "").name,
@@ -65,6 +79,7 @@ def read(since, until):
                 "SELECT * FROM seat_sources").fetchall():
             cursor = json.loads(saved)
             cursor["source"] = source
+            orchestrator, effort = marks.get(source, (None, None))
             try:
                 with Path(source).open("rb") as stream:
                     stat = os.fstat(stream.fileno())
@@ -92,17 +107,19 @@ def read(since, until):
                         event = f"{adapter}:{key or f'{source}:{start}'}"
                         counts = counts or [None] * 4
                         # A repeat counting more replaces all its line set, so the counts,
-                        # model, login and dollars stay those of the line that set the tokens.
+                        # model, login, dollars and orchestrating stay those of the line that
+                        # set the tokens.
                         db.execute("INSERT INTO seat_usage VALUES "
-                                   "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                                   "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                                    "ON CONFLICT(event) DO UPDATE SET tokens = excluded.tokens, "
                                    "account = excluded.account, model = excluded.model, "
                                    "input = excluded.input, cache_write = excluded.cache_write, "
                                    "cache_read = excluded.cache_read, output = excluded.output, "
-                                   "listed_usd = excluded.listed_usd "
-                                   "WHERE excluded.tokens > tokens",
+                                   "listed_usd = excluded.listed_usd, "
+                                   "orchestrator = excluded.orchestrator, "
+                                   "effort = excluded.effort WHERE excluded.tokens > tokens",
                                    (event, repo, at, tokens, account, model, *counts,
-                                    priced(model, counts)))
+                                    priced(model, counts), orchestrator, effort))
                     cursor.update(identity=identity, offset=offset)
                     db.execute("UPDATE seat_sources SET cursor = ? WHERE path = ?",
                                (json.dumps(cursor), source))

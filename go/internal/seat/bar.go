@@ -34,7 +34,9 @@ const (
 var (
 	barCells = []int{36, 24, 12} // a progress line and its count, at each width of line one
 	barTops  = []string{barTop, barTop + "1", barTop + "2"}
-	barWhys  = []string{barWhy, barWhy + "1", barWhy + "2", barWhy + "3", barWhy + "4"}
+	// line two: every task's squares and who builds and reviews, then those squares alone; again with
+	// them cut to six, then to one (Seat.whys)
+	barWhys = []string{barWhy, barWhy + "1", barWhy + "2", barWhy + "3", barWhy + "4", barWhy + "5"}
 	// the one key ak binds on the bar: a click on its right end switches to the seat it names
 	barClick = []string{"bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + barHit + "}",
 		"run-shell -C \"switch-client -t '#{E:" + barHit + "}'\""}
@@ -63,13 +65,18 @@ func barLineOne() string {
 	return found
 }
 
-// barLineTwo is the first version of line two that fits a space short of the key, so the key
-// stays whole on every client.
+// barLineTwo is line two a space short of the key, so the key stays whole on every client: the most
+// squares that fit, then the crew -- whole where it fits, else cut where the three cells after the
+// squares and one of its own fit, so its `…` never reads as a cut square, else not drawn; the
+// fewest squares cut where not even they fit (statusbar._line_two).
 func barLineTwo() string {
 	room := "#{e|-:#{client_width},#{e|+:#{w:" + barKey + "},2}}"
 	found := barCut(barWhys[len(barWhys)-1], room)
-	for _, option := range slices.Backward(barWhys) {
-		found = "#{?#{e|<=:#{w:" + option + "}," + room + "},#{" + option + "}," + found + "}"
+	for i := len(barWhys) - 2; i >= 0; i -= 2 {
+		crewed, alone := barWhys[i], barWhys[i+1]
+		found = "#{?#{e|<=:#{w:" + crewed + "}," + room + "},#{" + crewed + "}," +
+			"#{?#{e|<:#{e|+:#{w:" + alone + "},3}," + room + "}," + barCut(crewed, room) + "," +
+			"#{?#{e|<=:#{w:" + alone + "}," + room + "},#{" + alone + "}," + found + "}}}"
 	}
 	return "#[align=left]" + found + " #[align=right]#{" + barKey + "}"
 }
@@ -202,13 +209,6 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 	if model != "" {
 		head += "   " + barPaint(model, "muted")
 	}
-	why := barPaint(terminal.Crew(builds, reviews), "muted")
-	if seat.Word == "needs you" && !seat.question {
-		why = tmuxText(terminal.Plain(seat.reason))
-	}
-	if why != "" {
-		why = "  " + why
-	}
 	target := "=" + seat.Name + ":"
 	// on the theme in force, and tmux's own styles in the seat too (statusbar.layout); the pane, where the
 	// harness draws, stays the terminal's
@@ -223,13 +223,59 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		}
 		own = append(own, [3]string{target, option, top})
 	}
-	for _, option := range barWhys {
-		own = append(own, [3]string{target, option, why})
+	for i, why := range seat.whys(screen, barPaint(terminal.Crew(builds, reviews), "muted")) {
+		if why != "" {
+			why = "  " + why
+		}
+		own = append(own, [3]string{target, barWhys[i], why})
 	}
 	// tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
 	title := strings.ReplaceAll(tmuxText(seat.Name+" · "+seat.Word), "%", "%%")
 	return append(own, [3]string{target, barKey, "#[fg=#" + terminal.RGB("dim") + "]Ctrl-b m#[fg=#" + terminal.RGB("muted") + "]  menu #[default]"},
 		[3]string{target, "set-titles-string", title})
+}
+
+// whys is line two at each of barWhys (statusbar.whys): a needs-you reason no chat shows, alone;
+// otherwise every task's squares, then the crew, then those squares alone -- and again with them
+// cut to six, then to one and the count of the rest, so a narrow client still sees its tasks
+// (barLineTwo).  The owner picked the squares first, 17 Nov 2026.
+func (seat Seat) whys(screen terminal.Screen, crew string) []string {
+	if seat.Word == "needs you" && !seat.question {
+		return slices.Repeat([]string{tmuxText(terminal.Plain(seat.reason))}, len(barWhys))
+	}
+	tasks := seat.Tasks()
+	var whys []string
+	for _, most := range []int{len(tasks), 6, 1} {
+		squares := barSquares(screen, tasks, most)
+		crewed := squares + "   " + crew
+		if squares == "" || crew == "" {
+			crewed = squares + crew
+		}
+		whys = append(whys, crewed, squares)
+	}
+	return whys
+}
+
+// barSquares is the first most of those tasks as menu.squares draws them: three squares each, two
+// cells apart, the stages it has reached filled, in working's colour while a model works on it and
+// dim while it waits, the rest dim and empty; those not drawn counted, `+3`.
+func barSquares(screen terminal.Screen, tasks []Task, most int) string {
+	full, empty := "■", "□"
+	if screen.ASCII() {
+		full, empty = "#", "-"
+	}
+	var drawn []string
+	for _, task := range tasks[:min(most, len(tasks))] {
+		kind := "dim"
+		if task.Moving {
+			kind = "working"
+		}
+		drawn = append(drawn, barPaint(strings.Repeat(full, task.Stage+1), kind)+barPaint(strings.Repeat(empty, 2-task.Stage), "dim"))
+	}
+	if rest := len(tasks) - most; rest > 0 {
+		drawn = append(drawn, barPaint(fmt.Sprintf("+%d", rest), "dim"))
+	}
+	return strings.Join(drawn, "  ")
 }
 
 func barSet(option [3]string) []string {
