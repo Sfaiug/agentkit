@@ -3479,16 +3479,24 @@ def price_held(session, role, used, found):
     return entry if held else None
 
 
-def price_said(price, role):
-    """What `role` keeps where it holds `price` (price_held): its limit in the unit it was kept
-    in, whatever `u` counts in, to two decimals or every figure it has where it has more,
-    `the best up to $0.30 a build`; `the best, whatever it costs` with none."""
+def price_fit(cfg, found, price):
+    """The choice `price` (price_held) takes in its role's answer `found` (matrix.answer): the
+    best of its choices a configured model runs (matrix.runner), as by itself nothing is set up,
+    costing no more than its limit, the best for none; None where none does."""
+    return next((row for row in reversed(found["choices"]) if matrix.runner(cfg, row)
+                 and (price["limit"] is None or row["cost"] <= price["limit"])), None)
+
+
+def price_said(price, role, kept="the best"):
+    """What `role` keeps where it holds `price` (price_held): `kept` up to its limit in the unit
+    it was kept in, whatever `u` counts in, to two decimals or every figure it has where it has
+    more, `the best up to $0.30 a build`; `the best, whatever it costs` with none."""
     if price["limit"] is None:
         return "the best, whatever it costs"
     exact = decimal.Decimal(repr(price["limit"]))
     cost = f"{exact:.{max(2, -exact.as_tuple().exponent)}f}"
     share = price["cost_unit"] == "share"
-    return "the best up to " + UNITS["% of a week" if share else "$ a task"].format(
+    return f"{kept} up to " + UNITS["% of a week" if share else "$ a task"].format(
         cost=f"{cost}%" if share else f"${cost}", run=RUN[role])
 
 
@@ -3498,9 +3506,8 @@ class _Unjudged(Exception):
 
 def price_take(cfg, session, selected, providers, answer, role):
     """Where `role` of seat `session`, else of new seats, keeps a price that holds (price_held),
-    the best of its choices in `answer` (matrix.answer) a configured model runs (matrix.runner),
-    as by itself nothing is set up, costing no more than its limit, the best for none, once that
-    is not the row it uses, the owner's design of 5 Nov 2026: taken as ← and → take it
+    the choice it takes in `answer` (price_fit), once that is not the row it uses, the owner's
+    design of 5 Nov 2026: taken as ← and → take it
     (take_choice), its entry then naming the model and effort the role uses, its limit and unit
     as they were.  A seat's in one write of the record under its lock
     (roles_saved), only while that still holds the model, effort and entry judged here; else
@@ -3514,8 +3521,7 @@ def price_take(cfg, session, selected, providers, answer, role):
         return ""
     used, found = matrix.uses(cfg, selected, answer)[role], answer[role]
     price = price_held(session, role, used, found)
-    best = next((row for row in reversed(found["choices"]) if price and matrix.runner(cfg, row)
-                 and (price["limit"] is None or row["cost"] <= price["limit"])), None)
+    best = price and price_fit(cfg, found, price)
     if best is None or best is used[2]:
         return ""
     model, field = matrix.runner(cfg, best), PRICE_FIELDS[role]
@@ -3749,10 +3755,10 @@ def models_standing(found, kept, unit):
         choices, shaded = (choices, shaded[:-1]) if shaded else (choices[1:], shaded)
 
 
-def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True, price=None):
+def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True, price=""):
     """`role`'s answer `found` (matrix.answer) drawn as bars under the role lines, the owner's
-    design of 5 Nov 2026: under a heading counting them and ending with the `price` the role
-    keeps where one holds (price_held, price_said), those that stand (models_standing), side by
+    design of 5 Nov 2026: under a heading counting them and ending with `price`, what the role
+    keeps where it keeps one (models_screen), those that stand (models_standing), side by
     side, its cost in `unit` on its top (cost_said) and under it its quality, its name
     (columned) and its effort.  Each stands as tall as the number on its top over the largest
     shown (cost_in), in eighths of a cell, as tall as any carrying the same and never under one
@@ -3774,7 +3780,7 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
     lines = ["", *("  " + line for line in packed([
         matrix.CONFIG_ROLES[role], f"{COUNTS[chosen]} choice{'s' * (chosen != 1)}",
         *([f"{COUNTS[shaded]} more shaded"] if shaded else []),
-        *([f"keeps {price_said(price, role)}"] if price else [])], " · ", width - 2))]
+        *([price] if price else [])], " · ", width - 2))]
     unders = [[[quality], columned(name, wide) + [mark * size] * (marked and row is used),
                [effort], [line for text in whys if why for line in columned(text, wide)]]
               for (row, _), (_, quality, effort), (name, *whys), wide
@@ -3974,7 +3980,8 @@ def models_screen(cfg, session, selected, providers):
     bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or better
     choice for its role at once (next_choice, take_choice), keeping the price it stopped at
     (keep_price), which its bars' heading says while it holds (price_held), the owner's design
-    of 5 Nov 2026, the last row a role was shown using that is no choice staying one of its bars
+    of 5 Nov 2026, `no choice` up to a limit no choice costs as little as (price_fit), as the
+    role then stays; the last row a role was shown using that is no choice staying one of its bars
     and steps; each answer made (opening, the boards landing, `p`) takes the best up to each
     price that holds (price_take), saying so under the rows.  ⏎ or a click opens the why
     (models_why) of the row the role uses, else of its first choice, else of its first other
@@ -4028,6 +4035,11 @@ def models_screen(cfg, session, selected, providers):
         over, body, places = laid(note_lines(note), keys)
         read = ["", *models_read(compared, total, held.get("fetched_at"))]
         price = price_held(session, here[1], used[here[1]], answer[here[1]])
+        # a limit leaving every choice out says so, as the role stays (price_take); none leaves
+        # none out, keeping the best whatever runs
+        price = price and (f"keeps {price_said(price, here[1])}" if price["limit"] is None
+                           or price_fit(cfg, answer[here[1]], price)
+                           else price_said(price, here[1], "no choice"))
         # where one-cell bars leave too little room these give way whole, in turn: the comparing
         # line, the `━` (the accent and the role's line still name the row in use), the whys
         for under, marked, why in ((read, True, True), ([], True, True), ([], False, True),

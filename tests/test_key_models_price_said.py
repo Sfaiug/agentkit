@@ -2,8 +2,10 @@
 (tests/test_key_models_kept_price.py) where it holds, the owner's design of 5 Nov 2026: the
 heading over its bars ends with one more part, joined and wrapped as its others are, `keeps the
 best up to $0.30 a build`, the limit in the unit it was kept in whatever `u` counts in, to two
-decimals or every figure it has, or `keeps the best, whatever it costs`.  It holds while the
-role uses the model and effort it names, and one with a limit while the role's costs are counted
+decimals or every figure it has, or `keeps the best, whatever it costs`; `no choice up to $0.10
+a build` where every choice a configured model runs costs more, as the role then stays
+(tests/test_key_models_price_takes_new_seats.py).  It holds while the role uses the model and
+effort it names, and one with a limit while the role's costs are counted
 in its unit: a role marked onto another model on `c` says nothing more, and marked back says it
 again; one with no price says nothing more.
 
@@ -77,11 +79,12 @@ class PriceSaid(unittest.TestCase):
         cls.seat = Seat(home, SEAT, model="top", record=CREW)
         cls.state = home.path / ".agentkit/state"
 
-    def fresh(self):
-        """The config, the boards and the seat's record as each test starts, no price kept and
-        the screen counting in dollars."""
+    def fresh(self, off=()):
+        """The config, the releases `off` turned off, the boards and the seat's record as each
+        test starts, no price kept and the screen counting in dollars."""
         akconfig.write(self.home, {name: {"harness": "claude", "model": f"acme-{name}-1"}
-                                   for name in NAMES}, **CREW)
+                                   for name in NAMES},
+                       settings={"models_off": list(off)} if off else None, **CREW)
         hold(self.home, [(release, name, None if release == "acme-base-1" else "high",
                           quality / 100 - 0.1, cost) for release, name, quality, cost in ROWS])
         self.home.write(f".agentkit/state/session-{SEAT}.json", self.seat.record)
@@ -97,8 +100,9 @@ class PriceSaid(unittest.TestCase):
         else:
             self.home.write(f".agentkit/state/models-{word}-price", entry)
 
-    def models(self, seat=None, width=100):
-        """`r` on `c` over `seat`, else in a window of its own, `width` cells wide."""
+    def models(self, seat=None, width=100, ready=answered):
+        """`r` on `c` over `seat`, else in a window of its own, `width` cells wide, once it
+        shows `ready`."""
         term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=(width, 60),
                         env={**ENV, **({"AGENTKIT_SESSION": seat} if seat else {})})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
@@ -107,7 +111,7 @@ class PriceSaid(unittest.TestCase):
         term.keys("c")
         term.wait("r recommended")
         term.keys("r")
-        term.wait(answered)
+        term.wait(ready)
         return term
 
     def says(self, term, word, said, model=None):
@@ -138,7 +142,7 @@ class PriceSaid(unittest.TestCase):
 
     def test_a_limit_says_every_figure_and_one_in_another_unit_or_none_says_nothing_more(self):
         for seat in (SEAT, None):
-            for unit, said in (("board_dollars", "keeps the best up to $0.105 a build"),
+            for unit, said in (("board_dollars", "no choice up to $0.105 a build"),
                                ("money", "")):
                 with self.subTest(seat=seat, unit=unit):
                     self.fresh()
@@ -148,6 +152,27 @@ class PriceSaid(unittest.TestCase):
                     term = self.models(seat)
                     term.keys("Down")
                     self.says(term, "executor", said, "Acme Step 1")
+
+    def test_a_kept_price_no_choice_costs_as_little_as_says_so(self):
+        every = [release for release, *_ in ROWS]
+        for seat in (SEAT, None):
+            # under every choice's cost, Base's 0.12 the least; Step's 1.00, no better one; and
+            # none, leaving no choice out though every release is off and none runs
+            for limit, off, said in ((0.105, (), "no choice up to $0.105 a build"),
+                                     (1.5, (), "keeps the best up to $1.50 a build"),
+                                     (None, every, "keeps the best, whatever it costs")):
+                with self.subTest(seat=seat, limit=limit):
+                    self.fresh(off)
+                    self.keep(seat, "executor", {"limit": limit, "cost_unit": "board_dollars",
+                                                 "model": "step", "effort": "high"})
+                    term = self.models(seat, ready="comparing 0 of" if off else answered)
+                    term.keys("Down")
+                    self.says(term, "executor", said, "Acme Step 1")
+                    for unit in ("% of a week", "a week"):     # each `u` turns to
+                        term.keys("u")
+                        term.wait(lambda screen: f"quality  {unit}" in screen
+                                  and more(screen, "executor") == said
+                                  and uses(screen, "executor") == "Acme Step 1")
 
     def test_a_reviewer_marked_onto_another_model_says_nothing_more_and_marked_back_again(self):
         self.fresh()
