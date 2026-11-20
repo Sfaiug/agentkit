@@ -59,12 +59,13 @@ class OwnPrFixer(OwnPr):
         self.resume.assert_not_called()
 
     def test_a_fixer_that_commits_nothing_has_the_same_head_reviewed_again(self):
-        # ... and ak's replay of its unfixed, undisputed proof blocks every round after
+        # ... and ak's replay of its unfixed, undisputed proof blocks every round after, its
+        # one finding earning the extra rounds too
         self.fix = lambda lp: None
-        state = self.review(["FAIL", "PASS", "PASS"])
+        state = self.review(["FAIL"] + ["PASS"] * 4)
         self.assertEqual((state["state"], state["merged"]), ("fail", False))
-        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 3)
-        self.assertEqual((len(self.fixes), self.merges), (2, []))
+        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 5)
+        self.assertEqual((len(self.fixes), self.merges), (4, []))
 
     def test_a_head_pushed_by_hand_before_the_fix_is_reviewed_instead(self):
         post = run.post_review
@@ -278,15 +279,16 @@ class OwnPrFixer(OwnPr):
 
         with patch.object(run, "fix_own_pr", side_effect=moved), \
                 self.assertRaises(InterruptedError):
-            self.review(["FAIL", "PASS", "PASS"])
+            self.review(["FAIL"] + ["PASS"] * 4)
         saved = record.read_state(self.run_dir)
         saved.update(state="queued", pid=999999991)
         record.save_state(self.run_dir, saved)
-        state = self.review(["FAIL", "PASS", "PASS"])
-        # the finished turn is not run again; ak's replay keeps blocking until the rounds run out
-        self.assertEqual((len(self.fixes), len(self.prompts)), (2, 3))
+        state = self.review(["FAIL"] + ["PASS"] * 4)
+        # the finished turn is not run again; ak's replay keeps blocking until the rounds, the
+        # extra ones too, run out
+        self.assertEqual((len(self.fixes), len(self.prompts)), (4, 5))
         self.assertEqual((state["state"], state["merged"]), ("fail", False))
-        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 3)
+        self.assertEqual([s["head_sha"] for s in state["round_summaries"]], [self.heads[0]] * 5)
 
     def test_a_crash_after_the_push_pushes_nothing_again_and_reviews(self):
         pushes = []

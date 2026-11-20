@@ -33,6 +33,9 @@ class OwnPrRounds(OwnPr):
         self.assertEqual(self.merges[0][-1], self.heads[1])
 
     def test_three_fails_end_with_the_last_findings(self):
+        # with no extra round for the one finding the third left
+        record.save_state(self.run_dir, {**record.read_state(self.run_dir),
+                                         "policy": {**config.policy(), "extra_rounds": 0}})
         state = self.review(["FAIL", "FAIL", "FAIL"])
         self.assertEqual(state["state"], "fail")
         self.assertEqual(len(state["round_summaries"]), 3)
@@ -47,6 +50,32 @@ class OwnPrRounds(OwnPr):
         run.announce(state, self.run_dir, lambda _: None, self.cfg)
         self.assertIn("defect 3", self.notices[-1])
         self.assertIn("Next: split the task.", self.notices[-1])
+
+    def test_a_resume_of_a_review_that_ended_fail_spends_no_extra_round(self):
+        # ended after three with one finding left, as a review did before it could go on
+        self.test_three_fails_end_with_the_last_findings()
+        saved = record.read_state(self.run_dir)
+        saved.update(state="queued", pid=999999991, recovery_pending=True,
+                     policy={**saved["policy"], "extra_rounds": 2})
+        record.save_state(self.run_dir, saved)
+        with self.assertRaisesRegex(config.Error, "3 review rounds spent on PR #7 across 1 run"):
+            self.review(["FAIL", "FAIL", "FAIL", "PASS"])
+        self.assertEqual((len(self.prompts), len(self.fixes)), (3, 2))
+
+    def test_an_extra_round_cut_off_before_its_review_is_reviewed_on_its_resume(self):
+        def dies_in_round_four(*_args, **_kw):
+            if record.read_state(self.run_dir).get("own_pr_round_pending") == 4:
+                raise InterruptedError("the process died before the fourth review")
+            return {}
+
+        with patch.object(run, "collect_usage", side_effect=dies_in_round_four), \
+                self.assertRaises(InterruptedError):
+            self.review(["FAIL", "FAIL", "FAIL", "PASS"])
+        self.assertNotIn("own_pr_wait", record.read_state(self.run_dir))
+        state = self.review(["FAIL", "FAIL", "FAIL", "PASS"])
+        self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL"] * 3 + ["PASS"])
+        self.assertTrue(state["merged"])
+        self.assertEqual(self.merges[0][-1], self.heads[3])
 
     def test_a_pr_closed_during_the_fix_ends_the_run(self):
         fix = self.fix

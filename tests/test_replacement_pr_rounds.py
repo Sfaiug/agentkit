@@ -79,8 +79,8 @@ class ReplacementRounds(Sandbox):
         again = self.head("again", theirs[:30] + [f"def g{n}(): return {n}" for n in range(5)])
         self.assertEqual(self.refusal(again),
                          f"PR #9 re-adds 30 of its 35 lines holding a letter or digit from {FAILED}, whose "
-                         "review failed after 3 rounds; a replacement inherits them: split it into parts "
-                         "under 21 lines, or redesign it")
+                         "review failed; 3 review rounds were spent on it, and a replacement inherits "
+                         "them: split it into parts under 21 lines, or redesign it")
         split = self.head("split", theirs[:15])                      # under half its size: a real split
         self.assertIsNone(self.refusal(split))
         redesign = self.head("redesign", [f"def h{n}(): return {n}" for n in range(60)] + theirs[:10])
@@ -88,6 +88,11 @@ class ReplacementRounds(Sandbox):
         # a name Git quotes in the patch is still read
         quoted = self.head("quoted", theirs, into='feature".py')
         self.assertIn("re-adds 40 of its 40 lines", self.refusal(quoted))
+
+    def test_the_refusal_names_the_rounds_spent_on_the_failed_one_its_extra_ones_too(self):
+        theirs = [f"def f{n}(): return {n}" for n in range(40)]
+        self.failed_review("20260101-0900-review-pr-widget-7", self.head("failed", theirs), rounds=5)
+        self.assertIn("5 review rounds were spent on it", self.refusal(self.head("again", theirs)))
 
     def test_shares_and_sizes_count_the_lines_a_reviewer_reads(self):
         # blank lines count in both sizes, as the size ceiling counts them, and are never shared

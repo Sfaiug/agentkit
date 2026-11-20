@@ -42,7 +42,7 @@ from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, replace_reviewer, resume_models, reviewer_order, run_workers, same_model, started_round)
 from .transitions import (change_budget, change_on, replacement_refusal,
-    change_reviewed, delivery, drop_error_retry, failed_at_budget, failed_in_integration,
+    change_reviewed, delivery, drop_error_retry, extra_round, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, leaves_line, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
     queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
@@ -2928,7 +2928,8 @@ def settle_pr_round(lp, url, info):
     # An obsolete verdict still supplies the next round's findings. The push wait
     # observes the moved head or closure immediately, including after a post retry.
     state.pop("waiting_on", None)        # whatever this round settled to, it is out of the line
-    if is_own and (verdict == "FAIL" or not posted) and lp.rnd < lp.rounds:
+    if is_own and (verdict == "FAIL" or not posted) and (lp.rnd < lp.rounds
+                                                         or extra_round(state, lp.rnd + 1)):
         state.update(state="running", finished_at=None, own_pr_wait=head)
         state.pop("recovery_pending", None)
     else:
@@ -2945,8 +2946,13 @@ def settle_pr_round(lp, url, info):
 
 def own_pr_budget(url, run_dir, own=0):
     """`round_budget` for a seat's own pull request, `own` the rounds this run spent on it:
-    the one place its arguments are read."""
-    budget = run_record.policy_of(run_record.read_state(run_dir) or {})["review_rounds"]
+    the one place its arguments are read.  A round past them that its record opens
+    (`extra_round`) is left while the run goes on from the FAIL before it, waiting for its
+    push (`own_pr_wait`) or reviewing it (`own_pr_round_pending`): a review that ended has none."""
+    state = run_record.read_state(run_dir) or {}
+    if (state.get("own_pr_wait") or state.get("own_pr_round_pending")) and extra_round(state, own + 1):
+        return 1, None
+    budget = run_record.policy_of(state)["review_rounds"]
     return round_budget(budget, budget, pr=url, exclude=run_dir,
                         what=f"PR #{PR_PARTS.match(url).group(3)}", own=own)
 

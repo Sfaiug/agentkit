@@ -34,8 +34,9 @@ FIND = {"final": "Found one.", "hand_in": [
 
 def refusal(number, shared, written):
     return (f"PR #{number} re-adds {shared} of its {written} lines holding a letter or digit "
-            f"from https://github.com/acme/widgets/pull/1, whose review failed after 3 rounds; "
-            f"a replacement inherits them: split it into parts under 21 lines, or redesign it")
+            f"from https://github.com/acme/widgets/pull/1, whose review failed; 3 review rounds were "
+            f"spent on it, and a replacement inherits them: split it into parts under 21 lines, or "
+            f"redesign it")
 
 
 class ReplacementRounds(unittest.TestCase):
@@ -45,7 +46,8 @@ class ReplacementRounds(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         cls.rig = Rig(cls.home, "widgets")
         cls.gh = GitHub(cls.home)
-        akconfig.write(cls.home, ["opus", "astra"])
+        # no extra round for the one finding the failed one's third review leaves
+        akconfig.write(cls.home, ["opus", "astra"], settings={"extra_rounds": 0})
         cls.fakes = fakeadapter.install(cls.home, claude="pass", codex=FIND)
         Seat(cls.home, "acme", cwd=cls.rig.path, alive=False,
              record={"workers": ["opus", "astra"]}, planned=True)

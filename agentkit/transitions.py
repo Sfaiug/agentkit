@@ -389,8 +389,8 @@ REPLACED_WITHIN = 14 * 86400    # a pull request that failed at its budget this 
 def budget_failed_reviews(repo, budget, exclude=None):
     """The pull requests of that repository whose review spent the budget, counted
     across their runs as `rounds_spent_elsewhere` counts them, none of which merged, as
-    (url, `size_base`, head) of the runs of them that ended `fail` within `REPLACED_WITHIN`,
-    each once: what a replacement inherits rounds from.  The run itself (`exclude`) counts for
+    (url, `size_base`, head, the rounds spent on it) of the runs of them that ended `fail` within
+    `REPLACED_WITHIN`, each once: what a replacement inherits rounds from.  The run itself (`exclude`) counts for
     nothing.  One pass over the records: a launch reads thousands of them."""
     found, merged, spent = {}, set(), Counter()
     for run_dir in run_record.run_dirs():
@@ -410,7 +410,7 @@ def budget_failed_reviews(repo, budget, exclude=None):
             key = pr_key(state["review_pr"])
             found.setdefault((key, size_base(state), state["head_sha"]),
                              (state["review_pr"], size_base(state), state["head_sha"]))
-    return [failed for (key, _, _), failed in found.items()
+    return [(*failed, spent[key]) for (key, _, _), failed in found.items()
             if key not in merged and spent[key] >= budget]
 
 
@@ -429,19 +429,19 @@ def replacement_refusal(repo, base, head, number, counted, budget, exclude=None)
     if not mine:
         return None
     written, worst = sum(mine.values()), None
-    for url, their_base, their_head in budget_failed_reviews(repo, budget, exclude):
+    for url, their_base, their_head, spent in budget_failed_reviews(repo, budget, exclude):
         if not all(gitcall.git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}", check=False)
                    for sha in (their_base, their_head)):
             continue
         theirs = reviewed_lines(repo, their_base, their_head)[0]
         shared, size = sum((mine & theirs).values()), sum(theirs.values())
         if shared * 2 > written and counted * 2 > size and (worst is None or shared > worst[1]):
-            worst = (url, shared, size)
+            worst = (url, shared, size, spent)
     if worst is None:
         return None
-    url, shared, size = worst
+    url, shared, size, spent = worst
     return (f"PR #{number} re-adds {shared} of its {written} lines holding a letter or digit from {url}, "
-            f"whose review failed after {budget} rounds; a replacement inherits them: "
+            f"whose review failed; {spent} review rounds were spent on it, and a replacement inherits them: "
             f"split it into parts under {size // 2 + 1} lines, or redesign it")
 
 
@@ -1488,16 +1488,16 @@ def allowed_rounds(lp):
 
 
 def extra_round(state, rnd):
-    """Whether a task's run may spend its round `rnd` past its `review_rounds`, read from its
-    own record alone: before `rnd` it recorded at least `review_rounds` rounds itself and fewer
-    than `review_rounds + extra_rounds`, the last of them leaving exactly one blocking finding,
-    the one count where another round costs less per merged change than starting over
-    (`config.POLICY`).  A run that recorded fewer -- a relaunch, a `--rounds` below the budget,
-    a change two runs shared -- ends as ever; a review of a pull request, a seat's own too, has
-    none."""
+    """Whether a task's run, or a review of a seat's own pull request, may spend its round
+    `rnd` past its `review_rounds`, read from its own record alone: before `rnd` it recorded at
+    least `review_rounds` rounds itself and fewer than `review_rounds + extra_rounds`, the last
+    of them leaving exactly one blocking finding, the one count where another round costs less
+    per merged change than starting over (`config.POLICY`).  A run that recorded fewer -- a
+    relaunch, a `--rounds` below the budget, a change two runs shared -- ends as ever; a review
+    of somebody else's pull request has none."""
     numbers = run_record.policy_of(state)
     before = (state.get("round_summaries") or [])[:rnd - 1]
-    return (not state.get("review_pr")
+    return ((state.get("own_pr") or not state.get("review_pr"))
             and numbers["review_rounds"] <= len(before) < numbers["review_rounds"] + numbers["extra_rounds"]
             and [row.get("finding_count") for row in before[-1:]] == [1])
 
