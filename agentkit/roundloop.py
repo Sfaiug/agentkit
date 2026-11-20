@@ -1327,10 +1327,10 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     rd = lp.dir("reviewer").parent
     name = f"reviewer-{lp.reviewer}" if handed else turns.open_review(rd)[0] or "reviewer"
 
-    def ready_reviewers():
+    def ready_reviewers(writers=None):
         """The run's marked reviewers with room, as the meters read now, in pick order beside
         everyone who wrote part of the head (`reviewer_order`); only those that already failed
-        this round stay out."""
+        this round stay out.  `writers` narrow the pick as `ready_order`'s do."""
         failed = lp.state["review_pending"].get("failed", [])
         try:
             providers = staffing.collect_usage(lp.cfg)
@@ -1338,7 +1338,8 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
             providers = {}      # meters nobody could read withhold no reviewer from a dead review
             lp.log(f"WARN could not read the meters: {exc}")
         ready = staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state),
-                                     lp.log, role="reviewer", repo=lp.state.get("repo"))
+                                     lp.log, role="reviewer", repo=lp.state.get("repo"),
+                                     writers=writers)
         return [n for n in staffing.reviewer_order(lp.cfg, staffing.head_writers(lp.state), ready)
                 if n not in failed]
 
@@ -1362,11 +1363,13 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
 
         The next one is read afresh from the run's marked reviewers and the meters as they
         read now, so a reviewer passed over while its meter was spent is picked once it has
-        refilled; only those that already failed this round stay out of it."""
+        refilled; only those that already failed this round stay out of it.  Picked beside the
+        run's writers (`review_writers`), it waits for a marked reviewer on another provider
+        rather than handing the review to a writer's."""
         failed = lp.state["review_pending"].setdefault("failed", [])
         if lp.reviewer not in failed:
             failed.append(lp.reviewer)
-        offered = ready_reviewers()
+        offered = ready_reviewers(staffing.review_writers(lp.state))
         if not allow_self:
             # A flake waits unless another model can review: only a reviewer that cannot
             # come back settles for the executor's own model.
