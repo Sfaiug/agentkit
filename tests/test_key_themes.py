@@ -1,4 +1,4 @@
-"""ak draws every colour as a role of the owner's two themes, white and black, and no other.
+"""ak draws every colour as a role of its one look's two themes, white and black, and no other.
 
 The owner (12 Nov 2026): white where the terminal's background is light, black everywhere else,
 a seat's bar among them.  `working` and the highlight's `›` are the accent, `needs you` a
@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.aklooks import ATTRIBUTES, look, looks, plain
 from fixtures.akseat import Seat
-from fixtures.akterm import SERVER, Terminal
+from fixtures.akterm import SERVER, Terminal, forget
 
 # role: its colour in the white theme, and in the black
 THEMES = {
@@ -96,6 +96,8 @@ class Themes(unittest.TestCase):
         """The ak screen on a true-colour terminal of that background, or of none, once it shows
         every seat's word, its motion at OPENED."""
         option = ["window-style", f"bg={background}"] if background else ["-u", "window-style"]
+        if not background:
+            forget(self.home)       # nor any kept
         done = self.home.tmux("set-option", "-g", *option, server=SERVER)
         self.assertEqual(done.code, 0, done.err)
         self.at(OPENED)
@@ -177,6 +179,7 @@ class Themes(unittest.TestCase):
                         self.at(OPENED + 10)
 
     def test_a_seats_bar_opens_with_its_state_on_accent_on_its_role(self):
+        forget(self.home)
         for seat, word, name in (("acme", "● working", "accent"),
                                  ("beta", "! needs you", "warning")):
             with self.subTest(word):

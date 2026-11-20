@@ -7,6 +7,7 @@ import shutil
 import signal as signals     # `signal` is an effort's bars, below
 import subprocess
 import sys
+import tempfile
 import termios
 import threading
 import time
@@ -16,7 +17,7 @@ from functools import lru_cache, wraps
 from itertools import groupby
 
 from . import config, guard, motion, warm
-from .themes import BLACK, ROLES, WHITE, named
+from .themes import BLACK, KEPT, ROLES, WHITE, fits
 
 # glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
@@ -49,7 +50,7 @@ STATE_STYLES = {
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
-THEME = BLACK      # the theme the terminal fits: white where `sense` finds the background light
+THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
@@ -80,38 +81,36 @@ def style_of(word):
     return STATE_STYLES.get(word) or STATE_STYLES.get(str(word).split(" ")[0])
 
 
-_CHOSEN = [None, None]   # config.toml's stat as `chosen` last read it, and the theme it named
+_KEPT = [None, BLACK]    # the kept answer's stat as `kept` last read it, and the theme it fits
 
 
-def chosen():
-    """The theme config.toml names (themes.named) as the file is now: every draw asks, so nothing
-    that draws for hours, a seat's bar or the warm popup server, keeps one chosen before.  Read
+def kept():
+    """The theme a menu's kept answer fits (themes.fits) as the file is now: every draw asks, so
+    nothing that draws for hours, a seat's bar or the warm popup server, keeps an old one.  Read
     again only once the file moved."""
-    path = os.path.join(config.HOME, config.CONFIG_NAME)    # asked for every colour: no Path made
+    path = os.path.join(config.STATE, KEPT)     # asked for every colour: no Path made
     try:
         seen = os.stat(path)
     except OSError:
-        return None
+        return BLACK
     stamp = (path, seen.st_ino, seen.st_mtime_ns, seen.st_size)
-    if _CHOSEN[0] != stamp:
-        _CHOSEN[:] = stamp, named(path)
-    return _CHOSEN[1]
+    if _KEPT[0] != stamp:
+        _KEPT[:] = stamp, fits(path)
+    return _KEPT[1]
 
 
 def theme():
-    """The theme in force as a screen draws: the one config.toml names (`chosen`), else the one
-    the terminal's background fits (`THEME`)."""
-    picked = chosen()
-    return THEME if picked is None else picked
+    """The theme in force as a screen draws: the terminal's answer's (`THEME`), else `kept`."""
+    return kept() if THEME is None else THEME
 
 
 def colour(word, tmux=False):
     """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
-    force; with `tmux`, in a tmux format (a seat's bar, a popup's border), where config.toml names
-    none black's whichever process writes it: tmux shows it on a terminal ak never asks, and the
+    force; with `tmux`, in a tmux format (a seat's bar, a popup's border), in the kept one
+    whichever process writes it: tmux shows it on a terminal ak never asks, and the
     menu's writes and the tick's never disagree."""
-    role, picked = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2], chosen()
-    return ROLES[role][picked if picked is not None else BLACK if tmux else THEME]
+    role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
+    return ROLES[role][kept() if tmux else theme()]
 
 
 def glyph(word):
@@ -260,10 +259,10 @@ class _Screen:
         return len(text)
 
 
-def _painted(text, theme=None):
-    """`text` on the background of `theme` (themes.WHITE or BLACK), else of the theme in force,
-    in its text where it sets no colour (`_Screen`)."""
-    back, fore = (ink(colour(role) if theme is None else ROLES[role][theme], ground)
+def _painted(text):
+    """`text` on the background of the theme in force, in its text where it sets no colour
+    (`_Screen`)."""
+    back, fore = (ink(colour(role), ground)
                   for role, ground in (("background", "48"), ("text", "38")))
     again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
 
@@ -1065,8 +1064,8 @@ def sense():
     True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
     (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in -- as the popup was
     handed them (FEATURES_ENV), else as tmux says, which takes a process.  And whether the
-    background is light, from the terminal's answer to OSC 11 within a second; no
-    answer by then is a dark one.  Its attributes are asked for after it (DA1), which every
+    background is light, from the terminal's answer to OSC 11 within a second, kept (`_keep`); no
+    answer by then is the kept one.  Its attributes are asked for after it (DA1), which every
     terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
     is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
     answers are read here and never as keys: anything typed while they were awaited is kept for
@@ -1100,10 +1099,31 @@ def sense():
     _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
     colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
                       found.group(1)) if found else None
-    red, green, blue = ([int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
-                        if colour else (0, 0, 0))
-    THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK   # its luma
+    THEME = None
+    if colour:
+        red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
+        THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK  # luma
+        _keep(THEME)
     _last_frame()
+
+
+def _keep(theme):
+    """The theme the terminal's answer fits, kept for what cannot ask (`kept`): moved in whole
+    from a file of its own, so menus keeping theirs at once each leave a whole one."""
+    part = None
+    try:
+        for place in (os.path.dirname(config.STATE), config.STATE):   # owner-only: ensure_dirs
+            os.makedirs(place, mode=0o700, exist_ok=True)
+        handle, part = tempfile.mkstemp(dir=config.STATE, prefix=f".{KEPT}-")     # 0600
+        with os.fdopen(handle, "w", encoding="utf-8") as file:
+            file.write("light\n" if theme == WHITE else "dark\n")
+        os.replace(part, os.path.join(config.STATE, KEPT))
+    except OSError:          # nothing kept: what cannot ask stays in the one kept before
+        if part:
+            try:
+                os.unlink(part)
+            except OSError:
+                pass
 
 
 def _byte(fd, wait=None):
@@ -1570,19 +1590,6 @@ def _cleared(line):
     and a clear there erases it -- the clock's last digit on a terminal no wider than the layout."""
     return line if cells(line) and not (_PAD + cells(line)) % (width() + 2 * _PAD) \
         else f"{line}\033[K"
-
-
-def rows(lines, theme=None):
-    """`lines`, a screen top down, as each row it reaches is written whole over what is up, its
-    tail cleared: blank under the lines, and the padding under them too, which a row past the
-    last is moved onto, as the padding over them goes with the first (`_Screen`); in `theme`
-    where one is given, whichever is in force as they go out.  What a theme chosen comes down
-    (`motion.Clock.rise`)."""
-    size, out = height() + _PAD, []
-    for row, line in enumerate([*lines, *[""] * size][:size], 1):
-        text = f"\033[{row};1H{_cleared(line)}"
-        out.append(text if theme is None else _painted(text, theme))
-    return out
 
 
 def unbroken(text):

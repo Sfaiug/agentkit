@@ -38,6 +38,7 @@ type Keyboard struct {
 	taken   bool
 	screen  bool
 	sensed  Screen
+	fits    bool   // the terminal said its background, which sensed's theme fits; else the kept one
 	keyed   []byte // what was read past a key, or typed while Sense waited
 	unread  []Key  // keys a wait read and kept for the screen after it (Unread)
 	woken   [2]*os.File
@@ -90,8 +91,9 @@ func (k *Keyboard) give(modes string) {
 // Sense asks what the terminal is, once a start, on a taken keyboard: whether it takes true colour
 // though COLORTERM does not say (what AGENTKIT_TERMFEATURES says, else inside tmux what tmux says,
 // which takes a process), and whether its background is light, by its answer to OSC 11 within a
-// second, as a busy host can take most of one to pass it on.  DA1, which every terminal answers and
-// in turn, ends the wait with the answers.  Anything typed meanwhile is kept for ReadKey.
+// second, as a busy host can take most of one to pass it on, the answer kept for what cannot ask
+// (keep).  DA1, which every terminal answers and in turn, ends the wait with the answers.  Anything
+// typed meanwhile is kept for ReadKey.
 func (k *Keyboard) Sense() {
 	features, set := os.LookupEnv("AGENTKIT_TERMFEATURES")
 	if !set && os.Getenv("TMUX") != "" { // asked of the client this runs under, $TMUX kept
@@ -111,10 +113,14 @@ func (k *Keyboard) Sense() {
 		heard = append(heard, each)
 	}
 	said := backgroundSaid.FindSubmatchIndex(heard)
-	in := black
+	in, light := black, false
+	k.fits = false
 	if said != nil {
-		if isLight(string(heard[said[2]:said[3]])) {
+		if light, k.fits = isLight(string(heard[said[2]:said[3]])); light {
 			in = white
+		}
+		if k.fits {
+			keep(in)
 		}
 		heard = append(heard[:said[0]:said[0]], heard[said[1]:]...)
 	}
@@ -125,10 +131,14 @@ func (k *Keyboard) Sense() {
 	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in}
 }
 
-// Screen is what Sense found, at the size the terminal is now, in the theme in force now.
+// Screen is what Sense found, at the size the terminal is now, in the theme its background fits,
+// or where it did not say, the one kept now: another menu may keep one meanwhile.
 func (k *Keyboard) Screen() Screen {
 	screen := k.sensed
-	screen.width, screen.height, screen.theme = width(os.Stdout), height(os.Stdout), inForce(screen.theme)
+	screen.width, screen.height = width(os.Stdout), height(os.Stdout)
+	if !k.fits {
+		screen.theme = kept()
+	}
 	k.mu.Lock()
 	k.size = [2]int{screen.width, screen.height}
 	k.mu.Unlock()

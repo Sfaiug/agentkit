@@ -49,21 +49,21 @@ func colourOf(word string, in theme) string {
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
 
-// isLight is whether an answer's luma is past half way.
-func isLight(answer string) bool {
+// isLight is whether an answer's luma is past half way, and whether it names a colour to tell.
+func isLight(answer string) (light, read bool) {
 	found := backgroundRGB.FindStringSubmatch(answer)
 	if found == nil {
-		return false
+		return false, false
 	}
 	var channel [3]float64
 	for i, part := range found[1:] {
 		value, err := strconv.ParseUint(part, 16, 64)
 		if err != nil {
-			return false
+			return false, false
 		}
 		channel[i] = float64(value) / (math.Pow(16, float64(len(part))) - 1)
 	}
-	return 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5
+	return 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5, true
 }
 
 // trueColour is whether a tmux client's features say it takes true colour, as tmux and ssh both
@@ -102,8 +102,9 @@ type Screen struct {
 	theme                theme
 }
 
+// For is out as a screen that never asks its terminal what it is: in the shades kept (kept).
 func For(out io.Writer) Screen {
-	return Screen{depth: depth(out, false), width: width(out), ascii: !utf8(), theme: inForce(black)}
+	return Screen{depth: depth(out, false), width: width(out), ascii: !utf8(), theme: kept()}
 }
 
 // TypedHere is whether a person is at this command's keyboard: agents run ak with no

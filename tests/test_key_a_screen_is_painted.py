@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import AK, REAL_TMUX, Home
 from fixtures.aklooks import ATTRIBUTES, look, looks, plain, settled
 from fixtures.akseat import Seat
-from fixtures.akterm import SERVER, Terminal
+from fixtures.akterm import SERVER, Terminal, forget
 
 DARK, LIGHT = "#203040", "#e8e4d8"     # terminals' own backgrounds, neither theme's
 # a theme's background, text and selection
@@ -136,6 +136,7 @@ class AScreenIsPainted(unittest.TestCase):
         self.assert_named(rows, WHITE)
 
     def test_a_screen_read_a_line_at_a_time_is_on_black(self):
+        forget(self.home)       # it cannot ask: in the theme kept, black where none is
         menu = self.open("-c", 'printf "\\033\\n" | "$0" --dry-run; exec sleep 86400', AK,
                          program="sh")
         menu.wait("esc leave", 60)

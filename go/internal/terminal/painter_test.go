@@ -27,8 +27,7 @@ func TestOnlyTheSpansThatMovedGoOut(t *testing.T) {
 	}
 }
 
-// A span that leaves a row no line is on leaves it blank, as the rows under the lines are: a theme
-// chosen coming down past the last line (motion.Clock.Turned).
+// A span that leaves a row no line is on leaves it blank, as the rows under the lines are.
 func TestARowPastTheLinesASpanLeftIsCleared(t *testing.T) {
 	var out strings.Builder
 	painter, screen := NewPainter(&out), Screen{width: 8, height: 4}

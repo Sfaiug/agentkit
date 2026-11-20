@@ -83,7 +83,7 @@ def review_rounds(test, home, heading, sentence=""):
     term.wait("esc leave")
     term.keys("c")
     term.wait("r recommended")
-    term.keys(*["j"] * 30, "k")     # Limits is over the last config row, Theme.
+    term.keys(*["j"] * 30)     # Limits is the last config row.
     term.wait("› Limits")
     term.keys("Enter")
     return said(term.wait(lambda screen: "› Review rounds" in screen

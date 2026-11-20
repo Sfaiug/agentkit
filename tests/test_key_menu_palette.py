@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.aklooks import colours, ink, look, settled
 from fixtures.akseat import Seat
-from fixtures.akterm import SERVER, Terminal
+from fixtures.akterm import SERVER, Terminal, forget
 
 DARK_ACCENT, DARK_NEEDS, DARK_MUTED = "38;2;77;163;255", "38;2;215;146;0", "38;2;172;180;189"
 LIGHT_ACCENT, LIGHT_NEEDS, LIGHT_MUTED = "38;2;0;103;198", "38;2;142;94;0", "38;2;83;89;98"
@@ -43,6 +43,8 @@ class Palette(unittest.TestCase):
     def menu(self, background=None, **env):
         """The menu's looks once it rests, on a terminal of that background or of none."""
         option = ["window-style", f"bg={background}"] if background else ["-u", "window-style"]
+        if not background:
+            forget(self.home)       # nor any kept
         done = self.home.tmux("set-option", "-g", *option, server=SERVER)
         self.assertEqual(done.code, 0, done.err)
         menu = Terminal(self.home, size=(100, 40), env=env)

@@ -312,7 +312,7 @@ class OneConfigScreen(unittest.TestCase):
         self.assertEqual(lines[3].split(), ["orch", "builds", "reviews"])
         self.assertEqual(marks(model(lines, "astra")), "○■■")   # its roles, off what is left
         self.assertEqual(marks(model(lines, "fable")), "○□□")
-        models = lines[:lines.index("  Models")]          # `Theme` under them marks a theme
+        models = lines[:lines.index("  Models")]
         self.assertFalse(any("●" in marks(line) for line in models), lines)
         said = " ".join(line.strip() for line in lines)
         self.assertNotIn("roles are not shown", said)

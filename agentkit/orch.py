@@ -96,7 +96,7 @@ FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, h
 CLIENT_ENV = "AGENTKIT_CLIENT"
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
 # opens over: `b` and `m`, the border and dim colours, are asked as the key is pressed (`roles`,
-# themes.py run bare), so the popup's border and the pane are in the theme config.toml names
+# themes.py run bare), so the popup's border and the pane are in the theme a menu kept last
 # then; the first popup over it keeps each style the pane has of its own, if it has one (`h`),
 # every one counts itself in, the pane draws in `m`, the popup is held until it is down, and the
 # last one down puts back exactly what the pane had.  Both styles go dim, because tmux draws

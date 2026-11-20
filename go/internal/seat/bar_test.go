@@ -24,7 +24,7 @@ func TestTheBarsFormatsAreStatusbarsOwn(t *testing.T) {
 
 func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
-	sandbox(t) // the theme in force is the home's
+	sandbox(t) // the shades kept are the home's: none, black's
 	screen := terminal.For(nil)
 	needs := " #[fg=#000000,bg=#d79200,bold] ! needs you #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]   "
 	done := " #[fg=#000000,bg=#33b65f] ✓ done #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]   "
@@ -68,7 +68,7 @@ func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 		if told[barKey] != "#[fg=#868d97]Ctrl-b m#[fg=#acb4bd]  menu #[default]" || told["set-titles-string"] != "acme · "+each.word {
 			t.Errorf("%s: key %q, title %q", each.word, told[barKey], told["set-titles-string"])
 		}
-		// on the theme's surface, and tmux's own selection and message line in the theme too
+		// on the shades' surface, and tmux's own selection and message line in them too
 		for option, want := range map[string]string{"status-style": "fg=#e2e8ef,bg=#111519",
 			"mode-style": "fg=#e2e8ef,bg=#08305d", "message-style": "fg=#e2e8ef,bg=#111519"} {
 			if told[option] != want {
@@ -87,7 +87,7 @@ func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 // squares alone; again with them cut to six, then to one and the count of the rest.
 func TestLineTwoDrawsTheTasksFirst(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
-	sandbox(t) // the theme in force is the home's
+	sandbox(t) // the shades kept are the home's: none, black's
 	var mine []ran
 	for _, task := range append([]Task{{Stage: 0, Moving: true}, {Stage: 1}}, slices.Repeat([]Task{{Stage: 2}}, 6)...) {
 		mine = append(mine, ran{view: &runView{task: &task}})
@@ -110,7 +110,7 @@ func TestLineTwoDrawsTheTasksFirst(t *testing.T) {
 }
 
 func TestTheRightEndCountsTheOtherSeatsThatNeedYou(t *testing.T) {
-	sandbox(t) // the theme in force is the home's
+	sandbox(t) // the shades kept are the home's: none, black's
 	hit := "#{?#{&&:#{e|>:#{e|-:#{client_width},#{mouse_x}},1},#{e|<=:#{e|-:#{client_width},#{mouse_x}},25}},$1,}"
 	one := []barRow{{id: "$1", name: "a", word: "needs you"}, {id: "$2", name: "b", word: "idle"}}
 	said, short, found := barOthers(one, "b")
