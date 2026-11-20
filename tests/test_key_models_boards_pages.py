@@ -1,5 +1,6 @@
 """`ak models --refresh` reads Artificial Analysis off its models list and the own page of each
-release that list hands: a row at an effort only a release's own page hands is rated, and a
+release any page it reads hands: a row at an effort only a release's own page hands is rated, a
+release first found on another's page is kept at every effort its own page hands, and a
 release's page without a record of that release leaves the board as it was held, its error
 beside it.
 
@@ -26,6 +27,10 @@ LISTED = [("acme-mid-5", "Acme Mid 5 (Max)", "acme-mid-5", 68, 0.79, 16.0),
 # what only a release's own page hands: Acme Mid 5 at xhigh, Bolt 3 at medium
 OWN = [("acme-mid-5-xhigh", "Acme Mid 5 (Xhigh)", "acme-mid-5", 67, 0.78, 14.0),
        ("bolt-3-medium", "Bolt 3 (Medium)", "bolt-3", 60, 0.70, 3.0)]
+# a release the list does not name, found on Bolt 3's page at high, its own page handing it at
+# high and medium
+FOUND = [("crux-2-high", "Crux 2 (High)", "crux-2", 55, 0.65, 2.0),
+         ("crux-2-medium", "Crux 2 (Medium)", "crux-2", 53, 0.63, 1.5)]
 
 
 def page(records):
@@ -47,11 +52,12 @@ def page(records):
 
 def site(bolt=True):
     """Each path's page: the list, a release each at its top effort, and each release's own,
-    every effort of it beside another release's record; `bolt` False, Bolt 3's page without one
-    of Bolt 3."""
+    every effort of it, the listed ones' beside another release's record; `bolt` False, Bolt 3's
+    page without one of Bolt 3."""
     return {"/models": page(LISTED),
             "/models/acme-mid-5": page([LISTED[0], OWN[0], LISTED[1]]),
-            "/models/bolt-3": page([LISTED[1], OWN[1]] if bolt else [LISTED[0]])}
+            "/models/bolt-3": page([LISTED[1], OWN[1], FOUND[0]] if bolt else [LISTED[0]]),
+            "/models/crux-2": page(FOUND)}
 
 
 class Site(http.server.ThreadingHTTPServer):
@@ -110,6 +116,12 @@ class ModelsBoardsPages(unittest.TestCase):
         rated = {(row["name"], row["effort"]): row["quality"]
                  for key in ("front", "choices", "others") for row in found["execute"][key]}
         self.assertIsInstance(rated.get(("Acme Mid 5", "xhigh")), (int, float))
+
+    def test_a_release_first_found_on_anothers_page_has_its_own_page_read_too(self):
+        _, _, board = self.refresh(site())
+        self.assertIsNone(board["error"])
+        self.assertEqual({row["effort"] for row in board["rows"]
+                          if row["release"]["slug"] == "crux-2"}, {"high", "medium"})
 
     def test_a_release_s_page_without_its_record_keeps_the_board_as_held(self):
         _, held, board = self.refresh(site(bolt=False))

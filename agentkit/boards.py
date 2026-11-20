@@ -1,7 +1,7 @@
 """The public boards ak rates models on (`quality`), each asked at most once a day and kept in
 `state/boards.json`.
 
-Artificial Analysis, its models list and each listed release's own page, no key: per model
+Artificial Analysis, its models list and the own page of each release they name, no key: per model
 and effort, every benchmark's score, index, price and cost those pages hand their scripts,
 which its free endpoint leaves out, and the record's identity (`IDENTITY`) for `catalog`.
 Arena, its leaderboard's Hugging Face dataset, no key: each board `quality` rates on at its
@@ -189,17 +189,20 @@ def artificial_analysis():
     """Artificial Analysis's rows, one per model and effort, every number its pages give as
     `aa.*` and its index's evaluations (`_evaluations`) beside the record's `IDENTITY`: one per
     slug of the records `/models` hands its scripts, a release each at its top effort, and those
-    each of their releases' own page hands, that release at every effort and others.  A page
-    that will not load, `/models` with no model's record, a release's page with none of that
-    release or a record weighing an evaluation `EVALUATIONS` lacks fails the whole read: the
-    board keeps what it last said, since one missing some models would look whole."""
+    each release's own page hands, that release at every effort and others, for every release a
+    page read names, each page once.  A page that will not load, `/models` with no model's
+    record, a release's page with none of that release or a record weighing an evaluation
+    `EVALUATIONS` lacks fails the whole read: the board keeps what it last said, since one
+    missing some models would look whole."""
     site, records = os.environ.get("AK_AA_URL", AA_SITE), {}
-    listed = _records(f"{site}/models", records)
-    if not listed:
+    found = _records(f"{site}/models", records)
+    if not found:
         raise ValueError(f"no model's record on {site}/models")
-    for release in listed:
-        if release not in _records(f"{site}/models/{release}", records):
+    for release in found:             # `found` grows as pages name releases not yet in it
+        named = _records(f"{site}/models/{release}", records)
+        if release not in named:
             raise ValueError(f"no record of {release} on {site}/models/{release}")
+        found += [other for other in named if other not in found]
     rows = []
     for record in records.values():
         name, effort = split_effort(str(record["name"]))
