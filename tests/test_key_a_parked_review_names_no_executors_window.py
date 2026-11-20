@@ -16,12 +16,10 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import fakeadapter, taskfile
-from fixtures.akbin import boxable
 from test_key_a_parked_review_resumes_onto_another_provider import GAP, SHORTAGE, at
 from test_key_writer_reviews_only_without_room import meter, record, staged, until_true
 
 
-@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class ParkedReviewNamesNoExecutorsWindow(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
