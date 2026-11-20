@@ -72,6 +72,8 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         stack = ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(patch.object(orch, "user_manager", return_value=False))
+        # a host that may push checks main, whatever the runner's own gh would answer
+        stack.enter_context(patch.object(update, "may_push", return_value=True))
         stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",

@@ -44,6 +44,8 @@ class LiveCompareOnlyWhenItDecides(unittest.TestCase):
                                               self.root / "agentkit")
         stack.enter_context(patch.object(config, "REPO", self.clone))
         stack.enter_context(patch.object(orch, "start_in_slice", side_effect=self.start))
+        # a host that may push checks main, whatever the runner's own gh would answer
+        stack.enter_context(patch.object(update, "may_push", return_value=True))
         stack.enter_context(patch.object(watch, "after_merge_deliver", side_effect=self.deliver))
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.origin)],
                        check=True, timeout=60)

@@ -64,6 +64,7 @@ UNSETTLED = 3  # a home's answer to `follow` while its last move of ak is not fi
 SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began, ended]
 SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
 LIVE = "live-checks"          # under config.STATE: one directory per check, `<commit>-<started>`
+MAY_PUSH = "agentkit-may-push"  # under config.STATE: GitHub's last answer, `true` or `false`
 HARNESS_GATES = "harness-gates"  # under config.STATE: one failure episode per harness
 FRESH_FAULTS = "fresh-gate-faults"  # under config.STATE: the fresh-install gate's standing faults
 # A check of agentkit's tests/live.sh, detached: a throwaway worktree of exactly the commit,
@@ -1141,6 +1142,28 @@ def owed_live(now):
     return min(since.items(), key=lambda found: found[1], default=None)
 
 
+def may_push():
+    """Asks GitHub, keeps its answer; True for a host it never answered."""
+    kept = config.STATE / MAY_PUSH
+    try:
+        code, said = gitcall.gh(agentkit_dir(), "api", "repos/{owner}/{repo}", "--jq",
+                                ".permissions.push", timeout=FETCH_CAP, once=True)
+    except OSError:     # no gh to ask is no answer: the tick goes on as for one GitHub ignored
+        code, said = None, ""
+    try:
+        last = kept.read_text().strip()
+    except (OSError, UnicodeError):
+        last = ""
+    if code == 0 and said in ("true", "false"):
+        if said != last:
+            try:
+                orch.replace_file(kept, f"{said}\n".encode())
+            except OSError:
+                pass
+        last = said
+    return last != "false"
+
+
 def live_tick(log, now, fetched):
     """The tick's half of tests/live.sh: it starts the checks and ends them at their cap.
 
@@ -1161,9 +1184,18 @@ def live_tick(log, now, fetched):
     holding the move. The comparison stays with the tip result in `baseline`.
     Offline, the tick decides on the origin/main it fetched last, but no check starts: origin
     may have moved on from it since; nor does one a login would not last (`_waits_for_login`).
+    A host GitHub last told may not push (`may_push`) reads origin's `live` for origin/main
+    throughout and checks with no model turn: only a host that may push moves `live`
+    (`go_live`), so it takes what passed where the turns were paid.
     """
     from . import watch     # here, not at the top: watch imports this module
-    tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1]
+    pushes = may_push()
+    if not pushes:
+        fetched = fetched and not _git("fetch", "--quiet", "origin",
+                                       "+refs/heads/live:refs/remotes/origin/live",
+                                       timeout=FETCH_CAP)[0]
+    tip = _git("rev-parse", "--verify", "--quiet",
+               "origin/main" if pushes else "refs/remotes/origin/live^{commit}")[1]
     head = _git("rev-parse", "HEAD")[1]
     had, running, pruned, done = {}, False, False, []
     for started, commit, check in live_checks():
@@ -1262,6 +1294,7 @@ def live_tick(log, now, fetched):
          str(int(now) + LIVE_CAP), str(worker.MARK_KILL_GRACE), str(config.TMP / MOVING)],
         f"agentkit-live-{check.name}",
         {**config.child_env(), **PINS, "AGENTKIT_ACCEPTANCE_REQUIRED": "1",
+         **({} if pushes else {"AK_LIVE_NO_MODEL_CALLS": "1"}),
          worker.RUN_MARKER: str(check)}, os.devnull, log, target_slice=orch.slice_name())
 
 
