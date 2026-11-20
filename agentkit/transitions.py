@@ -1495,15 +1495,15 @@ def extra_round(state, rnd):
     """Whether a task's run, or a review of a seat's own pull request, may spend its round
     `rnd` past its `review_rounds`, read from its own record alone: before `rnd` it recorded at
     least `review_rounds` rounds itself and fewer than `review_rounds + extra_rounds`, the last
-    of them leaving exactly one blocking finding, the one count where another round costs less
-    per merged change than starting over (`config.POLICY`).  A run that recorded fewer -- a
+    of them leaving one or two blocking findings, the counts where another round costs less per
+    merged change than starting over (`config.POLICY`).  A run that recorded fewer -- a
     relaunch, a `--rounds` below the budget, a change two runs shared -- ends as ever; a review
     of somebody else's pull request has none."""
     numbers = run_record.policy_of(state)
     before = (state.get("round_summaries") or [])[:rnd - 1]
     return ((state.get("own_pr") or not state.get("review_pr"))
             and numbers["review_rounds"] <= len(before) < numbers["review_rounds"] + numbers["extra_rounds"]
-            and [row.get("finding_count") for row in before[-1:]] == [1])
+            and [row.get("finding_count") for row in before[-1:]] in ([1], [2]))
 
 
 def round_allowed(lp):

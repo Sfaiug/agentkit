@@ -1,9 +1,10 @@
 """A run that spent its review rounds with one blocking finding left goes on, `extra_rounds` more.
 
-At the end of its `review_rounds` (three), a task's run whose last review left exactly one
-blocking finding goes on to a fixer round and a review as the rounds before did, and so does each
-extra round that ends the same way, `extra_rounds` (two) of them at most.  With two findings left,
-or `extra_rounds = 0`, the run ends FAIL after three, as it always did.  Other runs of the change
+At the end of its `review_rounds` (three), a task's run whose last review left one blocking
+finding goes on to a fixer round and a review as the rounds before did, and so does each
+extra round that ends the same way, `extra_rounds` (two) of them at most; two go on as one does
+(tests/test_key_two_findings_left_get_extra_rounds.py).  With three findings left, or
+`extra_rounds = 0`, the run ends FAIL after three, as it always did.  Other runs of the change
 count the rounds it spent: a relaunch from the branch of a run that spent five is refused, and
 so is its resume, naming the five.  A fourth round whose reviewer never answered is finished
 by the run's resume.  Black-box: the program `AK_BIN` names runs from outside through
@@ -30,7 +31,8 @@ def finding(path):
 
 
 ONE = {"final": "Found one.", "hand_in": [finding("retry.txt"), ["done"]]}
-TWO = {"final": "Found two.", "hand_in": [finding("retry.txt"), finding("other.txt"), ["done"]]}
+THREE = {"final": "Found three.", "hand_in": [finding("retry.txt"), finding("other.txt"),
+                                             finding("third.txt"), ["done"]]}
 # words but no verdict: the reviewer never answers, asked once more or not
 SILENT = {"final": "Looks fine."}
 WORK = {"write": {"retry.txt": "wrong\n"}, "commit": "add retry.txt",
@@ -38,8 +40,9 @@ WORK = {"write": {"retry.txt": "wrong\n"}, "commit": "add retry.txt",
 # a fixer that fixes nothing: its done waits on the finding's proof, so it disputes the finding
 DISPUTE = {"final": "Disputed.", "hand_in": [
     ["dispute", "retry.txt:1", "not a defect", "--run", "true"], ["done"]]}
-# ... and one that adds a line of its own, which the next review's second finding is on
-DISPUTE_ADDING = {**DISPUTE, "write": {"other.txt": "wrong\n"}, "commit": "add other.txt"}
+# ... and one that adds lines of its own, which the next review's further findings are on
+DISPUTE_ADDING = {**DISPUTE, "write": {"other.txt": "wrong\n", "third.txt": "wrong\n"},
+                  "commit": "add other.txt and third.txt"}
 FIX = {"write": {"retry.txt": "ready\n"}, "commit": "fix retry.txt",
        "final": "## Summary\nfixed retry.txt", "hand_in": [["done"]]}
 
@@ -85,14 +88,14 @@ class OneLeftAfterThree(unittest.TestCase):
                          ["executor", "fixer", "fixer", "fixer"])
 
 
-class TwoLeftAfterThree(unittest.TestCase):
+class ThreeLeftAfterThree(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        run(cls, [WORK, DISPUTE, DISPUTE_ADDING], [ONE, ONE, TWO, "pass"], None, "--no-merge")
+        run(cls, [WORK, DISPUTE, DISPUTE_ADDING], [ONE, ONE, THREE, "pass"], None, "--no-merge")
 
     def test_the_run_ends_fail_after_three(self):
         self.assertEqual(self.done.code, 1, self.done.out + self.done.err)
-        self.assertEqual(rounds(self.state), [(1, "FAIL", 1), (2, "FAIL", 1), (3, "FAIL", 2)])
+        self.assertEqual(rounds(self.state), [(1, "FAIL", 1), (2, "FAIL", 1), (3, "FAIL", 3)])
         self.assertEqual((self.state["state"], self.fakes["codex"].n), ("fail", 3))
 
 

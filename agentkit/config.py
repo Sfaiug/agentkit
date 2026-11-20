@@ -110,20 +110,23 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on one before the one
 # Added lines only, generated files and unchanged moves aside (`transitions.diff_lines`,
 # `transitions.carried_lines`): past either limit, write a smaller task.
 # Owner, 18 Nov 2026: ak "should produce quality, but should do this as efficient as possible",
-# and the extra rounds "should also be editable in the config limits section".  In the 14 days
-# to 18 Nov a run that failed at its rounds was in practice thrown away (4 of 339 branches taken
-# up again).  Every round passed about as often (50%, 53%, 47%); the blocking findings the last
-# review left told the next: it passed 68% after round 1 and 59% after round 2 with one left,
-# 46% and 31% with two, 22% and 11% with three or more.  213 of the 353 runs that failed after
-# three rounds had one left, and only with one (`transitions.extra_round`) does another round,
-# about 4.8 M tokens, cost less per merged change than starting over, about 10 M.
+# and the extra rounds "should also be editable in the config limits section".
+# Owner, 20 Nov 2026: yes to two or fewer findings left (`transitions.extra_round`).  A failed
+# run costs far more than the 10 M tokens a restart was priced at: on plan lines whose first
+# task run failed, delivering the change afterwards took 27 M tokens more and happened for 70%
+# of them.  The reviewer changed on 17-18 Nov; on the 339 task runs it reviewed 18-20 Nov, all
+# rounds pooled, the next round after one finding left merged 53% and left one or two 43%;
+# after two, 16% and 65%; after three, 18% and 56%; after four or more, 3% and 26%.  Played
+# forward, extra rounds with exactly one left merge 56% of runs at 31.3 M tokens per merged
+# change, with one or two 63% at 30.1 M; on the 2,639 runs of the reviewer before (30 Oct-17
+# Nov), 89.7% at 17.1 M against 92.5% at 16.6 M.  Three left gains too little to tell.
 POLICY = {
     "review_rounds": (3, 0, "the review rounds a change has before it goes back to its orchestrator "
                      "to split or re-scope"),
     "executor_lines": (300, 0, "the most added lines a first review reads"),
     "orchestrator_lines": (50, 0, "the most added lines an orchestrator builds"),
     "extra_rounds": (2, 0, "the further review rounds a change has while its last review left "
-                    "exactly one blocking finding"),
+                    "one or two blocking findings"),
 }
 POLICY_RENAMES = {"rounds": "review_rounds", "review_lines": "executor_lines",
                   "seat_lines": "orchestrator_lines"}

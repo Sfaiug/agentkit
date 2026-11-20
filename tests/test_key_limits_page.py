@@ -28,9 +28,9 @@ from fixtures.akterm import SERVER, Terminal
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
           "astra": {"harness": "codex", "effort": "high"}}
 NAMES = ("Review rounds", "Max lines per executor task", "Max lines per orchestrator task",
-         "Extra rounds with one finding left")
-EXTRA = ("The further review rounds a change has while its last review left exactly one blocking "
-         "finding.")
+         "Extra rounds with one or two findings left")
+EXTRA = ("The further review rounds a change has while its last review left one or two blocking "
+         "findings.")
 WIDE = max(map(len, NAMES))
 FIRST, DAY = calendar.timegm((2026, 10, 1, 12, 0, 0)), 86400
 COLUMNS = ("run_id", "repo", "change", "kind", "own_orchestrator", "final_state", "rounds_used",
@@ -206,12 +206,18 @@ class LimitsPage(unittest.TestCase):
         term.wait(lambda screen: SAYS["review_rounds"][0] not in flat(screen))
 
     def test_on_a_narrow_terminal_each_value_folds_under_its_name_never_cut(self):
-        shown = lines(self.limits(self.c({"review_rounds": 4, "executor_lines": 1000,
-                                          "orchestrator_lines": 0, "extra_rounds": 3}, size=(40, 50))))
-        at = shown.index(f"› {NAMES[0]}")
-        self.assertEqual(shown[at:at + 8], [
-            f"› {NAMES[0]}", "    ◂ 4 ▸ default 3", f"  {NAMES[1]}", "    1000 default 300",
-            f"  {NAMES[2]}", "    off default 50", f"  {NAMES[3]}", "    3 default 2"])
+        # a name too wide for the line wraps at its words, and even a value one cell wide
+        # folds: the widest name leaves no room beside any
+        for extra, drawn in ((3, "    3 default 2"), (2, "    2")):
+            with self.subTest(extra_rounds=extra):
+                shown = lines(self.limits(self.c({"review_rounds": 4, "executor_lines": 1000,
+                                                  "orchestrator_lines": 0, "extra_rounds": extra},
+                                                 size=(40, 50))))
+                at = shown.index(f"› {NAMES[0]}")
+                self.assertEqual(shown[at:at + 9], [
+                    f"› {NAMES[0]}", "    ◂ 4 ▸ default 3", f"  {NAMES[1]}",
+                    "    1000 default 300", f"  {NAMES[2]}", "    off default 50",
+                    "  Extra rounds with one or two findings", "  left", drawn])
 
     def test_moving_to_1000_lines_per_executor_task_saves_it(self):
         term = self.c({"executor_lines": 900, "max_runs": 7, "custom_flag": True})

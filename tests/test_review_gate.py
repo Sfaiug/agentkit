@@ -228,7 +228,7 @@ sys.exit(1)
                           "c.py:3 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"])
 
     def test_default_budget_is_three_rounds_with_no_extension(self):
-        self.reviews(fail(2), fail(2), fail(2))
+        self.reviews(fail(3), fail(3), fail(3))
         code, directory, state = self.launch()      # the task names no rounds of its own
         self.assertEqual(code, 1, (directory / "log.txt").read_text())
         self.assertEqual((state["state"], state["rounds"]), ("fail", 3))
@@ -241,7 +241,8 @@ sys.exit(1)
     def test_third_fail_hands_back_with_the_blocking_findings(self):
         blocking = ("VERDICT: FAIL\n\n## Findings\n"
                     "- a.py:1 - off-by-one in the gate - wrong outcome for edge input\n"
-                    "- b.py:2 - drops the error - silent data loss\n\n"
+                    "- b.py:2 - drops the error - silent data loss\n"
+                    "- d.py:4 - leaks the handle - descriptors run out\n\n"
                     "## Follow-ups\n- c.py:3 - rename this - clarity\n")
         self.reviews(fail(1), fail(1), blocking)
         code, directory, state = self.launch()
