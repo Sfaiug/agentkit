@@ -106,27 +106,30 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, **kwargs):
     """
     from . import usage  # here, not at the top: usage imports staffing
     role = kwargs.get("role", "executor")
-    offered = config.offered(cfg)
-    listed = usage.marked(cfg, workers, role, kwargs.get("reviewers"))
     skip = {}
     if getattr(providers, "harnesses", None):
-        skip = {name: usage.unready(cfg, name, providers) for name in offered}
+        skip = {name: usage.unready(cfg, name, providers) for name in config.offered(cfg)}
         skip = {name: why for name, why in skip.items() if why}
     if role == "reviewer":
+        offered = config.offered(cfg)
         skip.update((name, why) for name in offered if (why := barred_reviewer(cfg, name)))
-    if role == "reviewer" and (writers := known(cfg, writers)):
-        off = matrix.off(cfg)
-        ready = [name for name in listed if name in offered and name not in skip and name not in off]
-        far = [name for name in ready if all(pair_tier(cfg, writer, name) == 0 for writer in writers)]
-        if far:
-            why = (f"a reviewer on another provider than {', '.join(writers)} is marked: "
-                   f"{', '.join(far)}")
-            skip.update((name, why) for name in ready if name not in far)
-    if log:
-        for name in listed:
+        if writers := known(cfg, writers):
+            # read here, once: `pick_order` then reads only what the writers leave of it
+            workers = usage.marked(cfg, workers, role, kwargs.get("reviewers"))
+            off = matrix.off(cfg)
+            ready = [name for name in workers
+                     if name in offered and name not in skip and name not in off]
+            far = [name for name in ready
+                   if all(pair_tier(cfg, writer, name) == 0 for writer in writers)]
+            if far:
+                why = (f"a reviewer on another provider than {', '.join(writers)} is marked: "
+                       f"{', '.join(far)}")
+                skip.update((name, why) for name in ready if name not in far)
+    if log and skip:
+        for name in usage.marked(cfg, workers, role, kwargs.get("reviewers")):
             if name in skip:
                 log(f"skipped {name}: {skip[name]}")
-    return usage.pick_order(cfg, providers, listed, skip=skip, **kwargs)
+    return usage.pick_order(cfg, providers, workers, skip=skip, **kwargs)
 
 
 def barred_reviewer(cfg, name):
