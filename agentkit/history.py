@@ -85,7 +85,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
               ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"), ("plan_line", "TEXT"),
               ("no_review", "INTEGER"), ("check_rewritten_at", "REAL"),
-              ("orchestrator_effort", "TEXT"))
+              ("orchestrator_effort", "TEXT"), ("extra_rounds_used", "INTEGER"))
 REWRITE_WINDOW = 14 * 86400     # how long after going live `ak plan check` counts as a rewrite
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
@@ -1160,7 +1160,7 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, rules_bytes=None, own_orchestrator=None,
                own_orchestrator_effort=None, review_pair=None, landing_breaks=None,
-               landing_flakes=None, saved=None, log=None):
+               landing_flakes=None, extra_rounds_used=None, saved=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
@@ -1190,11 +1190,12 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                     "SELECT 1 FROM runs WHERE run_id=? AND final_state='running'",
                     (run_id,)).fetchone():
                 return
-        # A maintainer merge republishes the same ending: its pair, even NULL, belongs to
-        # the config at that ending. A resume clears finished_at so its next ending records anew.
+        # A maintainer merge republishes the same ending: its pair and its rounds past its
+        # review_rounds, even NULL, belong to the config and the agentkit at that ending. A
+        # resume clears finished_at so its next ending records anew.
         connection.execute(
-            "UPDATE runs SET review_pair=? WHERE run_id=? AND finished_at IS NOT ?",
-            (review_pair, run_id, finished_at))
+            "UPDATE runs SET review_pair=?, extra_rounds_used=? WHERE run_id=? "
+            "AND finished_at IS NOT ?", (review_pair, extra_rounds_used, run_id, finished_at))
         _update(connection, run_id, values)
         if peak is not None:
             connection.execute(
@@ -1367,23 +1368,28 @@ def rules_size(repo):
 
 def round_endings():
     """How runs ended, for `Limits` (menu.rounds_chart): of those REAL_WORK counts that finished,
-    from the first carrying changed_lines on -- before it no row tells a merge -- each merged in
-    a round or failed, as it started: (started_at, finished_at, round), `round` the one its
-    rounds_used names for a merge, 0 with review off, None for a fail.  None where none carries
-    changed_lines or the database cannot answer."""
+    from the first carrying changed_lines on -- before it no row tells a merge -- each that used
+    no round past its review_rounds (`extra_rounds_used`) merged in a round or failed, as it
+    started: (started_at, finished_at, round), `round` the one its rounds_used names for a merge,
+    0 with review off, None for a fail.  None where none carries changed_lines or the database
+    cannot answer."""
     # REAL_WORK last: it reads a run's record, which the columns spare most rows
     counted = f"finished_at IS NOT NULL AND {REAL_WORK}"
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
+                # a read connection adds no column: a history no write has met since
+                # extra_rounds_used came holds no run that used one
+                regular = ("extra_rounds_used IS NULL" if "extra_rounds_used" in {
+                    row[1] for row in connection.execute("PRAGMA table_info(runs)")} else "1")
                 return connection.execute(
                     "SELECT started_at, finished_at, "
                     "CASE WHEN changed_lines IS NOT NULL THEN rounds_used END FROM runs "
                     "WHERE (changed_lines IS NOT NULL AND rounds_used IS NOT NULL "
                     "OR changed_lines IS NULL AND final_state = 'fail') AND started_at >= "
                     "(SELECT MIN(started_at) FROM runs WHERE changed_lines IS NOT NULL "
-                    f"AND {counted}) AND {counted} ORDER BY started_at").fetchall()
+                    f"AND {counted}) AND {regular} AND {counted} ORDER BY started_at").fetchall()
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

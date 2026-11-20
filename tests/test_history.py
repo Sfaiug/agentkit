@@ -201,19 +201,24 @@ class HistoryTests(unittest.TestCase):
                          ("pass", "PASS", 2, 1))
         self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (1, 0))
 
-    def test_review_pair_stays_with_its_ending_even_when_unknown(self):
-        for n, pair in enumerate(("other provider", None)):
+    def test_review_pair_and_extra_rounds_stay_with_their_ending_even_when_unknown(self):
+        # None as an older agentkit, which kept no extra rounds, ended the run
+        for n, (pair, extra) in enumerate((("other provider", 1), (None, None))):
             name = f"r{n}"
             history.start_run(name, started_at=1)
-            history.finish_run(name, final_state="pass", finished_at=2, review_pair=pair)
-            for later in ("same provider", None):
+            history.finish_run(name, final_state="pass", finished_at=2, review_pair=pair,
+                               extra_rounds_used=extra)
+            for later, more in (("same provider", 2), (None, None)):
                 history.finish_run(name, final_state="pass", finished_at=2,
-                                   review_pair=later, changed_lines=7)
-                self.assertEqual(history.get(name)["review_pair"], pair)
-                self.assertEqual(history.get(name)["changed_lines"], 7)
+                                   review_pair=later, extra_rounds_used=more, changed_lines=7)
+                row = history.get(name)
+                self.assertEqual((row["review_pair"], row["extra_rounds_used"]), (pair, extra))
+                self.assertEqual(row["changed_lines"], 7)
             history.start_run(name)  # resuming allows a new pair, even if the clock has not moved
-            history.finish_run(name, final_state="pass", finished_at=2, review_pair="self")
-            self.assertEqual(history.get(name)["review_pair"], "self")
+            history.finish_run(name, final_state="pass", finished_at=2, review_pair="self",
+                               extra_rounds_used=2)
+            row = history.get(name)
+            self.assertEqual((row["review_pair"], row["extra_rounds_used"]), ("self", 2))
             history.finish_run(name, final_state="error", finished_at=3)
             self.assertIsNone(history.get(name)["review_pair"])
 
