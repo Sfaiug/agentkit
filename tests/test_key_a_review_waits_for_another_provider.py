@@ -24,19 +24,15 @@ from fixtures.akbin import boxable
 from test_key_writer_reviews_only_without_room import (launched, meter, record, roles, staged,
                                                        until_true)
 
-# long enough for a run to reach its review before the window its reviewer was refused on resets
-SHORTAGE = 30
+# how long the window a reviewer's turn is refused on lasts from that turn
+SHORTAGE = 20
 # a turn of an adapter whose program is gone: the shell's exec found nothing, and nothing streamed
 GONE = {"stderr": "codex.sh: 1: exec: codex: not found\n", "exit": 127}
 
 
-def at(moment):
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(moment))
-
-
-def refused(moment):
-    """A turn its harness refuses, the window spent until `moment`."""
-    return {"final": f"You have hit your usage limit. Try again at {at(moment)}.", "exit": 1}
+def refused(seconds):
+    """A turn its harness refuses, the window spent for `seconds` from the turn."""
+    return {"final": f"You have hit your usage limit. Try again at {{in {seconds}}}.", "exit": 1}
 
 
 def launch(case):
@@ -53,12 +49,12 @@ class AnotherProvidersReviewerIsWaitedFor(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        back = time.time() + SHORTAGE
         week = [meter(10, time.time() + 86400)]
         home = staged(cls, ["opus", "astra"], ["opus", "astra"], {"claude": week, "codex": week},
-                      claude="work", codex=[refused(back), "pass"])
+                      claude="work", codex=[refused(SHORTAGE), "pass"])
         launch(cls)
         cls.parked = cls.state
+        back = time.time() + SHORTAGE       # astra's turn was refused before the run ended
         until_true(lambda: time.time() > back + 1)
         cls.ticked = home.tick()
         until_true(lambda: record(cls.run_dir).get("state") not in ("exhausted", "queued",
@@ -91,7 +87,7 @@ class OwnProvidersReviewerGivesWayToTheWriter(unittest.TestCase):
         scoped = {**meter(10, now + 86400), "name": "weekly_scoped", "scope": "Fable"}
         staged(cls, ["opus", "fable"], ["opus", "fable"],
                {"claude": [meter(10, now + 86400), scoped]},
-               claude=["work", refused(now + 3600), "pass"])
+               claude=["work", refused(3600), "pass"])
         launch(cls)
 
     def test_opus_reviews_its_own_work(self):
