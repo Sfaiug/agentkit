@@ -1690,9 +1690,10 @@ def progress_output(harness, pane):
                             if not re.match(rf"(?:│\s*)?[>{PROMPT}]", line)).split())
 
 
-def recorded_error(harness, name):
+def recorded_error(harness, name, words=False):
     """The error that seat's harness recorded as its conversation's last event, "" where it
     recorded none there, or None where it keeps no record to read, and only then is its screen.
+    With `words`, only the text it showed, without a kind it typed apart from it.
 
     A screen's last rows cannot tell a model's answer quoting an error from the harness's own
     notice, nor a wrapped error from two rows; the record the harness writes down can, since a
@@ -1704,7 +1705,8 @@ def recorded_error(harness, name):
         return None
     cwd = record.get("cwd")
     try:
-        return plugin.error(record, cwd, plugin.conversation(record, cwd))
+        read = plugin.error_words if words else plugin.error
+        return read(record, cwd, plugin.conversation(record, cwd))
     except OSError:
         return None
 
@@ -2876,6 +2878,12 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
+# A harness may fire a failed turn's hook before it records what the turn failed on: the record
+# held the hook's words 0.14 s after StopFailure began, measured twice (2.1.328, 19 Nov 2026).
+# Past this many seconds without them, the hook's look settles the seat on the record as it is.
+RECORD_WAIT = 5
+
+
 def hook_look(launched, answered_at=None, said="", prompt=False, card=None, records=None):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
@@ -2931,7 +2939,18 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
             pass    # unread, never no runs: each decision below reads, and fails, as alone
     # A turn its harness says failed settles its account before its word is told, as the tick
     # does: a spent subscription moves now, not at the next tick, and never reads `working`.
-    if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
+    # It settles on the record every later look reads, so it first waits for the words that
+    # record holds to be the ones its hook heard the turn fail on (`RECORD_WAIT`).
+    failed = marked_events(harness, "failed")
+    fact = hook_facts(name)
+    words = str(fact.get("text") or "").strip() if hook_state(harness, fact)[1] in failed else ""
+    until = time.monotonic() + RECORD_WAIT
+    while words and time.monotonic() < until:
+        error = recorded_error(harness, name, words=True)
+        if error is None or error == words:
+            break
+        time.sleep(0.05)
+    if hook_state(harness, hook_facts(name))[1] in failed:
         settle_account(cfg, session, lambda _: None, records)
     answer = announce_state(session, cfg=cfg, look=True, number=number, records=records)
     # The tick's pass for this one seat: what it is owed goes in at the event that ends its

@@ -925,6 +925,12 @@ class Harness:
         hook = self._hook("error")
         return hook(record, cwd, conversation) if hook else None
 
+    def error_words(self, record, cwd, conversation):
+        """`error`'s text alone, without a kind it typed apart from it: all of `error` where it
+        types none apart."""
+        hook = self._hook("error_words")
+        return hook(record, cwd, conversation) if hook else self.error(record, cwd, conversation)
+
     def interrupted(self, record, cwd, conversation):
         """When the owner interrupted that conversation's turn, where the harness recorded it as
         the last event -- an end it reports by no hook -- or None.  OSError where a record
