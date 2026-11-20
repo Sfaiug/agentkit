@@ -7,8 +7,8 @@ for any of the three named among its arguments -- these two and the landing suit
 tests/smoke.sh, which an upgrade never runs -- with the exit status the test set (0 unless set),
 printing a `FAIL` line for each failed check label it set and writing the label to
 $AK_LIVE_FAILED, as tests/acceptance.sh does, and runs
-everything else as the real bash.  It keeps each gate it answered, in order, with whether
-AGENTKIT_ACCEPTANCE_REQUIRED was 1 for it.
+everything else as the real bash.  It keeps each gate it answered, in order, with what
+AGENTKIT_ACCEPTANCE_REQUIRED and AK_LIVE_NO_MODEL_CALLS were for it.
 
     from fixtures.akbin import Home
     from fixtures.akgates import Gates
@@ -31,7 +31,7 @@ for arg do
   case $arg in
     */tests/smoke.sh|*/tests/live.sh|*/tests/e2e-fresh.sh)
       gate=$(basename "$arg" .sh)
-      echo "$gate ${{AGENTKIT_ACCEPTANCE_REQUIRED:-unset}}" >>{log}
+      echo "$gate ${{AGENTKIT_ACCEPTANCE_REQUIRED:-unset}} ${{AK_LIVE_NO_MODEL_CALLS:-unset}}" >>{log}
       answer=$gate.$(grep -c "^$gate " {log})
       [ -f {dir}/"$answer".exit ] || answer=$gate
       code=$(cat {dir}/"$answer".exit 2>/dev/null || echo 0)
@@ -68,11 +68,12 @@ class Gates:
             path.unlink()
 
     def calls(self):
-        """(gate, AGENTKIT_ACCEPTANCE_REQUIRED) for each gate answered, oldest first."""
+        """(gate, AGENTKIT_ACCEPTANCE_REQUIRED, AK_LIVE_NO_MODEL_CALLS) for each gate answered,
+        oldest first."""
         try:
-            return [tuple(line.split(" ", 1)) for line in self.log.read_text().splitlines()]
+            return [tuple(line.split()) for line in self.log.read_text().splitlines()]
         except FileNotFoundError:
             return []
 
     def ran(self):
-        return [gate for gate, _ in self.calls()]
+        return [gate for gate, *_ in self.calls()]

@@ -2,7 +2,11 @@
 
 This is how every seat's harness moves to a new release: ak runs the harness's `[update]
 upgrade` command, then the acceptance gates (live, the fresh install), and keeps the new
-release only when they pass.  On a red gate it reinstalls the release it started from with
+release only when they pass.  It starts each gate with its model turns, AK_LIVE_NO_MODEL_CALLS
+unset, also on a host GitHub did not say may push, as every Home here is: its tick checks new
+agentkit code without them (tests/test_key_a_host_that_may_not_push_takes_what_passed.py), and
+only those turns catch a harness that broke on that host.
+On a red gate it reinstalls the release it started from with
 `[update] revert` and says so; a reinstall that does not take is named with the command to run
 by hand, since a broken revert leaves every seat on a broken harness.  A second red gate in a row
 is kept for the tick to hand back, and a green one clears it.  While a seat is working, no
@@ -69,11 +73,11 @@ class HarnessUpgrade(unittest.TestCase):
         path = self.home.path / ".agentkit/state/harness-gates/claude/handed"
         return json.loads(path.read_text()) if path.exists() else None
 
-    def test_a_green_upgrade_runs_every_gate_and_keeps_the_new_release(self):
+    def test_a_green_upgrade_runs_every_gate_with_its_model_turns_and_keeps_the_new_release(self):
         code, said = self.update()
         self.assertEqual(code, 0, said)
         self.assertEqual(self.release(), NEW)
-        self.assertEqual(self.gates.calls(), [(gate, "1") for gate in GATES])
+        self.assertEqual(self.gates.calls(), [(gate, "1", "unset") for gate in GATES])
         self.assertRegex(said, rf"(?m)^update: claude: upgraded\b.*{re.escape(NEW)}")
 
     def test_each_red_gate_puts_the_old_release_back_and_says_so(self):
