@@ -37,6 +37,11 @@ def now(wall, since=None):
            "acme-boot-1"
 
 
+def named(minute):
+    """The ref under refs/made/ named for the stamp of a value made at `minute`."""
+    return "refs/made/" + now(minute).replace(" ", "_")
+
+
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
 class AHomeFreezesWithoutItsLease(unittest.TestCase):
     def machines(self, *names, freezer="0"):
@@ -66,28 +71,37 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         except FileNotFoundError:
             return None
 
-    def fire(self, machine, at):
-        """One firing on `machine` at AK_NOW `at`: its exit, its freezer's file, and whether it
-        left the tick's lock file."""
+    def fire(self, machine, at, dry=False):
+        """One firing on `machine` at AK_NOW `at`, a dry run where `dry`: its exit, its freezer's
+        file, and whether the tick's lock file, removed first, is there after."""
         lock = machine.path / LOCK
         lock.unlink(missing_ok=True)
-        done = machine.tick(env={"AK_NOW": at})
+        env = {"AK_NOW": at}
+        done = machine.ak("watch", "--dry-run", env=env) if dry else machine.tick(env=env)
         return done.code, self.freezer(machine), lock.exists()
 
     def paused(self, machine, at):
+        """A firing that exits 0 before the tick's lock, its slice frozen."""
         self.assertEqual(self.fire(machine, at), (0, "1", False))
 
-    def runs(self, machine, at):
-        self.assertEqual(self.fire(machine, at)[1:], ("0", True))
+    def runs(self, machine, at, freezer="0"):
+        """A firing that goes on as any: it exits 0, the tick's lock taken, its freezer's file at
+        `freezer`."""
+        self.assertEqual(self.fire(machine, at), (0, freezer, True))
 
     def home(self, home):
         """`home` with acme-vm's record saying `yes`, whose firing at minute 0 created the lease
-        and whose firing at minute 3 wrote it anew: its last value made then."""
+        and whose firing at minute 3 wrote it anew, each going on as any: its last value made
+        then."""
         self.record(home, "yes")
-        for minute in (0, 3):
-            home.tick(env={"AK_NOW": now(minute)})
-        last = "refs/made/" + now(3).replace(" ", "_")
-        self.assertEqual(made(home).get(last), home.install.refs()[REF])
+        freezer = self.freezer(home)
+        self.runs(home, now(0), freezer)
+        created = home.install.refs().get(REF)
+        self.assertEqual(made(home), {named(0): created})
+        self.runs(home, now(3), freezer)
+        anew = home.install.refs().get(REF)
+        self.assertNotEqual(anew, created)
+        self.assertEqual(made(home), {named(0): created, named(3): anew})
 
     def test_an_unreachable_origin_pauses_the_home_at_10_minutes_till_it_is_mended(self):
         machines = self.machines()
@@ -134,6 +148,7 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         machines.break_remote("unreachable")
         self.runs(home, now(0))
         self.runs(home, now(60))
+        self.assertEqual(made(home), {})
 
     def test_a_home_whose_record_turned_to_no_runs(self):
         home, = self.machines()
@@ -150,14 +165,12 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         home, = machines
         self.home(home)
         machines.break_remote("unreachable")
-        home.ak("watch", "--dry-run", env={"AK_NOW": now(13)})
-        self.assertEqual(self.freezer(home), "0")
+        self.assertEqual(self.fire(home, now(13), dry=True), (0, "0", False))
         self.paused(home, now(13))
         server, client = self.machines("acme-mini", "acme-vm", freezer="1")
         client.client_of(server)
-        server.ak("watch", "--dry-run")
-        client.tick()
-        self.assertEqual((self.freezer(server), self.freezer(client)), ("1", "1"))
+        self.assertEqual(self.fire(server, now(0), dry=True), (0, "1", False))
+        self.assertEqual(self.fire(client, now(0)), (0, "1", False))
 
 
 if __name__ == "__main__":

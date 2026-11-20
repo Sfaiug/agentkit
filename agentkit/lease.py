@@ -86,7 +86,7 @@ def _turn():
         stamp = pair_clock.now()
         value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
                     own=gitcall.STAMP).strip()
-        git("update-ref", MADE + stamp.line().replace(" ", "_"), value, "")
+        git("update-ref", _named(stamp), value, "")
         git("push", address, f"{value.decode()}:{REF}",
             f"--force-with-lease={REF}:{read.decode()}", timeout=REMOTE, check=False)
         return
@@ -97,7 +97,7 @@ def _turn():
         value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
                     own=gitcall.STAMP).strip()
         # only as a name no ref holds: two turns at once each keep their own
-        git("update-ref", MADE + stamp.line().replace(" ", "_"), value, "")
+        git("update-ref", _named(stamp), value, "")
     value = git(*made)
     if re.fullmatch(VALUE + b"\n", value):
         git("push", address, f"{value[:-1].decode()}:{REF}", f"--force-with-lease={REF}:",
@@ -108,19 +108,33 @@ def proof_age():
     """Seconds since this machine last knew it was the home, by `age_at_most`: a turn makes a value,
     named for its stamp, only right after the remote said the lease is this machine's or that there
     is none, so those stamps are its proofs and the youngest is the one that counts.  None for no
-    proof: none made, or a read that fails, as a clock that cannot be read does; a name holding no
-    stamp is none.  It asks no remote."""
-    repo = _repo()
+    proof: none made, a git that does not exit 0, or a read that raises, as a clock that cannot be
+    read does; a name holding no stamp is none.  It asks no remote."""
     try:
-        code, names, _ = gitcall.tool_run(["git", "for-each-ref", "--format=%(refname)", MADE],
-                                          env={**gitcall.project_env(repo), "GIT_DIR": str(repo)})
+        # the variables git keeps for one repository dropped, as `gitcall.project_env` drops them
+        code, local, _ = gitcall.tool_run(["git", "rev-parse", "--local-env-vars"])
+        if code == 0:
+            code, names, _ = gitcall.tool_run(
+                ["git", "for-each-ref", "--format=%(refname)", MADE],
+                env={**dict.fromkeys(local.split()), "GIT_DIR": str(_repo())})
         if code != 0:
             return None
-        stamps = [pair_clock.read(name[len(MADE):].replace("_", " "))
-                  for name in names.splitlines()]
+        # one name a line, as git forbids a control character in one: a name may hold any other
+        stamps = map(_stamp, names.split("\n"))
         return min((stamp.age_at_most() for stamp in stamps if stamp), default=None)
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except Exception:
         return None
+
+
+def _named(stamp):
+    """The ref the value made at `stamp` is kept as, which `_stamp` reads back."""
+    return MADE + stamp.line().replace(" ", "_")
+
+
+def _stamp(name):
+    """The stamp `_named` gave the ref `name`, or None for a name it gives no stamp."""
+    stamp = pair_clock.read(" ".join(name.removeprefix(MADE).split("_", 2)))
+    return stamp if stamp and _named(stamp) == name else None
 
 
 def _repo():

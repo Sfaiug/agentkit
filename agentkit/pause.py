@@ -26,11 +26,13 @@ def paused():
     age = lease.proof_age() if standby.takes_over() else None
     stale = age is not None and age >= STALE
     try:
-        freezer = host.freezer(orch.slice_cgroup())
-        if stale or freezer.read_text().strip() == "1":
-            # as `echo 1 >` writes it, but never creating it
-            with open(os.open(freezer, os.O_WRONLY | os.O_TRUNC), "w") as file:
-                file.write("1" if stale else "0")
+        # opened to read and to write, never waiting, so that one that cannot be either is left:
+        # never made, never emptied, as a write refused leaves what it read, never waited on
+        with open(host.freezer(orch.slice_cgroup()), "r+",
+                  opener=lambda path, flags: os.open(path, flags | os.O_NONBLOCK)) as freezer:
+            if (freezer.read().strip() == "1") != stale:
+                freezer.seek(0)
+                freezer.write("1" if stale else "0")
     except (OSError, ValueError):
         pass
     return stale
