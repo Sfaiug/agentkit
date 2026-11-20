@@ -27,11 +27,12 @@ from fixtures.akinstall import Install
 LIVE = """#!/bin/sh
 echo "$(git rev-parse HEAD) ${AK_LIVE_NO_MODEL_CALLS:-unset}" >>"$HOME/checked"
 """
-# `{said}`: GitHub's answer to whether this login may push to the checkout's repository, gh's
-# exit 1 where it is ""
+# `{said}`: GitHub's answer to whether this login may push to the checkout's repository, with a
+# diagnostic on stderr that is no part of it; gh's exit 1 where it is ""
 GH = """#!/bin/sh
 if [ -n "{said}" ] && [ "$*" = "api repos/{{owner}}/{{repo}} --jq .permissions.push" ]; then
   echo {said}
+  echo "request completed" >&2
   exit 0
 fi
 echo "gh: not scripted in this test" >&2
