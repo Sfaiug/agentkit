@@ -631,9 +631,10 @@ def cpu_room():
     """
     readings = _injected()
     if readings is not None:
-        wanted = _reading(readings, "cpu_wanted")
-        if wanted is None and os.environ.get("AK_CGROUP_FILE") and not user_manager_holds():
-            wanted = _reading(readings, "procs_running")
+        name = "cpu_wanted"
+        if name not in readings and os.environ.get("AK_CGROUP_FILE") and not user_manager_holds():
+            name = "procs_running"
+        wanted = _reading(readings, name)
         return None if wanted is None else (_reading(readings, "cpus", "nproc") or 1) - wanted
     yielding = _yielding()
     if yielding is None:

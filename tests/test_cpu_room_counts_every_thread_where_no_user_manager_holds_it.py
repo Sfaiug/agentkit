@@ -1,10 +1,13 @@
 """Where no systemd user manager holds this process and no weight can be read, `host.cpu_room` is
 the cores less `/proc/stat`'s `procs_running`, the mean of five looks: no thread is left out.
+Injected readings stand in for that count with their `procs_running` only where they hold no
+`cpu_wanted`.
 
 Offline: a stand-in /proc (`host.PROC`) whose count each look's sleep moves on, an injected
 membership (AK_CGROUP_FILE) and an empty cgroup tree (AK_CGROUP_ROOT), so no weight is read.
 """
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -48,6 +51,13 @@ class CpuRoomCountsEveryThreadWhereNoUserManagerHoldsIt(unittest.TestCase):
 
     def test_none_under_a_user_manager_whose_weights_cannot_be_read(self):
         self.assertIsNone(self.room(f"{MANAGER}/acme.slice/acme.scope", 2, 4, 4, 6, 4))
+
+    def test_injected_readings_give_procs_running_only_where_they_hold_no_cpu_wanted(self):
+        for given, room in (({}, 1), ({"cpu_wanted": None}, None), ({"cpu_wanted": 1}, 2)):
+            readings = json.dumps({"cpus": 3, "procs_running": 2, **given})
+            with self.subTest(given=given), patch.dict(os.environ, {
+                    "AK_HOST_READINGS": readings, "AK_CGROUP_FILE": os.devnull}):
+                self.assertEqual(host.cpu_room(), room)
 
 
 if __name__ == "__main__":
