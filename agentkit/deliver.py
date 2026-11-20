@@ -146,7 +146,7 @@ def pr_body(state):
     lines += ["", "---", "",
              f"- verdict: {state['verdict']}",
              "- no review" if unreviewed else
-             f"- rounds: {len(state['round_summaries'])} of {state['rounds']}",
+             f"- rounds: {run_record.round_shown(state)} of {state['rounds']}",
              f"- executor: {state['executor']}, reviewer: {'no review' if unreviewed else state['reviewer']}",
              f"- run: {state['run_id']}",
              # every merge call follows the final check and a body written after it, so the

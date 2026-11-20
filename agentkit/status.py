@@ -435,10 +435,11 @@ def status_rows(found, width, index=None, cfg=None, owed=()):
         return terminal.table_row(STATUS_HEADERS, widths, "", ["dim"] * 6), []
     rows = []
     for directory, state in found:
-        done = len(state.get("round_summaries") or [])
+        shown = run_record.round_shown(state)
         total = state.get("rounds")
         going = state.get("state") in run_record.ACTIVE
-        rnd = min(done + 1, total) if going and total else done
+        # a run going within its budget is in the round after the one it shows
+        rnd = max(shown, min(shown + 1, total)) if going and total else shown
         if state.get("own_pr_round_pending"):
             rnd = state["own_pr_round_pending"]
         rounds = "no review" if run_record.no_review(state) else f"round {rnd}/{total or '?'}"
@@ -786,7 +787,7 @@ def cmd_status(argv):
                 line += "  no review"
             outcome, step = status_word(state, plain_cfg), step_word(state)
             if state.get("extended"):
-                line += (f"  round {len(state.get('round_summaries') or [])}/{state['rounds']} "
+                line += (f"  round {run_record.round_shown(state)}/{state['rounds']} "
                          f"(+{state['extended']})")
             stalled = transitions.stall_summary(state)
             if stalled:
