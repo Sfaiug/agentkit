@@ -108,7 +108,8 @@ class AkLeaseCreatesALease(unittest.TestCase):
         self.turn(vm)
         theirs = self.created(vm)
         self.turn(mini)
-        self.assertEqual((mini.install.refs(), objects(mini)), ({REF: theirs}, set()))
+        self.assertEqual((mini.install.refs(), made(mini)), ({REF: theirs}, {}))
+        self.assertEqual(objects(mini), set())
 
     def test_a_ref_whose_name_ends_as_the_leases_does_is_no_lease(self):
         mini, = self.machines("acme-mini")
@@ -121,7 +122,8 @@ class AkLeaseCreatesALease(unittest.TestCase):
         mini, = machines
         machines.break_remote("unreachable")
         self.turn(mini)
-        self.assertEqual((mini.install.refs(), objects(mini)), ({}, set()))
+        self.assertEqual((mini.install.refs(), made(mini)), ({}, {}))
+        self.assertEqual(objects(mini), set())
         machines.mend_remote()
         self.turn(mini)
         self.created(mini)
@@ -158,12 +160,14 @@ class AkLeaseCreatesALease(unittest.TestCase):
             self.turn(machine)
         self.created(mini, mini.path / "mirror.git")
         self.assertEqual([refs(vm.path / "mirror.git"), refs(vm.path / "other.git"),
-                          mini.install.refs(), objects(vm), objects(mac)], [{}] * 3 + [set()] * 2)
+                          mini.install.refs(), made(vm), made(mac)], [{}] * 5)
+        self.assertEqual((objects(vm), objects(mac)), (set(), set()))
 
     def test_a_stamp_that_is_no_time_makes_nothing(self):
         mini, = self.machines("acme-mini")
         self.turn(mini, now="acme")
-        self.assertEqual((mini.install.refs(), objects(mini)), ({}, set()))
+        self.assertEqual((mini.install.refs(), made(mini)), ({}, {}))
+        self.assertEqual(objects(mini), set())
 
     def test_a_word_is_a_usage_error_that_takes_no_turn(self):
         mini, = self.machines("acme-mini")
