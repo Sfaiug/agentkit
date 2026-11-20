@@ -19,7 +19,11 @@ PIECE = (Path(__file__).resolve().parents[1] / "tools/helper/piece.sh").read_tex
 # piece.sh's own lines: `fail`, from the sandbox's size to its preflight, and the command's launch.
 FAIL, SANDBOX, LAUNCH = (re.search(lines, PIECE, re.M).group(0) for lines in (
     r"^fail\(\).*\n", r"^notes=(?s:.*?)^offline .*\n", r"^offline .*\$command.*\n"))
-READ_ONLY = "mount --rbind /proc/sys /proc/sys && mount -o remount,bind,ro=recursive /proc/sys"
+# Recursive binds: where a host holds mounts under /proc/sys, the kernel refuses a user namespace
+# a plain one.  And /proc/sys/net as well, where the sandbox writes: a mount held there comes
+# along with /proc/sys and stays writable.
+READ_ONLY = " && ".join(f"mount --rbind {at} {at} && mount -o remount,bind,ro {at}"
+                        for at in ("/proc/sys", "/proc/sys/net"))
 
 
 def piece(outside, start="", launch=""):
