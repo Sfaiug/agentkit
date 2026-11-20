@@ -138,14 +138,15 @@ class SeatTokensByType(unittest.TestCase):
         claude = Seat(home, "acme", record={"conversation": CONVERSATION,
                                             "repo": str(home.path / "code/acme")})
         folder = home.path / ".claude/projects" / re.sub(r"[^A-Za-z0-9]", "-", str(claude.cwd))
+        cls.conversation = folder / f"{CONVERSATION}.jsonl"
         # Claude Code writes a line for each block of a message, a later one counting more.
-        append(folder / f"{CONVERSATION}.jsonl", said("msg_01acme", T0 + 5.25, 3, 1200, 5000, 12),
+        append(cls.conversation, said("msg_01acme", T0 + 5.25, 3, 1200, 5000, 12),
                said("msg_01acme", T0 + 5.25, 3, 1200, 5000, 40))
         codex = Seat(home, "beta", model="astra", screen="codex-prompt-pane.txt",
                      record={"conversation": THREAD, "codex_launch": LAUNCH,
                              "repo": str(home.path / "code/beta")})
         store = home.path / ".codex/agentkit-seats" / REMOTE / "sessions/2026/11/05"
-        rollout = store / f"rollout-2026-11-05T09-00-00-{THREAD}.jsonl"
+        cls.rollout = rollout = store / f"rollout-2026-11-05T09-00-00-{THREAD}.jsonl"
         # Codex counts before its first turn with no usage yet, may count one total twice, and
         # may leave a count out: its growth to the step after it is then all of that count.
         append(rollout, meta(T0, THREAD, str(codex.cwd), "cli"),
@@ -176,20 +177,6 @@ class SeatTokensByType(unittest.TestCase):
         append(rollout, step(T0 + 30, 25_000, 17_000, 1_000, written=2_400))
         tick(home)
         cls.moved = rows(home)
-        # One seat moves to another model, the other to another effort, a repeat of its line
-        # counting more read after the move.
-        update(home, "beta", orchestrator="sol")
-        update(home, "acme", efforts={"opus": {"effort": "low"}})
-        append(rollout, step(T0 + 40, 26_000, 18_000, 1_100, written=2_400))
-        append(folder / f"{CONVERSATION}.jsonl", said("msg_01acme", T0 + 5.25, 3, 1200, 5000, 90))
-        tick(home)
-        # Each record then holds a list where ak writes a name or a word.
-        update(home, "beta", orchestrator=["sol"])
-        update(home, "acme", efforts={"opus": {"effort": ["low"]}})
-        append(rollout, step(T0 + 50, 27_000, 19_000, 1_200, written=2_400))
-        append(folder / f"{CONVERSATION}.jsonl", said("msg_02acme", T0 + 50, 3, 1200, 6000, 20))
-        tick(home)
-        cls.reorchestrated = orchestrating(home)
 
     def test_a_claude_line_keeps_its_four_counts_its_model_and_its_seats_login(self):
         self.assertEqual(self.first["acme"],
@@ -213,7 +200,23 @@ class SeatTokensByType(unittest.TestCase):
             "acme": [(5.25, "opus", "xhigh")],
             "beta": [(6.0, "astra", "xhigh"), (9.0, "astra", "xhigh"), (11.0, "astra", "xhigh"),
                      (12.0, "astra", "xhigh")]})
-        self.assertEqual(self.reorchestrated, {
+        # Ticked on here, as the other tests read only what was filed before, and Go's ak, which
+        # passes them, leaves a tick over records holding lists to Python's.  One seat moves to
+        # another model, the other to another effort, a repeat of its line counting more read
+        # after the move.
+        home = self.home
+        update(home, "beta", orchestrator="sol")
+        update(home, "acme", efforts={"opus": {"effort": "low"}})
+        append(self.rollout, step(T0 + 40, 26_000, 18_000, 1_100, written=2_400))
+        append(self.conversation, said("msg_01acme", T0 + 5.25, 3, 1200, 5000, 90))
+        tick(home)
+        # Each record then holds a list where ak writes a name or a word.
+        update(home, "beta", orchestrator=["sol"])
+        update(home, "acme", efforts={"opus": {"effort": ["low"]}})
+        append(self.rollout, step(T0 + 50, 27_000, 19_000, 1_200, written=2_400))
+        append(self.conversation, said("msg_02acme", T0 + 50, 3, 1200, 6000, 20))
+        tick(home)
+        self.assertEqual(orchestrating(home), {
             "acme": [(5.25, "opus", "low"), (50.0, None, None)],
             "beta": [*self.orchestrated["beta"], (30.0, "astra", "xhigh"),
                      (40.0, "sol", "medium"), (50.0, None, None)]})
