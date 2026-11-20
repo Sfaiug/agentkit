@@ -122,7 +122,8 @@ class ReviewerSilentTwice(Silence, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.ran, cls.parked, cls.asked = cls.done, cls.state, cls.fakes["codex"].runs()
+        cls.ran, cls.parked = cls.done, cls.state
+        cls.started, cls.asked = cls.fakes["codex"].n, cls.fakes["codex"].runs()
         # a reviewer stuck without a verdict waits for `ak run resume`, as one alone among the
         # run's reviewers does; `done` is what ended the run from here on
         cls.done = cls.home.ak("run", "resume", cls.run_dir.name, timeout=300)
@@ -131,6 +132,7 @@ class ReviewerSilentTwice(Silence, unittest.TestCase):
     def test_a_reviewer_silent_twice_is_asked_no_third_time(self):
         self.assertEqual(self.log.count("reviewer astra gave no verdict; asking once more"), 1,
                          self.log)
+        self.assertEqual(self.started, 2)
         self.assertEqual([call["role"] for call in self.asked], ["reviewer", "reviewer"])
 
     def test_the_review_waits_for_it_and_its_verdict_on_the_resume_decides(self):

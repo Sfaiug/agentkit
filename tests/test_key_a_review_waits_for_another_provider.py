@@ -11,6 +11,7 @@ tests/test_key_writer_reviews_only_without_room.py stages it.  A shortage ends a
 its window resets.
 """
 
+import json
 import shlex
 import sys
 import threading
@@ -108,6 +109,13 @@ class AnotherProvidersHarnessIsGone(unittest.TestCase):
         week = [meter(10, time.time() + 86400)]
         home = staged(cls, ["opus", "astra"], ["opus", "astra"], {"claude": week, "codex": week},
                       claude="work", codex=GONE)
+        # codex's program by its path in the Home, the one this test removes: a codex the
+        # machine has on its PATH would stand in for the name
+        program = home.bin / "codex"
+        manifest, named = cls.fakes["codex"].manifest, 'version = ["codex", "--version"]'
+        assert named in manifest.read_text(), "the shipped codex.toml names its program otherwise"
+        manifest.write_text(manifest.read_text().replace(
+            named, f'version = [{json.dumps(str(program))}, "--version"]'))
         release = cls.fakes["claude"].dir / "release"
         cls.fakes["claude"].behave(
             {**fakeadapter.WORK,
@@ -115,7 +123,7 @@ class AnotherProvidersHarnessIsGone(unittest.TestCase):
 
         def uninstall():
             until_true(lambda: cls.fakes["claude"].n)      # the build has begun
-            (home.bin / "codex").unlink()
+            program.unlink()
             release.touch()
 
         threading.Thread(target=uninstall, daemon=True).start()
