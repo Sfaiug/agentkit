@@ -43,12 +43,12 @@ case "$1 $2" in
 esac
 """
 # smoke.sh as the real tests/live.sh starts it, keeping in HOME/selected the checks
-# tests/suite_shares.py chose; NEW fails check 3, a model call, where it was chosen.  The
-# fresh-install gate passes.
+# tests/suite_shares.py chose, run by this test's Python as a Home switched to Go has no other;
+# NEW fails check 3, a model call, where it was chosen.  The fresh-install gate passes.
 SUITE = """#!/bin/sh
 case "$1" in
   */tests/smoke.sh)
-    python3 "$(dirname "$1")/suite_shares.py" "$1" >"$HOME/selected" || exit 2
+    {python} "$(dirname "$1")/suite_shares.py" "$1" >"$HOME/selected" || exit 2
     if grep -qxF "SMOKE_BLOCK='tests/smoke.sh#3'" "$HOME/selected" &&
        grep -qF '{new} (Claude Code)' "$HOME/../claude-installed"; then
       exit 1
@@ -146,7 +146,7 @@ class WhateverTheCallerExported(unittest.TestCase):
             with self.subTest(exported), Home() as home:
                 akconfig.write(home, ["opus"])
                 installed = claude(home)
-                home.fake("bash", SUITE.format(new=NEW))
+                home.fake("bash", SUITE.format(python=shlex.quote(sys.executable), new=NEW))
                 only = home.path / "only"
                 only.write_text("tests/smoke.sh#6f\n")     # a live check making no model call
                 value = {"AK_LIVE_NO_MODEL_CALLS": "1", "AK_ONLY": str(only)}

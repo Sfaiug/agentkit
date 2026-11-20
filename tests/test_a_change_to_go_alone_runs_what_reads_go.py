@@ -1,7 +1,7 @@
 """A run of every test on a change to Go alone runs only what that change can alter
 (suite_shares.python_left_out): Go's tests with every claim, the static checks, each test file
 whose code names Go's tree or imports one that does, and each block of smoke.sh that does; a
-change anywhere else too, or none, runs all.
+change anywhere else too, or none, runs all, and a live run every live check whatever the change.
 Offline: the real landing.py, every_file.py and suite_shares.py run a stand-in git checkout whose
 default branch, origin/HEAD, is its origin/main, and whose tests and blocks note that they ran.
 """
@@ -32,6 +32,8 @@ fi
 cat go/acme.go >/dev/null && echo "smoke.sh#alpha" >>"$ACME_LOG"
 # --- beta: a check of Python's alone, whose go/acme.go is prose
 echo "smoke.sh#beta" >>"$ACME_LOG"
+# --- 3: a live check of Python's alone, which only a live run runs
+echo "smoke.sh#3" >>"$ACME_LOG"
 '''
 FILES = {
     "go/keys.txt": "test_key_acme\n",
@@ -84,14 +86,14 @@ class AChangeToGoAloneRunsWhatReadsGo(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "change")
 
-    def ran(self):
-        """What a landing of the checkout runs: each test as its file and arguments, each block of
-        smoke.sh as `smoke.sh#<block>`."""
+    def ran(self, *command, **env):
+        """What a landing of the checkout runs, or `command` with `env`: each test as its file and
+        arguments, each block of smoke.sh as `smoke.sh#<block>`."""
         log = self.sandbox / "ran.log"
         kept = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
         done = subprocess.run(
-            [sys.executable, REPO / "tests/landing.py"], cwd=self.root,
-            env=dict(kept, HOME=str(self.sandbox), ACME_LOG=str(log),
+            command or [sys.executable, REPO / "tests/landing.py"], cwd=self.root,
+            env=dict(kept, **env, HOME=str(self.sandbox), ACME_LOG=str(log),
                      AK_CGROUP_FILE=str(self.sandbox / "no-cgroup"),
                      AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}'),
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
@@ -115,6 +117,11 @@ class AChangeToGoAloneRunsWhatReadsGo(unittest.TestCase):
 
     def test_a_checkout_on_its_base_runs_all(self):
         self.assertEqual(self.ran(), ALL)
+
+    def test_a_live_run_on_a_change_to_go_alone_runs_every_live_check(self):
+        self.change("go/acme.go")
+        self.assertEqual(self.ran("bash", "tests/smoke.sh", AGENTKIT_SMOKE_LIVE="1"),
+                         {"smoke.sh#3"})
 
 
 if __name__ == "__main__":
