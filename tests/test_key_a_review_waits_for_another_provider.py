@@ -11,7 +11,6 @@ tests/test_key_writer_reviews_only_without_room.py stages it.  A shortage ends a
 its window resets.
 """
 
-import json
 import shlex
 import sys
 import threading
@@ -115,7 +114,7 @@ class AnotherProvidersHarnessIsGone(unittest.TestCase):
         manifest, named = cls.fakes["codex"].manifest, 'version = ["codex", "--version"]'
         assert named in manifest.read_text(), "the shipped codex.toml names its program otherwise"
         manifest.write_text(manifest.read_text().replace(
-            named, f'version = [{json.dumps(str(program))}, "--version"]'))
+            named, f'version = [{fakeadapter.toml(str(program))}, "--version"]'))
         release = cls.fakes["claude"].dir / "release"
         cls.fakes["claude"].behave(
             {**fakeadapter.WORK,
