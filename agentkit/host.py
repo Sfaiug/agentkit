@@ -658,7 +658,7 @@ def _counts_every_thread():
     Beside injected readings only an injected cgroup tree (AK_CGROUP_ROOT) shows a weight."""
     if not user_manager_holds():
         return True
-    if os.environ.get("AK_HOST_READINGS") and not os.environ.get("AK_CGROUP_ROOT"):
+    if _injected() is not None and not os.environ.get("AK_CGROUP_ROOT"):
         return False
     own = process_cgroup()
     return not own or _cpu_weight(cgroup_path(own)) is None
