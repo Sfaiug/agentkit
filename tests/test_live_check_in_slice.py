@@ -120,7 +120,8 @@ class LiveCheckInSlice(Sandbox):
         def git(*args, **_kw):
             return (1, "") if args[0] == "merge-base" else (0, TIP)
 
-        with patch.object(update, "_git", side_effect=git):
+        with patch.object(update, "_git", side_effect=git), \
+                patch.object(update, "may_push", return_value=True):
             update.live_tick(lambda _: None, NOW(), fetched=True)
         self.reap()
         _, _, check = update.live_checks()[0]
