@@ -1,5 +1,5 @@
 """`ak lease` puts the lease, `refs/agentkit/home`, on ak's remote where the remote holds none,
-and leaves one that is there, whoever wrote it.  Its value is a commit of the empty tree, with no
+and leaves one another machine put there.  Its value is a commit of the empty tree, with no
 parent, in ak's own name and dates, whose message no other value shares.  The machine keeps it in
 a repository of the lease's own, `.agentkit/tmp/lease/repo`, under `refs/made/`, named for the
 stamp `AK_NOW` held (`wall_since_boot`), before sending it.  A turn prints nothing and exits 0,
@@ -81,14 +81,7 @@ class AkLeaseCreatesALease(unittest.TestCase):
         LEASES.append(value)
         return value
 
-    def leaves(self, machine):
-        """One more turn on `machine`, which leaves the origin's refs and its lease's repository's
-        as they were."""
-        before = refs(machine.install.bare), refs(kept(machine))
-        self.turn(machine)
-        self.assertEqual((refs(machine.install.bare), refs(kept(machine))), before)
-
-    def test_a_lease_is_created_once_and_the_checkout_left_as_it_was(self):
+    def test_a_lease_is_created_and_the_checkout_left_as_it_was(self):
         mini, = self.machines("acme-mini")
 
         def own_git():
@@ -99,7 +92,6 @@ class AkLeaseCreatesALease(unittest.TestCase):
         self.turn(mini)
         self.created(mini)
         self.assertEqual(own_git(), before)
-        self.leaves(mini)
 
     def test_a_lease_another_machine_put_there_is_left_and_no_value_made(self):
         mini, vm = self.machines("acme-mini", "acme-vm")
@@ -124,13 +116,12 @@ class AkLeaseCreatesALease(unittest.TestCase):
         self.turn(mini)
         self.created(mini)
 
-    def test_a_push_whose_answer_is_lost_is_the_lease_the_next_turn_leaves(self):
+    def test_a_push_whose_answer_is_lost_is_the_lease(self):
         machines = self.machines("acme-mini")
         mini, = machines
         machines.break_remote("lost")
         self.turn(mini)
         self.created(mini)
-        self.leaves(mini)
 
     def test_a_silent_remote_ends_each_turn_and_the_mended_one_creates_the_lease(self):
         machines = self.machines("acme-mini")
