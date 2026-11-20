@@ -19,7 +19,7 @@ PIECE = (Path(__file__).resolve().parents[1] / "tools/helper/piece.sh").read_tex
 # piece.sh's own lines: `fail`, from the sandbox's size to its preflight, and the command's launch.
 FAIL, SANDBOX, LAUNCH = (re.search(lines, PIECE, re.M).group(0) for lines in (
     r"^fail\(\).*\n", r"^notes=(?s:.*?)^offline .*\n", r"^offline .*\$command.*\n"))
-READ_ONLY = "mount --bind /proc/sys /proc/sys && mount -o remount,bind,ro /proc/sys"
+READ_ONLY = "mount --rbind /proc/sys /proc/sys && mount -o remount,bind,ro /proc/sys"
 
 
 def piece(outside, start="", launch=""):
