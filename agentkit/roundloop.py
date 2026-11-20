@@ -1364,8 +1364,8 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         The next one is read afresh from the run's marked reviewers and the meters as they
         read now, so a reviewer passed over while its meter was spent is picked once it has
         refilled; only those that already failed this round stay out of it.  It is picked beside
-        the run's writers (`review_writers`): while a marked reviewer on another provider than
-        theirs can run here, none on a writer's provider is, so one spent is waited for."""
+        the run's writers (`review_writers`): while a marked reviewer of another lab than
+        theirs can run here, none of a writer's lab is, so one spent is waited for."""
         failed = lp.state["review_pending"].setdefault("failed", [])
         if lp.reviewer not in failed:
             failed.append(lp.reviewer)

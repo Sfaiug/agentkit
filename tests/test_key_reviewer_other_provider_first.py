@@ -1,5 +1,6 @@
-"""The reviewer is picked in the owner's order of 21 Oct: a marked model on another provider,
-then another marked model on the writer's provider, then the writer itself.
+"""The reviewer is picked in the owner's order of 21 Oct: a marked model of another lab, then
+another marked model of the writer's lab, then the writer itself.  No lineup is stored, so each
+provider is a lab (tests/test_key_a_lab_is_a_models_maker.py).
 
 opus builds alone.  fable shares its provider and, listed first with the most budget left,
 ranks first among the reviewers; astra is on another provider.  Black-box: the program `AK_BIN`

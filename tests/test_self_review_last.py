@@ -1,8 +1,8 @@
 """A model may review its own work, but only as the last choice.
 
-The reviewer is picked from the run's models in this order: a model on another
-provider, then another model on the executor's provider, budget order within each,
-then the executor's own model. Nothing refuses or parks a run only because the one
+The reviewer is picked from the run's models in this order: a model of another lab,
+then another model of the executor's lab, budget order within each, then the
+executor's own model; with no lineup stored, as here, each provider is a lab. Nothing refuses or parks a run only because the one
 reviewer left is the executor's own, and the launch line and `ak run status`
 say `self-reviewed` where a round was reviewed by the executor's own model.
 
@@ -198,9 +198,9 @@ class SelfReviewLast(unittest.TestCase):
             self.assertEqual(run.review(lp, "Work done.", True, "passed"), "PASS")
         return calls
 
-    # A spare on another provider than the executor's is waited for while it can run here
+    # A spare of another lab than the executor's is waited for while it can run here
     # (tests/test_key_a_review_waits_for_another_provider.py): only one that cannot hands the
-    # review to the executor's provider.
+    # review to the executor's lab, here its provider.
     def test_a_spare_that_cannot_run_falls_back_to_the_next_other_model_before_own(self):
         lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-one", "acme-two"])
         self.providers = self.cannot_run("beta-one")

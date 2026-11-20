@@ -36,8 +36,7 @@ def stall_summary(state):
 
 
 def review_providers(cfg, executor, reviewer):
-    """The (executor, reviewer) providers.  Any reviewer may review any executor --
-    another model is only preferred, by reviewer_order, never required."""
+    """The (executor, reviewer) providers."""
     executed = config.model(cfg, executor) if executor else None
     reviewed = config.model(cfg, reviewer)
     return (executed["provider"] if executed else None), reviewed["provider"]
@@ -467,9 +466,10 @@ def history_ending(state, cfg=None):
         try:
             cfg = config.load() if cfg is None else cfg
             executor, reviewer = staffing.review_pair(state)
-            for name in (executor, reviewer):
-                config.model(cfg, name)  # even equal names must still be known
-            pair = ("other provider", "same provider", "self")[staffing.pair_tier(cfg, executor, reviewer)]
+            # even equal names must still be known; the record names providers, not labs
+            executed, reviewed = (config.model(cfg, name)["provider"] for name in (executor, reviewer))
+            pair = ("self" if staffing.same_model(cfg, executor, reviewer) else
+                    "same provider" if executed == reviewed else "other provider")
         except config.Error:
             pass
     rounds = state.get("round_summaries")

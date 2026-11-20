@@ -4821,7 +4821,7 @@ def default_crew(cfg, providers, default):
     reviewers, each with something left to spend.  A group all spent falls back by tier -- a
     fresh model not the other group's own first -- among those a run could start from, else any
     fresh one."""
-    names = config.offered(cfg)
+    names, (lineup, _) = config.offered(cfg), matrix.listed()
     fresh = [name for name in names if not spent_note(cfg, name, providers)]
     model = next((name for name in [default, *in_order(cfg)] if name in fresh), None)
     base = cfg["defaults"]
@@ -4842,8 +4842,8 @@ def default_crew(cfg, providers, default):
             def tier(name):
                 tiers = []
                 for peer in peers:
-                    found = (staffing.pair_tier(cfg, name, peer) if role == "workers"
-                             else staffing.pair_tier(cfg, peer, name))
+                    found = (staffing.pair_tier(cfg, name, peer, lineup) if role == "workers"
+                             else staffing.pair_tier(cfg, peer, name, lineup))
                     if found is not None:
                         tiers.append(found)
                 return min(tiers) if tiers else 3
