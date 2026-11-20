@@ -143,7 +143,9 @@ def roles(cfg):
     which has no week.  The orchestrator's rows are every `seat_usage` row naming the model and
     effort, its subagents' and its talk with its owner too, as orchestrating takes them all,
     over the runs naming them that started no earlier than the first, as one before has no
-    usage to set against it; none where a row has no listed price or a login no week."""
+    usage to set against it; none where a row has no listed price or a login no week.  A row of
+    no token, a seat row's `tokens` or a turn row's counts summed, takes nothing whatever its
+    model and login, and rows all of none measure nothing."""
     from . import staffing, usage   # here, not at the top: usage reads this module as it loads
     held = {name: prov for name, prov in staffing._cached_providers().items()
             if name in cfg["providers"]}
@@ -155,23 +157,27 @@ def roles(cfg):
     did, kept = {}, {}  # did: (run, role): (model, effort, the turns of it `counted_turns` names)
     # one read, as a run resumed between two would add its new turns' rows to its ended sample
     for (run, executor, effort, reviewer, reviewed, counted, turn, role, account, model,
-         listed_usd, *counts) in _select(
+         listed_usd, tokens, *counts) in _select(
             "SELECT run_id, executor, executor_effort, reviewer, (SELECT CASE WHEN "
             "COUNT(DISTINCT effort) = 1 THEN MIN(effort) END FROM reviews WHERE "
             "reviews.run_id = runs.run_id), counted_turns, turn, role, account, model, "
-            f"{{kept[turn_usage]}}, {', '.join(PRICES)} FROM runs "
+            f"{{kept[turn_usage]}}, {' + '.join(PRICES)}, {', '.join(PRICES)} FROM runs "
             "LEFT JOIN turn_usage USING (run_id) "
             "WHERE kind = 'task' AND finished_at IS NOT NULL"):
         if turn is not None:
-            kept.setdefault((run, role), []).append((turn, account, model, counts, listed_usd))
+            kept.setdefault((run, role), []).append(
+                (turn, tokens, account, model, counts, listed_usd))
         who = {"executor": (executor, effort), "reviewer": (reviewer, reviewed)}
         for name in json.loads(counted or "[]"):
             mine = "reviewer" if Path(name).name.startswith("reviewer") else "executor"
             did.setdefault((run, mine), (*who[mine], set()))[2].add(name)
 
     def spent(name, rows):
-        """[points, dollars] `rows`, (account, model, counts, listed_usd) each, took on model
-        `name`'s provider; None where one has no listed price or its login no week."""
+        """[points, dollars] `rows`, (tokens, account, model, counts, listed_usd) each, took on
+        model `name`'s provider; None where one has no listed price or its login no week."""
+        # One of no token took nothing, whatever its model and login: a harness files a message
+        # it made up itself under a model no board lists.  Tokens unknown are None, and priced.
+        rows = [row for tokens, *row in rows if tokens != 0]
         each = [(100 * dollars / week, dollars) for account, model, counts, listed_usd in rows
                 if (dollars := _cost(prices, model, counts, listed_usd)) is not None
                 and (week := weeks.get((providers[name], account))) is not None]
@@ -187,15 +193,16 @@ def roles(cfg):
     seats = {}      # (model, effort, the runs counted): its seats' rows
     # The runs counted in the read of the rows, as one ending between two reads would be set
     # against usage read before it, and in SQL: a seat keeps a row of each message it takes.
-    for name, effort, runs, account, model, listed_usd, *counts in _select(
+    for name, effort, runs, account, model, listed_usd, tokens, *counts in _select(
             "WITH firsts AS (SELECT orchestrator, effort, MIN(at) AS first FROM seat_usage "
             "GROUP BY 1, 2), launched AS (SELECT firsts.orchestrator, firsts.effort, COUNT(*) "
             "AS runs FROM firsts JOIN runs ON runs.orchestrator = firsts.orchestrator AND "
             "orchestrator_effort = firsts.effort AND started_at >= first WHERE kind = 'task' AND "
             "finished_at IS NOT NULL GROUP BY 1, 2) SELECT orchestrator, effort, runs, account, "
-            f"model, {{kept[seat_usage]}}, {', '.join(PRICES)} FROM seat_usage "
+            f"model, {{kept[seat_usage]}}, tokens, {', '.join(PRICES)} FROM seat_usage "
             "JOIN launched USING (orchestrator, effort)"):
-        seats.setdefault((name, effort, runs), []).append((account, model, counts, listed_usd))
+        seats.setdefault((name, effort, runs), []).append(
+            (tokens, account, model, counts, listed_usd))
     for (name, effort, runs), rows in seats.items():
         if name in providers and (one := spent(name, rows)):
             totals[name, effort, "orchestrator"] = one, runs
@@ -333,11 +340,7 @@ def _select(query, *args):
 
 
 def _cost(prices, model, counts, kept):
-    """A row's dollars: those it kept, else its `counts` at its `model`'s `prices` now, and
-    nothing where it counts no token: a harness files a message it made up itself under a model
-    no board lists, and that row would leave its seat's whole measure unpriced."""
-    if kept is None and None not in counts and not any(counts):
-        return 0.0
+    """A row's dollars: those it kept, else its `counts` at its `model`'s `prices` now."""
     return _dollars(prices(model), counts) if kept is None else kept
 
 
