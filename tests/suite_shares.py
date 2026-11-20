@@ -337,12 +337,14 @@ def main():
         return 2
     path = Path(sys.argv[1])
     root = path.resolve().parents[1]
+    live, offline = smoke_mode()
     # A whole run leaves out the blocks a change to Go alone cannot alter; AK_ONLY's run whatever
-    # the change.  AK_LIVE_NO_MODEL_CALLS=1 leaves MODEL_CALLS out of either.
-    left = python_left_out(root) if listed() is None else set()
+    # the change, and so does a live run, which certifies the host and its harnesses, not the
+    # change.  AK_LIVE_NO_MODEL_CALLS=1 leaves MODEL_CALLS out of any.
+    left = python_left_out(root) if listed() is None and not live else set()
     if os.environ.get("AK_LIVE_NO_MODEL_CALLS") == "1":
         left |= {f"{SMOKE}#{name}" for name in MODEL_CALLS}
-    print(smoke_source(path.read_text(), root, piece, *smoke_mode(), left), end="")
+    print(smoke_source(path.read_text(), root, piece, live, offline, left), end="")
     return 0
 
 
