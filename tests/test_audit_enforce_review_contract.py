@@ -242,13 +242,14 @@ sys.exit(row["code"])
         self.assertEqual(code, 1)
         self.assertEqual(state["state"], "exhausted")
         self.assert_undelivered(state)
-        self.assertEqual([r["model"] for r in self.calls("reviewer")],
-                         ["astra", "spark", "fable", "opus"])
+        # spent, astra and spark, on other providers than opus, are waited for: fable and opus
+        # are never asked
+        self.assertEqual([r["model"] for r in self.calls("reviewer")], ["astra", "spark"])
         waits = [c.args[0] for c in self.sleep.call_args_list
                  if c.args and c.args[0] in turns.TRANSIENT_BACKOFF]
         self.assertEqual(waits, [])
         artifacts = {p: p.read_text() for p in directory.glob("round-1/reviewer*/final.md")}
-        self.assertEqual(len(artifacts), 4)
+        self.assertEqual(len(artifacts), 2)
         self.respond({})
         self.assertEqual(run.cmd_resume([directory.name]), 0)
         self.assertEqual(len(self.calls("executor")), 1)
@@ -265,7 +266,8 @@ sys.exit(row["code"])
                   "spark": [{"code": 1, "text": "usage limit reached"}],
                   "opus": [{"code": 1, "text": "Usage limit reached"}],
                   "fable": [{"code": 1, "text": "Usage limit reached"}]}
-        # Opus and Fable itself are fallbacks too; silence every legal reviewer.
+        # Every legal reviewer refuses; astra and spark, on other providers than fable, are its
+        # only fallbacks.
         self.respond(failed)
         # named outside the seat: a seat's launch names no model
         code, directory, state = self.launch("--exec", "fable")
@@ -276,8 +278,8 @@ sys.exit(row["code"])
             self.assertEqual(state["executor"], "fable")
             self.assertIn("fable", config.active_session(self.cfg)["workers"])
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable"])
-            # The preference is gone by resume; the review is still pending, so only the
-            # reviewer moves to the best model on another provider for the saved executor.
+            # The preference is gone by resume; the review is still pending, so the executor
+            # stays and so does spark, the reviewer it was left with, on another provider.
             self.providers["anthropic"]["meters"][1]["used"] = 80
             fail_then_pass = [
                 {"code": 0, "text": "VERDICT: FAIL\nFix the remaining finding."},
@@ -288,7 +290,7 @@ sys.exit(row["code"])
             state = record.read_state(directory)
             self.assertEqual(state["executor"], "fable")
             self.assertEqual(state["rounds"], 2)
-            self.assertEqual(state["reviewer"], "astra")
+            self.assertEqual(state["reviewer"], "spark")
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable", "fable"])
             self.assertEqual(self.calls("executor")[1]["session"], ["session-fable"])
             self.assertTrue(run.review_pass(state, self.cfg))

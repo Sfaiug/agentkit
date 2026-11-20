@@ -1,6 +1,7 @@
 """An executor without a closing goes to checks and review; a reviewer still owes a verdict.
 
-A reviewer is asked once more in its own conversation, then the review goes to the next model.
+A reviewer is asked once more in its own conversation, then the review goes to the next model;
+with none left on another provider than the writer's, it waits for the reviewer.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
 on a project from gitrig.py, a config from akconfig.py, a task from taskfile.py and scripted
 harnesses from fakeadapter.py.
@@ -114,24 +115,34 @@ class SilentReviewer(Silence, unittest.TestCase):
 
 
 class ReviewerSilentTwice(Silence, unittest.TestCase):
-    # Words but no verdict, both times: the ask is answered, just not with a hand-in.
-    steps = {"claude": "work", "codex": {"final": "Looks fine."}}
+    # Words but no verdict, both times: the ask is answered, just not with a hand-in.  Resumed,
+    # a verdict.
+    steps = {"claude": "work", "codex": [{"final": "Looks fine."}] * 2 + ["pass"]}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.ran, cls.parked, cls.asked = cls.done, cls.state, cls.fakes["codex"].runs()
+        # a reviewer stuck without a verdict waits for `ak run resume`, as one alone among the
+        # run's reviewers does; `done` is what ended the run from here on
+        cls.done = cls.home.ak("run", "resume", cls.run_dir.name, timeout=300)
+        cls.state = json.loads((cls.run_dir / "run.json").read_text())
 
     def test_a_reviewer_silent_twice_is_asked_no_third_time(self):
         self.assertEqual(self.log.count("reviewer astra gave no verdict; asking once more"), 1,
                          self.log)
-        self.assertEqual(self.fakes["codex"].n, 2)
-        self.assertEqual([call["role"] for call in self.fakes["codex"].runs()],
-                         ["reviewer", "reviewer"])
+        self.assertEqual([call["role"] for call in self.asked], ["reviewer", "reviewer"])
 
-    def test_the_review_goes_to_the_next_model_and_its_verdict_decides(self):
+    def test_the_review_waits_for_it_and_its_verdict_on_the_resume_decides(self):
+        # No other model is left on another provider than opus's, so the run waits for astra
+        # rather than opus reviewing its own work.
+        self.assertEqual(self.ran.code, 1, self.ran.out + self.ran.err)
+        self.assertEqual((self.parked["state"], self.parked["reviewer"]), ("exhausted", "astra"))
         self.assert_passed_in_one_round()
-        # No other model is left, so the executor's own reviews rather than none.
-        self.assertEqual([call["role"] for call in self.fakes["claude"].runs()],
-                         ["executor", "reviewer"])
-        self.assertEqual((self.state["executor"], self.state["reviewer"]), ("opus", "opus"))
-        self.assertEqual(self.state["review"]["reviewer"], "opus")
-        self.assertIn("executor: opus   reviewer: opus",
+        self.assertEqual([call["role"] for call in self.fakes["claude"].runs()], ["executor"])
+        self.assertEqual((self.state["executor"], self.state["reviewer"]), ("opus", "astra"))
+        self.assertEqual(self.state["review"]["reviewer"], "astra")
+        self.assertIn("executor: opus   reviewer: astra",
                       (self.run_dir / "result.md").read_text().splitlines())
 
 
