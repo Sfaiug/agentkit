@@ -3,7 +3,8 @@ its client.
 
 ak's worker box, landing gate and limits exist only on Linux.  So a Mac's server install (no saved
 server elsewhere, or `--server`) sets up a Linux machine once, sized from the Mac with a share left
-to macOS, with the account's name and /home/<name>, none of the Mac's folders and the Mac's
+to macOS, with the account's name and /home/<name>, no folder of the Mac's but an empty one of its
+own to read the Mac's free space through (`host.disk_use`), and the Mac's
 checkout at the same commit, its origin the Mac's or none where the Mac has none; runs the Linux
 server install in it, with a terminal when it has one; starts it with the Mac; and records it as
 the Mac's server, reached over a local ssh alias.  A second install finds it and changes nothing
@@ -244,6 +245,13 @@ class FreshMac(unittest.TestCase):
         user = create[create.index("--set") + 1]
         self.assertIn('.user.name = "acme"', user)
         self.assertIn('.user.home = "/home/acme"', user)
+
+    def test_it_shares_one_empty_read_only_folder_of_its_own_to_read_the_mac_s_room_through(self):
+        [create] = self.created()
+        self.assertEqual(create[create.index("--set") + 1].split(" | ")[-1],
+                         '.mounts = [{"location": "{{.Dir}}/free-space", '
+                         '"mountPoint": "/mnt/ak-free-space", "writable": false}]')
+        self.assertEqual(list((self.mac.home.path / ".lima/ak/free-space").iterdir()), [])
 
     def test_it_is_sized_from_the_mac_leaving_macos_its_share(self):
         [create] = self.created()

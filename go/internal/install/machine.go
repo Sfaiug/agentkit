@@ -110,10 +110,16 @@ func machineUp(name string, out, errOut io.Writer) error {
 		}
 		cpus, disk := share(cores, 2), share(free>>20, 64) // KiB, in GiB
 		// Debian stable, which boots systemd; --mount-none: the machine sees none of the Mac's folders
+		// but `free-space` in its own, empty and read-only, through which it reads how full the
+		// volume holding its disk is.  Lima fills in {{.Dir}}: no path of the Mac's is in the expression.
 		if err := tool(out, errOut, "limactl", "create", "--tty=false", "--name="+machineName,
 			fmt.Sprintf("--cpus=%d", cpus), fmt.Sprintf("--memory=%d", mem), fmt.Sprintf("--disk=%d", disk),
-			"--mount-none", "--set", fmt.Sprintf(".user.name = %q | .user.home = %q", name, "/home/"+name),
-			"template:debian"); err != nil {
+			"--mount-none", "--set", fmt.Sprintf(".user.name = %q | .user.home = %q | "+
+				`.mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": "/mnt/ak-free-space", "writable": false}]`,
+				name, "/home/"+name), "template:debian"); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Join(dir, "free-space"), 0o755); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "linux: this Mac's Linux machine has %d cores, %d GiB of memory and %d GiB of disk\n", cpus, mem, disk)
