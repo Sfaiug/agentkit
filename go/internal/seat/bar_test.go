@@ -110,6 +110,7 @@ func TestLineTwoDrawsTheTasksFirst(t *testing.T) {
 }
 
 func TestTheRightEndCountsTheOtherSeatsThatNeedYou(t *testing.T) {
+	sandbox(t) // the theme in force is the home's
 	hit := "#{?#{&&:#{e|>:#{e|-:#{client_width},#{mouse_x}},1},#{e|<=:#{e|-:#{client_width},#{mouse_x}},25}},$1,}"
 	one := []barRow{{id: "$1", name: "a", word: "needs you"}, {id: "$2", name: "b", word: "idle"}}
 	said, short, found := barOthers(one, "b")
