@@ -234,7 +234,10 @@ def _costs(rated, lineup, cfg, logins, shares):
     def per_board_dollar(some, what):   # the cost, with `what` 4 the points, 5 the listed dollars
         return sum(one[what] for one in some) / sum(one[3] for one in some)
     for role, each in rated.items():
-        pool = [one for one in samples if one[0] == role] or samples
+        # its own once a row of it is measured, though no board prices that row: other roles'
+        # runs say nothing of a role its own runs measure
+        pool = ([one for one in samples if one[0] == role]
+                if any(key[0] == role for key in measured) else samples)
         for row in each:
             mine = measured.get((role, row["release"], row["effort"]))
             if mine:

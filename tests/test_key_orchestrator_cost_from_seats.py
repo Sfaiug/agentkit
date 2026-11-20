@@ -101,6 +101,21 @@ class OrchestratorCostFromSeats(unittest.TestCase):
         self.assertCost(answer, "execute", "crown-1", "provider",
                         40 * self.points(weeks, built) / 10)
 
+    def test_seats_measured_where_the_boards_price_no_task_scale_no_other_row(self):
+        held = from_runs.board()
+        for row in held["artificialanalysis.ai"]["rows"]:
+            if row["model"] == "Anvil 1":
+                del row["values"]["aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask"]
+        self.home.write(".agentkit/state/boards.json", held)
+        self.history.seat(("anvil", "high"), [("default", "anvil-1", (1_000_000, 0, 0, 0))])
+        self.history.launch(("anvil", "high"), FIRST)
+        # a build Crown's orchestrating would otherwise be scaled by
+        self.history.run(("bloom", "high"), built=[[("default", "bloom-1", (5_000_000, 0, 0, 0))]])
+        rows = {row["release"]: row for key in ("front", "others")
+                for row in self.answer()[1]["orchestrate"][key]}
+        self.assertEqual((rows["anvil-1"]["cost_rule"], rows["crown-1"]["cost"]),
+                         ("measured", None))
+
     def test_a_pair_with_no_run_since_its_first_row_an_unpriced_row_or_no_week_has_no_share(self):
         priced = [("default", "anvil-1", (1_000_000, 0, 0, 0))]
         self.history.seat(("bloom", "high"), priced)
