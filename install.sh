@@ -1300,12 +1300,29 @@ stays=""
 for dirty in "dirty_expire_centisecs 1000 changed data is old enough to write out at ten seconds" \
              "dirty_writeback_centisecs 200 the kernel looks for old changed data every two seconds"; do
   read -r key ceiling why <<<"$dirty"
-  # a client and a sandbox touch no host, one with no value to read (a Mac) has none to set, and
-  # one that reads no number above the ceiling, an empty one included, is left as it is
+  # a client and a sandbox touch no host, and one with no number to read (a Mac) has none to set
   if [ "$ROLE" != server ] || [ "$SANDBOX" = 1 ] ||
      ! dirty_now=$(cat -- "$PROC_SYS_VM/$key" 2>/dev/null) ||
-     ! [ "$dirty_now" -gt $ceiling ] 2>/dev/null; then
+     ! [ "$dirty_now" -ge 0 ] 2>/dev/null; then
     :
+  elif [ "$dirty_now" -le $ceiling ]; then
+    # At or below the ceiling the running value stays.  It may be this boot's alone (`sysctl
+    # -w`), the next starting at the kernel's own until an update of ak runs this again: so an
+    # entry applied first, `0-` sorting before the two digits entries are named with, gives
+    # every boot the ceiling.  Any entry of a later name that sets the key wins, and none is
+    # read or touched; where a name there is one of ak's for the key, nothing is written.
+    dirty_ours=""
+    for entry in "$SYSCTL_D"/*-agentkit-"$key".conf; do [ ! -e "$entry" ] || dirty_ours=1; done
+    if [ -n "$dirty_ours" ]; then :
+    elif ! have sudo || ! sudo -n true 2>/dev/null; then
+      stays+=", vm.$key has no entry for the next boot"
+    elif sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null &&
+         printf '%s\n' "# Written by agentkit's install.sh: $why" "vm.$key = $ceiling" |
+           sudo -n tee "$SYSCTL_D/0-agentkit-$key.conf" >/dev/null 2>&1; then
+      echo "changed data: vm.$key starts every boot at $ceiling unless another entry sets it: $why"
+    else
+      note "changed data: vm.$key got no entry for the next boot; see $SYSCTL_D"
+    fi
   elif ! have sudo || ! sudo -n true 2>/dev/null; then
     stays+=", vm.$key stays $dirty_now"
   elif sysctl_set "$PROC_SYS_VM/$key" vm.$key $ceiling $key "$why"; then

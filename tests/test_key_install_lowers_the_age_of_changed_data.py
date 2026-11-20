@@ -1,4 +1,5 @@
-"""A server install calls sysctl_set for each changed-data value above its ceiling.
+"""A server install calls sysctl_set for each changed-data value above its ceiling, and gives one
+at or below it, which may be this boot's alone, an entry applied first for every boot.
 
 Offline: install.sh's changed-data step, after the core dump step that defines sysctl_set and
 here finds no core pattern to read, as on a Mac, against fake live values and an empty sysctl.d
@@ -19,6 +20,7 @@ from test_install_compressed_swap import SUDO
 REPO = Path(__file__).resolve().parents[1]
 AGE, INTERVAL = "vm.dirty_expire_centisecs", "vm.dirty_writeback_centisecs"
 OURS = "# Written by agentkit's install.sh"
+FIRST = ["0-agentkit-dirty_expire_centisecs.conf", "0-agentkit-dirty_writeback_centisecs.conf"]
 
 
 class ChangedDataAge(unittest.TestCase):
@@ -86,21 +88,39 @@ class ChangedDataAge(unittest.TestCase):
             if {"tee", "mkdir", "rm"} & set(argv):
                 self.assertTrue(argv[-1].startswith(str(self.root)), argv)
 
-    def test_b_a_server_at_or_below_both_ceilings_keeps_its_own(self):
-        for age, interval in ((500, 100), (1000, 200)):
-            self.set_live(age, interval)
-            self.install()
-            self.assertEqual(self.live(), [str(age), str(interval)])
-            self.assertEqual(list(self.sysctl_d.iterdir()), [])
-            self.assertEqual(self.sudo_calls(), [])
+    def test_b_a_server_at_or_below_both_ceilings_keeps_its_own_and_boots_at_them(self):
+        owners = self.sysctl_d / "60-acme.conf"
+        owners.write_text(f"{AGE} = 400\n")
+        self.set_live(500, 100)
+        result = self.install()
+        self.assertEqual(self.live(), ["500", "100"])
+        self.assertEqual(sorted(os.listdir(self.sysctl_d)), FIRST + ["60-acme.conf"])
+        for name, key, ceiling in zip(FIRST, (AGE, INTERVAL), (1000, 200)):
+            self.assertTrue((self.sysctl_d / name).read_text().endswith(f"{key} = {ceiling}\n"))
+            self.assertIn(f"{key} starts every boot at {ceiling} unless", result.stdout)
+        self.log.unlink()   # said once: the next install neither writes nor says anything
+        self.assertEqual((self.install().stdout, self.sudo_calls()), ("", []))
+        self.assertEqual(owners.read_text(), f"{AGE} = 400\n")
+
+    def test_b_a_server_ak_lowered_gets_no_second_entry(self):
+        self.set_live(3000, 500)
+        self.install()
+        self.assertEqual((self.install().stdout, len(list(self.sysctl_d.iterdir()))), ("", 2))
+
+    def test_b_no_passwordless_sudo_writes_nothing_and_one_note_names_both(self):
+        self.set_live(500, 100)
+        [note] = self.install(sudo_ok="0").stderr.splitlines()
+        for key in (AGE, INTERVAL):
+            self.assertIn(f"{key} has no entry for the next boot", note)
+        self.assertEqual(list(self.sysctl_d.iterdir()), [])
 
     def test_c_a_server_at_3000_and_100_gets_the_age_alone(self):
         self.set_live(3000, 100)
         self.install()
         self.assertEqual(self.live(), ["1000", "100"])
         self.assertEqual(len(self.entries(AGE)), 1)
-        self.assertEqual(self.entries(INTERVAL), [])
-        self.assertEqual(len(list(self.sysctl_d.iterdir())), 1)
+        self.assertEqual(self.entries(INTERVAL), FIRST[1:])
+        self.assertEqual(len(list(self.sysctl_d.iterdir())), 2)
 
     def test_d_no_passwordless_sudo_keeps_both_and_one_note_names_them(self):
         self.set_live(3000, 500)
