@@ -1000,10 +1000,16 @@ def routine_ending(state, records=None):
     on it and no prompt context to ride.  Repairs' parked runs retry by themselves; their
     going live may still end a seat's wait.  Delivery already settled its plan checks
     (`settle_delivered_line`), so a check still failing is work the seat owes.  Any ending of
-    an ordered job's task is recorded too: the job's one line says it (`job.in_order`).
-    Read only."""
+    an ordered job's task is recorded too: the job's one line says it (`job.in_order`), and so
+    is a review follow-up's fix run that blocked or failed its rounds, which nothing takes up
+    again (`transitions.parkable_conflict`).  Read only."""
     from . import job as jobs  # here, not at the top: it reaches run
-    if jobs.in_order(state):
+    # The owner, 18 Nov 2026: fixing old defects along the way is wanted, but a reviewer must
+    # not be "adding task after task and making sessions run forever".  ak started the fix run,
+    # never its seat, so a fix that did not land is not the seat's to decide.
+    spent = len(state.get("round_summaries") or []) >= (state.get("rounds") or 0)
+    if jobs.in_order(state) or (transitions.run_kind(state) == "follow-up" and (
+            state.get("state") == "blocked" or (state.get("state") == "fail" and spent))):
         return True
     if not transitions.delivered(state):
         return False
