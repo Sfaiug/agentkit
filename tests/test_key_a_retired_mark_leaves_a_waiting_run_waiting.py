@@ -51,7 +51,9 @@ class RetiredMarkLeavesAWaitingRunWaiting(unittest.TestCase):
 
     def test_the_run_waits_for_a_window(self):
         self.assertEqual(self.done.code, 1, self.done.out + self.done.err)
-        self.assertEqual(self.state["state"], "exhausted")
+        # parked on a spent window, which the tick resumes once it resets, not on a stop
+        # nothing moves
+        self.assertEqual((self.state["state"], self.state.get("quota_dry")), ("exhausted", True))
         self.assertEqual([run for fake in self.fakes.values() for run in fake.runs()], [])
 
 
