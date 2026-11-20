@@ -1226,7 +1226,10 @@ def save(cfg, defaults=None):
 
 def model(cfg, name):
     """Resolve a config.toml key to its harness/model/effort/provider dict."""
-    entry = cfg["models"].get(name)
+    try:
+        entry = cfg["models"].get(name)
+    except TypeError:       # a record's list where ak writes a name: no key, so no model
+        entry = None
     if entry is None:
         known = ", ".join(sorted(cfg["models"]))
         raise Error(f"unknown model {name!r}; ~/.agentkit/config.toml defines: {known}")

@@ -25,17 +25,15 @@ TABLES = {
 
 def orchestrating(cfg, seat):
     """The model and effort seat record `seat` orchestrates with, as a run it launched now would
-    keep them as its `orchestrator` and `orchestrator_effort`: neither where it names no model
-    `cfg` holds.  Read from the record as each line is, so nothing stored needs repair when the
-    seat, its models or its conversations change."""
+    keep them as its `orchestrator` and `orchestrator_effort`: neither where that run would keep
+    no effort, as for a model `cfg` does not hold.  Read from the record as each line is, so
+    nothing stored needs repair when the seat, its models or its conversations change."""
+    model = seat.get("orchestrator")
     try:
-        model = seat.get("orchestrator")
-        if model in cfg["models"]:
-            return model, config.launched_effort(config.run_marks(cfg, seat), model,
-                                                 "orchestrator")
-    except TypeError:       # a record ak did not write: a list for a name, a number for efforts
-        pass
-    return None, None
+        effort = config.launched_effort(config.run_marks(cfg, seat), model, "orchestrator")
+    except TypeError:       # efforts ak did not write: a number, or a word where it writes a table
+        effort = None
+    return (None, None) if effort is None else (model, effort)
 
 
 def read(since, until):

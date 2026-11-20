@@ -52,13 +52,14 @@ func TestSeatTokensReadASourceNoSeatNames(t *testing.T) {
 	home(t)
 	conversation := filepath.Join(t.TempDir(), "conversation.jsonl")
 	said := `{"type": "assistant", "timestamp": "2026-11-05T09:00:05.250Z", "message": {"id": "msg_01acme", "usage": {"output_tokens": 40}}}` + "\n"
-	if err := os.WriteFile(conversation, []byte(said+said), 0o600); err != nil {
+	again := `{"type": "assistant", "timestamp": "2026-11-05T09:00:06.000Z", "message": {"id": "msg_02acme", "usage": {"output_tokens": 50}}}` + "\n"
+	if err := os.WriteFile(conversation, []byte(said+said+again), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	older(t, "PRAGMA user_version=2", "CREATE TABLE seat_sources (path TEXT PRIMARY KEY, harness TEXT, repo TEXT, cursor TEXT)",
 		"INSERT INTO seat_sources VALUES ('"+conversation+"', 'claude', 'acme', '{}')",
 		"CREATE TABLE seat_usage ("+strings.Join(seatTables[1].columns, ", ")+")",
-		"INSERT INTO seat_usage (event, repo, at, tokens, orchestrator, effort) VALUES ('claude:msg_01acme', 'acme', 1793869205.25, 12, 'opus', 'high')")
+		"INSERT INTO seat_usage (event, tokens, orchestrator, effort) VALUES ('claude:msg_02acme', 12, 'opus', 'high')")
 	for range 2 {
 		if !readSeats() {
 			t.Fatal("left to Python")
@@ -69,17 +70,20 @@ func TestSeatTokensReadASourceNoSeatNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	usage := query(t, db, "SELECT * FROM seat_usage")
-	if len(usage) != 1 || usage[0]["event"] != "claude:msg_01acme" || usage[0]["repo"] != "acme" || usage[0]["tokens"] != int64(40) ||
+	usage := query(t, db, "SELECT * FROM seat_usage ORDER BY event")
+	if len(usage) != 2 || usage[0]["event"] != "claude:msg_01acme" || usage[0]["repo"] != "acme" || usage[0]["tokens"] != int64(40) ||
 		usage[0]["output"] != int64(40) || usage[0]["account"] != nil || usage[0]["at"] != 1793869205.25 ||
 		usage[0]["orchestrator"] != nil || usage[0]["effort"] != nil {
+		t.Fatalf("%v", usage)
+	}
+	if usage[1]["event"] != "claude:msg_02acme" || usage[1]["tokens"] != int64(50) || usage[1]["orchestrator"] != nil || usage[1]["effort"] != nil {
 		t.Fatalf("%v", usage)
 	}
 	sources := query(t, db, "SELECT * FROM seat_sources")
 	saved, _ := run.Decode([]byte(sources[0].Text("cursor")))
 	if cursor, _ := saved.(*run.Object); len(sources) != 1 || cursor == nil || cursor.Str("source") != conversation || sources[0]["account"] != nil {
 		t.Fatalf("%v", sources)
-	} else if offset, _ := cursor.Int("offset"); offset != 2*len(said) {
+	} else if offset, _ := cursor.Int("offset"); offset != 2*len(said)+len(again) {
 		t.Fatalf("cursor %s", sources[0].Text("cursor"))
 	}
 }

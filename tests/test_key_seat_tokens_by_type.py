@@ -12,7 +12,8 @@ out being 0; its model is the latest turn's before it in its rollout.  A seat mo
 login has the lines read after the move filed under that one.  Each row also names the model the
 seat's record orchestrates with as the tick reads the line, and the effort its record holds for
 that model orchestrating, else the model's entry's: a seat moved to another model or effort has
-the lines read after the move filed under those, a repeat counting more among them.
+the lines read after the move filed under those, a repeat counting more among them.  A record ak
+did not write, a list where it writes a name or a word, files its lines under neither.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each
 tick in the box `home.tick()` builds, on seats of tests/fixtures/akseat.py whose conversations
@@ -182,6 +183,12 @@ class SeatTokensByType(unittest.TestCase):
         append(rollout, step(T0 + 40, 26_000, 18_000, 1_100, written=2_400))
         append(folder / f"{CONVERSATION}.jsonl", said("msg_01acme", T0 + 5.25, 3, 1200, 5000, 90))
         tick(home)
+        # Each record then holds a list where ak writes a name or a word.
+        update(home, "beta", orchestrator=["sol"])
+        update(home, "acme", efforts={"opus": {"effort": ["low"]}})
+        append(rollout, step(T0 + 50, 27_000, 19_000, 1_200, written=2_400))
+        append(folder / f"{CONVERSATION}.jsonl", said("msg_02acme", T0 + 50, 3, 1200, 6000, 20))
+        tick(home)
         cls.reorchestrated = orchestrating(home)
 
     def test_a_claude_line_keeps_its_four_counts_its_model_and_its_seats_login(self):
@@ -207,9 +214,9 @@ class SeatTokensByType(unittest.TestCase):
             "beta": [(6.0, "astra", "xhigh"), (9.0, "astra", "xhigh"), (11.0, "astra", "xhigh"),
                      (12.0, "astra", "xhigh")]})
         self.assertEqual(self.reorchestrated, {
-            "acme": [(5.25, "opus", "low")],
+            "acme": [(5.25, "opus", "low"), (50.0, None, None)],
             "beta": [*self.orchestrated["beta"], (30.0, "astra", "xhigh"),
-                     (40.0, "sol", "medium")]})
+                     (40.0, "sol", "medium"), (50.0, None, None)]})
 
 
 if __name__ == "__main__":
