@@ -1,4 +1,4 @@
-"""A host GitHub says may not push checks origin's `live`, with no model turn, and takes it.
+"""A host GitHub did not say may push checks origin's `live`, with no model turn, and takes it.
 
 The model turns that test new agentkit code are paid once, on a host that may push to agentkit's
 repository, whose tick pushes each commit it logs live to origin's `live`.  So a host GitHub never
