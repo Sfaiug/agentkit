@@ -177,6 +177,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
         lp = self.start()
         self.assertEqual(self.git(lp.wt, "rev-parse", "origin/main"), fresh)
         self.assertEqual(self.git(lp.wt, "rev-parse", "HEAD"), previous)
+        self.assertEqual(lp.base_sha, self.base)        # where it forks: it lacks the tip
         self.assertEqual(self.git(self.repo, "rev-parse", "ak/previous"), previous)
         self.assertEqual((lp.wt / "shared.txt").read_text(), "branch change\n")
         self.assertEqual(self.git(lp.wt, "status", "--porcelain"), "")

@@ -252,19 +252,23 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                                              what=f"branch {from_branch}")
                 if why:
                     raise config.Error(f"{task_path}: {why}")
+            # The run's branch starts at the base's tip, unless it goes on from a stopped or
+            # blocked run's committed work (`from:`, before taking in `target`) or is the one
+            # the repository has out.
+            start = "HEAD" if opts["--no-worktree"] else from_branch or base_sha
+            # The base is the commit where that start forks from the tip: an older local branch
+            # or a from: branch stands behind the tip, and a worker squashing onto a commit its
+            # branch lacks makes one that takes the rest of the base back out.  Where git finds
+            # no fork there is no base to name, and no run.  Asked before the checkout is made:
+            # one a git stopping here left unrecorded would be in the resume's way.
+            base_sha = git(repo, "merge-base", start, base_sha, check=False)
+            if not base_sha:
+                raise config.Error(f"{task_path}: {start} and {base} share no commit in {repo}")
             if opts["--no-worktree"]:
                 wt, branch = repo, git(repo, "rev-parse", "--abbrev-ref", "HEAD")
                 log(f"no worktree: working directly in {wt} on {branch}")
-            elif from_branch:
-                # A relaunch from a stopped or blocked run's committed work: the new
-                # checkout starts where that branch left off before taking in `target`.
-                wt, branch = make_worktree(repo, run_dir.name, slugify(title), from_branch)
             else:
-                wt, branch = make_worktree(repo, run_dir.name, slugify(title), base_sha)
-            # the base is what the checkout holds of it: an older local branch or a from: branch
-            # starts behind origin's tip, and a worker squashing onto a commit its branch lacks
-            # makes one that takes the rest of the base back out.  Unrelated histories keep the tip
-            base_sha = git(wt, "merge-base", "HEAD", base_sha, check=False) or base_sha
+                wt, branch = make_worktree(repo, run_dir.name, slugify(title), start)
         # run.json names the worktree before anything else can fail: a step that ends the run here
         # -- exclude_junk does -- would otherwise leave a worktree `ak run clean` cannot find
         state = stamp_origin({**receipt, "run_id": run_dir.name, "title": title, "task": str(task_path),

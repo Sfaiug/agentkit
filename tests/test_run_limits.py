@@ -1151,6 +1151,17 @@ class Limits(unittest.TestCase):
         self.assertEqual((state["state"], state["verdict"]), ("pass", "PASS"))
         self.assertTrue(state["merged"])
 
+    def test_v5f_a_stop_naming_the_base_leaves_no_checkout_in_the_resume_s_way(self):
+        # asked before the checkout is made: one no record names would refuse the resume's own
+        self.repo()
+        (self.root / "slow-git").write_text("merge-base")
+        with self.git_shim(), self.stops_after(1):
+            code, directory, state = self.launch(str(self.task(["true"])), "--exec", "opus",
+                                                 "--review", "astra")
+        self.assertEqual((code, state["state"], state.get("worktree")), (1, "exhausted", None))
+        (self.root / "slow-git").unlink()
+        self.assertEqual(self.launch("resume", directory.name)[0], 0)
+
     @unittest.skipUnless(shutil.which("flock"), "needs flock(1)")
     def test_v5f_a_done_when_grandchild_holding_a_lock_is_stopped_with_its_group(self):
         self.repo()

@@ -4,7 +4,8 @@ Every run's checkout shares one clone's `origin/main`, and any fetch moves it.  
 squashed onto that name made a commit holding main as the run started plus its work, whose
 landing took out of main whatever main merged meanwhile.  Its prompt names, at each turn, the
 commit its branch starts from, which ak's own rebase onto the target moves; a checkout behind
-origin's tip, such as an older local branch run with --no-worktree, starts from where it forks.
+origin's tip, such as an older local branch run with --no-worktree, starts from where it forks,
+and one whose clone holds no such commit starts no run.
 
 Black-box: the program `AK_BIN` names runs a task in the foreground through
 tests/fixtures/akbin.py, against gitrig.py's origin, fakegh.py's GitHub and fakeadapter.py's
@@ -89,28 +90,56 @@ class ASquashOntoTheNamedBaseKeepsMain(unittest.TestCase):
         self.assertEqual(self.bases, {"claude": [self.launched, self.tip],
                                       "codex": [self.tip, self.tip]}, self.said)
 
-    def test_an_older_local_branch_names_where_it_forks(self):
+    def run_in_the_clone(self, stand):
+        """Run the task with --no-worktree where `stand` leaves the rig's clone, main one change
+        past the commit `topic` forks from, with a worker that squashes onto the base its prompt
+        names.  Sets the rig, that fork, the run's exit and record, and the base each writing
+        turn's `Branch:` line named."""
         home = Home()
         self.addCleanup(home.close)
-        rig = Rig(home, "widgets")
-        fork = rig.head()
-        rig.branch("topic", {"topic.txt": "topic\n"}, push=False)
-        rig.commit({"other.txt": "landed on main\n"}, "another change")
-        rig.git("checkout", "-q", "topic")
-        GitHub(home).grant(rig.slug, "WRITE")
+        self.rig = Rig(home, "widgets")
+        self.fork = self.rig.head()
+        self.rig.branch("topic", {"topic.txt": "topic\n"})
+        self.rig.commit({"other.txt": "landed on main\n"}, "another change")
+        stand()
+        GitHub(home).grant(self.rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"])
         # main moves before the run, not during it: the turn's own `started` is its `go`
-        go = home.root / "adapters" / "go"
+        go = shlex.quote(str(home.root / "adapters" / "go"))
         fakes = fakeadapter.install(home, codex="pass", claude={
             "final": "## Summary\nwrote retry.txt", "hand_in": [["done"]],
-            "sh": SQUASH.format(started=shlex.quote(str(go)), go=shlex.quote(str(go)))})
-        done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-worktree", timeout=600)
-        said = done.out + done.err
-        self.assertEqual(done.code, 0, said)
-        self.assertTrue(json.loads((taskfile.only_run(home) / "run.json").read_text())["merged"], said)
-        self.assertLessEqual({"topic.txt", "retry.txt", "other.txt"}, set(rig.files()))
-        (call,) = fakes["claude"].runs()
-        self.assertEqual(BASE.search(Path(call["argv"][3]).read_text())[1], fork)
+            "sh": SQUASH.format(started=go, go=go)})
+        self.done = home.ak("run", str(taskfile.write(home, self.rig.path)), "--no-worktree", timeout=600)
+        self.said = self.done.out + self.done.err
+        self.state = json.loads((taskfile.only_run(home) / "run.json").read_text())
+        self.told = [BASE.search(Path(call["argv"][3]).read_text())[1] for call in fakes["claude"].runs()]
+
+    def test_an_older_local_branch_names_where_it_forks(self):
+        self.run_in_the_clone(lambda: self.rig.git("checkout", "-q", "-b", "local", "topic"))
+        self.assertEqual(self.done.code, 0, self.said)
+        self.assertTrue(self.state["merged"], self.said)
+        self.assertLessEqual({"topic.txt", "retry.txt", "other.txt"}, set(self.rig.files()))
+        self.assertEqual(self.told, [self.fork])
+
+    def test_a_branch_whose_fork_the_clone_lacks_starts_no_worker(self):
+        def unrelated():
+            self.rig.git("checkout", "-q", "--orphan", "local", "topic")
+            self.rig.commit({}, "topic's files with no history", push=False)
+
+        def shallow():
+            clone = self.rig.path.with_name("shallow")
+            self.rig.git("clone", "-q", "--depth=1", "--no-single-branch", "-b", "topic",
+                         self.rig.bare.as_uri(), str(clone))
+            self.rig.path = clone
+
+        # ak has no base to name such a branch: squashed onto main's tip, its commit would
+        # take other.txt back out of main
+        for stand in (unrelated, shallow):
+            with self.subTest(stand.__name__):
+                self.run_in_the_clone(stand)
+                self.assertEqual((self.done.code, self.told), (2, []), self.said)
+                self.assertIn("share no commit", self.state["error"])
+                self.assertIn("other.txt", self.rig.files())
 
 
 if __name__ == "__main__":
