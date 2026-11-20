@@ -45,8 +45,7 @@ with closing(terminal.Keyboard()) as keyboard:
 
 
 def forget(home):
-    """Nothing kept of any terminal's background, as on a machine no menu has asked yet: whatever
-    cannot ask, and a menu whose terminal does not answer, is in the dark shades."""
+    """Nothing kept of any terminal's background, as where no menu has asked yet: black."""
     (home.path / KEPT).unlink(missing_ok=True)
 
 

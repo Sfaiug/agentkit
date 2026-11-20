@@ -4766,11 +4766,12 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     on `r recommended`, opens the models screen (models_screen), what each role uses for whom the
     marks are, where ← and → take a role's next cheaper or better choice for them.  Enter or a
     click on `Models` opens its page (models_page), and on `Subscriptions` its page
-    (config_subscriptions), and on `Limits` its page (config_limits).  ↑ past the first model,
-    and the pointer, reach the meters over the page: one is lit as the main screen lights it,
-    and Enter or a click opens its row on `Subscriptions` (config_subscriptions); on `Discord`
-    its two secrets are typed on the same keys (config_discord).  agentkit's build, `version`,
-    is read under the rows, dim, on every page.
+    (config_subscriptions), and on `Limits` its page (config_limits).
+    ↑ past the first model, and the pointer, reach
+    the meters over the page: one is lit as the main screen lights it, and Enter or a click
+    opens its row on `Subscriptions` (config_subscriptions); on `Discord` its two
+    secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
+    under the rows, dim, on every page.
     On a screen too short for every row the part the highlight is on is shown, and what the
     last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
     lines of its own under it, whatever the height, until the next key; `note` is said so

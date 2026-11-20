@@ -1,22 +1,19 @@
-"""What tmux draws around a seat is in ak's shades: its bar, the popup's border, tmux's own styles.
+"""What tmux draws around a seat is in the theme: its bar, the popup's border, tmux's own styles.
 
 The owner (12 Nov 2026): "look at every place where things are visual to the end user inside of
-ak, and see through to apply the following two themes"; (20 Nov) one look, in the shades the
-terminal's background fits (tests/test_key_the_terminal_picks_the_shades.py).  A seat's bar
-stands on the shades' surface from its first cell to its last: its name in the text, its model
-and its key's word muted, its key dim, its state's chip on-accent on the state's colour.  In the
-seat, tmux's own selection while scrolling back is the text on the selection, its message line
-the text on the surface; Ctrl-b m's popup is bordered in the border colour, the seat dim under
-it till it closes.  None of them can ask the terminal, so each follows the shades the background
-a menu last kept fits, black's till one is kept: the bar and tmux's own styles by the bar's next
-draw, which writes them together, the popup from the next one opened, whichever ak's menu kept
-it.  A session on the same server that ak did not start keeps the styles it had.
+ak, and see through to apply the following two themes."  A seat's bar stands on the theme's
+surface from its first cell to its last: its name in the text, its model and its key's word
+muted, its key dim, its state's chip on-accent on the state's colour.  In the seat, tmux's own
+selection while scrolling back is the text on the selection, its message line the text on the
+surface; Ctrl-b m's popup is bordered in the border colour, the seat dim under it till it
+closes.  Each follows the theme a menu kept last: the bar and tmux's own styles by the bar's next
+draw, which writes them together, the popup from the next one opened, whichever ak kept the
+theme.  A session on the same server that ak did not start keeps the styles it had.
 
-Black-box: the program AK_BIN names, in a person's terminal of 24-bit colour
-(tests/fixtures/akterm.py), its background set by tmux's `window-style` for a menu to answer,
-attached by `ak orch acme` to a working seat (tests/fixtures/akseat.py), each cell judged by how
-it looks (tests/fixtures/aklooks.py); a seat ak opens, a fake `claude` in it, gives the server
-ak's Ctrl-b m.  The tests run in their order.
+Black-box: the program AK_BIN names, in a person's terminal of 24-bit colour whose background
+a test sets (tests/fixtures/akterm.py), attached by `ak orch acme` to a working seat
+(tests/fixtures/akseat.py), each cell judged by how it looks (tests/fixtures/aklooks.py); a seat
+ak opens, a fake `claude` in it, gives the server ak's Ctrl-b m.  The tests run in their order.
 """
 
 import sys
@@ -31,7 +28,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 SIZE = (100, 30)
-# role: its colour in black's shades, and in white's
+# role: its colour in the black theme, and in the white
 BLACK = {"surface": "111519", "text": "e2e8ef", "muted": "acb4bd", "dim": "868d97",
          "selection": "08305d", "border": "3a3f46", "accent": "4da3ff", "on-accent": "000000"}
 WHITE = {"surface": "f4f6fa", "text": "181c22", "muted": "535962", "dim": "6f757e",
@@ -173,7 +170,7 @@ class TheBarIsInItsTheme(unittest.TestCase):
         self.styles(WHITE)
         self.popup(WHITE)
 
-    def test_e_the_popup_is_in_the_shades_kept_as_the_key_is_pressed(self):
+    def test_e_the_popup_is_in_the_theme_kept_as_the_key_is_pressed(self):
         self.kept("#000000")
         self.popup(BLACK)
 

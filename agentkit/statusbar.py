@@ -14,10 +14,9 @@ a failed move (`whys`); its question is the chat's last message or card.  The on
 right end, `Ctrl-b m  menu`, whatever the seat's word: the bar is in the seat, where
 `x` is a letter typed.  It never moves: the seat is where the owner reads and types.
 
-The bar is in the shades kept as it is drawn (`layout`, terminal.kept), never tmux's green: its
-text on their surface, a state's chip on its colour, so each write after a menu kept another
-terminal's answer draws it in the shades that one fits.  The pane, where the harness draws,
-stays the terminal's.
+The bar is in the theme a menu kept last as it is drawn (`layout`, terminal.kept), never tmux's
+green: its text on the theme's surface, a state's chip on its colour, so each write after a menu
+kept another draws it in that one.  The pane, where the harness draws, stays the terminal's.
 
 The text is data: each write puts it in the session's own options (`@ak_top` at each bar
 width, `@ak_need` and `@ak_fold`, `@ak_why` and its folded versions, `@ak_key`), and
@@ -103,8 +102,8 @@ FORMATS = (_line_one(), _line_two())
 
 def layout():
     """What every write sets beside the text, so a seat dressed before this layout came has it
-    too: its two lines among them, on the kept shades, and tmux's own styles in the seat in
-    them as well -- the selection and the position while scrolling back (its window's), its message
+    too: its two lines among them, on the theme in force, and tmux's own styles in the seat in
+    it as well -- the selection and the position while scrolling back (its window's), its message
     line (its session's).  tmux resizes a pane only when the height changes, so a seat's pane
     changes size once -- when it is dressed, or a seat dressed with one line at its first write
     since -- and never later."""

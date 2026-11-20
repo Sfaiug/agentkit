@@ -19,11 +19,11 @@ from itertools import groupby
 from . import config, guard, motion, warm
 from .themes import BLACK, KEPT, ROLES, WHITE, fits
 
-# glyph, ASCII glyph, role of the shades, eight-colour tone, emphasis. Words remain the
+# glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
-# table, its colour the role's in the shades in force (`theme`), and that colour alone: a faint
-# cell is drawn darker than its colour, one of neither shade.  Eight colours hold no grey of the
-# shades', so there what is dim is faint, in its tone.
+# table, its colour the role's in the theme in force (`theme`), and that colour alone: a faint
+# cell is drawn darker than its colour, one of neither theme.  Eight colours hold no grey of the
+# theme's, so there what is dim is faint, in its tone.
 # The five words a session reads, and the presentation-only kinds the screens ask for by name:
 # `dim` for a note beside a row, `FAIL` for a verdict, which is no session state, and the
 # roles of text no state's colour is, `muted`, `border` and `info` (docs/cli-design.md, Colour).
@@ -50,7 +50,7 @@ STATE_STYLES = {
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
-THEME = None       # the shades the terminal's answer fits (`sense`), None where it gave none
+THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
@@ -81,19 +81,14 @@ def style_of(word):
     return STATE_STYLES.get(word) or STATE_STYLES.get(str(word).split(" ")[0])
 
 
-_KEPT = [None, BLACK]    # the kept answer's stat as `kept` last read it, and the shades it fits
-
-
-def _kept_at():
-    """Where a menu keeps its terminal's answer (`_keep`)."""
-    return os.path.join(config.STATE, KEPT)
+_KEPT = [None, BLACK]    # the kept answer's stat as `kept` last read it, and the theme it fits
 
 
 def kept():
-    """The shades the answer a menu last kept fits (themes.fits) as its file is now: every draw
-    asks, so nothing that draws for hours, a seat's bar or the warm popup server, keeps an answer
-    kept before.  Read again only once the file moved."""
-    path = _kept_at()
+    """The theme a menu's kept answer fits (themes.fits) as the file is now: every draw asks, so
+    nothing that draws for hours, a seat's bar or the warm popup server, keeps an old one.  Read
+    again only once the file moved."""
+    path = os.path.join(config.STATE, KEPT)     # asked for every colour: no Path made
     try:
         seen = os.stat(path)
     except OSError:
@@ -105,16 +100,15 @@ def kept():
 
 
 def theme():
-    """The shades in force as a screen draws: those its terminal's answer fits (`THEME`), else
-    the kept ones (`kept`)."""
+    """The theme in force as a screen draws: the terminal's answer's (`THEME`), else `kept`."""
     return kept() if THEME is None else THEME
 
 
 def colour(word, tmux=False):
-    """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the shades
-    in force; with `tmux`, in a tmux format (a seat's bar, a popup's border), the kept ones
-    whichever process writes it: tmux shows it on a terminal ak never asks, and the menu's
-    writes and the tick's never disagree."""
+    """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
+    force; with `tmux`, in a tmux format (a seat's bar, a popup's border), in the kept one
+    whichever process writes it: tmux shows it on a terminal ak never asks, and the
+    menu's writes and the tick's never disagree."""
     role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
     return ROLES[role][kept() if tmux else theme()]
 
@@ -230,12 +224,12 @@ def height():
 
 
 class _Screen:
-    """stdout as a screen leaves for the terminal (`screens`): painted in the shades in force,
-    and `_PAD` cells in from every edge.
+    """stdout as a screen leaves for the terminal (`screens`): painted in the theme in force, and
+    `_PAD` cells in from every edge.
 
-    Each write starts in their background and text, puts them back after every reset and ends in
-    the terminal's own colours: every cell a draw, a frame or a clear touches is on the
-    background and text of no colour is the shades', whichever helper drew it, and the terminal is
+    Each write starts in the theme's background and text, puts them back after every reset and
+    ends in the terminal's own colours: every cell a draw, a frame or a clear touches is on the
+    background and text of no colour is the theme's, whichever helper drew it, and the terminal is
     its own again between writes, for whatever has it next -- a program ak starts, a signal, the
     shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at
     eight colours, whose tones read on any background.
@@ -266,10 +260,10 @@ class _Screen:
 
 
 def _painted(text):
-    """`text` on the background of the shades in force, in their text where it sets no colour
+    """`text` on the background of the theme in force, in its text where it sets no colour
     (`_Screen`)."""
-    back, fore = (ink(colour(role), ground) for role, ground in (("background", "48"),
-                                                                 ("text", "38")))
+    back, fore = (ink(colour(role), ground)
+                  for role, ground in (("background", "48"), ("text", "38")))
     again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
 
     def put_back(code):
@@ -872,7 +866,7 @@ _POINTED = Spot()  # ... the `Spot` the pointer was on when it was drawn
 TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
                    # one written over since (`over`); empty, nothing on it is known
-_UP_OF, _WHOLE = None, 0.0     # ... the screen and shades they are of, and when all went last
+_UP_OF, _WHOLE = None, 0.0     # ... the screen and theme they are of, and when all went last
 _MOVED = 0.0       # when a move of the pointer was last answered
 _HELD = None       # a move read and not answered yet, and when the first of them was
 _NEXT = None       # a key read past a move, answered after it
@@ -1070,9 +1064,8 @@ def sense():
     True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
     (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in -- as the popup was
     handed them (FEATURES_ENV), else as tmux says, which takes a process.  And whether the
-    background is light, from the terminal's answer to OSC 11 within a second, the answer kept
-    for what cannot ask (`kept`); with no answer by then the screen is in the kept shades.  Its
-    attributes are asked for after it (DA1), which every
+    background is light, from the terminal's answer to OSC 11 within a second, kept (`_keep`); no
+    answer by then is the kept one.  Its attributes are asked for after it (DA1), which every
     terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
     is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
     answers are read here and never as keys: anything typed while they were awaited is kept for
@@ -1109,22 +1102,21 @@ def sense():
     THEME = None
     if colour:
         red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
-        light = 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5     # its luma
-        THEME = WHITE if light else BLACK
-        _keep("light" if light else "dark")
+        THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK  # luma
+        _keep(THEME)
     _last_frame()
 
 
-def _keep(word):
-    """The terminal's answer, `light` or `dark`, kept for what cannot ask (`kept`): moved in whole
+def _keep(theme):
+    """The theme the terminal's answer fits, kept for what cannot ask (`kept`): moved in whole
     from a file of its own, so menus keeping theirs at once each leave a whole one."""
     try:
         with tempfile.NamedTemporaryFile("w", dir=config.STATE, prefix=f".{KEPT}-",
                                          delete=False) as part:
-            part.write(f"{word}\n")
-        os.replace(part.name, _kept_at())
+            part.write("light\n" if theme == WHITE else "dark\n")
+        os.replace(part.name, os.path.join(config.STATE, KEPT))
     except OSError:
-        pass                 # nothing kept: what cannot ask stays in the shades kept before
+        pass                 # nothing kept: what cannot ask stays in the one kept before
 
 
 def _byte(fd, wait=None):
@@ -1635,9 +1627,8 @@ def over(frame, rows=""):
 def written(lines, frame="", rising=False, screen=None):
     """`lines`, a screen from its first row, over the one up: the rows that differ from what the
     terminal holds; all of them, what is below cleared, when `screen` is not the one up, nor in
-    the shades in force -- a menu in the kept ones, which another menu kept anew -- or what is up
-    not known, `lines` could scroll, and every TICK: a row that reads the same in the other
-    shades is painted anew.  The cursor ends under them, where a
+    the theme in force, or what is up not known, `lines` could scroll, and every TICK: a row that
+    reads the same in another theme is painted anew.  The cursor ends under them, where a
     prompt goes.  `frame` goes in the same update (`over`); lines `rising` are its to write, never
     first as they are, on a cleared screen."""
     global _UP, _UP_OF, _WHOLE

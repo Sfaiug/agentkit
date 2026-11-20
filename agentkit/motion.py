@@ -14,7 +14,7 @@ a popup's content fades in once, as it opens, a card as it is asked, and a page'
 header as it opens, its name writing itself out in the header; the rule under a screen's
 header glides while its content is fetched, a spinner turning beside what ak waits on;
 the highlight comes from toward the accent and fades where it left (`Clock.light`) -- and
-every motion runs on this same clock, every light that travels in the shades' rainbow (`lit`)
+every motion runs on this same clock, every light that travels in the theme's rainbow (`lit`)
 (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
 (`Clock.start`), asking first which of its values are news
 (`Clock.look`); the wait loop asks how long until the next frame (`Clock.wait`) and what to
@@ -54,8 +54,8 @@ SPIN = 2 * FRAME    # seconds each of the spinner's glyphs shows beside what ak 
 SPINNER = "▖▘▝▗"     # quadrants, which a terminal draws itself, and `|/-\` without UTF-8
 LANDS = 0.25        # ... the highlight takes to settle onto the selection where it comes
 LEAVES = 0.2        # ... and to fade into the background where it left
-# The highlight's colours as shares of the shades' selection, accent and background, drawn in the
-# shades in force whenever it changes (`painted`): where it comes it starts 45% of the way to the
+# The highlight's colours as shares of the theme's selection, accent and background, drawn in the
+# theme in force whenever it changes (`painted`): where it comes it starts 45% of the way to the
 # accent.
 SELECTED, COMES, BACKGROUND = (1, 0, 0), (0.55, 0.45, 0), (0, 0, 1)
 
@@ -77,7 +77,7 @@ def mixed(one, other, x):
 
 
 def painted(shares):
-    """The highlight's colour of `shares` (SELECTED) as `rrggbb` in the shades in force."""
+    """The highlight's colour of `shares` (SELECTED) as `rrggbb` in the theme in force."""
     rgbs = [bytes.fromhex(terminal.colour(role)) for role in ("selection", "accent", "background")]
     return "".join(f"{round(sum(share * rgb[n] for share, rgb in zip(shares, rgbs))):02x}"
                    for n in range(3))
