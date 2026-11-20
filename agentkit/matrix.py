@@ -168,7 +168,7 @@ def _costs(rated, lineup, cfg, logins, shares):
     a hundredth of that week.  A measured row costs what the first such model measured; any
     other, its board price times what a board dollar of every measurement of its role, rated or
     not, on its provider costs where one is, else times their listed dollars a board dollar at
-    its provider's rate; a role with none, as no run measures an orchestrator, takes every
+    its provider's rate; a role with none, as an orchestrator that launched no task, takes every
     role's.  A provider's rate, what a listed dollar takes of its plans, is the mean of its
     `logins`' weeks over what each holds ({provider: [(price, listed dollars)]}), as any of them
     may pay for the next task; one with none takes the mean of the others'.  Each row keeps its
@@ -234,7 +234,10 @@ def _costs(rated, lineup, cfg, logins, shares):
     def per_board_dollar(some, what):   # the cost, with `what` 4 the points, 5 the listed dollars
         return sum(one[what] for one in some) / sum(one[3] for one in some)
     for role, each in rated.items():
-        pool = [one for one in samples if one[0] == role] or samples
+        # its own once a row of it is measured, though no board prices that row: other roles'
+        # runs say nothing of a role its own runs measure
+        pool = ([one for one in samples if one[0] == role]
+                if any(key[0] == role for key in measured) else samples)
         for row in each:
             mine = measured.get((role, row["release"], row["effort"]))
             if mine:

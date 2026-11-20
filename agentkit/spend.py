@@ -6,7 +6,7 @@ Raw token sums count a cache read like fresh input, though a model lists it at a
 that price.  Priced per type, a login's spend foretold its subscription's next meter readings
 within 2-8%, where raw sums were 23% to 75% off (the owner's back-test, 6 Nov 2026): `weeks`
 fits each plan's points of a week a listed dollar takes from every login's readings on it, and
-`roles` prices each run's worker roles in those points.
+`roles` prices each role of a task in those points.
 """
 
 import contextlib
@@ -134,12 +134,16 @@ def roles(cfg):
     it costs a month (`usage.price`) and what its week holds (`usage.plan_weeks`)}, as a login
     removed is signed out, though the usage cache keeps it until it next refreshes and its week
     still prices the runs it did.  `shares`: {model: {effort: {role: (share, runs, listed)}}},
-    of each configured model at each effort it did a worker role at, the means over the `runs`
-    task runs that ended where it did of the dollars at listed prices the role's `turn_usage`
-    rows took, `listed`, and of the points of a week that is, `share`: each row's dollars times
-    100 over the week of its login under the model's provider.  A run's reviewer is at the one
-    effort its reviews name; a run counts for nothing in a role a counted turn of which kept no
-    row, a row of which has no listed price or a login of which has no week."""
+    of each configured model at each effort it did a role at, the means over the `runs` task
+    runs that ended where it did of the dollars at listed prices the role's rows took, `listed`,
+    and of the points of a week that is, `share`: each row's dollars times 100 over the week of
+    its login under the model's provider.  A worker role's rows are its `turn_usage` rows; a
+    run's reviewer is at the one effort its reviews name; a run counts for nothing in a worker
+    role a counted turn of which kept no row, a row of which has no listed price or a login of
+    which has no week.  The orchestrator's rows are every `seat_usage` row naming the model and
+    effort, its subagents' and its talk with its owner too, as orchestrating takes them all,
+    over the runs naming them that started no earlier than the first, as one before has no
+    usage to set against it; none where a row has no listed price or a login no week."""
     from . import staffing, usage   # here, not at the top: usage reads this module as it loads
     held = {name: prov for name, prov in staffing._cached_providers().items()
             if name in cfg["providers"]}
@@ -164,20 +168,40 @@ def roles(cfg):
         for name in json.loads(counted or "[]"):
             mine = "reviewer" if Path(name).name.startswith("reviewer") else "executor"
             did.setdefault((run, mine), (*who[mine], set()))[2].add(name)
+
+    def spent(name, rows):
+        """[points, dollars] `rows`, (account, model, counts, listed_usd) each, took on model
+        `name`'s provider; None where one has no listed price or its login no week."""
+        each = [(100 * dollars / week, dollars) for account, model, counts, listed_usd in rows
+                if (dollars := _cost(prices, model, counts, listed_usd)) is not None
+                and (week := weeks.get((providers[name], account))) is not None]
+        return [sum(one) for one in zip(*each)] if len(each) == len(rows) else None
     samples = {}
     for (run, role), (name, effort, turns) in did.items():
         rows = kept.get((run, role), [])
-        if name not in providers or effort is None or turns - {turn for turn, *_ in rows}:
-            continue
-        spent = [(100 * dollars / week, dollars) for _, account, model, counts, listed_usd in rows
-                 if (dollars := _cost(prices, model, counts, listed_usd)) is not None
-                 and (week := weeks.get((providers[name], account))) is not None]
-        if len(spent) == len(rows):
-            samples.setdefault((name, effort, role), []).append([sum(one) for one in zip(*spent)])
+        if (name in providers and effort is not None and not turns - {turn for turn, *_ in rows}
+                and (one := spent(name, [row[1:] for row in rows]))):
+            samples.setdefault((name, effort, role), []).append(one)
+    # (model, effort, role): ([points, dollars] summed over its runs, how many)
+    totals = {key: ([sum(one) for one in zip(*runs)], len(runs)) for key, runs in samples.items()}
+    seats = {}      # (model, effort, the runs counted): its seats' rows
+    # The runs counted in the read of the rows, as one ending between two reads would be set
+    # against usage read before it, and in SQL: a seat keeps a row of each message it takes.
+    for name, effort, runs, account, model, listed_usd, *counts in _select(
+            "WITH firsts AS (SELECT orchestrator, effort, MIN(at) AS first FROM seat_usage "
+            "GROUP BY 1, 2), launched AS (SELECT firsts.orchestrator, firsts.effort, COUNT(*) "
+            "AS runs FROM firsts JOIN runs ON runs.orchestrator = firsts.orchestrator AND "
+            "orchestrator_effort = firsts.effort AND started_at >= first WHERE kind = 'task' AND "
+            "finished_at IS NOT NULL GROUP BY 1, 2) SELECT orchestrator, effort, runs, account, "
+            f"model, {{kept[seat_usage]}}, {', '.join(PRICES)} FROM seat_usage "
+            "JOIN launched USING (orchestrator, effort)"):
+        seats.setdefault((name, effort, runs), []).append((account, model, counts, listed_usd))
+    for (name, effort, runs), rows in seats.items():
+        if name in providers and (one := spent(name, rows)):
+            totals[name, effort, "orchestrator"] = one, runs
     found = {}
-    for (name, effort, role), runs in samples.items():
-        points, listed = (sum(one) / len(runs) for one in zip(*runs))
-        found.setdefault(name, {}).setdefault(effort, {})[role] = points, len(runs), listed
+    for (name, effort, role), ((points, listed), runs) in totals.items():
+        found.setdefault(name, {}).setdefault(effort, {})[role] = points / runs, runs, listed / runs
     return {provider: [(usage.price(cfg, provider, account), fit[1])
                        for account, fit in logins.items()
                        if fit[1] and config.lists(cfg, provider, account)]
