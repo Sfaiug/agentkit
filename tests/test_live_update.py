@@ -67,6 +67,8 @@ class LiveUpdate(unittest.TestCase):
         self.merge("first", install=INSTALL)
         subprocess.run(["git", "clone", "-q", str(self.origin), str(self.clone)],
                        check=True, capture_output=True, timeout=60)
+        # a host that may not push: the tick's push of `live` goes nowhere
+        git(self.clone, "remote", "set-url", "--push", "origin", str(self.root / "gone.git"))
         # sessions are working the whole time, and that holds nothing back
         self.stack.enter_context(patch.object(update, "working_sessions",
                                               return_value=["atoll", "hermes"]))
