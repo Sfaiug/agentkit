@@ -89,7 +89,6 @@ def replace_reviewer(state, reviewer):
             state["review_pending"]["handed"] = True
 
 
-@matrix.one_reading()
 def ready_order(cfg, providers, workers=None, log=None, writers=None, **kwargs):
     """`usage.pick_order` over the workers whose harness can run a turn here.
 
@@ -117,11 +116,11 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, **kwargs):
         if writers := known(cfg, writers):
             # read here, once: `pick_order` then reads only what the writers leave of it
             workers = usage.marked(cfg, workers, role, kwargs.get("reviewers"))
-            off = matrix.off(cfg)
+            off, (lineup, _) = matrix.off(cfg), matrix.listed()
             ready = [name for name in workers
                      if name in offered and name not in skip and name not in off]
             far = [name for name in ready
-                   if all(pair_tier(cfg, writer, name) == 0 for writer in writers)]
+                   if all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)]
             if far:
                 why = (f"a reviewer of another lab than {', '.join(writers)} is marked: "
                        f"{', '.join(far)}")
@@ -308,15 +307,14 @@ def known(cfg, names):
             if name and model(name)]
 
 
-@matrix.one_reading()
 def reviewer_order(cfg, writers, order):
     """The order given, by each reviewer's worst `pair_tier` beside the writers.  `writers`
     is the model that wrote the work, or every model that wrote part of it: a PR's
     orchestrator and the fixer its fix was handed to.  A model tends to miss the mistakes it
     makes, so its own review is the last choice -- but only a choice, never a refusal: one
     worker reviews itself."""
-    names = known(cfg, writers)
-    tiered = [(max((pair_tier(cfg, each, name) for each in names), default=0), name)
+    names, (lineup, _) = known(cfg, writers), matrix.listed()
+    tiered = [(max((pair_tier(cfg, each, name, lineup) for each in names), default=0), name)
               for name in known(cfg, order)]
     return [name for _, name in sorted(tiered, key=lambda each: each[0])]
 
@@ -337,51 +335,50 @@ def review_writers(state):
     return [] if state.get("review_pr") else head_writers(state)
 
 
-def lab(cfg, name):
-    """Who makes the configured model `name`: the maker of the row of the lineup last stored
-    (`matrix.listed`) whose `yours` holds its harness and model, as the provider
-    `config.company` names for it; where no row holds it, its provider.  A provider running
-    several makers' models is then as many labs, and one maker's models under two providers
-    one lab."""
+def lab(cfg, name, lineup=None):
+    """Who makes the configured model `name`: the maker of the row of `lineup`, else of the
+    lineup last stored (`matrix.listed`), whose `yours` holds its harness and model, as the
+    provider `config.company` names for it; where no row holds it, its provider.  A provider
+    running several makers' models is then as many labs, and one maker's models under two
+    providers one lab."""
     entry = config.model(cfg, name)
     mine = {"harness": entry["harness"], "model": entry["model"]}
-    lineup, _ = matrix.listed()
-    maker = next((row["maker"] for row in lineup if mine in row["yours"]), None)
+    rows = matrix.listed()[0] if lineup is None else lineup
+    maker = next((row["maker"] for row in rows if mine in row["yours"]), None)
     return config.company(cfg, maker) or entry["provider"]
 
 
-@matrix.one_reading()
-def pair_tier(cfg, executor, reviewer):
+def pair_tier(cfg, executor, reviewer, lineup=None):
     """This pair's tier, in the owner's order of 21 Oct and 18 Nov
     (tests/test_key_reviewer_other_provider_first.py, tests/test_key_a_lab_is_a_models_maker.py):
     0 a model of another lab (`lab`), 1 another model of the executor's lab, 2 the executor's
     own model.  Own is `same_model`'s: one model id under two providers is two models.
+    `lineup` is `lab`'s: a pick weighing several pairs reads it once.
 
     None when either name is unknown: no pick weighs a pair it cannot name.
     """
     if same_model(cfg, executor, reviewer):
         return 2
     try:
-        same = lab(cfg, executor) == lab(cfg, reviewer)
+        same = lab(cfg, executor, lineup) == lab(cfg, reviewer, lineup)
     except config.Error:
         return None
     return 1 if same else 0
 
 
-@matrix.one_reading()
 def best_pair(cfg, executors, reviewers, allow_self=True):
     """The pair every automatic pick takes: tier first, then executor order, then reviewer.
 
     Both lists are already in pick order (`usage.pick_order`), so the first pair in tier
     order wins: a review by another lab's model beats one by the executor's lab, which beats
-    the executor reviewing itself.  A pick that stopped at the first executor
-    would keep a worse tier while a better pair is ready.  None when no pair forms -- or
-    only a self-review when `allow_self` is off, which a flake waits out.
+    the executor reviewing itself.  A pick that stopped at the first executor would keep a
+    worse tier while a better pair is ready.  None when no pair forms -- or only a
+    self-review when `allow_self` is off, which a flake waits out.
     """
-    best, key = None, None
+    best, key, (lineup, _) = None, None, matrix.listed()
     for ei, executor in enumerate(executors or []):
         for ri, reviewer in enumerate(reviewers or []):
-            tier = pair_tier(cfg, executor, reviewer)
+            tier = pair_tier(cfg, executor, reviewer, lineup)
             if tier is None or (tier == 2 and not allow_self):
                 continue
             found = (tier, ei, ri)
