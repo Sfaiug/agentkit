@@ -50,4 +50,7 @@ code=$?
 # The kernel killed a process for memory: the VM or container was too small for the piece, which
 # ak then runs here and gives a larger one next time (helper.short).
 [ "$(oom)" = "$before" ] || { echo "ak helper: the VM ran out of memory" >&2; exit 254; }
+# A launch that ended nonzero where no sandbox can be made any more may be unshare's own failure
+# with nothing run: the piece is handed back as one that never started, and ak runs it here.
+[ "$code" = 0 ] || offline true || fail "the sandbox cannot be made"
 exit "$code"
