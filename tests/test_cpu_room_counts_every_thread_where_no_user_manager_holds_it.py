@@ -1,10 +1,10 @@
-"""Where no systemd user manager holds this process and no weight can be read, `host.cpu_room` is
-the cores less `/proc/stat`'s `procs_running`, the mean of five looks: no thread is left out.
-Injected readings stand in for that count with their `procs_running` only where they hold no
-`cpu_wanted`.
+"""Where no systemd user manager holds this process, or its own cgroup shows no CPU weight, and no
+weight lets a scope yield to it, `host.cpu_room` is the cores less `/proc/stat`'s `procs_running`,
+the mean of five looks: no thread is left out.  Injected readings stand in for that count with
+their `procs_running` only where they hold no `cpu_wanted`.
 
 Offline: a stand-in /proc (`host.PROC`) whose count each look's sleep moves on, an injected
-membership (AK_CGROUP_FILE) and an empty cgroup tree (AK_CGROUP_ROOT), so no weight is read.
+membership (AK_CGROUP_FILE) and a cgroup tree (AK_CGROUP_ROOT) showing no weight but `weight`.
 """
 
 import json
@@ -23,12 +23,15 @@ MANAGER = f"user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service"
 
 
 class CpuRoomCountsEveryThreadWhereNoUserManagerHoldsIt(unittest.TestCase):
-    def room(self, membership, *counts):
-        """`cpu_room` on 8 cores for a process in `membership`, each look reading the next of
-        `counts`, None for a /proc/stat without the line."""
+    def room(self, membership, *counts, weight=None):
+        """`cpu_room` on 8 cores for a process in `membership`, its cgroup showing `weight`, each
+        look reading the next of `counts`, None for a /proc/stat without the line."""
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root)
         (root / "cgroup").write_text(f"0::/{membership}\n")
+        if weight is not None:
+            (root / membership).mkdir(parents=True)
+            (root / membership / "cpu.weight").write_text(f"{weight}\n")
         counts = iter(counts)
 
         def look(_seconds=None):
@@ -49,8 +52,11 @@ class CpuRoomCountsEveryThreadWhereNoUserManagerHoldsIt(unittest.TestCase):
     def test_none_where_the_host_shows_no_count(self):
         self.assertIsNone(self.room("acme.slice/acme.scope", None))
 
-    def test_none_under_a_user_manager_whose_weights_cannot_be_read(self):
-        self.assertIsNone(self.room(f"{MANAGER}/acme.slice/acme.scope", 2, 4, 4, 6, 4))
+    def test_the_cores_less_every_thread_under_a_user_manager_showing_no_weight(self):
+        self.assertEqual(self.room(f"{MANAGER}/acme.slice/acme.scope", 2, 4, 4, 6, 4), 4)
+
+    def test_none_under_a_user_manager_whose_own_weight_yields(self):
+        self.assertIsNone(self.room(f"{MANAGER}/acme.slice/acme.scope", 2, 4, 4, 6, 4, weight=100))
 
     def test_injected_readings_give_procs_running_only_where_they_hold_no_cpu_wanted(self):
         for given, room in (({}, 1), ({"cpu_wanted": None}, None), ({"cpu_wanted": 1}, 2)):
