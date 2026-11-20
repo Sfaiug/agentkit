@@ -1,13 +1,13 @@
 """On `config · limits`, ← and → move the limit the pointer is on one step down or up, saved to
 config.toml at once: `Review rounds` 0 to 5, `Max lines per executor task` 0 to 1000 in hundreds
 then `no limit`, `Max lines per orchestrator task` 0 to 200 in 25s then `no limit`,
-`Extra rounds with one finding left` 0 to 3.  A value between steps, as written by hand, moves
-to the next step in the arrow's direction, and neither arrow moves past an end.  The pointed row
-shows its value as `◂ value ▸`, a side's arrow left out at that end, a click on one moving it as
-its key does, and the key line reads `↑↓ limit   ←→ value   esc back`.  With the pointer off
-every row, the first ← or → only brings the highlight back, as Enter and Space do.  A pointed
-value too wide beside its label, as on 40 cells, folds under it whole, never an arrow parted
-from it.
+`Extra rounds with one or two findings left` 0 to 3.  A value between steps, as written by hand,
+moves to the next step in the arrow's direction, and neither arrow moves past an end.  The
+pointed row shows its value as `◂ value ▸`, a side's arrow left out at that end, a click on one
+moving it as its key does, and the key line reads `↑↓ limit   ←→ value   esc back`.  With the
+pointer off every row, the first ← or → only brings the highlight back, as Enter and Space do.
+A pointed value too wide beside its label, as on 40 cells, folds under it whole, never an arrow
+parted from it, and a label too wide for its line wraps at its words.
 
 The owner's design of 5 Nov 2026.  Black-box: the program `AK_BIN` names, in a person's
 terminal (tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py,
@@ -31,7 +31,7 @@ LIMITS = {"Review rounds": ("review_rounds", list(range(6)), 3),
           "Max lines per executor task": ("executor_lines", [*range(0, 1001, 100), "no limit"], 300),
           "Max lines per orchestrator task": ("orchestrator_lines", [*range(0, 201, 25), "no limit"],
                                               50),
-          "Extra rounds with one finding left": ("extra_rounds", list(range(4)), 2)}
+          "Extra rounds with one or two findings left": ("extra_rounds", list(range(4)), 2)}
 NAMES = list(LIMITS)
 WIDE = max(map(len, NAMES))
 KEY_LINE = "  ↑↓ limit   ←→ value   esc back"
@@ -155,13 +155,17 @@ class ArrowSteps(unittest.TestCase):
     def test_on_40_cells_a_value_too_wide_beside_its_label_folds_under_it_whole(self):
         # five cells beside the label once held `◂ 300`, its `▸` alone on the line under it
         term = self.limits(width=40)
-        for name, value in ((NAMES[1], "◂ 300 ▸"), (NAMES[2], "◂ 50 ▸"), (NAMES[3], "◂ 2 ▸")):
-            with self.subTest(name=name):
+        # each label's lines, one too wide for the line wrapped at its words
+        for label, value in (([NAMES[1]], "◂ 300 ▸"), ([NAMES[2]], "◂ 50 ▸"),
+                             (["Extra rounds with one or two findings", "left"], "◂ 2 ▸")):
+            with self.subTest(name=label[0]):
                 term.keys("j")
-                shown = lines(term.wait(f"› {name}"))
+                shown = lines(term.wait(f"› {label[0]}"))
                 at = next(number for number, line in enumerate(shown)
-                          if line.startswith(f"› {name}"))
-                self.assertEqual(shown[at:at + 2], [f"› {name}", f"    {value}"])
+                          if line.startswith(f"› {label[0]}"))
+                self.assertEqual(shown[at:at + len(label) + 1],
+                                 [f"› {label[0]}", *(f"  {part}" for part in label[1:]),
+                                  f"    {value}"])
 
     def test_with_the_highlight_hidden_the_first_arrow_only_brings_it_back(self):
         for arrow, value in (("Left", 2), ("Right", 4)):

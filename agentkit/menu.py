@@ -3085,7 +3085,8 @@ LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6
                                   (*range(0, 1001, 100), "no limit")),
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
                                       (*range(0, 201, 25), "no limit")),
-               "extra_rounds": ("Extra rounds with one finding left", "extra", "rounds", range(0, 4))}
+               "extra_rounds": ("Extra rounds with one or two findings left", "extra", "rounds",
+                                range(0, 4))}
 # What a subscription offers on its row of `Subscriptions`, each where it applies
 # (subscription_acts), and without UTF-8.
 # The second is one act for each kind of reset it can spend now, named after it (`spend a
@@ -5643,7 +5644,8 @@ def page_body(rows, at=None, moves=None):
     for row, label, value in rows:
         # a label beside a value is never wider than `wide`, so padding it keeps its colour
         lead = "    " if label is None else f"  {label}{' ' * (wide - terminal.cells(label))}  "
-        left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
+        # the room beside the padded label, none or less where the widest label fills the line
+        left, wrapped, used = room - terminal.cells(lead), [[]], 0
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
         # what never parts across lines: each word, and a value with a cell whole, so an arrow
         # stays beside what it steps
@@ -5653,10 +5655,12 @@ def page_body(rows, at=None, moves=None):
         whole = ([" ".join(text for text, *_ in parts)] if celled
                  else [word for text, *_ in parts for word in text.split()])
         if label is not None and any(terminal.cells(word) > left for word in whole):
-            # too wide beside the label: the value folds under it, never cut in a word
-            line = "  " + terminal.cut(label, room - 2)
-            places[len(lines)] = (row, around)
-            lines.append(terminal.highlight(line, band=not celled) if row == at else line)
+            # too wide beside the label: the value folds under it, never cut in a word, and so
+            # does a label too wide for its line, wrapped at its words
+            for number, part in enumerate(terminal.wrap(label, room - 2)):
+                places[len(lines)] = (row, around)
+                lines.append(terminal.highlight(f"  {part}", number == 0, band=not celled)
+                             if row == at else f"  {part}")
             lead, left, folded = "    ", max(1, room - 4), True
         if moves is not None and not isinstance(value, str) and value[0][0] in motion.HALF:
             moves.append((len(lines), ("mark", row), value[0][0], motion.toggled(

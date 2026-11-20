@@ -32,7 +32,8 @@ def finding(path):
 
 
 ONE = {"final": "Found one.", "hand_in": [finding("retry.txt"), ["done"]]}
-TWO = {"final": "Found two.", "hand_in": [finding("retry.txt"), finding("other.txt"), ["done"]]}
+THREE = {"final": "Found three.", "hand_in": [finding("retry.txt"), finding("other.txt"),
+                                             finding("third.txt"), ["done"]]}
 # words but no verdict: the reviewer never answers, asked once more or not
 SILENT = {"final": "Looks fine."}
 WORK = {"write": {"retry.txt": "wrong\n"}, "commit": "add retry.txt",
@@ -40,8 +41,9 @@ WORK = {"write": {"retry.txt": "wrong\n"}, "commit": "add retry.txt",
 # a fixer that fixes nothing: its done waits on the finding's proof, so it disputes the finding
 DISPUTE = {"final": "Disputed.", "hand_in": [
     ["dispute", "retry.txt:1", "not a defect", "--run", "true"], ["done"]]}
-# ... and one that adds a line of its own, which the next review's second finding is on
-DISPUTE_ADDING = {**DISPUTE, "write": {"other.txt": "wrong\n"}, "commit": "add other.txt"}
+# ... and one that adds lines of its own, which the next review's further findings are on
+DISPUTE_ADDING = {**DISPUTE, "write": {"other.txt": "wrong\n", "third.txt": "wrong\n"},
+                  "commit": "add other.txt and third.txt"}
 FIX = {"write": {"retry.txt": "ready\n"}, "commit": "fix retry.txt",
        "final": "## Summary\nfixed retry.txt", "hand_in": [["done"]]}
 
@@ -131,7 +133,7 @@ class FourthFixerWaitingForItsRetry(Rows):
 
 class FailedAfterThree(Rows):
     claude = [WORK, DISPUTE, DISPUTE_ADDING]
-    codex = [ONE, ONE, TWO]
+    codex = [ONE, ONE, THREE]
 
     def test_its_row_shows_round_3_of_3(self):
         self.assertEqual(self.done.code, 1, self.done.out + self.done.err)

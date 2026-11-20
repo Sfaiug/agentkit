@@ -164,7 +164,7 @@ sys.exit(1)
     # --- (a) a shrinking last round buys nothing ----------------------------
 
     def test_v5l_shrinking_findings_at_the_last_round_do_not_extend_the_budget(self):
-        self.reviews(fail(4), fail(3), fail(2), PASS)
+        self.reviews(fail(5), fail(4), fail(3), PASS)
         code, directory, state = self.launch(rounds=3)
         self.assertEqual(code, 1, self.log(directory))
         self.assertEqual(state["state"], "fail")
@@ -172,7 +172,7 @@ sys.exit(1)
         self.assertNotIn("extended", state)
         self.assertEqual(len(state["round_summaries"]), 3)
         self.assertEqual([entry["finding_count"] for entry in state["round_summaries"]],
-                         [4, 3, 2])
+                         [5, 4, 3])
         self.assertEqual(self.extensions(directory), [])
         self.assertEqual(len(self.calls("executor")), 3)
         self.assertTrue(run.failed_at_budget(state))
@@ -197,7 +197,7 @@ sys.exit(1)
     # --- (c) standing still, and a failing done-when, earn nothing ---------
 
     def test_v5l_findings_that_do_not_shrink_do_not_extend_the_budget(self):
-        self.reviews(fail(3), fail(2), fail(2))
+        self.reviews(fail(4), fail(3), fail(3))
         code, directory, state = self.launch(rounds=3)
         self.assertEqual(code, 1, self.log(directory))
         self.assertEqual((state["state"], state["rounds"]), ("fail", 3))
@@ -306,7 +306,7 @@ sys.exit(1)
         self.assertEqual(transitions.continue_line(record.read_state(merged)), "")
 
     def test_v5l_status_shows_a_spent_budget_with_no_extension(self):
-        self.reviews(fail(4), fail(3), fail(2), PASS)
+        self.reviews(fail(5), fail(4), fail(3), PASS)
         _, directory, state = self.launch(rounds=3)
         self.assertNotIn("extended", state)
         line = next(row for row in self.status(directory.name).splitlines()
@@ -353,11 +353,11 @@ sys.exit(1)
 
     def test_v5l_findings_grouped_by_pattern_do_not_converge(self):
         """The reviewer is asked to group by pattern; those subheadings are inside the list."""
-        self.reviews(grouped(3, 2), grouped(2, 1), grouped(1, 1), PASS)
+        self.reviews(grouped(3, 2), grouped(2, 2), grouped(2, 1), PASS)
         code, directory, state = self.launch(rounds=3)
         self.assertEqual(code, 1, self.log(directory))
         self.assertEqual([entry["finding_count"] for entry in state["round_summaries"]],
-                         [5, 3, 2])
+                         [5, 4, 3])
         self.assertEqual(self.extensions(directory), [])
         self.assertEqual(state["state"], "fail")
 
@@ -514,7 +514,7 @@ sys.exit(1)
 
     def test_v5l_a_resumed_fail_at_its_new_budget_is_refused_without_more_rounds(self):
         directory, _ = self.exhausted_run()
-        self.reviews(fail(2), fail(2))
+        self.reviews(fail(3))
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 1, self.log(directory))
         state = record.read_state(directory)
         self.assertEqual((state["state"], state["rounds"]), ("fail", 3))
@@ -534,7 +534,7 @@ sys.exit(1)
     # --- a review finished on a resume buys no extra round ------------------
 
     def test_v5l_a_review_finished_on_a_resume_buys_no_extra_round(self):
-        self.reviews(fail(4), fail(3), fail(2), PASS)
+        self.reviews(fail(5), fail(4), fail(3), PASS)
         _, directory, state = self.launch(rounds=3)
         self.assertEqual((state["state"], state["rounds"]), ("fail", 3))
         # rewind to the shape an exhausted reviewer leaves: round 3 reviewed, nothing recorded
@@ -546,7 +546,7 @@ sys.exit(1)
                      review_pending={"round": 3, "summary": summaries[1]["summary"],
                                      "reason": "Resume the unfinished review."})
         record.save_state(directory, state)
-        self.reviews(fail(2), PASS)
+        self.reviews(fail(3), PASS)
         self.assertEqual(run.cmd_resume([directory.name]), 1, self.log(directory))
         after = record.read_state(directory)
         self.assertEqual(after["state"], "fail")

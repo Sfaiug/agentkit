@@ -1,10 +1,10 @@
 """A seat's own pull request whose third review left one blocking finding goes on, `extra_rounds` more.
 
 At the end of its `review_rounds` (three), the review of a seat's own pull request whose last
-round left exactly one blocking finding hands it to the writer's model as the rounds before did,
-and reviews what it pushes a fourth time; a PASS there lands the PR.  Each extra round ending the
-same way earns the next, `extra_rounds` (two) of them at most.  With two findings left after
-three, the run ends FAIL, as it always did.  Black-box: the program `AK_BIN` names runs from
+round left one or two blocking findings hands them to the writer's model as the rounds before
+did, and reviews what it pushes a fourth time; a PASS there lands the PR.  Each extra round
+ending the same way earns the next, `extra_rounds` (two) of them at most.  With three findings
+left after three, the run ends FAIL, as it always did.  Black-box: the program `AK_BIN` names runs from
 outside through tests/fixtures/akbin.py, from the seat of akseat.py, against the bare origin of
 gitrig.py and the GitHub of fakegh.py, with scripted harnesses from fakeadapter.py.
 """
@@ -31,12 +31,14 @@ def finding(path):
 
 
 ONE = {"final": "Found one.", "hand_in": [finding("contrib.txt"), ["done"]]}
-TWO = {"final": "Found two.", "hand_in": [finding("contrib.txt"), finding("other.txt"), ["done"]]}
+THREE = {"final": "Found three.", "hand_in": [finding("contrib.txt"), finding("other.txt"),
+                                             finding("third.txt"), ["done"]]}
 # a fixer that fixes nothing: its done waits on the finding's proof, so it disputes the finding
 DISPUTE = {"final": "Disputed.", "hand_in": [
     ["dispute", "contrib.txt:1", "not a defect", "--run", "true"], ["done"]]}
-# ... and one that adds a line of its own, which the next review's second finding is on
-DISPUTE_ADDING = {**DISPUTE, "write": {"other.txt": "wrong\n"}, "commit": "add other.txt"}
+# ... and one that adds lines of its own, which the next review's further findings are on
+DISPUTE_ADDING = {**DISPUTE, "write": {"other.txt": "wrong\n", "third.txt": "wrong\n"},
+                  "commit": "add other.txt and third.txt"}
 FIX = {"write": {"contrib.txt": "ready\n"}, "commit": "fix contrib.txt", "final": "Fixed.",
        "hand_in": [["done"]]}
 
@@ -96,14 +98,14 @@ class OneLeftEveryTime(unittest.TestCase):
         self.assertEqual((self.gh.pr(1)["state"], self.gh.pr(1)["merge"]), ("OPEN", None))
 
 
-class TwoLeftAfterThree(unittest.TestCase):
+class ThreeLeftAfterThree(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        reviewed(cls, [DISPUTE, DISPUTE_ADDING], [ONE, ONE, TWO, "pass"])
+        reviewed(cls, [DISPUTE, DISPUTE_ADDING], [ONE, ONE, THREE, "pass"])
 
     def test_the_run_ends_fail_after_three(self):
         self.assertEqual(self.done.code, 1, self.done.out + self.done.err)
-        self.assertEqual(rounds(self.state), [(1, "FAIL", 1), (2, "FAIL", 1), (3, "FAIL", 2)])
+        self.assertEqual(rounds(self.state), [(1, "FAIL", 1), (2, "FAIL", 1), (3, "FAIL", 3)])
         self.assertEqual((self.state["state"], self.fakes["codex"].n), ("fail", 3))
         self.assertEqual((self.gh.pr(1)["state"], self.gh.pr(1)["merge"]), ("OPEN", None))
 
