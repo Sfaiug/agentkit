@@ -139,8 +139,10 @@ def roles(cfg):
     and of the points of a week that is, `share`: each row's dollars times 100 over the week of
     its login under the model's provider.  A worker role's rows are its `turn_usage` rows; a
     run's reviewer is at the one effort its reviews name; a run counts for nothing in a worker
-    role a counted turn of which kept no row, a row of which has no listed price or a login of
-    which has no week.  The orchestrator's rows are every `seat_usage` row naming the model and
+    role a counted turn of which kept no row, or rows counting a token none of which names the
+    model its entry runs (`model`), a row of which has no listed price or a login of which has no
+    week: the run names the role's last model alone, and a turn of another's would be priced as
+    its.  The orchestrator's rows are every `seat_usage` row naming the model and
     effort, its subagents' and its talk with its owner too, as orchestrating takes them all,
     that counts a token, over the task runs naming them, ended or not, as its seat has written
     and launched one that still runs, that started no earlier than the first, as one before has
@@ -153,6 +155,7 @@ def roles(cfg):
              for provider, logins in plans.items() for account, fit in logins.items()}
     prices = _pricing()
     providers = {name: cfg["models"][name]["provider"] for name in config.offered(cfg)}
+    ids = {name: cfg["models"][name].get("model") for name in providers}
     did, kept = {}, {}  # did: (run, role): (model, effort, the turns of it `counted_turns` names)
     # one read, as a run resumed between two would add its new turns' rows to its ended sample
     for (run, executor, effort, reviewer, reviewed, counted, turn, role, account, model,
@@ -180,7 +183,14 @@ def roles(cfg):
     samples = {}
     for (run, role), (name, effort, turns) in did.items():
         rows = kept.get((run, role), [])
+        # the models each turn's rows counting a token name, as a harness files a message it
+        # made up itself with none: one naming the entry's beside others' (a subagent's) is its
+        ran = {}
+        for turn, _, model, counts, _ in rows:
+            if any((count or 0) > 0 for count in counts):
+                ran.setdefault(turn, set()).add(model)
         if (name in providers and effort is not None and not turns - {turn for turn, *_ in rows}
+                and all(ids[name] in ran[turn] for turn in turns & ran.keys())
                 and (one := spent(name, [row[1:] for row in rows]))):
             samples.setdefault((name, effort, role), []).append(one)
     # (model, effort, role): ([points, dollars] summed over its runs, how many)
