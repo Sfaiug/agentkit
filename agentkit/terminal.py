@@ -1829,7 +1829,7 @@ def confirm(question, meaning, answer, around, wait=None):
     # the screen, which scrolls it; a resize under the click) and the answer taken is not the one
     # clicked: one way to operate every screen, and a subscription removed by mistake is signed
     # in again.  The other choice, a card only the keys answer, would be the one screen the
-    # pointer does nothing on (tests/test_key_a_card_answers_to_a_click.py).
+    # pointer does nothing on (tests/test_key_a_card_that_fits_answers_to_a_click.py).
     _CARD = True
     try:
         return choose([keep, act], keep, around=drawn, wait=wait, warn=act, above=asked) == act
