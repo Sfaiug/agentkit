@@ -33,6 +33,7 @@
   "claude-folded-line-and-owner-words-pane.txt",
   "claude-folded-line-pane.txt",
   "claude-interrupted-pane.txt",
+  "claude-limit-menu-pane.txt",
   "claude-manual-mode-pane.txt",
   "claude-multiline-draft-pane.txt",
   "claude-narrow-streaming-pane.txt",
@@ -2682,6 +2683,15 @@
      "groups": {}
     },
     {
+     "fixture": "claude-limit-menu-pane.txt",
+     "row": 22,
+     "span": [
+      0,
+      30
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "claude-prompt-pane.txt",
      "row": 25,
      "span": [
@@ -2820,6 +2830,13 @@
   },
   {
    "harness": "claude",
+   "key": "rule asking.limit rows",
+   "pattern": "^(?= *(?:❯ +)?1\\. )(?: *(?:❯ +)?\\d+\\. .+\\n)*? *(?:❯ +)?\\d+\\. Stop and wait for limit to reset\\n(?: *(?:❯ +)?\\d+\\. .+\\n)* *Enter to confirm · Esc to cancel\\Z",
+   "flags": "m",
+   "matches": []
+  },
+  {
+   "harness": "claude",
    "key": "rule asking.trust newest",
    "pattern": "(?i)enter to confirm",
    "flags": "",
@@ -2830,6 +2847,15 @@
      "span": [
       1,
       17
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-limit-menu-pane.txt",
+     "row": 29,
+     "span": [
+      2,
+      18
      ],
      "groups": {}
     },
@@ -4286,6 +4312,33 @@
     {
      "fixture": "claude-interrupted-pane.txt",
      "row": 43,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-limit-menu-pane.txt",
+     "row": 3,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-limit-menu-pane.txt",
+     "row": 25,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-limit-menu-pane.txt",
+     "row": 26,
      "span": [
       0,
       3
@@ -15297,6 +15350,42 @@
      "span": [
       5,
       49
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-limit-menu-pane.txt",
+     "row": 1,
+     "span": [
+      0,
+      31
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-limit-menu-pane.txt",
+     "row": 2,
+     "span": [
+      16,
+      37
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-limit-menu-pane.txt",
+     "row": 23,
+     "span": [
+      28,
+      70
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-limit-menu-pane.txt",
+     "row": 29,
+     "span": [
+      11,
+      34
      ],
      "groups": {}
     },
