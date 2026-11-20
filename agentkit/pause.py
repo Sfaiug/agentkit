@@ -1,7 +1,7 @@
 """A home a machine takes over from stands still once its proof that it is the home is `STALE`
 old, so a standby that takes a lease standing still longer finds it doing nothing.  This hides the
 10 minutes, that the proof is read from the lease's repository (`lease.proof_age`), and the
-freezer's file: `cgroup.freeze` of ak's slice, where seats, runs, landers and checks run.
+freezer's file: ak's slice's (`host.freezer`), where seats, runs, landers and checks run.
 
 Standing still is that slice frozen, which loses nothing: a thaw carries on where it stood.  The
 tick is cron's and runs outside the slice, as does whatever else ak started outside it.  Nothing
@@ -11,7 +11,7 @@ is kept.
 
 import os
 
-from . import lease, orch, standby
+from . import host, lease, orch, standby
 
 # A home's tick fires every three minutes, so three more turns were tried before it pauses; a
 # standby waits twice this.
@@ -26,7 +26,7 @@ def paused():
     age = lease.proof_age() if standby.takes_over() else None
     stale = age is not None and age >= STALE
     try:
-        freezer = orch.slice_cgroup() / "cgroup.freeze"
+        freezer = host.freezer(orch.slice_cgroup())
         if stale or freezer.read_text().strip() == "1":
             # as `echo 1 >` writes it, but never creating it
             with open(os.open(freezer, os.O_WRONLY | os.O_TRUNC), "w") as file:
