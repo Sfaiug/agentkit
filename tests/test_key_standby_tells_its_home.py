@@ -35,9 +35,11 @@ SHOWN = "1789000300 10300 acme-vm-boot-1"      # five minutes on there
 OFF = ("1788913600 10000 acme-vm-boot-1", "1789086400 5 acme-vm-boot-2", BEGAN)
 WORDS = "1789000000.0 50000.0 acme-boot-1"      # a stamp, as --began prints one
 # Programs at the home's installed ak that never print what --began does and exits 0 by: one to
-# each of its outputs and 1, a stamp and 1, two stamp lines and 0, two spaces in one and 0.
+# each of its outputs and 1, a stamp and 1, two stamp lines and 0, two spaces in one and 0, a
+# stamp and 8 MiB more and 0.
 BROKEN = ("echo said; echo failed >&2; exit 1", f"echo '{WORDS}'; exit 1",
-          f"echo '{WORDS}'; echo '{WORDS}'", f"echo '{WORDS.replace(' ', '  ', 1)}'")
+          f"echo '{WORDS}'; echo '{WORDS}'", f"echo '{WORDS.replace(' ', '  ', 1)}'",
+          f"echo '{WORDS}'; head -c {8 << 20} /dev/zero")
 
 
 def minutes(count):

@@ -58,6 +58,7 @@ import math
 import os
 from pathlib import Path
 import re
+import select
 import shlex
 import socket
 import stat
@@ -295,33 +296,46 @@ def _began():
     return 0
 
 
-def _home(alias, *words, stdout):
-    """`ak standby` with `words` by the home's installed ak, which install.sh links, under the
-    home's HOME as its shell names it, so a Mac's under /Users answers too; asking for no
-    password, silent and bounded as reading what to copy is.  What it did, or None for one that
-    could not be started or waited for."""
-    try:
-        return subprocess.run(["ssh", "-o", "BatchMode=yes", alias,
-                               '"$HOME"/' + shlex.join([".local/bin/ak", "standby", *words])],
-                              stdin=subprocess.DEVNULL, stdout=stdout, stderr=subprocess.DEVNULL,
-                              timeout=TIMEOUT)
-    except (OSError, subprocess.SubprocessError):
-        return None
+def _home(alias, *words):
+    """ssh's words running `ak standby` with `words` by the home's installed ak, which install.sh
+    links, under the home's HOME as its shell names it, so a Mac's under /Users answers too:
+    asking for no password, each word quoted, as `_copy`'s are."""
+    return ["ssh", "-o", "BatchMode=yes", alias,
+            '"$HOME"/' + shlex.join([".local/bin/ak", "standby", *words])]
 
 
 def _home_began(alias):
     """This machine's host name and the words of the stamp `alias` prints now, as `--copied`
     hands them back; none for a host name that cannot be read or that `--copied` would not take,
-    which asks nothing, nor for any answer but 0 and, byte for byte, a line `--began` prints."""
+    which asks nothing, nor for any answer within TIMEOUT but 0 and, byte for byte, a line
+    `--began` prints."""
     try:
         host = socket.gethostname()
     except OSError:
         return []
-    asked = re.fullmatch(HOST, host) and _home(alias, "--began", stdout=subprocess.PIPE)
-    if not asked or asked.returncode:
+    if not re.fullmatch(HOST, host):
         return []
-    said = asked.stdout.decode(errors="replace").split()
-    if not _fits(said, STAMP) or asked.stdout != f"{' '.join(said)}\n".encode():
+    end, printed = time.monotonic() + TIMEOUT, b""
+    try:
+        with subprocess.Popen(_home(alias, "--began"), stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as asked:
+            try:
+                # Read to its end, as reading what to copy is, but only its first KiB kept: longer
+                # than any line STAMP fits, so a longer answer is never taken for one, and a home
+                # that prints on and on holds no more of this machine's memory.
+                while select.select([asked.stdout], [], [], max(end - time.monotonic(), 0))[0]:
+                    if not (more := os.read(asked.stdout.fileno(), 1 << 16)):
+                        break
+                    printed = (printed + more)[:1 << 10]
+                else:
+                    return []
+                code = asked.wait(max(end - time.monotonic(), 0))
+            finally:
+                asked.kill()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    said = printed.decode(errors="replace").split()
+    if code or not _fits(said, STAMP) or printed != f"{' '.join(said)}\n".encode():
         return []
     return [host, *said]
 
@@ -523,5 +537,8 @@ def main(argv):
             _stamp(own, began.line(), alias, why)
         versions.final(time.time())
         if held:
-            _home(alias, "--copied", *held, "no", stdout=subprocess.DEVNULL)
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                subprocess.run(_home(alias, "--copied", *held, "no"), stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=TIMEOUT)
     return 0
