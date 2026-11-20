@@ -25,11 +25,7 @@ import (
 // colours says each role's colour in the shades kept, on one line: what Ctrl-b m's popup asks as
 // the key is pressed (tmux.ColoursVerb).
 func colours(roles []string, out io.Writer) int {
-	said := make([]string, len(roles))
-	for i, role := range roles {
-		said[i] = terminal.RGB(role)
-	}
-	fmt.Fprintln(out, strings.Join(said, " "))
+	fmt.Fprintln(out, strings.Join(terminal.RGBs(roles...), " "))
 	return 0
 }
 

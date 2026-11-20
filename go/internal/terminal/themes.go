@@ -22,7 +22,7 @@ const (
 )
 
 // keptAt is where a menu keeps the shades its terminal's background fits, as Python's
-// terminal._kept_at: `light`, else `dark`.
+// config.STATE / themes.KEPT: `light`, else `dark`.
 func keptAt() string { return filepath.Join(config.Home(), "state", "background") }
 
 // kept is the shades the answer a menu kept last fits, as its file is now (Python's themes.fits):
@@ -40,6 +40,7 @@ func kept() theme {
 // what cannot ask stays in the shades kept before.
 func keep(fits theme) {
 	at := keptAt()
+	os.MkdirAll(filepath.Dir(at), 0o777) // a Home nothing has kept state in yet has none
 	part, err := os.CreateTemp(filepath.Dir(at), ".background-")
 	if err != nil {
 		return

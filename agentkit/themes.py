@@ -5,12 +5,13 @@ should be used, and ak just sits on top of that."  On a light terminal: "Adapt b
 So nothing chooses: a screen asks for a role, and the theme in force (`terminal.theme`) says its
 colour, white's or black's: the one the terminal's background fits, else the one a menu's answer
 last kept fits (`fits`), black where none is.  tests/test_boundaries.py counts an RGB written
-anywhere but here.  Run bare, `themes.py <kept> <role>...`, it says each role's colour as tmux
-draws it (`terminal.colour`'s `tmux`), on one line: `Ctrl-b m`'s job asks them as the key is
-pressed (orch.FLOAT), and one start of Python that imports no more than this holds the popup up
-least.
+anywhere but here.  Run bare, `themes.py <config.toml> <role>...`, it says each role's colour as
+tmux draws it (`terminal.colour`'s `tmux`), in the theme kept in the state beside it, on one
+line: `Ctrl-b m`'s job asks them as the key is pressed (orch.FLOAT), and one start of Python that
+imports no more than this holds the popup up least.
 """
 
+import os
 import sys
 
 WHITE, BLACK = 0, 1     # each theme's column
@@ -46,4 +47,5 @@ def fits(path):
 
 
 if __name__ == "__main__":
-    print(*(ROLES[role][fits(sys.argv[1])] for role in sys.argv[2:]))
+    kept = fits(os.path.join(os.path.dirname(sys.argv[1]), "state", KEPT))     # config.STATE
+    print(*(ROLES[role][kept] for role in sys.argv[2:]))

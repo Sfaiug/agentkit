@@ -15,11 +15,8 @@ func TestWhatCannotAskTakesTheShadesTheLastAnswerFits(t *testing.T) {
 	if kept() != black || RGB("accent") != roles["accent"][black] {
 		t.Fatal("nothing kept is not black's")
 	}
-	if err := os.MkdirAll(filepath.Join(home, ".agentkit", "state"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	keep(white)
-	if said, _ := os.ReadFile(keptAt()); string(said) != "light\n" || kept() != white || RGB("accent") != roles["accent"][white] {
+	keep(white) // a Home with no state yet: keep makes it
+	if said, _ := os.ReadFile(keptAt()); string(said) != "light\n" || kept() != white || RGBs("accent", "dim")[1] != roles["dim"][white] {
 		t.Fatalf("a light answer kept %q", said)
 	}
 	keep(black)

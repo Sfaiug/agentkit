@@ -97,7 +97,8 @@ class TwoLines(Sandbox):
 
     def test_a1_a_theme_chosen_since_is_the_next_write_s(self):
         statusbar.dress("fix-api", "fable")
-        (config.HOME / config.CONFIG_NAME).write_text('theme = "white"\n')   # chosen on `c`
+        config.STATE.mkdir(parents=True, exist_ok=True)
+        (config.STATE / terminal.KEPT).write_text("light\n")     # a menu's terminal's answer
         statusbar.dress("fix-api", "fable")
         self.assertEqual(self.options["status-style"], "fg=#181c22,bg=#f4f6fa")
         self.assertEqual(self.options["mode-style"], "fg=#181c22,bg=#dcecff")

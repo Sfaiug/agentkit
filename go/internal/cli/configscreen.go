@@ -92,7 +92,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		case key.Name == "again": // a resize: drawn whole again, what was said and the pointer's place kept
 			painter.Forget()
 			continue
-		case key.Name == "wake": // the seat's record changed: drawn again, what was said kept
+		case key.Name == "wake": // the seat's record changed, or a read landed: drawn again, what was said kept
 			continue
 		case view.Away && (key.Name == "space" || key.Name == "enter"):
 			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it

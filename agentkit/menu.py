@@ -545,12 +545,12 @@ class Live:
         self.ask(look=True)
 
     def recorded(self):
-        """usage.json, the runs' moved mark and every seat record: each one's name, inode and
-        mtime; and each project's feature switches as its `list` last answered, so their landing
-        is news too."""
+        """usage.json, the runs' moved mark, the background a menu kept (terminal.kept) and every
+        seat record: each one's name, inode and mtime; and each project's feature switches as its
+        `list` last answered, so their landing is news too."""
         found = []
-        for path in [config.STATE / "usage.json", config.runs_moved_path(),
-                     *(path for _, path in config.seat_files("seat"))]:
+        for path in [config.STATE / "usage.json", config.runs_moved_path(), config.STATE /
+                     terminal.KEPT, *(path for _, path in config.seat_files("seat"))]:
             try:
                 stat = path.stat()
             except OSError:

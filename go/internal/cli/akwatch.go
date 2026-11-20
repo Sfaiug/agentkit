@@ -132,7 +132,7 @@ func names(home seat.Home) map[string]bool {
 func marks() []os.FileInfo {
 	state := filepath.Join(config.Home(), "state")
 	paths := append([]string{filepath.Join(config.Home(), "config.toml"), filepath.Join(state, "usage.json"),
-		filepath.Join(state, "runs-moved")}, config.SeatRecords("seat")...)
+		filepath.Join(state, "runs-moved"), filepath.Join(state, "background")}, config.SeatRecords("seat")...)
 	var found []os.FileInfo
 	for _, path := range paths {
 		if info, err := os.Stat(path); err == nil {

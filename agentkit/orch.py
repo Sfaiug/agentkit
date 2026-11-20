@@ -52,7 +52,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, suite_times, terminal, themes, transitions, update, usage, versions
+from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, suite_times, terminal, transitions, update, usage, versions
 from . import record as run_record
 from .harness import LAUNCH_KEYS, LAUNCHER, claims, entries, load as harness_plugin
 
@@ -2135,7 +2135,7 @@ def server_conf():
         border = f'-b rounded -S "$b" -T {shlex.quote(POPUP_TITLE)}'    # FLOAT's border
         roles = shlex.join([sys.executable, "-S", "-I", str(versions.live() / "agentkit" /
                                                             "themes.py"),
-                            str(config.STATE / themes.KEPT), "border", "dim"])
+                            str(config.HOME / config.CONFIG_NAME), "border", "dim"])
         handed = f'-e "{terminal.FEATURES_ENV}=$f" -e "{CLIENT_ENV}=$c"'
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "
