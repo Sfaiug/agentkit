@@ -3,11 +3,13 @@
 A run launched while every other reviewer was spent starts with its writer as its reviewer.
 Before each review -- a round's, or a landing fix's re-review on a resume after a passed
 review -- the writer gives way to a marked reviewer that is not the writer and has room now,
-on a fresh session.  With none, the writer reviews, as at launch.  A reviewer that is not the
-writer is never swapped, even for one ranked higher that regained room.  Black-box: the
-program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, with harnesses from
-fakeadapter.py whose meters the test sets, on the bare origin of gitrig.py and the GitHub of
-fakegh.py.  A shortage ends as a meter does: its window resets.
+on a fresh session.  With none, the writer reviews, as at launch, where the launch named it or
+no reviewer of another lab is marked; else a round's review waits for that one
+(tests/test_key_a_review_starts_on_another_provider.py).  A reviewer that is not the writer is
+never swapped, even for one ranked higher that regained room.  Black-box: the program `AK_BIN`
+names runs from outside through tests/fixtures/akbin.py, with harnesses from fakeadapter.py
+whose meters the test sets, on the bare origin of gitrig.py and the GitHub of fakegh.py.  A
+shortage ends as a meter does: its window resets.
 """
 
 import json
@@ -120,9 +122,9 @@ class ShortageEndsBeforeReview(unittest.TestCase):
 
 
 class ResumeAfterPassedReview(unittest.TestCase):
-    """opus reviews its own work while astra is spent, and it passes; the line's check of it
-    is cut off.  Checked again once astra's window reset, the suite is red, and the fix's
-    re-review on the run's resume is astra's."""
+    """opus, named its reviewer, reviews its own work while astra is spent, and it passes; the
+    line's check of it is cut off.  Checked again once astra's window reset, the suite is red,
+    and the fix's re-review on the run's resume is astra's."""
 
     @classmethod
     def setUpClass(cls):
@@ -140,7 +142,8 @@ class ResumeAfterPassedReview(unittest.TestCase):
                       claude=[work, "pass", fix], codex="pass")
         GitHub(home).grant(cls.rig.slug, "WRITE")
         first = threading.Thread(target=home.ak, args=(
-            "run", str(taskfile.write(home, cls.rig.path))), kwargs={"timeout": 300})
+            "run", str(taskfile.write(home, cls.rig.path)), "--review", "opus"),
+            kwargs={"timeout": 300})
         first.start()
         until_true(lambda: running(home, suite))
         cls.run_dir = taskfile.only_run(home)
@@ -177,7 +180,7 @@ class ResumeAfterPassedReview(unittest.TestCase):
 
 
 class NoOtherReviewerHasRoom(unittest.TestCase):
-    """astra stays spent: opus reviews its own work."""
+    """astra stays spent: opus does not review its own work, and the run waits for astra."""
 
     @classmethod
     def setUpClass(cls):
@@ -187,11 +190,11 @@ class NoOtherReviewerHasRoom(unittest.TestCase):
                            timeout=300)
         cls.state = record(taskfile.only_run(home))
 
-    def test_the_writer_reviews(self):
-        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
-        self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer"])
+    def test_the_run_waits_for_astra(self):
+        self.assertEqual(self.done.code, 1, self.done.out + self.done.err)
+        self.assertEqual(roles(self.fakes["claude"]), ["executor"])
         self.assertEqual(self.fakes["codex"].runs(), [])
-        self.assertEqual(self.state["review"]["reviewer"], "opus")
+        self.assertEqual(self.state["state"], "exhausted")
 
 
 class CrossPairIsKept(unittest.TestCase):
