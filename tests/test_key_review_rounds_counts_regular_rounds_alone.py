@@ -51,12 +51,13 @@ OWNERS = {"AK_NOTIFY_SINK": None}
 
 
 def write_runs(home, kept, writable=True):
-    """RUNS, an hour apart, into `home`'s history.db: each with its rounds past 3 where `kept`,
-    else empty; where not `writable`, without that column, in a history nothing may write, so
-    nothing adds it."""
+    """RUNS, an hour apart, into `home`'s history.db in the journal mode ak writes: each with
+    its rounds past 3 where `kept`, else empty; where not `writable`, without that column, in a
+    history nothing may write, so nothing adds it."""
     columns = (*COLUMNS, *["extra_rounds_used"] * writable)
     db = home.path / ".agentkit/history.db"
     with contextlib.closing(sqlite3.connect(db)) as connection, connection:
+        connection.execute("PRAGMA journal_mode=WAL")
         connection.execute(f"CREATE TABLE runs ({', '.join(columns)})")
         connection.executemany(
             f"INSERT INTO runs VALUES ({', '.join('?' * len(columns))})",

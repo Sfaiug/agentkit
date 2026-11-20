@@ -567,8 +567,7 @@ def _update(connection, run_id, fields):
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
                "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
-               "executor_effort", "own_orchestrator_effort", "kind", "landing_breaks", "landing_flakes", "no_review",
-               "extra_rounds_used"}
+               "executor_effort", "own_orchestrator_effort", "kind", "landing_breaks", "landing_flakes", "no_review"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -1180,8 +1179,7 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
               "task_files": task_files, "changed_lines": changed_lines,
               "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator,
               "own_orchestrator_effort": own_orchestrator_effort,
-              "landing_breaks": landing_breaks, "landing_flakes": landing_flakes,
-              "extra_rounds_used": extra_rounds_used}
+              "landing_breaks": landing_breaks, "landing_flakes": landing_flakes}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 
@@ -1192,11 +1190,12 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                     "SELECT 1 FROM runs WHERE run_id=? AND final_state='running'",
                     (run_id,)).fetchone():
                 return
-        # A maintainer merge republishes the same ending: its pair, even NULL, belongs to
-        # the config at that ending. A resume clears finished_at so its next ending records anew.
+        # A maintainer merge republishes the same ending: its pair and its rounds past its
+        # review_rounds, even NULL, belong to the config and the agentkit at that ending. A
+        # resume clears finished_at so its next ending records anew.
         connection.execute(
-            "UPDATE runs SET review_pair=? WHERE run_id=? AND finished_at IS NOT ?",
-            (review_pair, run_id, finished_at))
+            "UPDATE runs SET review_pair=?, extra_rounds_used=? WHERE run_id=? "
+            "AND finished_at IS NOT ?", (review_pair, extra_rounds_used, run_id, finished_at))
         _update(connection, run_id, values)
         if peak is not None:
             connection.execute(
