@@ -24,6 +24,7 @@ func TestTheBarsFormatsAreStatusbarsOwn(t *testing.T) {
 
 func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
+	sandbox(t) // the theme in force is the home's
 	screen := terminal.For(nil)
 	needs := " #[fg=#000000,bg=#d79200,bold] ! needs you #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]   "
 	done := " #[fg=#000000,bg=#33b65f] ✓ done #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]   "
@@ -86,6 +87,7 @@ func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 // squares alone; again with them cut to six, then to one and the count of the rest.
 func TestLineTwoDrawsTheTasksFirst(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
+	sandbox(t) // the theme in force is the home's
 	var mine []ran
 	for _, task := range append([]Task{{Stage: 0, Moving: true}, {Stage: 1}}, slices.Repeat([]Task{{Stage: 2}}, 6)...) {
 		mine = append(mine, ran{view: &runView{task: &task}})
