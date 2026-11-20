@@ -50,7 +50,7 @@ print(config.heard_at(sys.argv[2]))
 }
 
 seat_state() {
-  local payload=$1 jq=$2 owner=$3 said=$4 seat event kind text ts dir row next hop pid=''
+  local payload=$1 jq=$2 owner=$3 said=$4 sub=$5 seat event kind text ts dir row next hop pid=''
   seat=${AGENTKIT_SESSION:-}
 
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null) || return 0
@@ -61,9 +61,12 @@ seat_state() {
   # both camelCase, so the twins are read beside them -- and a compaction its trigger
   kind=$("$jq" -r '.notification_type // .notificationType // .tool_name // .toolName // .trigger
                    // empty' <<<"$payload" 2>/dev/null) || kind=''
-  # a question's own words, where the event carries one, before a notice's: whole, for each
-  # reader fits them to its own room, and on stdin, for one argument holds 128 KiB
-  text=$("$jq" -r '(.tool_input.questions[0].question)? // .message // .title // ""' \
+  # a question's own words, where the event carries one, before a notice's, then the words the
+  # seat's own turn failed on, which its transcript holds only later (a sub-agent's failure is
+  # not the seat's turn's): whole, for each reader fits them to its own room, and on stdin, for
+  # one argument holds 128 KiB
+  text=$("$jq" -r --argjson sub "$sub" '(.tool_input.questions[0].question)? // .message // .title
+                   // (select(.error and ($sub | not)) | .last_assistant_message) // ""' \
     <<<"$payload" 2>/dev/null) || text=''
   # Any other event is the looker's to hear (`looker.record`), wherever the harness runs, and
   # the hook goes on once its fact is down: an event the harness waits on is never written after
@@ -128,16 +131,16 @@ config.record_hook_fact(row, {"session": seat, "event": event, "kind": kind,
 
 main() {
   umask 077
-  local payload=$1 jq event owner=true said='' seat=${AGENTKIT_SESSION:-}
+  local payload=$1 jq event owner=true said='' sub=false seat=${AGENTKIT_SESSION:-}
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
   # The seat's name is one component of a path here as it is everywhere else.
   case "$seat" in */*|.|..|"") return 0 ;; esac
   jq=$(command -v jq) || return 0
   event=$("$jq" -r '.hook_event_name // "Stop"' <<<"$payload" 2>/dev/null) || event=Stop
+  "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1 && sub=true
   # A sub-agent's own turn is not the seat's: written down, it would be a turn that never ends,
   # its prompt the owner's answer, and its end the seat's idleness.
-  if [[ $event = UserPromptSubmit || $event = Stop ]] &&
-    "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1; then
+  if [[ $sub = true && ( $event = UserPromptSubmit || $event = Stop ) ]]; then
     return 0
   fi
   # Slash commands and turns the harness begins on completed work answer nothing.
@@ -156,8 +159,7 @@ main() {
   # answers only the questions it names: by their words, or by an id its call gives the words
   # of, each beside the choices the card showed with it (`notify.replied`).  A card cancelled
   # or left empty, any other event, and a sub-agent's tool say nothing of theirs.
-  elif [[ $event != PostToolUse ]] ||
-    "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1 ||
+  elif [[ $event != PostToolUse || $sub = true ]] ||
     ! said=$("$jq" -ec '. as $call | (.tool_input.answers // .tool_response.answers)
                         | objects | [to_entries[] | select([.value | .. | strings
                                                            | select(test("\\S"))] != [])
@@ -170,9 +172,9 @@ main() {
   fi
   # A prompt's news is the hook's output; nothing else it hears says anything.
   if [[ $event = UserPromptSubmit ]]; then
-    seat_state "$payload" "$jq" "$owner" "$said"
+    seat_state "$payload" "$jq" "$owner" "$said" "$sub"
   else
-    seat_state "$payload" "$jq" "$owner" "$said" >/dev/null 2>&1
+    seat_state "$payload" "$jq" "$owner" "$said" "$sub" >/dev/null 2>&1
   fi
   # SessionStart first captures the conversation its harness vouches for.
   if [[ $event = SessionStart ]]; then
