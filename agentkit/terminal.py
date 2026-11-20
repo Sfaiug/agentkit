@@ -7,6 +7,7 @@ import shutil
 import signal as signals     # `signal` is an effort's bars, below
 import subprocess
 import sys
+import tempfile
 import termios
 import threading
 import time
@@ -1109,17 +1110,20 @@ def sense():
 def _keep(theme):
     """The theme the terminal's answer fits, kept for what cannot ask (`kept`): moved in whole
     from a file of its own, so menus keeping theirs at once each leave a whole one."""
-    part = os.path.join(config.STATE, f".{KEPT}.{os.getpid()}")
+    part = None
     try:
-        os.makedirs(config.STATE, exist_ok=True)     # a Home nothing has kept state in has none
-        with open(part, "w", encoding="utf-8") as file:
+        for place in (os.path.dirname(config.STATE), config.STATE):   # owner-only: ensure_dirs
+            os.makedirs(place, mode=0o700, exist_ok=True)
+        handle, part = tempfile.mkstemp(dir=config.STATE, prefix=f".{KEPT}-")     # 0600
+        with os.fdopen(handle, "w", encoding="utf-8") as file:
             file.write("light\n" if theme == WHITE else "dark\n")
         os.replace(part, os.path.join(config.STATE, KEPT))
     except OSError:          # nothing kept: what cannot ask stays in the one kept before
-        try:
-            os.unlink(part)
-        except OSError:
-            pass
+        if part:
+            try:
+                os.unlink(part)
+            except OSError:
+                pass
 
 
 def _byte(fd, wait=None):

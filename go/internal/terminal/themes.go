@@ -40,7 +40,7 @@ func kept() theme {
 // what cannot ask stays in the shades kept before.
 func keep(fits theme) {
 	at := keptAt()
-	os.MkdirAll(filepath.Dir(at), 0o777) // a Home nothing has kept state in yet has none
+	os.MkdirAll(filepath.Dir(at), 0o700) // owner-only, as Python's config.ensure_dirs makes them
 	part, err := os.CreateTemp(filepath.Dir(at), ".background-")
 	if err != nil {
 		return
