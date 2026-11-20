@@ -272,6 +272,20 @@ away = '(?:Jump to bottom|Waiting for your answer|\d+ new messages?) \(ctrl\+End
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.
+# The menu a spent window draws in the composer's place where Claude Code arms no wait of its own,
+# a reset more than a day away among others (2.1.328, 2.1.329): its row `Stop and wait for limit
+# to reset` among its numbered rows, from 1 right down to its hint, the pane's last row, so a row
+# that wraps is no such menu; before the trust dialog, whose hint it shares.  `answer` is the key the tick and a failed turn's hook send it
+# before they look (`watch.dismiss`): Esc runs that row's own cancel, whatever order a plan gives
+# the rows and wherever the cursor stands, and leaves the composer empty over the refusal (20 Nov
+# 2026).  The owner, 19 Nov 2026: "Should always pick stop and wait for limit to reset".
+[[rule]]
+id = "asking.limit"
+state = "asking"
+lines = 6
+rows = '^(?= *(?:❯ +)?1\. )(?: *(?:❯ +)?\d+\. .+\n)*? *(?:❯ +)?\d+\. Stop and wait for limit to reset\n(?: *(?:❯ +)?\d+\. .+\n)* *Enter to confirm · Esc to cancel\Z'
+answer = "Escape"
+
 # The workspace-trust dialog: three of its own controls, in the last few lines, with its final
 # control line newest.  Transcript text quoting one of them is above a composer, not below it.
 [[rule]]

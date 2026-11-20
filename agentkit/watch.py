@@ -82,6 +82,8 @@ KEY_GAP = 0.5           # text and Enter go separately: a return in the same rea
                         # 0.153.4 and Muse 1.2.1, 0.10 s still lost it and 0.15 s did not
 SENT_WAIT = 5.0         # how long a typed line gets to show whole in its composer, and to leave it
 SENT_POLL = 0.5         # ... polling the pane this often for its absence
+DISMISS_WAIT = 5.0      # how long a screen a rule's `answer` went to has to leave (`dismiss`): past
+                        # it, it stands, and the look after reads it as it reads any, `needs you`
 MOVE_STANDS = 3 * SENT_WAIT     # a move's lines unchanged this long are the tick's: a harness
                         # drew what it asks up to 4 s after the line, at a load of 68 on 18 cores
                         # (11 Nov 2026)
@@ -904,7 +906,9 @@ def _rule(entry, path):
             # one pattern over the window's rows as drawn, read together: a frame no row alone is
             "rows": _pattern(entry.get("rows"), path, re.M),
             "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer")),
-            "picker": bool(entry.get("picker"))}
+            "picker": bool(entry.get("picker")),
+            # the key that puts away what it reads, sent before a look (`dismiss`)
+            "answer": str(entry.get("answer") or "")}
 
 
 def screen(harness):
@@ -2019,9 +2023,9 @@ def _screen_rows(tail):
     return raw_lines, [strip_sgr(line).strip() for line in raw_lines]
 
 
-def screen_state(harness, pane):
-    """(state, rule id, evidence line) of the first adapter rule that matches the bottom of that
-    pane, else (None, "", "").
+def screen_rule(harness, pane):
+    """(rule, evidence line) of the first adapter rule that matches the bottom of that pane, else
+    (None, ""): the rule itself, as two rules may share an id.
 
     A fix here adds no fallback for a shape it did not set out to read and reads only the rows
     the code it replaces read: every such fallback, and every reach further up the pane, misread
@@ -2047,7 +2051,7 @@ def screen_state(harness, pane):
     tail = pane_tail(pane)
     raw_lines, lines = _screen_rows(tail)
     if not lines:
-        return None, "", ""
+        return None, ""
     chrome = screen(harness)
 
     def drawn_rule(row):
@@ -2063,7 +2067,7 @@ def screen_state(harness, pane):
     if (chrome["away"] and len(lines) > 1 and drawn_rule(lines[-1])
             and chrome["away"].search(lines[-2])
             and ruled_composer(chrome, raw_lines)[1] != len(lines) - 1):
-        return None, "", ""
+        return None, ""
     # A tray the harness draws under its footer, or between its composer and its footer, is
     # neither: left out, every rule reads the rows it reads where none is drawn, and never
     # further up the transcript.
@@ -2155,9 +2159,9 @@ def screen_state(harness, pane):
             if rule["id"] == "prompt.draft":
                 draft = " ".join(_composer_parts(chrome, raws, region, at, end))
                 if draft:
-                    return rule["state"], rule["id"], draft[:160]
+                    return rule, draft[:160]
             elif _suggestion_line(raws[at], region[at], chrome["faint"]):
-                return rule["state"], rule["id"], region[at][:160]
+                return rule, region[at][:160]
             continue
         # a row pattern reads its rows as drawn, indented or from the left edge
         drawn = [line for raw, line in zip(raws, region)
@@ -2183,8 +2187,14 @@ def screen_state(harness, pane):
                     and len(raw_lines) >= PANE_LINES):
                 parts = _cropped_composer_rows(harness, tail)
             evidence = " ".join(parts or ()) or evidence
-        return rule["state"], rule["id"], evidence[:160]
-    return None, "", ""
+        return rule, evidence[:160]
+    return None, ""
+
+
+def screen_state(harness, pane):
+    """(state, rule id, evidence line) of the rule `screen_rule` reads, else (None, "", "")."""
+    rule, evidence = screen_rule(harness, pane)
+    return (rule["state"], rule["id"], evidence) if rule else (None, "", "")
 
 
 def classify(harness, pane, fact, opened_at, previous, now, interrupted=None):
@@ -5769,9 +5779,50 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
         return True
 
 
+def dismiss(session, harness):
+    """Put away what a rule with an `answer` reads that seat's screen as -- a menu its harness
+    draws at a spent window -- before a look, which then reads the seat as it stands under it.
+    Its rows are read as the terminal draws them, never joined (`-J`): a row that wraps is no
+    such screen.  As `_asks` says yes: under the seat's send lock, on the pane tmux pins it to
+    (`pinned`), the rule's key goes there only while a read there again finds that same rule and
+    its terminal holds no input unread, which would reach the screen first; then reads, for
+    DISMISS_WAIT at most, wait for one tmux gave, not blank, to find no such rule.  Never on a
+    closed seat, whose pane still shows what its harness drew last, nor on a legacy one: ak types
+    nothing on the owner's own server."""
+    if (not any(rule["answer"] for rule in screen(harness)["rules"]) or session.get("legacy")
+            or any(session.get(key) for key in orch.CLOSED)):
+        return
+
+    def drawn(timeout=None):
+        # whether tmux gave a screen, not blank, and the rule with an `answer` it reads as
+        rc, rows = orch.tmux_out("capture-pane", "-p", "-e", "-t", _pane(session),
+                                 socket=orch.seat_socket(session), timeout=timeout)
+        shown = rc == 0 and bool(strip_sgr(rows).strip())
+        rule = screen_rule(harness, rows)[0] if shown else None
+        return shown, rule if rule and rule["answer"] else None
+
+    seen = drawn()[1]
+    if seen is None:
+        return
+    session = pinned(session)
+    if not re.fullmatch(r"%[0-9]+", session.get("pane") or ""):
+        return      # unpinned, `=name:` is whichever pane the owner selects next
+    with notify.session_lock(session["name"]):
+        if drawn()[1] is not seen or pane_unread(session) or orch.tmux_out(
+                "send-keys", "-t", _pane(session), seen["answer"],
+                socket=orch.seat_socket(session))[0]:
+            return
+        deadline = time.monotonic() + DISMISS_WAIT
+        while (left := deadline - time.monotonic()) > 0:
+            if drawn(left) == (True, None):
+                return
+            time.sleep(max(0, min(SENT_POLL, deadline - time.monotonic())))
+
+
 def settle_account(cfg, session, log, records=None):
     """`seat_account` on a fresh look at that seat: an older look may still say it is asking."""
     harness, provider = seat_model(cfg, session["name"])
+    dismiss(session, harness)
     with announcing(session["name"]):
         pane = pane_text(session)
         look_at(session, cfg=cfg, pane=pane)
@@ -5867,6 +5918,7 @@ def health(cfg, state, dry_run, log):
                     sync_title(session, log)
                 except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
                     log(f"WARN {name}: title update did not finish: {exc}")
+                dismiss(session, harness)
             # captured, read and written down under the lock every publisher takes, so a look
             # the seat's own hook makes meanwhile lands wholly before this one or after it
             with nullcontext() if dry_run else announcing(name):

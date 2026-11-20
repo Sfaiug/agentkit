@@ -1,0 +1,30 @@
+
+ ▐▛███▛█   Claude Code v2.1.329
+▝▜██████▀  Opus 5 · API Usage Billing
+  ▝▝ ▝▝    /…/fixture-workspace
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+❯ go
+
+● Shipping the parser fix now.
+  ⎿  You've hit your weekly limit · resets Nov 21, 1am (Europe/Berlin)
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+  What do you want to do?
+  ❯ 1. Stop and wait for limit to reset
+    2. Wait here, then continue automatically at Nov 21, 1am
+    3. Switch to usage credits
+  Enter to confirm · Esc to cancel
