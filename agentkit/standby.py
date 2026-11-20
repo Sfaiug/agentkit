@@ -43,7 +43,9 @@ that went out, and sends it once.  A pass's exit is its copy's alone: the copy i
 needs first.
 
 A home keeps a record of each machine that says it copied it (`_keep`), which `ak standby` lists
-there (`_copies`): no pass says so yet.
+there (`_copies`): no pass says so yet.  A record dated by the seconds since the pass began is
+dated younger than its copy by however late the request arrives; one dated by the stamp the home
+printed when the pass began (`_began`), handed back as written, never is.
 """
 
 import contextlib
@@ -129,7 +131,13 @@ COPIES = "copies"
 # The words of `ak standby --copied HOST SECONDS yes|no`, each matched whole: a host name of at
 # most 64 characters, as Linux's, whole seconds since its pass began, and whether it takes over.
 HOST = "[A-Za-z0-9][A-Za-z0-9.-]{0,63}"
-SAID = (HOST, "[0-9]{1,9}", "yes|no")
+TAKES = "yes|no"
+SAID = (HOST, "[0-9]{1,9}", TAKES)
+# The words of this machine's stamp, as `--began` prints it and `--copied HOST WALL SINCE BOOT
+# yes|no` hands it back: each clock in decimals, no sign or exponent, and a boot no dash begins,
+# so that no word is taken for a flag.
+CLOCK = "[0-9]{1,12}(?:[.][0-9]{1,17})?"
+STAMP = (CLOCK, CLOCK, "[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 TAG = b"# agentkit standby"     # what the job's line in the crontab ends in
 
 
@@ -261,20 +269,47 @@ def _copy(alias, home, copied):
     return None
 
 
-def _keep(host, seconds, takes):
-    """Keep `host`'s record, whole or not at all: this machine's stamp now, both clocks set back by
-    `seconds`, when the copy was taken by this machine's clocks alone, a wall clock off there
-    changing nothing, and whether it `takes` over.  0, or 1 for a record that cannot be written."""
-    ago, folder = int(seconds), config.TMP / COPIES
+def _fits(words, grammar):
+    """Whether `words` are `grammar`'s, each matched whole."""
+    return len(words) == len(grammar) and all(map(re.fullmatch, grammar, words))
+
+
+def _began():
+    """Print this machine's stamp now, which a pass hands back to date its record by: 0, or 1 for
+    one that cannot be taken or that `--copied` would not take."""
     try:
-        now = pair_clock.now()      # whose boot Linux may not say
-        began = now._replace(wall=now.wall - ago, since=now.since - ago)
+        line = pair_clock.now().line()      # whose boot Linux may not say
+    except OSError as error:
+        print(f"ak standby: this machine's stamp cannot be taken: {error.strerror}",
+              file=sys.stderr)
+        return 1
+    if not _fits(line.split(), STAMP):
+        print("ak standby: this machine's stamp is not one a record can be dated by",
+              file=sys.stderr)
+        return 1
+    print(line)
+    return 0
+
+
+def _set_back(seconds):
+    """This machine's stamp now, both clocks set back by `seconds`, as a line: when the copy was
+    taken by this machine's clocks alone, a wall clock off there changing nothing."""
+    now = pair_clock.now()      # whose boot Linux may not say
+    return now._replace(wall=now.wall - seconds, since=now.since - seconds).line()
+
+
+def _keep(host, dated, takes):
+    """Keep `host`'s record, whole or not at all: the stamp `dated()` gives, and whether it
+    `takes` over.  0, or 1 for a record that cannot be written."""
+    folder = config.TMP / COPIES
+    try:
+        began = dated()
         folder.mkdir(parents=True, exist_ok=True)
         # a name no host name is, as none begins with a dot, so no listing shows one
         handle, new = tempfile.mkstemp(dir=folder, prefix=".")
         try:
             with open(handle, "w") as record:
-                record.write(f"{began.line()}\n{takes}\n")
+                record.write(f"{began}\n{takes}\n")
             os.replace(new, folder / host)
         except OSError:
             with contextlib.suppress(OSError):  # a folder no longer writable keeps it, unlisted
@@ -383,9 +418,15 @@ def main(argv):
         return 0
     if not argv:
         return _shown()
+    if argv == ["--began"]:
+        return _began()
     flag, *said = argv
-    if flag == "--copied" and len(said) == len(SAID) and all(map(re.fullmatch, SAID, said)):
-        return _keep(*said)
+    if flag == "--copied" and _fits(said, SAID):
+        host, seconds, takes = said
+        return _keep(host, lambda: _set_back(int(seconds)), takes)
+    if flag == "--copied" and _fits(said, (HOST, *STAMP, TAKES)):
+        host, *stamp, takes = said
+        return _keep(host, lambda: " ".join(stamp), takes)
     if len(argv) != 1 or argv[0].startswith("-"):
         raise config.Error(command_help.COMMANDS["standby"][0])
     alias, home = argv[0], Path.home()
