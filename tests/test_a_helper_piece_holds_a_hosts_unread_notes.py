@@ -19,12 +19,14 @@ PIECE = (Path(__file__).resolve().parents[1] / "tools/helper/piece.sh").read_tex
 # piece.sh's own lines: `fail`, from the sandbox's size to its preflight, and the command's launch.
 FAIL, SANDBOX, LAUNCH = (re.search(lines, PIECE, re.M).group(0) for lines in (
     r"^fail\(\).*\n", r"^notes=(?s:.*?)^offline .*\n", r"^offline .*\$command.*\n"))
-# A read-only /proc/sys as a sandbox meets it: read-only is each mount's own, and /proc/sys/net is
-# the last directory on the way to HELD that network namespaces share, so a sandbox writes through
-# the last mount on it, this bind.  What a host mounts below is on another namespace's directory,
-# and what it mounts elsewhere under /proc/sys is never named.  Recursive, since the kernel
-# refuses a user namespace a plain bind of a directory a host holds mounts under.
-READ_ONLY = "mount --rbind /proc/sys/net /proc/sys/net && mount -o remount,bind,ro /proc/sys/net"
+# A read-only /proc/sys as a sandbox meets it: read-only is each mount's own, and a sandbox writes
+# HELD through the mount its path ends in, wherever a host's mounts and links lead it.  So the
+# network sysctls' directory, the one above HELD's own where HELD resolves, is bound read-only at
+# /proc/sys/net, which HELD's path passes on its way.  That directory is the last on the way that
+# network namespaces share: a new sandbox does not meet a bind further down.  Recursive, since the
+# kernel refuses a user namespace a plain bind of a directory a host holds mounts under.
+READ_ONLY = (f'mount --rbind "$(dirname "$(realpath {HELD})")/.." /proc/sys/net && '
+             "mount -o remount,bind,ro /proc/sys/net")
 
 
 def piece(outside, start="", launch=""):
