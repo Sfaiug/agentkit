@@ -58,7 +58,7 @@ import math
 import os
 from pathlib import Path
 import re
-import select
+import selectors
 import shlex
 import socket
 import stat
@@ -317,13 +317,16 @@ def _home_began(alias):
         return []
     end, printed = time.monotonic() + TIMEOUT, b""
     try:
-        with subprocess.Popen(_home(alias, "--began"), stdin=subprocess.DEVNULL,
-                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as asked:
+        # a selector, as select(2) takes no descriptor past 1023
+        with selectors.DefaultSelector() as ready, subprocess.Popen(
+                _home(alias, "--began"), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL) as asked:
             try:
+                ready.register(asked.stdout, selectors.EVENT_READ)
                 # Read to its end, as reading what to copy is, but only its first KiB kept: longer
                 # than any line STAMP fits, so a longer answer is never taken for one, and a home
                 # that prints on and on holds no more of this machine's memory.
-                while select.select([asked.stdout], [], [], max(end - time.monotonic(), 0))[0]:
+                while (left := end - time.monotonic()) > 0 and ready.select(left):
                     if not (more := os.read(asked.stdout.fileno(), 1 << 16)):
                         break
                     printed = (printed + more)[:1 << 10]
