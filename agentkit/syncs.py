@@ -13,9 +13,13 @@ import struct
 from contextlib import contextmanager
 
 # For each machine ak runs on: its audit architecture, and the numbers there of fsync,
-# fdatasync, sync, syncfs, msync and sync_file_range.
+# fdatasync, sync, syncfs, msync and sync_file_range (on ppc64le, which has none, its second).
+SHARED = (82, 83, 81, 267, 227, 84)     # the kernel's one table, which newer machines take
 CALLS = {"x86_64": (0xC000003E, (74, 75, 162, 306, 26, 277)),
-         "aarch64": (0xC00000B7, (82, 83, 81, 267, 227, 84))}
+         "aarch64": (0xC00000B7, SHARED), "riscv64": (0xC00000F3, SHARED),
+         "loongarch64": (0xC0000102, SHARED),
+         "ppc64le": (0xC0000015, (118, 148, 36, 348, 144, 308)),
+         "s390x": (0x80000016, (118, 148, 36, 338, 144, 307))}
 
 
 def _program(arch, calls):
