@@ -57,6 +57,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -329,6 +330,29 @@ def _age(stamp):
     return f"{terminal.format_age(age)} old" if age < math.inf else "from before this boot"
 
 
+def _record(path):
+    """The stamp of the record at `path`, None for one that cannot be read, and whether its machine
+    takes over.  Opened without waiting, so that a named pipe there holds up neither `ak standby`
+    nor the tick, and read only as a regular file."""
+    try:
+        opened = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            if not stat.S_ISREG(os.fstat(opened).st_mode):
+                return None, False
+            os.set_blocking(opened, True)
+            # A MiB at most, more than any record ak writes, whose boot from `pair_clock.NOW` Linux
+            # keeps under 128 KiB: a damaged one may be any size.
+            with open(opened, "rb", closefd=False) as record:
+                held = record.read(2**20 + 1)
+        finally:
+            os.close(opened)
+        line, takes = held.decode().splitlines() if len(held) <= 2**20 else (None, None)
+    except (OSError, ValueError):     # one that may not be read, or not two lines of text
+        line = takes = None
+    stamp = pair_clock.read(line) if takes in ("yes", "no") else None
+    return stamp, takes == "yes"
+
+
 def _copies():
     """Show each machine that says it copied this one, from its record: how old its copy is and
     whether it takes over when this one stops; or that none does."""
@@ -340,16 +364,8 @@ def _copies():
     if not hosts:
         print("no machine copies this one")
     for host in hosts:
-        # A MiB at most, more than any record ak writes, whose boot from `pair_clock.NOW` Linux keeps
-        # under 128 KiB: a damaged one may be any size.
-        try:
-            with open(folder / host, "rb") as record:
-                held = record.read(2**20 + 1)
-            line, takes = held.decode().splitlines() if len(held) <= 2**20 else (None, None)
-        except (OSError, ValueError):     # one that may not be read, or not two lines of text
-            line = takes = None
-        stamp = pair_clock.read(line) if takes in ("yes", "no") else None
-        over = ", and it takes over as home when this one stops" * (takes == "yes")
+        stamp, takes = _record(folder / host)
+        over = ", and it takes over as home when this one stops" * takes
         try:
             said = f"its copy is {_age(stamp)}{over}" if stamp else "its record cannot be read"
         except OSError:     # no age is read across a boot Linux cannot say
