@@ -1,14 +1,15 @@
 """A host GitHub says may not push checks origin's `live`, with no model turn, and takes it.
 
 The model turns that test new agentkit code are paid once, on a host that may push to agentkit's
-repository, whose tick pushes each commit it logs live to origin's `live`.  So a host GitHub last
-told its login may not push checks the commit origin's `live` names, where every other host
-checks origin's main, and runs its tests/live.sh with AK_LIVE_NO_MODEL_CALLS=1; each moves to the
-commit its own check passed at.  GitHub's last answer stands through a tick it does not answer.
-Black-box: tests/fixtures/akinstall.py's Home, as
+repository, whose tick pushes each commit it logs live to origin's `live`.  So a host GitHub never
+told its login may push, or last told it may not, checks the commit origin's `live` names, where a
+host it told may push checks origin's main, and runs its tests/live.sh with
+AK_LIVE_NO_MODEL_CALLS=1; each moves to the commit its own check passed at.  GitHub's last answer
+stands through a tick it does not answer.  Black-box: tests/fixtures/akinstall.py's Home, as
 tests/test_key_a_host_that_may_push_says_what_passed.py builds it, once with a `gh` that answers
-`false` to that question and once `true`, then exits 1 to it in both; origin's `live` is set one
-commit behind its main twice, and each time the test ticks until the install moves.  The
+`false` to that question and once `true`, then exits 1 to it in both, and once with one that
+exits 1 to it throughout; origin's `live` is set one commit behind its main twice, and each time
+the test ticks until the install moves.  The
 tests/live.sh on origin notes in HOME/checked the commit it ran at and its AK_LIVE_NO_MODEL_CALLS.
 This test fails against `/bin/false`.
 """
@@ -54,6 +55,7 @@ class AHostThatMayNotPushTakesWhatPassed(unittest.TestCase):
     def setUpClass(cls):
         cls.refused = cls.story("false")
         cls.allowed = cls.story("true")
+        cls.unanswered = cls.story("")
 
     @classmethod
     def story(cls, said):
@@ -75,9 +77,10 @@ class AHostThatMayNotPushTakesWhatPassed(unittest.TestCase):
         return moves, checked.read_text().splitlines() if checked.exists() else []
 
     def test_a_host_that_may_not_push_checks_live_without_model_calls_and_moves_to_it(self):
-        moves, checked = self.refused
-        self.assertEqual([head for _, _, head in moves], [live for live, _, _ in moves])
-        self.assertEqual(checked, [f"{live} 1" for live, _, _ in moves])
+        for said, (moves, checked) in (("false", self.refused), ("never", self.unanswered)):
+            with self.subTest(said=said):
+                self.assertEqual([head for _, _, head in moves], [live for live, _, _ in moves])
+                self.assertEqual(checked, [f"{live} 1" for live, _, _ in moves])
 
     def test_a_host_that_may_push_checks_main_with_model_calls_and_moves_to_it(self):
         moves, checked = self.allowed

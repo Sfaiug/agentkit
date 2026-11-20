@@ -1143,7 +1143,7 @@ def owed_live(now):
 
 
 def may_push():
-    """Asks GitHub, keeps its answer; True for a host it never answered."""
+    """Asks GitHub, keeps its answer; False for a host it never answered."""
     kept = config.STATE / MAY_PUSH
     try:
         code, said = gitcall.gh(agentkit_dir(), "api", "repos/{owner}/{repo}", "--jq",
@@ -1161,7 +1161,7 @@ def may_push():
             except OSError:
                 pass
         last = said
-    return last != "false"
+    return last == "true"
 
 
 def live_tick(log, now, fetched):
@@ -1184,9 +1184,9 @@ def live_tick(log, now, fetched):
     holding the move. The comparison stays with the tip result in `baseline`.
     Offline, the tick decides on the origin/main it fetched last, but no check starts: origin
     may have moved on from it since; nor does one a login would not last (`_waits_for_login`).
-    A host GitHub last told may not push (`may_push`) reads origin's `live` for origin/main
-    throughout and checks with no model turn: only a host that may push moves `live`
-    (`go_live`), so it takes what passed where the turns were paid.
+    Unless GitHub last told this host it may push (`may_push`), the tick reads origin's `live`
+    for origin/main throughout and checks with no model turn: only a host that may push moves
+    `live` (`go_live`), so it takes what passed where the turns were paid.
     """
     from . import watch     # here, not at the top: watch imports this module
     pushes = may_push()
