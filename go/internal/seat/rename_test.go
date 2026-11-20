@@ -164,6 +164,27 @@ func TestRenameThatMovesNothing(t *testing.T) {
 	}
 }
 
+// A seat renamed with two runs in flight draws their squares on line two under its new name, as
+// its look does.
+func TestARenamedSeatsBarDrawsItsTasks(t *testing.T) {
+	t.Setenv("LC_ALL", "C.UTF-8")
+	home := sandbox(t)
+	state := filepath.Join(home, ".agentkit", "state")
+	live(t, "acme")
+	record(t, home, "acme", nil)
+	write(t, filepath.Join(state, "seat-acme.json"), `{"word": "working", "reason": ""}`)
+	runRecord(t, home, "r-build", map[string]any{"state": "running", "step": "executor"})
+	runRecord(t, home, "r-review", map[string]any{"state": "running", "step": "reviewer"})
+	if said, known, err := Rename("acme", "beta", false, time.Now()); said != "renamed acme -> beta" || !known || err != nil {
+		t.Fatal(said, known, err)
+	}
+	// as tmux.Ask reads it, without the two cells it opens with
+	squares := "#[fg=#4da3ff]■#[default]#[fg=#868d97]□□#[default]  #[fg=#4da3ff]■■#[default]#[fg=#868d97]□#[default]"
+	if why, _ := tmux.Ask(tmux.Own(), "show-options", "-v", "-t", "=beta:", barWhy+"1"); why != squares {
+		t.Errorf("line two reads %q", why)
+	}
+}
+
 // A run launched after the look names the old name too.
 func TestRenameCarriesARunLaunchedAfterItsLook(t *testing.T) {
 	home := sandbox(t)

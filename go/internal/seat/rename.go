@@ -387,14 +387,16 @@ func (m carry) watch(now time.Time) error {
 	})
 }
 
-// tell rewrites the seat's bar under its new name with the word it last announced, and every other
-// bar, so none shows the old name until a tick; a seat on the person's own server has no bar, and
-// one that has announced nothing none yet to rewrite.
+// tell rewrites the seat's bar under its new name with the word it last announced and its runs as
+// they are read now (cardAnswer's for a seat nobody holds), none where they cannot be, and every
+// other bar, so none shows the old name until a tick; a seat on the person's own server has no
+// bar, and one that has announced nothing none yet to rewrite.
 func (m carry) tell() {
 	file, _ := run.ReadJSON(m.path("seat-" + m.new + ".json"))
 	if m.server != tmux.Own() || file == nil || file.Str("word") == "" {
 		return
 	}
 	models, _ := config.Models()
-	Seat{Name: m.new, Word: file.Str("word"), reason: file.Str("reason")}.publish(m.state, models, true)
+	mine, _ := lookRuns(nil)(time.Now())
+	Seat{Name: m.new, Word: file.Str("word"), reason: file.Str("reason"), mine: mine[m.new]}.publish(m.state, models, true)
 }
