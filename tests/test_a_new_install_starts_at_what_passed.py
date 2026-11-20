@@ -50,7 +50,9 @@ class ANewInstallStartsAtWhatPassed(unittest.TestCase):
         self.git(self.origin, "add", "install.sh")
         self.git(self.origin, "commit", "-q", "-m", "acme passed")
         self.git(self.origin, "branch", "live")
-        self.git(self.origin, "commit", "-q", "--allow-empty", "-m", "acme untested")
+        # main's installer differs, so a checkout left with main's files runs or shows it.
+        (self.origin / "install.sh").write_text('#!/bin/sh\necho untested >>"$HOME/ran"\n')
+        self.git(self.origin, "commit", "-qam", "acme untested")
 
     def git(self, where, *args):
         return subprocess.run(["git", "-C", str(where), *args], check=True, env=self.env,
