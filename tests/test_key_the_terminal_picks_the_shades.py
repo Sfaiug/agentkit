@@ -96,13 +96,13 @@ class TheTerminalPicksTheShades(unittest.TestCase):
         bar = self.open("orch", "acme")
         done = self.home.ak("orch", "why", "acme")      # a look at the seat dresses its bar
         self.assertEqual(done.code, 0, done.err)
-        wanted, deadline = {role("on-accent", shade), role("accent", shade, bg)}, None
+        wanted = {role("on-accent", shade), role("accent", shade, bg)}
+        deadline = time.monotonic() + 60
         while True:     # judged as it settles: ak's tmux learns the terminal takes true colour
             last = looks(bar.screen(colours=True).rstrip("\n"))[-2:]
             shown = (set(look(last, "● working")) - ATTRIBUTES
                      if any("● working" in plain(line) for line in last) else None)
-            deadline = deadline or (shown is not None and time.monotonic() + 30)
-            if shown == wanted or deadline and time.monotonic() > deadline:
+            if shown == wanted or time.monotonic() > deadline:
                 break
             time.sleep(0.2)
         self.assertEqual(shown, wanted)
