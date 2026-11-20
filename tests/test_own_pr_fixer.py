@@ -19,16 +19,23 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import OwnPr
-from agentkit import config, gitcall, hand_in, run, staffing, turns, worker
+from agentkit import config, gitcall, hand_in, roundloop, run, staffing, turns, worker
 from agentkit import record
 
 
 class OwnPrFixer(OwnPr):
     def test_a_fail_is_fixed_on_the_prs_branch_and_reviewed_again(self):
-        def leaves_a_fix(lp):           # the fixer edits and never commits: ak commits what it left
-            (lp.wt / "fence.txt").write_text("mended\n")
+        def harness(cfg, name, body, workspace, out_dir, role, session, **kw):
+            if role != "fixer":
+                return self.reviewer(cfg, name, body, workspace, out_dir, role, session, **kw)
+            self.fixes.append(body)     # the prompt as it reaches the harness
+            # the fixer edits and never commits: ak commits what it left
+            (Path(workspace) / "fence.txt").write_text("mended\n")
+            return 0, self.fix_summary, "fix-1", False
 
-        self.fix = leaves_a_fix
+        # the fixer's turn as execute takes it, through to the harness
+        self.stack.enter_context(patch.object(run, "execute", roundloop.execute))
+        self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(harness)))
         clock = self.stack.enter_context(patch.object(run, "time", wraps=time))
         turns_clock = self.stack.enter_context(patch.object(turns, "time", wraps=time))
         clock.sleep.side_effect = lambda _seconds: self.fail("the run slept instead of fixing")
@@ -43,6 +50,7 @@ class OwnPrFixer(OwnPr):
         self.assertIn("## Reviewer findings to fix", fix)
         self.assertIn("defect 1", fix)
         self.assertIn(f"Repo checkout: {state['worktree']}", fix)
+        self.assertIn(f"Branch: {state['branch']} (PR #7 head, based on {state['base_sha']},", fix)
         self.assertIn("# acme", fix)                        # the repository's rules ride along
         # ... told to fix, with what the PR says and its checks, never the reviewer's goal
         self.assertIn("# Fix PR #7: Mend the fence\n\n## Goal\nThe pull request passes its review", fix)

@@ -126,7 +126,8 @@ class ReviewerEdits(unittest.TestCase):
         directory = config.RUNS / "fixture"
         (directory / "round-1").mkdir(parents=True)
         state = {"run_id": "fixture", "title": "fix api", "state": "running", "base": "main", "base_sha": base,
-                 "rounds": 3, "round_summaries": [], "executor": "opus", "reviewer": "astra"}
+                 "branch": "fix-api", "rounds": 3, "round_summaries": [], "executor": "opus",
+                 "reviewer": "astra"}
         self.logs = []
         self.lp = run.Loop(cfg, directory, state, {}, self.logs.append, self.wt,
                            "Review the change.", ["true"], "")

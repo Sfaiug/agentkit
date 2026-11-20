@@ -36,7 +36,7 @@ returncode says it, the turn dies of that signal with nothing of it left).  A ha
 through the ak build under test, the one AK_BIN names.  Every other verb answers as `answer` set
 it, or as a harness that is logged in with no meter to read, its `lend` placing a login of the
 call's account lasting a day or `lasts(seconds)` (`place`): `lent(account)` at LENT under the
-home named.
+home named.  An `sh` reads its turn's prompt file as `$1`.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
 `behave(*steps)` scripts its next turns, `answer(verb, out, code, given, account)` sets what
@@ -273,7 +273,7 @@ def turn(fake, ak, call, model, effort, workspace, prompt, out, session=None):
     git = {**os.environ, **IDENTITY}
     if "sh" in todo:
         # A process it leaves behind must not hold this turn's output open.
-        subprocess.run(["sh", "-c", todo["sh"]], cwd=workspace, env=git,
+        subprocess.run(["sh", "-c", todo["sh"], "sh", prompt], cwd=workspace, env=git,
                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL)
     if "commit" in todo:

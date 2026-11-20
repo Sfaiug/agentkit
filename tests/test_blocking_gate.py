@@ -179,7 +179,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertIn("api.py:2 - flag is wrong - still fails (exit 7)", prompt)
         self.assertNotIn("anything new", prompt)
         # the reviewer's conversation resumes, so it holds the whole change already
-        self.assertNotIn("## Diff (main...HEAD", prompt)
+        self.assertNotIn(f"## Diff ({self.lp.base_sha}...HEAD", prompt)
         self.assertIn("Re-proven by ak on this commit: still failing", self.lp.findings)
         self.write('mode = "fixed"\nflag = "fixed"\nextra = 1\n', "Fix the flag")
         self.assertEqual(self.review(), "PASS")
@@ -201,7 +201,7 @@ out = pathlib.Path(sys.argv[6])
             ("api.py", 1, "fixed; its proof passes now")])
         self.assertIn("Outside the fix delta", self.lp.findings)
         prompt = self.prompt()
-        self.assertIn("## Diff (main...HEAD", prompt)
+        self.assertIn(f"## Diff ({self.lp.base_sha}...HEAD", prompt)
         self.assertIn("## Fix delta", prompt)
         self.write('mode = "fixed"\nflag = "fixed"\nextra = 1\n', "Fix it properly")
         self.assertEqual(self.review(), "PASS")
@@ -251,7 +251,7 @@ out = pathlib.Path(sys.argv[6])
         # conversation a failed resume starts gets the whole change beside the fix delta
         self.assertEqual(len(bodies), 2)
         self.assertIn("## Fix delta", bodies[1])
-        self.assertIn("## Diff (main...HEAD", bodies[1])
+        self.assertIn(f"## Diff ({self.lp.base_sha}...HEAD", bodies[1])
 
     def test_a_round_after_a_landing_re_review_gets_the_delta_and_the_replay(self):
         # a landing re-review judges the whole change and records nothing of its own ...
