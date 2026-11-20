@@ -294,23 +294,28 @@ sys.exit(row["code"])
             self.assertTrue(run.review_pass(state, self.cfg))
 
     def test_legacy_pass_gets_fresh_review_without_waiting(self):
-        for reviewer in ("opus", "fable", "astra"):
-            for status in ("interrupted", "pass"):
-                with self.subTest(reviewer=reviewer, status=status):
-                    self.available("anthropic", "openai", "meta")
-                    directory, state = self.legacy(reviewer, status)
-                    self.assert_undelivered(state)
-                    count = len(self.calls())
-                    # a reviewer on another provider than opus has room: with none, the
-                    # review would wait for one (test_reviewers_beside_writers.py)
-                    self.available("anthropic", "openai")
-                    self.assertEqual(run.cmd_resume([directory.name]), 0)
-                    self.assertEqual([r["role"] for r in self.calls()[count:]], ["reviewer"])
-                    state = record.read_state(directory)
-                    self.assertTrue(run.review_pass(state, self.cfg))
-                    self.assertEqual(state["reviewer"], "astra")
-                    if reviewer in ("opus", "fable"):
-                        self.assertEqual(self.calls()[-1]["session"], [])
+        offered = self.eligible
+        # astra, on another provider than opus, has room: marked, it reviews, and with it
+        # spent the review would wait for it (test_reviewers_beside_writers.py); with only
+        # opus and fable marked, fable reviews opus's work
+        for marked, wanted in ((offered, "astra"), (["opus", "fable"], "fable")):
+            for reviewer in ("opus", "fable", "astra"):
+                for status in ("interrupted", "pass"):
+                    with self.subTest(marked=marked, reviewer=reviewer, status=status):
+                        self.eligible = offered
+                        self.available("anthropic", "openai", "meta")
+                        directory, state = self.legacy(reviewer, status)
+                        self.assert_undelivered(state)
+                        count = len(self.calls())
+                        self.eligible = marked
+                        self.available("anthropic", "openai")
+                        self.assertEqual(run.cmd_resume([directory.name]), 0)
+                        self.assertEqual([r["role"] for r in self.calls()[count:]], ["reviewer"])
+                        state = record.read_state(directory)
+                        self.assertTrue(run.review_pass(state, self.cfg))
+                        self.assertEqual(state["reviewer"], wanted)
+                        if reviewer != wanted:
+                            self.assertEqual(self.calls()[-1]["session"], [])
         # nor at the slot gate, launch after launch: only a child's exit is polled for
         self.assertEqual([c for c in self.sleep.call_args_list if c.args and c.args[0] > 0.05], [])
 
