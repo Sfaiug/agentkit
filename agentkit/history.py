@@ -85,7 +85,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
               ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"), ("plan_line", "TEXT"),
               ("no_review", "INTEGER"), ("check_rewritten_at", "REAL"),
-              ("orchestrator_effort", "TEXT"))
+              ("orchestrator_effort", "TEXT"), ("extra_rounds_used", "INTEGER"))
 REWRITE_WINDOW = 14 * 86400     # how long after going live `ak plan check` counts as a rewrite
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
@@ -567,7 +567,8 @@ def _update(connection, run_id, fields):
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
                "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
-               "executor_effort", "own_orchestrator_effort", "kind", "landing_breaks", "landing_flakes", "no_review"}
+               "executor_effort", "own_orchestrator_effort", "kind", "landing_breaks", "landing_flakes", "no_review",
+               "extra_rounds_used"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -1160,7 +1161,7 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, rules_bytes=None, own_orchestrator=None,
                own_orchestrator_effort=None, review_pair=None, landing_breaks=None,
-               landing_flakes=None, saved=None, log=None):
+               landing_flakes=None, extra_rounds_used=None, saved=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
@@ -1179,7 +1180,8 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
               "task_files": task_files, "changed_lines": changed_lines,
               "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator,
               "own_orchestrator_effort": own_orchestrator_effort,
-              "landing_breaks": landing_breaks, "landing_flakes": landing_flakes}
+              "landing_breaks": landing_breaks, "landing_flakes": landing_flakes,
+              "extra_rounds_used": extra_rounds_used}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 
@@ -1367,23 +1369,28 @@ def rules_size(repo):
 
 def round_endings():
     """How runs ended, for `Limits` (menu.rounds_chart): of those REAL_WORK counts that finished,
-    from the first carrying changed_lines on -- before it no row tells a merge -- each merged in
-    a round or failed, as it started: (started_at, finished_at, round), `round` the one its
-    rounds_used names for a merge, 0 with review off, None for a fail.  None where none carries
-    changed_lines or the database cannot answer."""
+    from the first carrying changed_lines on -- before it no row tells a merge -- each that used
+    no round past its review_rounds (`extra_rounds_used`) merged in a round or failed, as it
+    started: (started_at, finished_at, round), `round` the one its rounds_used names for a merge,
+    0 with review off, None for a fail.  None where none carries changed_lines or the database
+    cannot answer."""
     # REAL_WORK last: it reads a run's record, which the columns spare most rows
     counted = f"finished_at IS NOT NULL AND {REAL_WORK}"
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
+                # a read connection adds no column: a history no write has met since
+                # extra_rounds_used came holds no run that used one
+                regular = ("extra_rounds_used IS NULL" if "extra_rounds_used" in {
+                    row[1] for row in connection.execute("PRAGMA table_info(runs)")} else "1")
                 return connection.execute(
                     "SELECT started_at, finished_at, "
                     "CASE WHEN changed_lines IS NOT NULL THEN rounds_used END FROM runs "
                     "WHERE (changed_lines IS NOT NULL AND rounds_used IS NOT NULL "
                     "OR changed_lines IS NULL AND final_state = 'fail') AND started_at >= "
                     "(SELECT MIN(started_at) FROM runs WHERE changed_lines IS NOT NULL "
-                    f"AND {counted}) AND {counted} ORDER BY started_at").fetchall()
+                    f"AND {counted}) AND {regular} AND {counted} ORDER BY started_at").fetchall()
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
