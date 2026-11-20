@@ -43,11 +43,12 @@ that went out, and sends it once.  A pass's exit is its copy's alone: the copy i
 needs first.
 
 A home keeps a record of each machine that says it copied it (`_keep`), which `ak standby` lists
-there (`_copies`).  A pass asks the home for a stamp of its own where it takes its own (`_began`),
-and one that ends well hands it back as printed, last: a record dated by the seconds since the
-pass began would be dated younger than its copy by however late the request arrives, and one
-dated by the home's stamp never is.  Neither request is anything of the pass's own: what it
-prints, its exit and its copy are the same whatever the home answers, or whether it does.
+there (`_copies`), and of which its tick pages the owner once its copy is GONE old (`tell`).  A pass
+asks the home for a stamp of its own where it takes its own (`_began`), and one that ends well
+hands it back as printed, last: a record dated by the seconds since the pass began would be dated
+younger than its copy by however late the request arrives, and one dated by the home's stamp never
+is.  Neither request is anything of the pass's own: what it prints, its exit and its copy are the
+same whatever the home answers, or whether it does.
 """
 
 import contextlib
@@ -133,6 +134,9 @@ FOLDER, COPIED, LOCK = "standby", "copied", "lock"
 # there is what makes a client a standby: a record of each machine that says it copied this one,
 # named by its host name.
 COPIES = "copies"
+# A record's age at which the home's tick pages the owner: a first pass after a long gap may take
+# half an hour, and no other pass begins while it runs, so an hour without one is no slow copy.
+GONE = 60 * 60
 # The words of `ak standby --copied HOST SECONDS yes|no`, each matched whole: a host name of at
 # most 64 characters, as Linux's, whole seconds since its pass began, and whether it takes over.
 HOST = "[A-Za-z0-9][A-Za-z0-9.-]{0,63}"
@@ -425,15 +429,40 @@ def _copies():
     return 0
 
 
-def takes_over():
-    """Whether a record this machine keeps says its machine takes over as home when this one
-    stops, as `ak standby` lists one: a folder that is not there or cannot be listed holds none."""
+def _records():
+    """The path of each record this machine keeps, named by its machine's host name: a folder
+    that is not there or cannot be listed holds none."""
     folder = config.TMP / COPIES
     try:
-        hosts = [name for name in os.listdir(folder) if re.fullmatch(HOST, name)]
+        return [folder / name for name in os.listdir(folder) if re.fullmatch(HOST, name)]
     except OSError:
-        return False
-    return any(stamp and takes for stamp, takes in (_record(folder / host) for host in hosts))
+        return []
+
+
+def takes_over():
+    """Whether a record this machine keeps says its machine takes over as home when this one
+    stops, as `ak standby` lists one."""
+    return any(stamp and takes for stamp, takes in map(_record, _records()))
+
+
+def tell():
+    """Tell the owner of each machine whose copy of this one is GONE old, by the clock calling it
+    younger: asked again at every firing of the tick, notify sends a page once for each record's
+    stamp, and a pass by that machine meanwhile leaves a new stamp.  Whatever a record holds, or
+    listing, reading or paging meets, is dropped unsaid, as is what notify says of a page the
+    webhook did not take, and the tick goes on as it would: its next firing asks again."""
+    with (contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()),
+          contextlib.suppress(Exception)):
+        for path in _records():
+            with contextlib.suppress(Exception):    # one record's failure leaves the rest paged
+                stamp = _record(path)[0]
+                # no age is read across a boot Linux cannot say
+                if stamp and (age := stamp.age_at_least()) >= GONE:
+                    # red, as the page of a project down is
+                    line = (f"\U0001f534 the copy of this home on {path.name} is "
+                            f"{terminal.format_age(age)} old")
+                    notify.page(f"copy:{path.name}:{stamp.line()}", path.name, line, line=line,
+                                owed=True)
 
 
 def _stamp(own, *lines):
