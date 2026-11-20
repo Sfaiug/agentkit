@@ -70,17 +70,6 @@ def _turn():
     repo = config.TMP / "lease" / "repo"
     env["GIT_DIR"] = str(repo)      # the checkout is the working folder alone from here on
     git("init", "-q", "--bare", "--template=", str(repo))
-
-    def make():
-        """A new value, kept under a ref named for its stamp."""
-        stamp = pair_clock.now()
-        # its own message, as every other part of it is any machine's
-        value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
-                    own=gitcall.STAMP).strip()
-        # only as a name no ref holds: two turns at once each keep their own
-        git("update-ref", MADE + stamp.line().replace(" ", "_"), value, "")
-        return value
-
     held = git("ls-remote", address, REF, timeout=REMOTE)
     # the pattern matches any name ending as REF does, which is no lease
     read = next((line.partition(b"\t")[0] for line in held.split(b"\n")
@@ -93,12 +82,22 @@ def _turn():
         for value, name in (line.split(b" ", 1) for line in kept.splitlines()):
             if value != read:
                 git("update-ref", "-d", name, value, check=False)
-        git("push", address, f"{make().decode()}:{REF}",
+        # made and kept as the create's below
+        stamp = pair_clock.now()
+        value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
+                    own=gitcall.STAMP).strip()
+        git("update-ref", MADE + stamp.line().replace(" ", "_"), value, "")
+        git("push", address, f"{value.decode()}:{REF}",
             f"--force-with-lease={REF}:{read.decode()}", timeout=REMOTE, check=False)
         return
     made = ("for-each-ref", "--count=1", "--format=%(objectname)", MADE)
     if not git(*made):
-        make()
+        stamp = pair_clock.now()
+        # its own message, as every other part of it is any machine's
+        value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
+                    own=gitcall.STAMP).strip()
+        # only as a name no ref holds: two turns at once each keep their own
+        git("update-ref", MADE + stamp.line().replace(" ", "_"), value, "")
     value = git(*made)
     if re.fullmatch(VALUE + b"\n", value):
         git("push", address, f"{value[:-1].decode()}:{REF}", f"--force-with-lease={REF}:",

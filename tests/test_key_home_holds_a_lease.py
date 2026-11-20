@@ -1,17 +1,17 @@
 """A machine holds the lease it created, `refs/agentkit/home` on ak's remote: each later `ak lease`
-there swaps another value in, so a standby watching it sees it change.  The value is made and kept
-as the create's is (tests/test_key_ak_lease_creates_a_lease.py): a commit of the empty tree, no
-parent, ak's name and dates, under `refs/made/` named for the turn's stamp, and what is kept
-shrinks to the value the turn found and its own.  A lease is the machine's own where its lease's
-repository holds the commit, the ref of it kept or not; another machine's, there before the read
-or put there between the read and the push, is left and no value made.  An unreachable origin
-makes no value and keeps what was kept; a push whose answer is lost is the lease the next turn
+there swaps in a value the lease never held, so a standby watching it sees it change.  The value is
+made and kept as the create's is (tests/test_key_ak_lease_creates_a_lease.py): a commit of the
+empty tree, no parent, ak's name and dates, under `refs/made/` named for the turn's stamp, and what
+is kept shrinks to the value the turn found and its own.  A lease is the machine's own where its
+lease's repository holds the commit, the ref of it kept or not; another machine's, there before the
+read or put there between the read and the push, is left and no object written.  An unreachable
+origin writes none and keeps what was kept; a push whose answer is lost is the lease the next turn
 swaps from.  A turn prints nothing and exits 0, and ~/agentkit/.git is left byte for byte.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, a later turn at a later clock, and
 each case builds its own machines.  What came back is the refs git reads in the origin and in each
-lease's repository.
+lease's repository, and that repository's objects.
 """
 
 import sys
@@ -35,25 +35,36 @@ def named(turn):
     return "refs/made/" + now(turn).replace(" ", "_")
 
 
+def objects(machine):
+    """Every object `machine`'s lease's repository holds, a ref of it or not; none where there is
+    no repository."""
+    repo = kept(machine)
+    if not repo.exists():
+        return set()
+    return set(_git(repo, "cat-file", "--batch-all-objects", "--batch-check=%(objectname)").split())
+
+
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
 class AHomeHoldsALease(unittest.TestCase):
     def machines(self, *names):
         machines = Machines(*(names or ("acme-mini",)))
         self.addCleanup(machines.close)
+        self.leases = set()     # each the origin held before a turn of the case
         return machines
 
     def turn(self, machine, turn):
         """`machine`'s `turn`th `ak lease`, which prints nothing and exits 0."""
+        self.leases.add(machine.install.refs().get(REF))
         self.assertEqual(lease(machine, now=now(turn)), (0, "", ""))
 
     def swaps(self, machine, turn):
-        """`machine`'s `turn`th turn, which leaves another lease on the origin: the value kept
-        under the ref named for its stamp, the empty tree, no parent and ak's stamp."""
+        """`machine`'s `turn`th turn, which leaves on the origin a lease it never held before in the
+        case: the value kept under the ref named for its stamp, the empty tree, no parent and ak's
+        stamp."""
         bare = machine.install.bare
-        before = machine.install.refs()[REF]
         self.turn(machine, turn)
         value = machine.install.refs()[REF]
-        self.assertNotEqual(value, before)
+        self.assertNotIn(value, self.leases)
         self.assertEqual(made(machine).get(named(turn)), value)
         self.assertEqual(_git(bare, "cat-file", "-t", value), "commit")
         head = _git(bare, "cat-file", "commit", value).partition("\n\n")[0]
@@ -62,11 +73,11 @@ class AHomeHoldsALease(unittest.TestCase):
         return value
 
     def leaves(self, machine, turn):
-        """`machine`'s `turn`th turn, which leaves the origin's lease and the values `machine`
-        keeps as they were."""
-        before = machine.install.refs(), made(machine)
+        """`machine`'s `turn`th turn, which leaves the origin's lease, and the refs and objects of
+        `machine`'s lease's repository, as they were."""
+        before = machine.install.refs(), made(machine), objects(machine)
         self.turn(machine, turn)
-        self.assertEqual((machine.install.refs(), made(machine)), before)
+        self.assertEqual((machine.install.refs(), made(machine), objects(machine)), before)
 
     def test_each_turn_swaps_and_keeps_the_value_it_found_and_its_own(self):
         mini, = self.machines()
