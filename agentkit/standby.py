@@ -425,6 +425,17 @@ def _copies():
     return 0
 
 
+def takes_over():
+    """Whether a record this machine keeps says its machine takes over as home when this one
+    stops, as `ak standby` lists one: a folder that is not there or cannot be listed holds none."""
+    folder = config.TMP / COPIES
+    try:
+        hosts = [name for name in os.listdir(folder) if re.fullmatch(HOST, name)]
+    except OSError:
+        return False
+    return any(stamp and takes for stamp, takes in (_record(folder / host) for host in hosts))
+
+
 def _stamp(own, *lines):
     """The stamp of a pass that ended well, whole or not at all: a write cut short leaves the
     last."""

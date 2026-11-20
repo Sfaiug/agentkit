@@ -26,7 +26,7 @@ review counts only once its run has posted; one that died is retried with recove
 tick is running right now and how big the log it writes has grown.
 """
 
-from contextlib import contextmanager, nullcontext, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stdout, suppress
 import base64
 import codecs
 import fcntl
@@ -48,9 +48,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, handback,
-               history, host, login_refusals, logins, look, notify, orch, owner, parsed, questions,
-               seat_tokens, staffing, statusbar, transitions, turns, update, usage, versions,
-               worker)
+               history, host, lease, login_refusals, logins, look, notify, orch, owner, parsed,
+               questions, seat_tokens, staffing, standby, statusbar, transitions, turns, update,
+               usage, versions, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
@@ -9141,6 +9141,12 @@ def main(argv):
         held = None
     else:
         config.ensure_dirs()
+        # A home a machine takes over from puts the lease on ak's remote where it holds none,
+        # before the lock: a tick that runs long holds that, and the lease must be written while
+        # it does.  Whatever ends the turn, the next firing's turn reads what the remote holds.
+        if standby.takes_over():
+            with suppress(Exception):
+                lease._turn()
         try:
             previous = tick_lock_path().stat().st_mtime   # before the lock stamps our start
         except OSError:
