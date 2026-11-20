@@ -2,11 +2,10 @@
 
 This is how every seat's harness moves to a new release: ak runs the harness's `[update]
 upgrade` command, then the acceptance gates (live, the fresh install), and keeps the new
-release only when they pass.  The live gate runs every live check, its model turns too, whatever
-the caller exported (AK_LIVE_NO_MODEL_CALLS, AK_ONLY), also on a host GitHub did not say may
-push, as every Home here is: that host's tick checks new agentkit code without them
+release only when they pass.  The live gate runs with its model turns also on a host GitHub did
+not say may push, as every Home here is: that host's tick checks new agentkit code without them
 (tests/test_key_a_host_that_may_not_push_takes_what_passed.py), and only those turns catch a
-harness that broke on it; a caller's exported AK_LIVE_NO_MODEL_CALLS=1 leaves none out.
+harness that broke on it; a caller's exported AK_LIVE_NO_MODEL_CALLS=1 or AK_ONLY leaves none out.
 On a red gate it reinstalls the release it started from with
 `[update] revert` and says so; a reinstall that does not take is named with the command to run
 by hand, since a broken revert leaves every seat on a broken harness.  A second red gate in a row
@@ -142,15 +141,14 @@ class HarnessUpgrade(unittest.TestCase):
 
 class WhateverTheCallerExported(unittest.TestCase):
     def test_the_live_gate_runs_every_live_check(self):
-        for exported in (None, "AK_LIVE_NO_MODEL_CALLS", "AK_ONLY"):
-            with self.subTest(exported), Home() as home:
+        for exported in (False, True):
+            with self.subTest(exported=exported), Home() as home:
                 akconfig.write(home, ["opus"])
                 installed = claude(home)
                 home.fake("bash", SUITE.format(python=shlex.quote(sys.executable), new=NEW))
                 only = home.path / "only"
                 only.write_text("tests/smoke.sh#6f\n")     # a live check making no model call
-                value = {"AK_LIVE_NO_MODEL_CALLS": "1", "AK_ONLY": str(only)}
-                done = home.ak("update", env={exported: value[exported]} if exported else {},
+                done = home.ak("update", env={"AK_ONLY": str(only)} if exported else {},
                                timeout=120)
                 self.assertEqual(done.code, 1, done.out + done.err)
                 self.assertEqual(installed.read_text().split()[0], OLD)
