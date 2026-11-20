@@ -333,7 +333,11 @@ def _select(query, *args):
 
 
 def _cost(prices, model, counts, kept):
-    """A row's dollars: those it kept, else its `counts` at its `model`'s `prices` now."""
+    """A row's dollars: those it kept, else its `counts` at its `model`'s `prices` now, and
+    nothing where it counts no token: a harness files a message it made up itself under a model
+    no board lists, and that row would leave its seat's whole measure unpriced."""
+    if kept is None and None not in counts and not any(counts):
+        return 0.0
     return _dollars(prices(model), counts) if kept is None else kept
 
 

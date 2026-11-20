@@ -5,7 +5,7 @@ naming that model and effort took, at listed prices, times 100 over each row's l
 ended naming them and started no earlier than the first such row.  The orchestrator's other rows
 are scaled by what those seats paid a board dollar, not by what the worker roles' runs paid.  A
 model and effort no such run names, a row with no listed price or a login with no week leaves no
-share.
+share; a row of no token costs nothing whatever its model.
 
 Black-box through tests/fixtures/akbin.py on tests/fixtures/meters.py's harness, with
 tests/test_key_role_cost_from_runs.py's boards, plans and readings in its Home and seat rows and
@@ -80,6 +80,8 @@ class OrchestratorCostFromSeats(unittest.TestCase):
         subagent = [("second", "bloom-1", (100_000, 0, 0, 20_000))]
         self.history.seat(("anvil", "high"), own)
         self.history.seat(("anvil", "high"), subagent, at=NOW - DAY)
+        # a row of no token costs nothing, though no board prices its model
+        self.history.seat(("anvil", "high"), [("default", "easel-2", (0, 0, 0, 0))])
         # counted: a run launched as the first row was kept, and one after
         for started in (FIRST, NOW - 1.2 * DAY):
             self.history.launch(("anvil", "high"), started)
