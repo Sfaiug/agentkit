@@ -54,6 +54,10 @@ class APieceLooksForRoomWhereNoUserManagerHoldsIt(unittest.TestCase):
     def test_pieces_run_side_by_side_while_the_cores_have_room_for_one(self):
         self.assertEqual(self.started_together("acme.slice/acme.scope", CORES - 1), FIT)
 
+    def test_a_system_unit_named_like_the_user_manager_is_not_it(self):
+        unit = f"system.slice/backup-user@{os.getuid()}.service"
+        self.assertEqual(self.started_together(unit, CORES), 1)
+
     def test_pieces_under_a_user_manager_take_no_count_from_the_whole_hosts_threads(self):
         self.assertEqual(self.started_together(f"{MANAGER}/acme.slice/acme.scope", CORES), FIT)
 
