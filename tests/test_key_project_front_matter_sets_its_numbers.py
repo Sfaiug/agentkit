@@ -55,7 +55,8 @@ def launched(home, *argv, **kw):
 class Rounds(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.rig = host(cls, "widgets", ["work", "dispute"], FAILING, review_rounds=2)
+        # no extra round for the one finding left: the project's two rounds are the budget
+        cls.rig = host(cls, "widgets", ["work", "dispute"], FAILING, review_rounds=2, extra_rounds=0)
         task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
         cls.refused = cls.home.ak("run", str(task), "--rounds", "3", timeout=60)
         cls.made = taskfile.runs(cls.home)

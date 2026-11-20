@@ -1487,14 +1487,31 @@ def allowed_rounds(lp):
     return min(lp.rounds, lineage_cap(lp.state, lp.run_dir))
 
 
+def extra_round(state, rnd):
+    """Whether a task's run may spend its round `rnd` past its `review_rounds`, read from its
+    own record alone: before `rnd` it recorded at least `review_rounds` rounds itself and fewer
+    than `review_rounds + extra_rounds`, the last of them leaving exactly one blocking finding,
+    the one count where another round costs less per merged change than starting over
+    (`config.POLICY`).  A run that recorded fewer -- a relaunch, a `--rounds` below the budget,
+    a change two runs shared -- ends as ever; a review of a pull request, a seat's own too, has
+    none."""
+    numbers = run_record.policy_of(state)
+    before = (state.get("round_summaries") or [])[:rnd - 1]
+    return (not state.get("review_pr")
+            and numbers["review_rounds"] <= len(before) < numbers["review_rounds"] + numbers["extra_rounds"]
+            and [row.get("finding_count") for row in before[-1:]] == [1])
+
+
 def round_allowed(lp):
-    """Whether this run may spend another round: one of its own left, and one left on its
-    change across its runs (`change_budget`, counting the rounds it spent itself).  Past the
-    change's with rounds of its own left, the run ends blocked with the reason, so its seat
-    hears it: the task is what changes, split or redesigned, and nothing a resume could
-    spend."""
+    """Whether this run may spend another round: an extra one its own record opens
+    (`extra_round`), else one of its own left and one left on its change across its runs
+    (`change_budget`, counting the rounds it spent itself).  Past the change's with rounds of
+    its own left, the run ends blocked with the reason, so its seat hears it: the task is what
+    changes, split or redesigned, and nothing a resume could spend."""
     if run_record.review_off(lp.state):
         return lp.rnd < 1
+    if extra_round(lp.state, lp.rnd + 1):
+        return True
     if lp.rnd >= lp.rounds:
         return False
     left, why = change_budget(lp.state, lp.run_dir, lp.rounds, own=lp.rnd)

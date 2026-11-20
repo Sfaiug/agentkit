@@ -1618,7 +1618,8 @@ def resume_review(lp, verified=None):
     pending.update(identity)
     lp.save()
     allowed = transitions.allowed_rounds(lp)
-    if pending["round"] > allowed and not run_record.review_off(lp.state):
+    if (pending["round"] > allowed and not run_record.review_off(lp.state)
+            and not transitions.extra_round(lp.state, pending["round"])):
         work = f"for commit {identity['head_sha']} (tree {identity['tree_sha']}) " if identity else ""
         # a larger budget is only for asking up to what the change has left: past it the next
         # step is the orchestrator's, and naming a `--rounds` that is refused would send it nowhere

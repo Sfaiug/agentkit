@@ -109,8 +109,14 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on one before the one
 # as often as workers from the handoff size up, with mostly unrelated context (14 days).
 # Added lines only, generated files and unchanged moves aside (`transitions.diff_lines`,
 # `transitions.carried_lines`): past either limit, write a smaller task.
-# Owner, 18 Nov 2026: the extra rounds of a change with one blocking finding left "should also
-# be editable in the config limits section".
+# Owner, 18 Nov 2026: ak "should produce quality, but should do this as efficient as possible",
+# and the extra rounds "should also be editable in the config limits section".  In the 14 days
+# to 18 Nov a run that failed at its rounds was in practice thrown away (4 of 339 branches taken
+# up again).  Every round passed about as often (50%, 53%, 47%); the blocking findings the last
+# review left told the next: it passed 68% after round 1 and 59% after round 2 with one left,
+# 46% and 31% with two, 22% and 11% with three or more.  213 of the 353 runs that failed after
+# three rounds had one left, and only with one (`transitions.extra_round`) does another round,
+# about 4.8 M tokens, cost less per merged change than starting over, about 10 M.
 POLICY = {
     "review_rounds": (3, 0, "the review rounds a change has before it goes back to its orchestrator "
                      "to split or re-scope"),
