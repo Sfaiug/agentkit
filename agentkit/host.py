@@ -147,7 +147,9 @@ def cgroup_contains(name, pid="self"):
 def user_manager_holds():
     """Whether this user's systemd manager holds this process: its membership lies under
     `user@<uid>.service`.  One whose membership cannot be read is held by none."""
-    return cgroup_contains(f"user@{os.getuid()}.service")
+    # A whole component: a system unit `backup-user@<uid>.service` only ends like the manager's.
+    unit = f"user@{os.getuid()}.service"
+    return any(unit in row.split("/") for row in (_cgroup_text() or "").split("\n"))
 
 
 def cgroup_path(relative="", cgroup_root=None):
