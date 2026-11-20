@@ -43,9 +43,11 @@ that went out, and sends it once.  A pass's exit is its copy's alone: the copy i
 needs first.
 
 A home keeps a record of each machine that says it copied it (`_keep`), which `ak standby` lists
-there (`_copies`): no pass says so yet.  A record dated by the seconds since the pass began is
-dated younger than its copy by however late the request arrives; one dated by the stamp the home
-printed when the pass began (`_began`), handed back as written, never is.
+there (`_copies`).  A pass asks the home for a stamp of its own where it takes its own (`_began`),
+and one that ends well hands it back as printed, last: a record dated by the seconds since the
+pass began would be dated younger than its copy by however late the request arrives, and one
+dated by the home's stamp never is.  Neither request is anything of the pass's own: what it
+prints, its exit and its copy are the same whatever the home answers, or whether it does.
 """
 
 import contextlib
@@ -57,6 +59,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import socket
 import stat
 import subprocess
 import sys
@@ -292,6 +295,37 @@ def _began():
     return 0
 
 
+def _home(alias, *words, stdout):
+    """`ak standby` with `words` by the home's installed ak, which install.sh links, under the
+    home's HOME as its shell names it, so a Mac's under /Users answers too; asking for no
+    password, silent and bounded as reading what to copy is.  What it did, or None for one that
+    could not be started or waited for."""
+    try:
+        return subprocess.run(["ssh", "-o", "BatchMode=yes", alias,
+                               '"$HOME"/' + shlex.join([".local/bin/ak", "standby", *words])],
+                              stdin=subprocess.DEVNULL, stdout=stdout, stderr=subprocess.DEVNULL,
+                              timeout=TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _home_began(alias):
+    """This machine's host name and the words of the stamp `alias` prints now, as `--copied`
+    hands them back; none for a host name that cannot be read or that `--copied` would not take,
+    which asks nothing, nor for any answer but 0 and, byte for byte, a line `--began` prints."""
+    try:
+        host = socket.gethostname()
+    except OSError:
+        return []
+    asked = re.fullmatch(HOST, host) and _home(alias, "--began", stdout=subprocess.PIPE)
+    if not asked or asked.returncode:
+        return []
+    said = asked.stdout.decode(errors="replace").split()
+    if not _fits(said, STAMP) or asked.stdout != f"{' '.join(said)}\n".encode():
+        return []
+    return [host, *said]
+
+
 def _set_back(seconds):
     """This machine's stamp now, both clocks set back by `seconds`, as a line: when the copy was
     taken by this machine's clocks alone, a wall clock off there changing nothing."""
@@ -479,7 +513,7 @@ def main(argv):
         if not _keep_job(alias):
             return 1
         notify.retry_pending()
-        began = pair_clock.now()
+        began, held = pair_clock.now(), _home_began(alias)
         if why := _copy(alias, home, copied):
             print(f"ak standby: the pass from {alias} failed: {why}", file=sys.stderr)
             _page(alias, why)
@@ -488,4 +522,6 @@ def main(argv):
         if why := update.follow(alias)[1]:
             _stamp(own, began.line(), alias, why)
         versions.final(time.time())
+        if held:
+            _home(alias, "--copied", *held, "no", stdout=subprocess.DEVNULL)
     return 0
