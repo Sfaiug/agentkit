@@ -93,6 +93,8 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.first = self.merge("first")
         subprocess.run(["git", "clone", "-q", str(self.origin), str(self.clone)],
                        check=True, capture_output=True, timeout=60)
+        # a host that may not push: the tick's push of `live` goes nowhere
+        git(self.clone, "remote", "set-url", "--push", "origin", str(self.root / "gone.git"))
         (self.seed / "tests").mkdir()
         (self.seed / "tests" / "live.sh").write_text(LIVE)
         self.handed, self.seat = [], True

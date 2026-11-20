@@ -117,7 +117,7 @@ class LiveCheckInSlice(Sandbox):
             if self.units.exists() else []
 
     def tick(self):
-        def git(*args):
+        def git(*args, **_kw):
             return (1, "") if args[0] == "merge-base" else (0, TIP)
 
         with patch.object(update, "_git", side_effect=git):
