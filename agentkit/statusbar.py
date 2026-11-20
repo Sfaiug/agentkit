@@ -8,10 +8,10 @@ and orchestrator effort, muted, then its progress line, as its menu row draws it
 lets it be.  Its right end, while another seat on ak's own server needs you, says so in its yellow,
 `! 2 other seats need you`, a click away from the first of them; where it does not fit beside
 the left part the line narrows, then it folds to `! 2 need you`, and only then is the left part
-cut.  Line two shows what the seat needs you for where its chat cannot: an expired login, a
-parked run, a failed move.  Its question is the chat's last message or card, so there line two
-is each task in flight as its squares, then who builds and who reviews (`whys`), with the one
-key at its right end, `Ctrl-b m  menu`, whatever the seat's word: the bar is in the seat, where
+cut.  Line two is each task in flight as its squares, then who builds and who reviews -- or in
+their place what the seat needs you for where its chat cannot: an expired login, a parked run,
+a failed move (`whys`); its question is the chat's last message or card.  The one key is at its
+right end, `Ctrl-b m  menu`, whatever the seat's word: the bar is in the seat, where
 `x` is a letter typed.  It never moves: the seat is where the owner reads and types.
 
 The bar is in the theme in force as it is drawn (`layout`), as a screen is, never tmux's green:
@@ -146,16 +146,18 @@ def lines(name, model, word=None, last="", why=""):
 
 
 def whys(info):
-    """Line two, one version for each of `WHYS`, as tmux text: a needs-you reason no chat shows,
-    alone; otherwise every task's squares (`menu.squares`), then who builds and reviews
-    (`menu.crew`), then those squares alone -- and again with them cut to six, then to one and
-    the count of the rest, so a narrow client still sees its tasks (`_line_two`).  The owner
-    picked the squares first, 17 Nov 2026.  A question is not repeated: a stop shows `needs
-    you` only once it is the agent's last message, or its card is up (owner, 23 Oct 2026: "if
-    we dont need it, lets remove it")."""
-    if info.get("word") == "needs you" and not info.get("question"):
-        return [orch.tmux_text(terminal.plain(info.get("sentence") or ""))] * len(WHYS)
+    """Line two, one version for each of `WHYS`, as tmux text: every task's squares
+    (`menu.squares`), then who builds and reviews (`menu.crew`) -- or in its place a needs-you
+    reason no chat shows, alone where no task is in flight -- then those squares alone; and
+    again with them cut to six, then to one and the count of the rest, so a narrow client still
+    sees its tasks (`_line_two`).  The owner picked the squares first, 17 Nov 2026.  A question
+    is not repeated: a stop shows `needs you` only once it is the agent's last message, or its
+    card is up (owner, 23 Oct 2026: "if we dont need it, lets remove it")."""
     crew, tasks = menu.crew(info, tmux=True), info.get("tasks") or []
+    if info.get("word") == "needs you" and not info.get("question"):
+        crew = orch.tmux_text(terminal.plain(info.get("sentence") or ""))
+        if not tasks:   # no squares to keep over it: cut, never dropped, on the narrowest client
+            return [crew] * len(WHYS)
     every, few, least = (menu.squares(tasks, tmux=True, most=most) for most in (None, 6, 1))
     return [version for squares in (every, few, least)
             for version in ("   ".join(filter(None, (squares, crew))), squares)]

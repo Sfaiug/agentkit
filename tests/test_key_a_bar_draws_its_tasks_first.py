@@ -2,10 +2,12 @@
 
 The squares are the only place a task's state shows, so they stand where a narrow client keeps
 them: three cells before who builds and reviews, the key at the line's right end.  Where both do
-not fit beside the key, the crew is cut with one `…` and the squares and the key stay whole.
+not fit beside the key, the crew is cut with one `…` and the squares and the key stay whole.  A
+seat that needs you for a reason no chat shows draws that reason in the crew's place.
 Black-box: a person attaches to a seat of tests/fixtures/akseat.py by `AK_BIN`'s `ak orch NAME`
 (tests/fixtures/akterm.py), two runs start in flight, records like those `ak run` writes, and
-`ak orch why` writes its bar, read on a wide client and then on one too narrow for all three.
+`ak orch why` writes its bar, read on a wide client and then on one too narrow for all three;
+in a Home of its own the tick has found gh logged out too, as it leaves that in watch.json.
 """
 
 import re
@@ -23,9 +25,11 @@ from fixtures.akterm import Terminal
 
 OPENS = 60      # a loaded host makes a first draw slow
 CREW = "build: Spark 1.3 Contributor xhigh   review: Opus 5.5 xhigh"
+GH = "GitHub is logged out: run `gh auth login -p https -w`"
 KEY = "Ctrl-b m  menu"
 SQUARES = "■□□  ■■□"    # one building, one in review
 WIDE = re.compile(rf"^ *{SQUARES}   {re.escape(CREW)} +{re.escape(KEY)}$")
+REASONED = re.compile(rf"^ *{SQUARES}   {re.escape(GH)} +{re.escape(KEY)}$")
 NARROW = re.compile(rf"^ *{SQUARES}   (.+)… *{re.escape(KEY)}$")
 
 
@@ -35,7 +39,11 @@ def line_two(screen):
 
 # The owner's pick of 17 Nov 2026: `■■□   build: Opus 5.5 xhigh, …   Ctrl-b m  menu`.
 @unittest.skipUnless(REAL_TMUX and Path("/proc/stat").exists(), "no tmux, or no /proc")
-class ABarDrawsItsTasksFirst(unittest.TestCase):
+class Attached(unittest.TestCase):
+    """The seat attached, its two runs in flight, and its bar written once the tick's `found`
+    is in watch.json."""
+    found = None
+
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
@@ -52,9 +60,13 @@ class ABarDrawsItsTasksFirst(unittest.TestCase):
             home.write(f".agentkit/runs/20261117-{run}/run.json",
                        {"state": "running", "step": step, "launched_session": "fix-api",
                         "started_at": time.time(), **owner(loop.pid)})
+        if cls.found:
+            home.write(".agentkit/state/watch.json", cls.found)
         written = home.ak("orch", "why", "fix-api")
         assert written.code == 0, written.err
 
+
+class ABarDrawsItsTasksFirst(Attached):
     def test_a_wide_client_draws_the_squares_then_the_crew_then_the_key(self):
         self.seat.resize(100, 30)
         self.seat.wait(lambda screen: WIDE.match(line_two(screen)), bound=OPENS)
@@ -64,6 +76,13 @@ class ABarDrawsItsTasksFirst(unittest.TestCase):
         line = line_two(self.seat.wait(lambda screen: NARROW.match(line_two(screen)), bound=OPENS))
         cut = NARROW.match(line)[1]
         self.assertTrue(CREW.startswith(cut) and len(cut) < len(CREW), line)
+
+
+class AReasonNoChatShowsFollowsTheSquares(Attached):
+    found = {"gh_out": {"at": time.time() - 300}}
+
+    def test_a_wide_client_draws_the_squares_then_the_reason_then_the_key(self):
+        self.seat.wait(lambda screen: REASONED.match(line_two(screen)), bound=OPENS)
 
 
 if __name__ == "__main__":

@@ -235,15 +235,18 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		[3]string{target, "set-titles-string", title})
 }
 
-// whys is line two at each of barWhys (statusbar.whys): a needs-you reason no chat shows, alone;
-// otherwise every task's squares, then the crew, then those squares alone -- and again with them
-// cut to six, then to one and the count of the rest, so a narrow client still sees its tasks
-// (barLineTwo).  The owner picked the squares first, 17 Nov 2026.
+// whys is line two at each of barWhys (statusbar.whys): every task's squares, then the crew -- or in
+// its place a needs-you reason no chat shows, alone where no task is in flight -- then those squares
+// alone; and again with them cut to six, then to one and the count of the rest, so a narrow client
+// still sees its tasks (barLineTwo).  The owner picked the squares first, 17 Nov 2026.
 func (seat Seat) whys(screen terminal.Screen, crew string) []string {
-	if seat.Word == "needs you" && !seat.question {
-		return slices.Repeat([]string{tmuxText(terminal.Plain(seat.reason))}, len(barWhys))
-	}
 	tasks := seat.Tasks()
+	if seat.Word == "needs you" && !seat.question {
+		crew = tmuxText(terminal.Plain(seat.reason))
+		if len(tasks) == 0 { // no squares to keep over it: cut, never dropped, on the narrowest client
+			return slices.Repeat([]string{crew}, len(barWhys))
+		}
+	}
 	var whys []string
 	for _, most := range []int{len(tasks), 6, 1} {
 		squares := barSquares(screen, tasks, most)
