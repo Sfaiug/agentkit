@@ -2,23 +2,30 @@
 does (`net.unix.max_dgram_qlen`): what the namespace it starts in holds, and 512 at least.  A
 helper's container is a new network namespace holding the kernel's 10, and piece.sh's sandbox is
 another.  A sandbox that does not hold them, as under a /proc/sys mounted read-only, runs no
-command and ends 253, the helper's code for a piece it could not run, which ak runs on its own
-host: at piece.sh's preflight, or at the command's launch where /proc/sys turned read-only after
-it; a command that starts ends its sandbox as it ends itself.  Real namespaces: piece.sh's own
-lines, `fail`, the sandbox's size, `offline` and its preflight, then the command's launch, run
-from a namespace of this test's own made to hold what a container or a larger host holds.
+command, and its piece ends 253, the helper's code for a piece it could not run, which ak runs on
+its own host: at piece.sh's preflight, or at the command's launch where /proc/sys turned read-only
+after it; a command that starts ends the piece as it ends itself.  Real namespaces: piece.sh's
+own lines, `fail`, the sandbox's size, `offline` and its preflight, then the command's launch and
+the piece's end, run from a namespace of this test's own made to hold what a container or a
+larger host holds.
 """
 
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
 HELD = "/proc/sys/net/unix/max_dgram_qlen"
-PIECE = (Path(__file__).resolve().parents[1] / "tools/helper/piece.sh").read_text()
-# piece.sh's own lines: `fail`, from the sandbox's size to its preflight, and the command's launch.
-FAIL, SANDBOX, LAUNCH = (re.search(lines, PIECE, re.M).group(0) for lines in (
-    r"^fail\(\).*\n", r"^notes=(?s:.*?)^offline .*\n", r"^offline .*\$command.*\n"))
+# piece.sh, its /home/ak the folder its lines run in here, where the launch leaves `started`.
+PIECE = (Path(__file__).resolve().parents[1] / "tools/helper/piece.sh").read_text().replace(
+    "/home/ak/", "")
+# piece.sh's own lines: `fail`, from the sandbox's size to its preflight, the command's launch,
+# and the piece's end but its count of kills for memory, the whole host's where a test has no
+# cgroup of its own.
+FAIL, SANDBOX, LAUNCH, END = (re.search(lines, PIECE, re.M).group(0) for lines in (
+    r"^fail\(\).*\n", r"^notes=(?s:.*?)^offline .*\n", r"^offline .*\$command.*\ncode=.*\n",
+    r"^\[ -e (?s:.*)"))
 # Of /proc/sys/net: remounting a bind of /proc/sys leaves a mount at /proc/sys/net writable.
 # Recursive: the kernel refuses a user namespace a plain bind with an inherited mount under it.
 READ_ONLY = "mount --rbind /proc/sys/net /proc/sys/net && mount -o remount,bind,ro /proc/sys/net"
@@ -28,11 +35,12 @@ def piece(outside, start="", launch=""):
     """How piece.sh's lines end in a namespace holding `outside`, after `start` there and `launch`
     once past the preflight, which prints `launching`, on a command that prints what it holds and
     exits 42: its exit, what was printed and what was said."""
-    proc = subprocess.run(
-        ["unshare", "--user", "--map-current-user", "--net", "--mount", "--keep-caps", "bash",
-         "-c", f"echo {outside} >{HELD}\n{start}\n{FAIL}command='cat {HELD}; exit 42'\n{SANDBOX}"
-               f"echo launching\n{launch}\n{LAUNCH}"],
-        capture_output=True, text=True, timeout=60)
+    with tempfile.TemporaryDirectory() as home:
+        proc = subprocess.run(
+            ["unshare", "--user", "--map-current-user", "--net", "--mount", "--keep-caps", "bash",
+             "-c", f"echo {outside} >{HELD}\n{start}\n{FAIL}command='cat {HELD}; exit 42'\n"
+                   f"{SANDBOX}echo launching\n{launch}\n{LAUNCH}{END}"],
+            cwd=home, capture_output=True, text=True, timeout=60)
     return proc.returncode, proc.stdout.split(), proc.stderr
 
 

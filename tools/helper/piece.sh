@@ -26,16 +26,14 @@ for name in AK_TIMES AK_ONLY; do [ ! -f "/in/$name" ] || export "$name=/in/$name
 # A new network namespace holds 10 unread notes on a unix datagram socket whatever it starts in,
 # and a container's own is such a one, while a host systemd started holds 512: a suite whose
 # stand-in sent more than its test had read yet hung on 10 (17 Nov 2026). The sandbox holds what
-# it starts in, and 512 at least. One that does not, as under a read-only /proc/sys, runs nothing
-# and ends as `fail` does, the command's own too: the helper could not run the piece, which ak
-# then runs here, and its suite has not failed.
+# it starts in, and 512 at least. One that does not, as under a read-only /proc/sys, runs nothing.
 notes=$(cat /proc/sys/net/unix/max_dgram_qlen 2>/dev/null)
 [ "${notes:-0}" -ge 512 ] || notes=512
 offline() {
   unshare --user --map-current-user --net --keep-caps sh -c \
     'echo "$0" >/proc/sys/net/unix/max_dgram_qlen
-     ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen || exit 253
-     exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes" "$@"
+     ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen &&
+       exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes" "$@"
 }
 offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]' || fail "the sandbox did not build"
 # Kills for memory: of the piece's own cgroup where it has one, as a container on a kernel other
@@ -45,12 +43,15 @@ oom() {
     awk '$1 == "oom_kill" {print $2}'
 }
 before=$(oom)
-offline bash -c "$command"
+# A sandbox that was not made ends nonzero with nothing run, as a suite does whose test failed
+# (unshare ends 1 where the kernel makes it no namespace): the launch's exit cannot say which,
+# so the sandbox leaves `started` as it starts the command.
+offline sh -c ': >/home/ak/started && exec bash -c "$0"' "$command"
 code=$?
 # The kernel killed a process for memory: the VM or container was too small for the piece, which
 # ak then runs here and gives a larger one next time (helper.short).
 [ "$(oom)" = "$before" ] || { echo "ak helper: the VM ran out of memory" >&2; exit 254; }
-# A launch that ended nonzero where no sandbox can be made any more may be unshare's own failure
-# with nothing run: the piece is handed back as one that never started, and ak runs it here.
-[ "$code" = 0 ] || offline true || fail "the sandbox cannot be made"
+# Nothing ran: the helper could not run the piece, which ak then runs here, and its suite has not
+# failed.
+[ -e /home/ak/started ] || fail "the command did not start"
 exit "$code"
