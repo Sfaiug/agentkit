@@ -541,11 +541,11 @@ def seat_token_sources(record):
 
 
 def seat_token_usage(entry, cursor):
-    """A request the log's own session asks as `main` is filed from the `model_completed` Muse
-    writes right after attributing it, the one line naming its model beside its counts, so its
-    attribution is no row.  Any other provider attribution -- a parent's log attributes its
-    reminder children's requests, and completes none -- is filed by itself, its tokens and no
-    model."""
+    """A request the log's own session asks, whatever asks it, is filed from the
+    `model_completed` Muse writes right after attributing it, the one line naming its model
+    beside its counts, so its attribution is no row.  Any other provider attribution -- a
+    parent's log attributes its reminder children's requests, and completes none -- is filed
+    by itself, its tokens and no model."""
     completed = run_event(entry, "model_completed")
     if isinstance(completed.get("usage"), dict):
         model, counts = completed.get("model"), by_type(completed["usage"])
@@ -553,9 +553,8 @@ def seat_token_usage(entry, cursor):
                 model if isinstance(model, str) else None, counts)
     record = run_event(entry, "goal_usage_attribution").get("record") or {}
     tokens = provider_tokens(record)
-    owner, session = record.get("owner") or {}, (entry.get("stream") or {}).get("id")
-    own = (owner.get("requester_kind") == "main" and session is not None
-           and owner.get("session_id") == session)
+    session = (entry.get("stream") or {}).get("id")
+    own = session is not None and (record.get("owner") or {}).get("session_id") == session
     if tokens is not None and not own:
         return entry["recorded_at"] / 1_000_000, entry.get("id"), tokens, None, None
 

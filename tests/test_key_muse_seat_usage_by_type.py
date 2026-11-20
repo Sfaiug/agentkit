@@ -1,13 +1,13 @@
 """A Muse seat's own model request is one usage row, under its model and its tokens by type.
 
-Muse logs each request its session asks as `main` twice: a `goal_usage_attribution` of its
-counts, which names no model, then right after it a `model_completed` naming the model under the
-same counts.  A tick files the completion alone: dated when Muse recorded it, its input less what
-it says it cached, that under cache read, no cache write, and its output, the tokens their sum; a
-tick read between the two lines files the request once all the same.  Any other attribution -- a
-parent's log attributes its reminder children's requests, and a child's own log its own, asking
-as `reminder` -- stays a row of its tokens alone, as before, with no model and no counts, and a
-completion in a child's own log is a row as every completion is.
+Muse logs each request a log's own session asks twice, whether it asks as `main` or, in a
+reminder child's own log, as `reminder`: a `goal_usage_attribution` of its counts, which names no
+model, then right after it a `model_completed` naming the model under the same counts.  A tick
+files the completion alone: dated when Muse recorded it, its input less what it says it cached,
+that under cache read, no cache write, and its output, the tokens their sum; a tick read between
+the two lines files the request once all the same.  A parent's log attributes its reminder
+children's requests and completes none: each such attribution stays a row of its tokens alone,
+as before, with no model and no counts.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each
 tick in the box `home.tick()` builds, on a seat of tests/fixtures/akseat.py whose session logs
@@ -119,10 +119,9 @@ class MuseSeatUsageByType(unittest.TestCase):
         self.assertEqual(self.second, sorted(self.first + [
             (9.0, "orbit-3", 10_000, 0, 30_000, 500, 40_500)]))
 
-    def test_a_child_s_attribution_stays_a_row_of_tokens_alone_beside_each_completion(self):
+    def test_a_request_a_log_attributes_to_its_own_session_is_one_row_whatever_asked_it(self):
         self.assertEqual(self.first, [(3.0, "orbit-2", 120, 0, 33_140, 15, 33_275),
                                       (5.0, None, None, None, None, None, 5_059),
-                                      (6.0, None, None, None, None, None, 5_028),
                                       (6.5, "orbit-2-mini", 4_313, 0, 0, 715, 5_028)])
 
 
