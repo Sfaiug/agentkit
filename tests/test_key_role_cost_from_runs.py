@@ -1,8 +1,9 @@
 """`ak models --json` prices a model's role at an effort (`task_usage`, its row's measured `cost`)
 at the mean over the task runs that ended where it did it of the points of a week its `turn_usage`
 rows took: at listed prices, times 100 over each row's login's `week_listed_usd` (`ak usage
---json`).  A counted turn with no row, or a row with no listed price, leaves its run out of the
-role, reviews naming two efforts out of the reviewer's, as does a run running again (resumed);
+--json`).  A counted turn with no row, or rows counting a token none of which names the model
+its entry runs, or a row with no listed price, leaves its run out of the role, reviews naming
+two efforts out of the reviewer's, as does a run running again (resumed);
 a model with no runs keeps its estimate.  Where the plans its provider's logins are on have list
 prices, the role costs those points of a week of their mean plan in dollars, a week 12/52 of a
 month.
@@ -189,6 +190,22 @@ class RoleCostFromRuns(unittest.TestCase):
                           for model, efforts in found.items()},
                          {"anvil": {"high": ["executor"]}, "bloom": {"high": ["reviewer"]}})
         self.assertAlmostEqual(found["anvil"]["high"]["executor"], self.points(weeks, kept))
+        self.assertAlmostEqual(found["bloom"]["high"]["reviewer"], self.points(weeks, review))
+
+    def test_a_run_a_turn_of_which_ran_another_model_counts_for_nothing_in_that_role(self):
+        # its first turn ran Bloom alone, of Anvil's provider, though the run names Anvil
+        bloom = [("default", "bloom-1", (2_000_000, 0, 0, 0))]
+        anvil = [("default", "anvil-1", (1_000_000, 0, 0, 0))]
+        review = [("second", "bloom-1", (100_000, 0, 0, 0))]
+        self.history.run(("anvil", "high"), "bloom", ["high"], built=[bloom, anvil],
+                         reviewed=[review])
+        # each turn names Anvil beside a subagent's Bloom
+        beside = anvil + [("default", "bloom-1", (300_000, 0, 0, 0))]
+        self.history.run(("anvil", "high"), built=[beside, beside])
+        weeks, answer = self.answer()
+        found = answer["task_usage"]
+        self.assertAlmostEqual(found["anvil"]["high"]["executor"],
+                               self.points(weeks, beside, beside))
         self.assertAlmostEqual(found["bloom"]["high"]["reviewer"], self.points(weeks, review))
 
     def test_a_measured_cost_is_in_dollars_of_the_plans_its_providers_logins_hold(self):
