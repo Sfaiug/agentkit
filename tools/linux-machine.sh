@@ -35,6 +35,12 @@ linux_share() {   # linux_share <total> <floor>
 linux_machine_up() {
   local dir name cpus mem had when disk power shared gib=$((1024 * 1024 * 1024))
   local daemons=${AK_LAUNCH_DAEMONS:-/Library/LaunchDaemons}
+  # From here on the store is there and LIMA_HOME is its own path, whole and with no link in it.
+  # One that starts in the install's folder gives Lima no mount, launchd's check a store in /
+  # and ssh an Include in ~/.ssh; and Lima follows a link before the `..` after it only once
+  # the store is there.
+  mkdir -p -- "$(linux_store)" && LIMA_HOME=$(CDPATH= cd -P -- "$(linux_store)" && pwd) &&
+    export LIMA_HOME || return 1
   dir=$(linux_dir) name=$(linux_user)
   if ! limactl autostart --help >/dev/null 2>&1; then
     if command -v limactl >/dev/null 2>&1; then brew upgrade lima || return 1
@@ -54,9 +60,11 @@ linux_machine_up() {
     # but `free-space` in its own, empty and read-only: a disk that grows only while the Mac's
     # volume has room is as full as that volume, which the machine reads through a folder on
     # it (`host.disk_use`).  Lima fills in {{.Dir}}, so no path of the Mac's is in the expression.
+    # The reader counts a virtiofs mount alone and a plain machine mounts nothing, so the
+    # machine's own file says virtiofs and not plain, whatever Lima's defaults on this Mac say.
     shared='{"location": "{{.Dir}}/free-space", "mountPoint": "/mnt/ak-free-space", "writable": false}'
     limactl create --tty=false --name="$LINUX_INSTANCE" --cpus="$cpus" --memory="$mem" \
-      --disk="$disk" --mount-none \
+      --disk="$disk" --mount-none --mount-type=virtiofs --plain=false \
       --set ".user.name = \"$name\" | .user.home = \"/home/$name\" | .mounts = [$shared]" \
       template:debian && mkdir -p "$dir/free-space" || return 1
     echo "linux: this Mac's Linux machine has $cpus cores, ${mem} GiB of memory and ${disk} GiB of disk"
