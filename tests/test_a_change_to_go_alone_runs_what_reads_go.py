@@ -1,7 +1,8 @@
 """A run of every test on a change to Go alone runs only what that change can alter
 (suite_shares.python_left_out): Go's tests with every claim, the static checks, each test file
 whose code names Go's tree or imports one that does, and each block of smoke.sh that does; a
-change anywhere else too, or none, runs all, and a live run every live check whatever the change.
+change anywhere else too, or none, runs all, and a live run every live check whatever the change,
+a landing none, whatever mode it was started in.
 Offline: the real landing.py, every_file.py and suite_shares.py run a stand-in git checkout whose
 default branch, origin/HEAD, is its origin/main, and whose tests and blocks note that they ran.
 """
@@ -58,6 +59,7 @@ FILES = {
 ALL = {*(f"{name}.py" for name in STATIC_CHECKS), "test_go.py", "test_go_keys.py test_key_acme",
        "test_acme_reads_go.py", "test_acme_imports_it.py", "test_acme_imports_its_fixture.py",
        "test_acme.py", "test_key_acme.py", "gate_contract.py", "smoke.sh#alpha", "smoke.sh#beta"}
+GO_ALONE = ALL - {"test_acme.py", "test_key_acme.py", "gate_contract.py", "smoke.sh#beta"}
 
 
 class AChangeToGoAloneRunsWhatReadsGo(unittest.TestCase):
@@ -106,8 +108,7 @@ class AChangeToGoAloneRunsWhatReadsGo(unittest.TestCase):
         for names in (["go/acme.go"], ["tests/test_go_keys.py"]):
             with self.subTest(names):
                 self.change(*names)
-                self.assertEqual(self.ran(), ALL - {"test_acme.py", "test_key_acme.py",
-                                                    "gate_contract.py", "smoke.sh#beta"})
+                self.assertEqual(self.ran(), GO_ALONE)
 
     def test_a_change_to_go_and_anything_else_runs_all(self):
         for name in ("agentkit/acme.py", "tests/fixtures/acme.py"):
@@ -122,6 +123,7 @@ class AChangeToGoAloneRunsWhatReadsGo(unittest.TestCase):
         self.change("go/acme.go")
         self.assertEqual(self.ran("bash", "tests/smoke.sh", AGENTKIT_SMOKE_LIVE="1"),
                          {"smoke.sh#3"})
+        self.assertEqual(self.ran(AGENTKIT_SMOKE_LIVE="1"), GO_ALONE)
 
 
 if __name__ == "__main__":

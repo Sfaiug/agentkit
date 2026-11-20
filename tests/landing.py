@@ -14,6 +14,8 @@ import time
 from suite_shares import (SMOKE, STATIC_CHECKS, go_left_out, listed, name_failed, python_left_out,
                           smoke_share)
 
+# A landing runs no live check (tests/live.sh does), whatever mode it was started in.
+os.environ.pop("AGENTKIT_SMOKE_LIVE", None)
 only = listed()
 # A whole run leaves out the tests its change cannot alter: of Go's (go_left_out), and where it is
 # Go's alone, of Python's (python_left_out).
