@@ -2,8 +2,9 @@
 
 This is how every seat's harness moves to a new release: ak runs the harness's `[update]
 upgrade` command, then the acceptance gates (live, the fresh install), and keeps the new
-release only when they pass.  The live gate runs with its model turns also on a host GitHub did
-not say may push, as every Home here is: that host's tick checks new agentkit code without them
+release only when they pass.  The live gate runs every live check, its model turns too, whatever
+the caller exported (AK_LIVE_NO_MODEL_CALLS, AK_ONLY), also on a host GitHub did not say may
+push, as every Home here is: that host's tick checks new agentkit code without them
 (tests/test_key_a_host_that_may_not_push_takes_what_passed.py), and only those turns catch a
 harness that broke on it; a caller's exported AK_LIVE_NO_MODEL_CALLS=1 leaves none out.
 On a red gate it reinstalls the release it started from with
@@ -39,6 +40,21 @@ case "$1 $2" in
                     echo "{new} (Claude Code)" >{installed} ;;
   "install "*) [ -f {flags}/reinstall-fails ] && exit 1; echo "$2 (Claude Code)" >{installed} ;;
   *) echo "claude: not scripted in this test" >&2; exit 1 ;;
+esac
+"""
+# smoke.sh as the real tests/live.sh starts it, keeping in HOME/selected the checks
+# tests/suite_shares.py chose; NEW fails check 3, a model call, where it was chosen.  The
+# fresh-install gate passes.
+SUITE = """#!/bin/sh
+case "$1" in
+  */tests/smoke.sh)
+    python3 "$(dirname "$1")/suite_shares.py" "$1" >"$HOME/selected" || exit 2
+    if grep -qxF "SMOKE_BLOCK='tests/smoke.sh#3'" "$HOME/selected" &&
+       grep -qF '{new} (Claude Code)' "$HOME/../claude-installed"; then
+      exit 1
+    fi ;;
+  */tests/e2e-fresh.sh) true ;;
+  *) exec /bin/bash "$@" ;;
 esac
 """
 # The fresh-install gate runs only on Linux; elsewhere the report says it was skipped.
@@ -122,6 +138,24 @@ class HarnessUpgrade(unittest.TestCase):
         self.gates.reset()
         self.assertEqual(self.update()[0], 0)
         self.assertIsNone(self.handed())
+
+
+class WhateverTheCallerExported(unittest.TestCase):
+    def test_the_live_gate_runs_every_live_check(self):
+        for exported in (None, "AK_LIVE_NO_MODEL_CALLS", "AK_ONLY"):
+            with self.subTest(exported), Home() as home:
+                akconfig.write(home, ["opus"])
+                installed = claude(home)
+                home.fake("bash", SUITE.format(new=NEW))
+                only = home.path / "only"
+                only.write_text("tests/smoke.sh#6f\n")     # a live check making no model call
+                value = {"AK_LIVE_NO_MODEL_CALLS": "1", "AK_ONLY": str(only)}
+                done = home.ak("update", env={exported: value[exported]} if exported else {},
+                               timeout=120)
+                self.assertEqual(done.code, 1, done.out + done.err)
+                self.assertEqual(installed.read_text().split()[0], OLD)
+                self.assertIn("SMOKE_BLOCK='tests/smoke.sh#3'",
+                              (home.path / "selected").read_text().splitlines())
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
