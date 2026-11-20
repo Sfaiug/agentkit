@@ -148,14 +148,16 @@ def lines(name, model, word=None, last="", why=""):
 def whys(info):
     """Line two, one version for each of `WHYS`, as tmux text: every task's squares
     (`menu.squares`), then who builds and reviews (`menu.crew`) -- or in its place a needs-you
-    reason no chat shows -- then those squares alone; and again with them cut to six, then to
-    one and the count of the rest, so a narrow client still sees its tasks (`_line_two`).  The
-    owner picked the squares first, 17 Nov 2026.  A question is not repeated: a stop shows
-    `needs you` only once it is the agent's last message, or its card is up (owner, 23 Oct
-    2026: "if we dont need it, lets remove it")."""
+    reason no chat shows, alone where no task is in flight -- then those squares alone; and
+    again with them cut to six, then to one and the count of the rest, so a narrow client still
+    sees its tasks (`_line_two`).  The owner picked the squares first, 17 Nov 2026.  A question
+    is not repeated: a stop shows `needs you` only once it is the agent's last message, or its
+    card is up (owner, 23 Oct 2026: "if we dont need it, lets remove it")."""
     crew, tasks = menu.crew(info, tmux=True), info.get("tasks") or []
     if info.get("word") == "needs you" and not info.get("question"):
         crew = orch.tmux_text(terminal.plain(info.get("sentence") or ""))
+        if not tasks:   # no squares to keep over it: cut, never dropped, on the narrowest client
+            return [crew] * len(WHYS)
     every, few, least = (menu.squares(tasks, tmux=True, most=most) for most in (None, 6, 1))
     return [version for squares in (every, few, least)
             for version in ("   ".join(filter(None, (squares, crew))), squares)]

@@ -30,15 +30,14 @@ func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 	done := " #[fg=#000000,bg=#33b65f] ✓ done #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]   "
 	idle := " #[fg=#000000,bg=#868d97] ○ idle #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]"
 	crew := "  #[fg=#acb4bd]build: Opus 5.5, Astra   review: Opus 5.5, Spark#[default]"
-	// line two with no task in flight: the crew or a needs-you reason in its place, and those squares
-	// alone, nothing
+	// line two with no task in flight: the crew, and those squares alone, nothing
 	for _, each := range []struct {
 		word, reason string
 		why          [2]string
 		done, total  int
 		tops         [3]string
 	}{
-		{"needs you", "session #1 closed", [2]string{"  session ##1 closed", ""}, 1, 3, [3]string{
+		{"needs you", "session #1 closed", [2]string{"  session ##1 closed", "  session ##1 closed"}, 1, 3, [3]string{
 			needs + "#[fg=#d79200]━━━━━━━━━╸#[fg=#3a3f46]───────────────────#[default] #[fg=#acb4bd]1 of 3#[default]",
 			needs + "#[fg=#d79200]━━━━━╸#[fg=#3a3f46]───────────#[default] #[fg=#acb4bd]1 of 3#[default]",
 			needs + "#[fg=#d79200]━╸#[fg=#3a3f46]───#[default] #[fg=#acb4bd]1 of 3#[default]"}},

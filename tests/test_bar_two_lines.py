@@ -131,8 +131,13 @@ class TwoLines(Sandbox):
 
     def test_c1_what_needs_you_outside_the_chat_takes_the_crews_place_after_the_squares(self):
         reason = "GitHub is logged out: run `gh auth login -p https -w`"
+        said = {"word": "needs you", "reason": reason}
+        statusbar.redress(self.seat, said, cfg=self.cfg)
+        # no task in flight: the reason at every width, so the narrowest client still cuts it
+        self.assertEqual([drawn(self.options[option]) for option in statusbar.WHYS],
+                         [f"  {reason}"] * len(statusbar.WHYS))
         self.going()
-        statusbar.redress(self.seat, {"word": "needs you", "reason": reason}, cfg=self.cfg)
+        statusbar.redress(self.seat, said, cfg=self.cfg)
         self.assertEqual([drawn(self.options[option]) for option in statusbar.WHYS],
                          [f"  ■□□   {reason}", "  ■□□"] * 3)
 
