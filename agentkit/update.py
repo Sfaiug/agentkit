@@ -579,12 +579,13 @@ def behind(timeout=START_WAIT):
                 and _git("merge-base", "--is-ancestor", head[0], "HEAD")[0])
 
 
-def _git(*args, timeout=60):
-    """One git command in that checkout: its exit code and output, 1 when it could not run."""
+def _git(*args, timeout=60, env=None):
+    """One git command in that checkout, `env` set over its environment: its exit code and
+    output, 1 when it could not run."""
     try:
         proc = subprocess.run(["git", "-C", str(agentkit_dir()), *args], capture_output=True,
                               encoding="utf-8", errors="replace", timeout=timeout,
-                              env={**config.child_env(), **PINS})
+                              env={**config.child_env(), **PINS, **(env or {})})
     except (OSError, subprocess.TimeoutExpired):
         return 1, ""
     return proc.returncode, proc.stdout.strip()
@@ -914,9 +915,16 @@ def go_live(log, now=None):
     head = target if moved else _git("rev-parse", "HEAD")[1]
     failed, lines = update_once("watch", pull=moved and target)
     if not failed:
-        # one a harness upgrade held back moved nothing: a tick after that upgrade says this
-        if not pending.exists() and _git("rev-parse", "HEAD")[1] == head:
+        # one a harness upgrade held back moved nothing: a tick after that upgrade says this.
+        # Only a commit's whole id reads as one, so the push neither deletes `live` nor names
+        # whatever HEAD is by then.  Whether this host may push is origin's to say, unforced
+        # `live` only moves ahead, and the next commit logged live carries it past a failed push.
+        code, at = _git("rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+        if not pending.exists() and not code and at == head:
             log(f"agentkit is live at {head[:12]}")
+            if not _git("push", "--quiet", "origin", f"{head}:refs/heads/live",
+                        timeout=FETCH_CAP, env={"GIT_TERMINAL_PROMPT": "0"})[0]:
+                log(f"origin's live is at {head[:12]}")
     elif lines:
         log(f"WARN agentkit did not go live at {head[:12]}:")
         for line in lines:
