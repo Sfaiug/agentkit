@@ -1881,15 +1881,16 @@ def resume_run(argv):
     # FAIL at the same cap must be refused exactly like the first rather than repeat itself.
     at_budget = failed_at_budget(state)
     if at_budget:
-        # the change's budget with this run's own rounds counted: spent, no --rounds carries
-        # it on and the task is what changes; else the way on names the bound `over_lineage`
-        # holds a --rounds to
-        left, why = change_budget(state, run_dir, run_record.policy_of(state)["review_rounds"], own=state["rounds"])
+        # the change's budget with the rounds this run recorded counted, the extra ones too:
+        # spent, no --rounds carries it on and the task is what changes; else the way on names
+        # the bound `over_lineage` holds a --rounds to
+        spent = len(state["round_summaries"])
+        left, why = change_budget(state, run_dir, run_record.policy_of(state)["review_rounds"], own=spent)
         if why:
             raise config.Error(f"{run_id} FAILed at its round budget ({state['rounds']}); {why}")
         if n_rounds is None or n_rounds <= state["rounds"]:
             raise config.Error(f"{run_id} FAILed at its round budget ({state['rounds']}); "
-                               f"give --rounds N above it, at most {state['rounds'] + left}, to continue")
+                               f"give --rounds N above it, at most {spent + left}, to continue")
     # A FAIL recorded by integration below its budget carries its branch and its rounds
     # with it: the work is reviewed and only the merge is left to try again.
     integration_fail = failed_in_integration(state, run_dir)

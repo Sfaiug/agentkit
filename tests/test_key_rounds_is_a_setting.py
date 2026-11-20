@@ -33,7 +33,8 @@ def project(cls, rounds, claude, codex):
     cls.home = Home()
     cls.addClassCleanup(cls.home.close)
     cls.rig = Rig(cls.home, "widgets")
-    akconfig.write(cls.home, ["opus", "astra"], settings={"review_rounds": rounds})
+    # no extra round for a finding left: review_rounds alone is the budget here
+    akconfig.write(cls.home, ["opus", "astra"], settings={"review_rounds": rounds, "extra_rounds": 0})
     cls.fakes = fakeadapter.install(cls.home, claude=claude, codex=codex)
     cls.task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
 

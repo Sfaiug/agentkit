@@ -27,6 +27,7 @@ CARD = ["  Stop atoll-fix and everything it runs?",
         " it stopped.",
         "› ✓ Keep",
         "  × Stop"]
+CARD_KEYS = "  ↑↓←→ move   ⏎ keep   esc back"
 NOW = int(time.time())
 
 
@@ -51,9 +52,11 @@ class StopCard(unittest.TestCase):
 
     def asked(self):
         """The menu with the card open under atoll-fix, once the card has counted its runs and
-        is drawn to its last line."""
+        the screen is drawn to its last line, the card's key line: rows are written top down, so
+        a screen read part way through the draw has the card over the menu's key line."""
         self.menu.keys("x")
         return self.menu.wait(lambda screen: all(line in screen.splitlines() for line in CARD)
+                              and [line for line in screen.splitlines() if line][-1] == CARD_KEYS
                               ).splitlines()
 
     def test_x_asks_under_the_row_standing_on_keep_and_esc_keeps_the_seat(self):
@@ -64,8 +67,6 @@ class StopCard(unittest.TestCase):
         self.assertEqual(lines[at - 1], "")
         below = next(i for i, line in enumerate(lines) if line.startswith("  2  atoll-ask  "))
         self.assertGreater(below, at + len(CARD) - 1, "atoll-ask's row is not below the card")
-        self.assertEqual([line for line in lines if line][-1],
-                         "  ↑↓←→ move   ⏎ keep   esc back")
 
         self.menu.keys("Escape")
         screen = self.menu.wait(KEYS)

@@ -132,6 +132,11 @@ func seatState(payload []byte, caller int, out io.Writer) int {
 	if text == nil {
 		text = first(event, "message", "title")
 	}
+	// what the seat's own turn failed on, which its transcript holds only later: a sub-agent's
+	// failure is not the seat's turn's
+	if text == nil && first(event, "error") != nil && first(event, subAgent...) == nil {
+		text = first(event, "last_assistant_message")
+	}
 	fact := hookfact.Fact{Session: seat, Event: name, Kind: printed(kind), Text: printed(text), At: at}
 	harness := config.SeatHarness(row)
 	// A Stop handing over the work in flight is hooks/orchestrator-stop.sh's, which runs beside
