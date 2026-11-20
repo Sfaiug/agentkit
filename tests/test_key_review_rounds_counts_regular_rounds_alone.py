@@ -1,9 +1,9 @@
 """On `config · limits`, `Review rounds` counts the runs that used no round past their own
-`review_rounds` (an extra round with one finding left, tests/test_key_one_finding_left_gets_extra_rounds.py):
-one that merged or failed past them is neither drawn on its chart nor said under it.  A run's
-row in history.db keeps, as it finishes, its rounds past the `review_rounds` its record kept,
-empty for none; a row an older agentkit wrote, its column empty, or a history nothing may
-write, without one, is counted as it always was.
+`review_rounds`: one that merged or failed in an extra round with one finding left
+(tests/test_key_one_finding_left_gets_extra_rounds.py) is neither drawn on its chart nor said
+under it.  A run's row in history.db keeps, as it finishes, its rounds past the
+`review_rounds` its record kept, empty for none; a row an older agentkit wrote, that column
+empty, or one in a history nothing may write, without it, is counted as it always was.
 
 Black-box, built as tests/test_key_limits_what_if.py is: history.db's `runs` rows written into
 the Home as any program writes them, then the program `AK_BIN` names in a person's terminal

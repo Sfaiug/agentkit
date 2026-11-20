@@ -474,7 +474,8 @@ def history_ending(state, cfg=None):
             pass
     rounds = state.get("round_summaries")
     rounds = len(rounds) if isinstance(rounds, list) else None
-    # none with review off, nor for a record from before records kept their numbers
+    # the record's own number, not policy_of's: none with review off, nor for a record from
+    # before records kept their numbers
     held = (state.get("policy") or {}).get("review_rounds")
     ending = {"repo": state.get("repo"), "executor": state.get("executor"),
               "reviewer": state.get("reviewer"), "review_pair": pair, "rounds_used": rounds,
