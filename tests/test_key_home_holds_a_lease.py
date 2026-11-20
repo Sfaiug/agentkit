@@ -58,10 +58,11 @@ class AHomeHoldsALease(unittest.TestCase):
         self.assertEqual(lease(machine, now=now(turn)), (0, "", ""))
 
     def swaps(self, machine, turn):
-        """`machine`'s `turn`th turn, which leaves on the origin a lease it never held before in the
-        case: the value kept under the ref named for its stamp, the empty tree, no parent and ak's
-        stamp."""
+        """`machine`'s `turn`th turn, which finds a lease on the origin and leaves one it never held
+        before in the case: the value kept under the ref named for its stamp, the empty tree, no
+        parent and ak's stamp."""
         bare = machine.install.bare
+        self.assertIn(REF, machine.install.refs(), "no lease to swap: a create is no swap")
         self.turn(machine, turn)
         value = machine.install.refs()[REF]
         self.assertNotIn(value, self.leases)
