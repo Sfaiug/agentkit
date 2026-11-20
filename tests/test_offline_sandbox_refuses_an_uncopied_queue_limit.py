@@ -18,8 +18,9 @@ from test_the_offline_sandbox_holds_its_host_s_unread_notes import line
 
 class UncopiedQueueLimit(unittest.TestCase):
     def test_a_read_only_proc_sys_runs_no_suite(self):
-        code, printed, said = line(READ_ONLY + " && ")
-        self.assertEqual((code, printed), (1, []), said)
+        # `read-only` printed: the 1 is the line's own, not a namespace or mount that never came.
+        code, printed, said = line(READ_ONLY + " && echo read-only && ")
+        self.assertEqual((code, printed), (1, ["read-only"]), said)
 
 
 if __name__ == "__main__":
