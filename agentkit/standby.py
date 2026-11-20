@@ -43,9 +43,11 @@ that went out, and sends it once.  A pass's exit is its copy's alone: the copy i
 needs first.
 
 A home keeps a record of each machine that says it copied it (`_keep`), which `ak standby` lists
-there (`_copies`): no pass says so yet.  A record dated by the seconds since the pass began is
-dated younger than its copy by however late the request arrives; one dated by the stamp the home
-printed when the pass began (`_began`), handed back as written, never is.
+there (`_copies`).  A pass asks the home for a stamp of its own where it takes its own (`_began`),
+and one that ends well hands it back as printed, last: a record dated by the seconds since the
+pass began would be dated younger than its copy by however late the request arrives, and one
+dated by the home's stamp never is.  Neither request is anything of the pass's own: what it
+prints, its exit and its copy are the same whatever the home answers, or whether it does.
 """
 
 import contextlib
@@ -56,7 +58,9 @@ import math
 import os
 from pathlib import Path
 import re
+import selectors
 import shlex
+import socket
 import stat
 import subprocess
 import sys
@@ -292,6 +296,53 @@ def _began():
     return 0
 
 
+def _home(alias, *words):
+    """ssh's words running `ak standby` with `words` by the home's installed ak, which install.sh
+    links, under the home's HOME as its shell names it, so a Mac's under /Users answers too:
+    asking for no password, each word quoted, as `_copy`'s are."""
+    return ["ssh", "-o", "BatchMode=yes", alias,
+            '"$HOME"/' + shlex.join([".local/bin/ak", "standby", *words])]
+
+
+def _home_began(alias):
+    """This machine's host name and the words of the stamp `alias` prints now, as `--copied`
+    hands them back; none for a host name that cannot be read or that `--copied` would not take,
+    which asks nothing, nor for any answer within TIMEOUT but 0 and, byte for byte, a line
+    `--began` prints."""
+    try:
+        host = socket.gethostname()
+    except OSError:
+        return []
+    if not re.fullmatch(HOST, host):
+        return []
+    end, printed = time.monotonic() + TIMEOUT, b""
+    try:
+        # a selector, as select(2) takes no descriptor past 1023
+        with selectors.DefaultSelector() as ready, subprocess.Popen(
+                _home(alias, "--began"), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL) as asked:
+            try:
+                ready.register(asked.stdout, selectors.EVENT_READ)
+                # Read to its end, as reading what to copy is, but only its first KiB kept: longer
+                # than any line STAMP fits, so a longer answer is never taken for one, and a home
+                # that prints on and on holds no more of this machine's memory.
+                while (left := end - time.monotonic()) > 0 and ready.select(left):
+                    if not (more := os.read(asked.stdout.fileno(), 1 << 16)):
+                        break
+                    printed = (printed + more)[:1 << 10]
+                else:
+                    return []
+                code = asked.wait(max(end - time.monotonic(), 0))
+            finally:
+                asked.kill()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    said = printed.decode(errors="replace").split()
+    if code or not _fits(said, STAMP) or printed != f"{' '.join(said)}\n".encode():
+        return []
+    return [host, *said]
+
+
 def _set_back(seconds):
     """This machine's stamp now, both clocks set back by `seconds`, as a line: when the copy was
     taken by this machine's clocks alone, a wall clock off there changing nothing."""
@@ -479,7 +530,7 @@ def main(argv):
         if not _keep_job(alias):
             return 1
         notify.retry_pending()
-        began = pair_clock.now()
+        began, held = pair_clock.now(), _home_began(alias)
         if why := _copy(alias, home, copied):
             print(f"ak standby: the pass from {alias} failed: {why}", file=sys.stderr)
             _page(alias, why)
@@ -488,4 +539,9 @@ def main(argv):
         if why := update.follow(alias)[1]:
             _stamp(own, began.line(), alias, why)
         versions.final(time.time())
+        if held:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                subprocess.run(_home(alias, "--copied", *held, "no"), stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=TIMEOUT)
     return 0
