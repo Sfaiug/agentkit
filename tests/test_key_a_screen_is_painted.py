@@ -1,11 +1,12 @@
-"""A screen is painted in its theme: every cell of it, text or blank, on the theme's background,
-or a row the highlight is on whole on its selection (tests/test_key_one_highlight.py), text of
-no colour in the theme's text, and the terminal its own again once ak leaves.
+"""A screen is painted in its shades: every cell of it, text or blank, on their background, or a
+row the highlight is on whole on its selection (tests/test_key_one_highlight.py), text of no
+colour in their text, and the terminal its own again once ak leaves.
 
-The owner (12 Nov 2026): two themes, white and black, seen through everywhere ak is visual.
+The owner (12 Nov 2026): seen through everywhere ak is visual; (20 Nov) in one look, its shades
+the ones the terminal's background fits (tests/test_key_the_terminal_picks_the_shades.py).
 Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour
 (tests/fixtures/akterm.py) whose own background, set by its panes' `window-style`, which tmux
-answers OSC 11 with, is neither theme's, over a working seat and an idle one
+answers OSC 11 with, is neither shade's, over a working seat and an idle one
 (tests/fixtures/akseat.py), each cell judged by how it looks (tests/fixtures/aklooks.py).  Its
 clock injected as tests/test_key_themes.py injects it, so each frame of a breath is drawn at a
 moment the test sets, however busy the host.
@@ -22,10 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import AK, REAL_TMUX, Home
 from fixtures.aklooks import ATTRIBUTES, look, looks, plain, settled
 from fixtures.akseat import Seat
-from fixtures.akterm import SERVER, Terminal
+from fixtures.akterm import SERVER, Terminal, forget
 
-DARK, LIGHT = "#203040", "#e8e4d8"     # terminals' own backgrounds, neither theme's
-# a theme's background, text and selection
+DARK, LIGHT = "#203040", "#e8e4d8"     # terminals' own backgrounds, neither shade's
+# each shade's background, text and selection
 BLACK, WHITE = ("000000", "e2e8ef", "08305d"), ("ffffff", "181c22", "dcecff")
 SIZE = (100, 30)
 OPENED = 1000.0     # the moment ak's motion stands at as a screen opens
@@ -136,6 +137,7 @@ class AScreenIsPainted(unittest.TestCase):
         self.assert_named(rows, WHITE)
 
     def test_a_screen_read_a_line_at_a_time_is_on_black(self):
+        forget(self.home)       # it cannot ask: in the shades kept, black's where none is
         menu = self.open("-c", 'printf "\\033\\n" | "$0" --dry-run; exec sleep 86400', AK,
                          program="sh")
         menu.wait("esc leave", 60)

@@ -11,11 +11,10 @@ its count counting up with it; an effort's bar a step filled rises into place an
 model's highest effort sends a light through its word, a mark set fills and one cleared empties,
 one whose change was refused shakes;
 a popup's content fades in once, as it opens, a card as it is asked, and a page's under its
-header as it opens, its name writing itself out in the header, and a theme chosen comes down
-the screen it is chosen on, a row at a time; the rule under a screen's
+header as it opens, its name writing itself out in the header; the rule under a screen's
 header glides while its content is fetched, a spinner turning beside what ak waits on;
 the highlight comes from toward the accent and fades where it left (`Clock.light`) -- and
-every motion runs on this same clock, every light that travels in the theme's rainbow (`lit`)
+every motion runs on this same clock, every light that travels in the shades' rainbow (`lit`)
 (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
 (`Clock.start`), asking first which of its values are news
 (`Clock.look`); the wait loop asks how long until the next frame (`Clock.wait`) and what to
@@ -53,11 +52,10 @@ BRIGHTER = 0.5      # how lit news is: half way from its colour to the foregroun
 WAIT = 0.15         # seconds a screen's content is fetched for before its rule says so
 SPIN = 2 * FRAME    # seconds each of the spinner's glyphs shows beside what ak waits on
 SPINNER = "▖▘▝▗"     # quadrants, which a terminal draws itself, and `|/-\` without UTF-8
-THEMED = 0.35       # seconds a theme chosen takes to come down the screen, its top row to its last
 LANDS = 0.25        # ... the highlight takes to settle onto the selection where it comes
 LEAVES = 0.2        # ... and to fade into the background where it left
-# The highlight's colours as shares of the theme's selection, accent and background, drawn in the
-# theme in force whenever it changes (`painted`): where it comes it starts 45% of the way to the
+# The highlight's colours as shares of the shades' selection, accent and background, drawn in the
+# shades in force whenever it changes (`painted`): where it comes it starts 45% of the way to the
 # accent.
 SELECTED, COMES, BACKGROUND = (1, 0, 0), (0.55, 0.45, 0), (0, 0, 1)
 
@@ -79,7 +77,7 @@ def mixed(one, other, x):
 
 
 def painted(shares):
-    """The highlight's colour of `shares` (SELECTED) as `rrggbb` in the theme in force."""
+    """The highlight's colour of `shares` (SELECTED) as `rrggbb` in the shades in force."""
     rgbs = [bytes.fromhex(terminal.colour(role)) for role in ("selection", "accent", "background")]
     return "".join(f"{round(sum(share * rgb[n] for share, rgb in zip(shares, rgbs))):02x}"
                    for n in range(3))
@@ -408,9 +406,7 @@ class Clock:
         self.opened = None  # ... from its first frame
         self.rising = None  # ... the lines drawn, top down, while they come up
         self.grows = None   # each line the screen's first draw has -> when it grows in from
-        self.up = None      # the last draw's screen, top down, and the theme it is in (`rise`)
-        # ... and, while another theme comes down it, since when and its rows painted in the old
-        self.turning = None
+        self.up = None      # the last draw's screen, top down (`rise`)
         self.lights = {}    # what the last draw lit (terminal.lights)
         self.size = None    # ... and the terminal's size it was drawn at
         self.glows = {}     # ... and what of it, or of what it left, moves: since when, for how
@@ -457,7 +453,7 @@ class Clock:
         too, the next draw showing it still, and only what the key itself changes is news."""
         self.seen = self.seen and {key: (value, None, None)
                                    for key, (value, _, _) in self.seen.items()}
-        self.touched, self.turning, self.glows = {}, None, {}
+        self.touched, self.glows = {}, {}
         self.opened = None if self.opened is None else -math.inf
 
     def hold(self):
@@ -501,24 +497,16 @@ class Clock:
         """Whether `lines`, a draw's screen top down, are the frames' to write, and what moves in
         them, where it can (`movable`).  They come up out of the background on a clock made to
         `fade`, or a `page`'s: whatever is drawn in the FADE seconds from its first frame till a
-        key (`settle`), news too, each from where the fade has got to.  Drawn in another
-        theme than the draw before, one chosen on the screen, the new theme comes down it from
-        its top row to its last in THEMED seconds, the first frame the top row's: the rows under
-        the line it has come to are the screen as it was up, in the theme it was, so every row
-        is whole in one of the two and reads, where a mix of the two would read in neither.
-        """
-        now, theme, moves = moment(), terminal.theme(), movable()
-        if self.up and self.up[1] != theme and moves:
-            self.turning = now, terminal.rows(*self.up)
-            self.opened = -math.inf     # what was coming up is up: the theme comes down over it
+        key (`settle`), news too, each from where the fade has got to."""
+        now, moves = moment(), movable()
         self.light(now, moves)
-        self.up = lines, theme
+        self.up = lines
         opened = now if self.opened is None else self.opened    # not yet: by this draw's frame
         if (self.fade or self.page) and moves and now < opened + FADE:
             self.rising = lines
         elif not moves:     # up at once: a later draw where it can move does not open it again
             self.opened = -math.inf
-        return self.rising is not None or self.turning is not None
+        return self.rising is not None
 
     def light(self, now, moves):
         """The highlight as a draw at `now` moves it (terminal.lights), by what it is on: where it
@@ -563,12 +551,12 @@ class Clock:
     def forget(self):
         """Nothing seen: the next draw's values are drawn as they are, no news in them, and a
         screen that has opened is up (`rise`)."""
-        self.seen, self.touched, self.up, self.turning, self.glows = None, {}, None, None, {}
+        self.seen, self.touched, self.up, self.glows = None, {}, None, {}
         self.opened = None if self.opened is None else -math.inf
 
     def wait(self):
         """Seconds until the next frame is due, or None while nothing animates."""
-        if not self.cells and not self.rising and not self.turning and not self.glows:
+        if not self.cells and not self.rising and not self.glows:
             return None
         return 0 if self.last is None else max(0, self.last + FRAME - time.monotonic())
 
@@ -576,21 +564,13 @@ class Clock:
         """What to write now: the lines still rising and every cell that moves, faded with them,
         or each cell whose text moved since it was last written, no other, on the background
         the screen has under it, the highlight's where it is (`terminal.pointed`) and the colour it
-        has got to where it moves (`light`); while a theme comes down the screen every row, and
-        what moves only above the line it has come to."""
+        has got to where it moves (`light`)."""
         now, self.last = moment(), time.monotonic()
         later, self.later = self.later, []
         for key, start, row, before in later:   # touched news, shown first here (`begin`)
             self.touched[key] = now
             start(self, row, now, before)
         out, amount, first = "", 0, 3 if self.page else 1     # where what comes up starts
-        below = math.inf        # the first row still in the theme before the one chosen
-        if self.turning:
-            since, rows = self.turning
-            below = 1 + max(1, round(len(rows) * eased((now - since) / THEMED)))
-            out = "".join(new if row < below else old for row, (new, old) in
-                          enumerate(zip(terminal.rows(terminal.on_screen()), rows), 1))
-            self.shown, self.turning = {}, self.turning if below <= len(rows) else None
         if self.rising:
             # from its first frame, not from the draw making it: however long that draw took,
             # what comes up starts at the background
@@ -606,7 +586,7 @@ class Clock:
             since, took, *_, spans = glow
             x, rgb = (now - since) / took, painted(lighting(glow, now))
             for row, left, right in spans:
-                if row >= below or row > len(screen):
+                if row > len(screen):
                     continue
                 text = terminal.columns(screen[row - 1], left, right)
                 if x < 1:
@@ -636,7 +616,7 @@ class Clock:
                                             over, column - at + 1)
                          for (above, at), over, size, effect in wide
                          if above == row and at < column < at + size), text)
-            if row < below and self.shown.get((row, column)) != text:
+            if self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
                 lit = terminal.pointed(row, column, text)
                 for left, right, rgb in moving.get(row, ()):

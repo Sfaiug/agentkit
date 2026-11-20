@@ -1,10 +1,11 @@
-"""The menu draws in the black theme unless the terminal says its background is light.
+"""The menu draws in black's shades unless the terminal says its background is light.
 
-As it opens, the menu asks the terminal for its background colour (OSC 11).  No answer is a
-dark background, and the black theme; an answer whose luma is past half way puts the white theme
-in force, the accent, `needs you` and a seat's muted model each its role's colour of that theme.  The
-terminal here is tmux, which answers that question only once a background is set for its panes
-(`window-style`), so it stands for both a terminal that never answers and one that answers.
+As it opens, the menu asks the terminal for its background colour (OSC 11).  No answer, where
+none is kept (tests/test_key_the_terminal_picks_the_shades.py), is black's shades; an answer whose
+luma is past half way puts white's in force, the accent, `needs you` and a seat's muted model
+each its role's colour of those shades.  The terminal here is tmux, which answers that question
+only once a background is set for its panes (`window-style`), so it stands for both a terminal
+that never answers and one that answers.
 Black-box: the menu runs through tests/fixtures/akterm.py, and each cell is judged by how it
 looks (tests/fixtures/aklooks.py), never by the bytes that drew it.
 """
@@ -18,11 +19,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.aklooks import colours, ink, look, settled
 from fixtures.akseat import Seat
-from fixtures.akterm import SERVER, Terminal
+from fixtures.akterm import SERVER, Terminal, forget
 
 DARK_ACCENT, DARK_NEEDS, DARK_MUTED = "38;2;77;163;255", "38;2;215;146;0", "38;2;172;180;189"
 LIGHT_ACCENT, LIGHT_NEEDS, LIGHT_MUTED = "38;2;0;103;198", "38;2;142;94;0", "38;2;83;89;98"
-DARK, LIGHT = "48;2;0;0;0", "48;2;255;255;255"     # each theme's background, off the highlight
+DARK, LIGHT = "48;2;0;0;0", "48;2;255;255;255"     # each shade's background, off the highlight
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -41,8 +42,11 @@ class Palette(unittest.TestCase):
         Terminal(cls.home, "--help").exit_code()
 
     def menu(self, background=None, **env):
-        """The menu's looks once it rests, on a terminal of that background or of none."""
+        """The menu's looks once it rests, on a terminal of that background, or of none and
+        nothing kept."""
         option = ["window-style", f"bg={background}"] if background else ["-u", "window-style"]
+        if not background:
+            forget(self.home)
         done = self.home.tmux("set-option", "-g", *option, server=SERVER)
         self.assertEqual(done.code, 0, done.err)
         menu = Terminal(self.home, size=(100, 40), env=env)
@@ -55,7 +59,7 @@ class Palette(unittest.TestCase):
         self.assertEqual(look(screen, "! needs you", on="beta"), {"1", DARK_NEEDS, DARK})
         self.assertEqual(look(screen, "Opus 5.5", on="beta"), {DARK_MUTED, DARK})
 
-    def test_on_a_light_background_the_menu_draws_the_white_theme(self):
+    def test_on_a_light_background_the_menu_draws_white_s_shades(self):
         for colorterm in ("truecolor", "24bit"):
             with self.subTest(COLORTERM=colorterm):
                 screen = self.menu("#ffffff", COLORTERM=colorterm)

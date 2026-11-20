@@ -1,17 +1,19 @@
-"""ak draws every colour as a role of the owner's two themes, white and black, and no other.
+"""ak draws every colour as a role of its one look's two shades, white's and black's, and no other.
 
-The owner (12 Nov 2026): white where the terminal's background is light, black everywhere else,
-a seat's bar among them.  `working` and the highlight's `›` are the accent, `needs you` a
-warning, `done` a success, `out of usage` an error, `idle` and the key line's keys dim; the
-highlighted row and a key under the pointer are on the selection, and a seat's bar opens with
-its state as a chip, on-accent on the state's role.  The terminal here is tmux, which answers
-OSC 11 only once a background is set for its panes (`window-style`), so it stands for both a
-terminal that never answers and one that answers.  Black-box: the program AK_BIN names runs in
-a person's terminal of 24-bit colour (tests/fixtures/akterm.py) over tests/fixtures/akseat.py's
-seats, each cell judged by how it looks (tests/fixtures/aklooks.py), never by the bytes that drew
-it.  Its clock injected: `AK_MOTION_CLOCK` names a file of seconds that stands still until the
-test moves it, so what moves is told from what rests at the moments the test sets, however late
-a busy host draws or captures a frame.
+The owner (20 Nov 2026): one look, in the shades the terminal's background fits -- white's where
+it is light, black's everywhere else and where nothing is kept of one, a seat's bar among them
+(tests/test_key_the_terminal_picks_the_shades.py).  `working` and the highlight's `›` are the
+accent, `needs you` a warning, `done` a success, `out of usage` an error, `idle` and the key
+line's keys dim; the highlighted row and a key under the pointer are on the selection, and a
+seat's bar opens with its state as a chip, on-accent on the state's role.  The terminal here is
+tmux, which answers OSC 11 only once a background is set for its panes (`window-style`), so it
+stands for both a terminal that never answers, nothing kept, and one that answers.  Black-box:
+the program AK_BIN names runs in a person's terminal of 24-bit colour (tests/fixtures/akterm.py)
+over tests/fixtures/akseat.py's seats, each cell judged by how it looks
+(tests/fixtures/aklooks.py), never by the bytes that drew it.  Its clock injected:
+`AK_MOTION_CLOCK` names a file of seconds that stands still until the test moves it, so what moves
+is told from what rests at the moments the test sets, however late a busy host draws or captures
+a frame.
 """
 
 import sys
@@ -23,9 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.aklooks import ATTRIBUTES, look, looks, plain
 from fixtures.akseat import Seat
-from fixtures.akterm import SERVER, Terminal
+from fixtures.akterm import SERVER, Terminal, forget
 
-# role: its colour in the white theme, and in the black
+# role: its colour in white's shades, and in black's
 THEMES = {
     "background": ("ffffff", "000000"), "surface": ("f4f6fa", "111519"),
     "selection": ("dcecff", "08305d"), "border": ("b1b8c0", "3a3f46"),
@@ -93,9 +95,11 @@ class Themes(unittest.TestCase):
         new.replace(self.clock)
 
     def menu(self, background=None):
-        """The ak screen on a true-colour terminal of that background, or of none, once it shows
-        every seat's word, its motion at OPENED."""
+        """The ak screen on a true-colour terminal of that background, or of none and nothing
+        kept, once it shows every seat's word, its motion at OPENED."""
         option = ["window-style", f"bg={background}"] if background else ["-u", "window-style"]
+        if not background:
+            forget(self.home)
         done = self.home.tmux("set-option", "-g", *option, server=SERVER)
         self.assertEqual(done.code, 0, done.err)
         self.at(OPENED)
@@ -177,6 +181,7 @@ class Themes(unittest.TestCase):
                         self.at(OPENED + 10)
 
     def test_a_seats_bar_opens_with_its_state_on_accent_on_its_role(self):
+        forget(self.home)
         for seat, word, name in (("acme", "● working", "accent"),
                                  ("beta", "! needs you", "warning")):
             with self.subTest(word):

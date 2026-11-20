@@ -350,9 +350,9 @@ class TheBinding(unittest.TestCase):
                                   [*features, f"{terminal.PAD_ENV}=1"]])
         self.assertNotIn("set-hook", "\n".join(tmux.lines))   # no other session is touched
 
-    def test_its_colours_are_the_theme_s_config_toml_names_as_the_key_is_pressed(self):
-        tmux = FakeTmux(self)       # the binding as written before the theme was chosen on `c`
-        (tmux.root / ".agentkit" / "config.toml").write_text('theme = "white"\n')
+    def test_its_colours_are_the_shades_kept_as_the_key_is_pressed(self):
+        tmux = FakeTmux(self)       # the binding as written before a menu kept a light answer
+        (tmux.root / ".agentkit" / "state" / themes.KEPT).write_text("light\n")
         tmux.env["STANDIN_DIM"] = white = f"fg=#{themes.ROLES['dim'][themes.WHITE]}"
         seen = tmux.press()
         self.assertNotEqual(white, DIM)

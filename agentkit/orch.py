@@ -52,7 +52,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, suite_times, terminal, transitions, update, usage, versions
+from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, suite_times, terminal, themes, transitions, update, usage, versions
 from . import record as run_record
 from .harness import LAUNCH_KEYS, LAUNCHER, claims, entries, load as harness_plugin
 
@@ -96,10 +96,10 @@ FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, h
 CLIENT_ENV = "AGENTKIT_CLIENT"
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
 # opens over: `b` and `m`, the border and dim colours, are asked as the key is pressed (`roles`,
-# themes.py run bare), so the popup's border and the pane are in the theme config.toml names
-# then; the first popup over it keeps each style the pane has of its own, if it has one (`h`),
-# every one counts itself in, the pane draws in `m`, the popup is held until it is down, and the
-# last one down puts back exactly what the pane had.  Both styles go dim, because tmux draws
+# themes.py run bare), so the popup's border and the pane are in the shades kept then; the
+# first popup over it keeps each style the pane has of its own, if it has one (`h`), every one
+# counts itself in, the pane draws in `m`, the popup is held until it is down, and the last one
+# down puts back exactly what the pane had.  Both styles go dim, because tmux draws
 # the active pane in `window-active-style`'s colour over `window-style`'s.  Each step holds the
 # pane's own tmux lock, so two popups over one pane never count, keep or put back over each
 # other, and every lock is let go by a command of its own, which a command failing before it
@@ -2121,8 +2121,8 @@ def server_conf():
     heard a key from: a key pressed in a popup is none.
 
     The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
-    popup, and says nothing): a rounded border in the theme's border with ` agentkit ` set into
-    its top edge, a column and a row of padding inside it -- the menu's to leave, since tmux
+    popup, and says nothing): a rounded border in the kept shades' border with ` agentkit ` set
+    into its top edge, a column and a row of padding inside it -- the menu's to leave, since tmux
     pads nothing (`terminal.inset`) -- and none on a phone, which spares no cell.  While it is up
     the pane it opened over draws its default text dim (FLOAT).  The popup is opened from a
     `run-shell` job rather than by the binding, because a binding's commands are its client's
@@ -2135,7 +2135,7 @@ def server_conf():
         border = f'-b rounded -S "$b" -T {shlex.quote(POPUP_TITLE)}'    # FLOAT's border
         roles = shlex.join([sys.executable, "-S", "-I", str(versions.live() / "agentkit" /
                                                             "themes.py"),
-                            str(config.HOME / config.CONFIG_NAME), "border", "dim"])
+                            str(config.STATE / themes.KEPT), "border", "dim"])
         handed = f'-e "{terminal.FEATURES_ENV}=$f" -e "{CLIENT_ENV}=$c"'
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "

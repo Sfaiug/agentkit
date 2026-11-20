@@ -11,6 +11,7 @@ import pty
 import select
 import subprocess
 import sys
+import tempfile
 import time
 import tty
 from unittest.mock import patch
@@ -44,16 +45,16 @@ class Waits:
 class Palette(unittest.TestCase):
     def setUp(self):
         self.master, slave = pty.openpty()
+        kept = tempfile.TemporaryDirectory()       # where `sense` keeps the answer
+        self.addCleanup(kept.cleanup)
         tty.setcbreak(slave)            # as `Keyboard.take` leaves it: no lines, no echo
         stdin, stdout = os.fdopen(slave, "r"), os.fdopen(os.dup(slave), "w")
         for end in (stdin, stdout):
             self.addCleanup(end.close)
         self.addCleanup(os.close, self.master)
-        for target, name, value in ((terminal, "_RGB", False), (terminal, "THEME", terminal.BLACK),
+        for target, name, value in ((terminal, "_RGB", False), (terminal, "THEME", None),
                                     (terminal, "_KEYED", b""), (sys, "stdin", stdin),
-                                    (sys, "stdout", stdout),
-                                    # no config.toml names a theme: the terminal's answer decides
-                                    (terminal, "chosen", lambda: None)):
+                                    (sys, "stdout", stdout), (config, "STATE", kept.name)):
             patcher = patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -111,9 +112,9 @@ class Palette(unittest.TestCase):
                 self.sense()
                 self.assertIs(terminal._RGB, rgb)
 
-    def test_a_white_answer_puts_the_white_theme_in_force_and_none_in_time_the_black(self):
+    def test_an_answer_puts_its_shades_in_force_and_keeps_them_for_none_in_time(self):
         self.assertFalse(self.sense(WHITE, ATTRIBUTES))
-        self.assertEqual(terminal.THEME, terminal.WHITE)
+        self.assertEqual((terminal.THEME, terminal.kept()), (terminal.WHITE, terminal.WHITE))
         with patch.object(terminal, "colour_depth", return_value=24):
             for kind, rgb in (("accent", "0;103;198"), ("working", "0;103;198"),
                               ("needs you", "142;94;0"), ("done", "0;121;53"),
@@ -121,20 +122,20 @@ class Palette(unittest.TestCase):
                 self.assertIn(f"38;2;{rgb}m", terminal.styled("x", kind), kind)
             # its `›` in the accent on the selection, both white's
             self.assertIn("38;2;0;103;198;48;2;220;236;255m›", terminal.highlight(" row"))
-        # a dark answer, BEL-ended, and no answer at all within a second: black
-        self.sense(b"\033]11;rgb:1e1e/1e1e/2e2e\007", ATTRIBUTES)
-        self.assertEqual(terminal.THEME, terminal.BLACK)
-        terminal.THEME = terminal.WHITE
+        # no answer at all within a second: the shades the answer kept fits, white's
         self.assertTrue(self.sense())
-        self.assertEqual(terminal.THEME, terminal.BLACK)
+        self.assertEqual((terminal.THEME, terminal.theme()), (None, terminal.WHITE))
+        # a dark answer, BEL-ended: black's, kept in place of white's
+        self.sense(b"\033]11;rgb:1e1e/1e1e/2e2e\007", ATTRIBUTES)
+        self.assertEqual((terminal.THEME, terminal.kept()), (terminal.BLACK, terminal.BLACK))
         with patch.object(terminal, "colour_depth", return_value=24):
             self.assertIn("38;2;215;146;0m", terminal.styled("x", "needs you"))
 
-    def test_attributes_alone_end_the_wait_at_once_and_read_as_dark(self):
+    def test_attributes_alone_end_the_wait_at_once_and_read_as_dark_with_none_kept(self):
         # tmux, in a popup: no answer to OSC 11, its own to DA1 at once
         terminal.THEME = terminal.WHITE
         self.assertFalse(self.sense(b"\033[?1;2;4c"))
-        self.assertEqual(terminal.THEME, terminal.BLACK)
+        self.assertEqual((terminal.THEME, terminal.theme()), (None, terminal.BLACK))
         self.assertIsNone(terminal.read_key(0.2))
 
     def test_the_answer_never_reaches_read_key_as_keys(self):
@@ -147,7 +148,7 @@ class Palette(unittest.TestCase):
         self.assertIsNone(terminal.read_key(0.2))
         # answers come after their second are swallowed whole by read_key
         self.sense()
-        self.assertEqual(terminal.THEME, terminal.BLACK)
+        self.assertIsNone(terminal.THEME)
         os.write(self.master, WHITE + ATTRIBUTES + b"k")
         self.assertEqual(terminal.read_key(0.5), terminal.Key("char", "k"))
         os.write(self.master, b"\033]11;rgb:ffff/ffff/ffff\007")

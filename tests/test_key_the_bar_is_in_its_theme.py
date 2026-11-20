@@ -1,24 +1,26 @@
-"""What tmux draws around a seat is in the theme: its bar, the popup's border, tmux's own styles.
+"""What tmux draws around a seat is in ak's shades: its bar, the popup's border, tmux's own styles.
 
 The owner (12 Nov 2026): "look at every place where things are visual to the end user inside of
-ak, and see through to apply the following two themes."  A seat's bar stands on the theme's
-surface from its first cell to its last: its name in the text, its model and its key's word
-muted, its key dim, its state's chip on-accent on the state's colour.  In the seat, tmux's own
-selection while scrolling back is the text on the selection, its message line the text on the
-surface; Ctrl-b m's popup is bordered in the border colour, the seat dim under it till it
-closes.  Each follows the theme chosen on `c`: the bar and tmux's own styles by the bar's next
-draw, which writes them together, the popup from the next one opened, whichever ak chose the
-theme.  A session on the same server that ak did not start keeps the styles it had.
+ak, and see through to apply the following two themes"; (20 Nov) one look, in the shades the
+terminal's background fits (tests/test_key_the_terminal_picks_the_shades.py).  A seat's bar
+stands on the shades' surface from its first cell to its last: its name in the text, its model
+and its key's word muted, its key dim, its state's chip on-accent on the state's colour.  In the
+seat, tmux's own selection while scrolling back is the text on the selection, its message line
+the text on the surface; Ctrl-b m's popup is bordered in the border colour, the seat dim under
+it till it closes.  None of them can ask the terminal, so each follows the shades the background
+a menu last kept fits, black's till one is kept: the bar and tmux's own styles by the bar's next
+draw, which writes them together, the popup from the next one opened, whichever ak's menu kept
+it.  A session on the same server that ak did not start keeps the styles it had.
 
-Black-box: the program AK_BIN names, in a person's terminal of 24-bit colour that sets no
-background (tests/fixtures/akterm.py), attached by `ak orch acme` to a working seat
-(tests/fixtures/akseat.py), each cell judged by how it looks (tests/fixtures/aklooks.py); a seat
-ak opens, a fake `claude` in it, gives the server ak's Ctrl-b m.  The tests run in their order.
+Black-box: the program AK_BIN names, in a person's terminal of 24-bit colour
+(tests/fixtures/akterm.py), its background set by tmux's `window-style` for a menu to answer,
+attached by `ak orch acme` to a working seat (tests/fixtures/akseat.py), each cell judged by how
+it looks (tests/fixtures/aklooks.py); a seat ak opens, a fake `claude` in it, gives the server
+ak's Ctrl-b m.  The tests run in their order.
 """
 
 import sys
 from pathlib import Path
-import re
 import time
 import unittest
 
@@ -29,7 +31,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 SIZE = (100, 30)
-# role: its colour in the black theme, and in the white
+# role: its colour in black's shades, and in white's
 BLACK = {"surface": "111519", "text": "e2e8ef", "muted": "acb4bd", "dim": "868d97",
          "selection": "08305d", "border": "3a3f46", "accent": "4da3ff", "on-accent": "000000"}
 WHITE = {"surface": "f4f6fa", "text": "181c22", "muted": "535962", "dim": "6f757e",
@@ -49,11 +51,6 @@ def bg(rgb):
 def style(value):
     """A tmux style as the set of what it says, in any order or case."""
     return set(value.strip().lower().split(","))
-
-
-def pointed(screen):
-    """The highlighted row, else nothing."""
-    return next((line for line in screen.split("\n") if line.startswith("› ")), "")
 
 
 def others(home):
@@ -144,18 +141,14 @@ class TheBarIsInItsTheme(unittest.TestCase):
             self.assertEqual(held.code, 0, held.err)
             self.assertEqual(style(held.out), {f"fg=#{theme['text']}", f"bg=#{theme[ground]}"})
 
-    def choose(self, theme):
-        """`theme` chosen on `c`, as the owner chooses it."""
+    def kept(self, background):
+        """A menu run on a terminal of that background, which answers what it is."""
+        done = self.home.tmux("set-option", "-g", "window-style", f"bg={background}",
+                              server=SERVER)
+        self.assertEqual(done.code, 0, done.err)
         menu = Terminal(self.home, size=(100, 40), env={"COLORTERM": "truecolor"})
         self.addCleanup(self.home.tmux, "kill-session", "-t", menu.pane, server=SERVER)
         menu.wait("esc leave", 60)
-        menu.keys("c")
-        menu.wait(lambda text: "Theme" in text and "esc back" in text, 60)
-        while "Theme" not in (row := pointed(menu.screen())):
-            menu.keys("Down")
-            menu.wait(lambda text: pointed(text) not in ("", row), 30)
-        menu.keys("Right", "Space")
-        menu.wait(f"● {theme}")
 
     def test_a_the_bar_stands_on_the_surface_each_part_in_its_role(self):
         self.drawn(BLACK)
@@ -167,9 +160,9 @@ class TheBarIsInItsTheme(unittest.TestCase):
     def test_c_the_popup_is_bordered_in_the_border_colour(self):
         self.popup(BLACK)
 
-    def test_d_a_theme_chosen_on_c_is_the_next_bar_s_and_popup_s(self):
-        self.choose("white")
-        # choosing writes no seat: its bar and tmux's own styles change in the bar's one write
+    def test_d_a_light_background_kept_is_the_next_bar_s_and_popup_s(self):
+        self.kept("#ffffff")
+        # keeping writes no seat: its bar and tmux's own styles change in the bar's one write
         said = self.home.tmux("display-message", "-p", "-t", "=acme:",
                               "\t".join(f"#{{{name}}}" for name in STYLES))
         self.assertIn([style(value) for value in said.out.strip().split("\t")],
@@ -180,11 +173,8 @@ class TheBarIsInItsTheme(unittest.TestCase):
         self.styles(WHITE)
         self.popup(WHITE)
 
-    def test_e_the_popup_is_in_the_theme_config_toml_names_as_the_key_is_pressed(self):
-        config = self.home.path / ".agentkit" / "config.toml"     # as another ak's `c` writes it
-        text, found = re.subn(r"(?m)^theme\s*=.*$", 'theme = "black"', config.read_text())
-        self.assertEqual(found, 1, text)
-        config.write_text(text)
+    def test_e_the_popup_is_in_the_shades_kept_as_the_key_is_pressed(self):
+        self.kept("#000000")
         self.popup(BLACK)
 
     def test_f_a_session_ak_did_not_start_keeps_its_styles(self):

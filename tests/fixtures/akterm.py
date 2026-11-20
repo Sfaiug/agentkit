@@ -22,6 +22,7 @@ from pathlib import Path
 from .akbin import AK, REPO
 
 SERVER = "agentkit-term"
+KEPT = ".agentkit/state/background"     # where a menu keeps its terminal's answer, light or dark
 # Every row is the program's.  The server outlives its last terminal, so the next one never
 # meets it on its way out ("server exited unexpectedly"); the Home's close ends it.
 CONF = "set -g status off\nset -g default-terminal xterm-256color\nset -g exit-empty off\n"
@@ -41,6 +42,12 @@ with closing(terminal.Keyboard()) as keyboard:
         terminal.sense()
     menu.{page}(config.load())
 """
+
+
+def forget(home):
+    """Nothing kept of any terminal's background, as on a machine no menu has asked yet: whatever
+    cannot ask, and a menu whose terminal does not answer, is in the dark shades."""
+    (home.path / KEPT).unlink(missing_ok=True)
 
 
 class Terminal:
