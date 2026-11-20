@@ -1173,7 +1173,9 @@ def seat_crew(cfg, selection):
 def crew(info, tmux=False, room=None):
     """`build: Opus 5.5 xhigh, 4 Carbon high   review: 6.1 Sol max`: each role, then who is in it
     at the effort they run it at (`seat_crew`), all muted, as the row's orchestrator is; one
-    `build and review:` where both hold the same.  Never the orchestrator: its row names it.  The
+    `build and review:` where both hold the same, and a model in both of two lists that differ
+    named in each (the owner, 20 Nov 2026, asked whether it should get a group of its own: "Keep
+    as built").  Never the orchestrator: its row names it.  The
     owner, 17 Nov 2026: "we name the orch double, and name it explicitely which is not needed",
     "it should be the other way around, role and what models are in this role".  Nothing where
     nobody is beside the orchestrator.  Cut to `room` cells where given; `tmux` draws it as tmux

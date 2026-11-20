@@ -2,11 +2,12 @@
 
 `build`, then `review`, each followed by the models in it at the effort each runs that role at,
 joined by `, `, the roles three cells apart; one `build and review:` where both hold the same
-models at the same efforts; a role nobody is in left out.  It never names the orchestrator, which
-its row already does, and a seat with nobody beside its orchestrator opens no such line.  No glyph
-stands for a role, so the line is the same in a C locale.  Black-box: `AK_BIN` from a pipe, where
-every row opens, and on a seat's bar as a person attached to it sees it, written by
-`ak orch why` (tests/fixtures/akterm.py), beside seats of tests/fixtures/akseat.py.
+models at the same efforts, and where they differ a model in both named in each; a role nobody
+is in left out.  It never names the orchestrator, which its row already does, and a seat with
+nobody beside its orchestrator opens no such line.  No glyph stands for a role, so the line is the
+same in a C locale.  Black-box: `AK_BIN` from a pipe, where every row opens, and on a seat's bar
+as a person attached to it sees it, written by `ak orch why` (tests/fixtures/akterm.py), beside
+seats of tests/fixtures/akseat.py.
 """
 
 import re
@@ -29,7 +30,7 @@ LINES = {"fix-api": "build: Vega low, Fable 5.1 low   review: Fable 5.1 low, Lyr
          "split": "build: Fable 5.1 medium   review: Fable 5.1 high"}
 
 
-# The owner's pick of 17 Nov 2026, in their words at menu.crew.
+# The owner's picks of 17 and 20 Nov 2026, in their words at menu.crew.
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class TheCrewLinePutsRolesFirst(unittest.TestCase):
     @classmethod
