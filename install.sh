@@ -1309,9 +1309,9 @@ for dirty in "dirty_expire_centisecs 1000 changed data is old enough to write ou
   elif ! have sudo || ! sudo -n true 2>/dev/null; then
     stays+=", vm.$key stays $dirty_now"
   elif sysctl_set "$PROC_SYS_VM/$key" vm.$key $ceiling $key "$why"; then
-    echo "changed data: sysctl_set answered yes for vm.$key = $ceiling"
+    echo "changed data: vm.$key lowered from $dirty_now to $ceiling: $why"
   else
-    note "changed data: sysctl_set answered no for vm.$key = $ceiling; see $SYSCTL_D"
+    note "changed data: vm.$key could not be lowered from $dirty_now to $ceiling; see $SYSCTL_D"
   fi
 done
 [ -z "$stays" ] ||
