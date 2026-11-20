@@ -9031,6 +9031,9 @@ def local_passes(state, dry_run, log):
         # ending within 3 days pages the owner once a day, and so does a worker token
         ("login reminder", lambda: logins.remind(config.load()), False),
         ("token reminder", lambda: remind_worker_tokens(state.get("worker_tokens")), False),
+        # The owner is paged of each machine whose copy of this home is an hour old: one that
+        # stopped, off or its job lost, pages nobody itself.
+        ("standby copies", standby.tell, False),
         # An exhausted run waits for a provider window and resumes itself when one refills, on
         # the usage just read; a run in error, on the loop's transient ladder, hourly at most;
         # one waiting on a rebase conflict, after the next merge to main. All silently, never
