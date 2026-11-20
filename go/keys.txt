@@ -1,3 +1,4 @@
+test_key_a_bar_draws_its_tasks_first
 test_key_a_bar_is_the_line
 test_key_a_bar_is_told_only_what_changed
 test_key_a_blamed_run_wakes_once_the_runs_ahead_leave
