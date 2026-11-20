@@ -1,5 +1,6 @@
-"""A task's review that loses its reviewer goes to a model on its writer's provider only while
-no marked reviewer on another provider can run here.
+"""A task's review that loses its reviewer goes to a model of its writer's lab only while no
+marked reviewer of another lab can run here: with no lineup stored, as here, each provider is a
+lab.
 
 The owner, 18 Nov 2026: "same provider or model for both roles should still be allowed if only
 picked, but if multiple picked then from different."  opus alone builds.  Where astra, on

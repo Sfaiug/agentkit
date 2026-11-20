@@ -1,5 +1,5 @@
-"""A reviewer's pick given the work's writers leaves out every reviewer on a writer's provider
-while one on another provider may review.
+"""A reviewer's pick given the work's writers leaves out every reviewer of a writer's lab while
+one of another lab may review: with no lineup stored, as here, each provider is a lab.
 
 The owner, 18 Nov 2026: "same provider or model for both roles should still be allowed if only
 picked, but if multiple picked then from different."  `staffing.ready_order` narrows the list
@@ -56,7 +56,7 @@ class ReviewersBesideWriters(Sandbox):
         self.assertEqual(self.pick(writers=["opus"], log=self.logs.append),
                          self.pick(["astra"]))
         self.assertEqual(self.pick(["astra"]), [])
-        self.assertIn("skipped opus: a reviewer on another provider than opus is marked: astra",
+        self.assertIn("skipped opus: a reviewer of another lab than opus is marked: astra",
                       self.logs)
 
     def test_a_subscription_on_the_writers_provider_keeps_no_payg_one_out(self):

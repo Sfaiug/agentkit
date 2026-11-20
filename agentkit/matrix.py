@@ -8,6 +8,7 @@ Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
 """
 
 import contextlib
+import contextvars
 import fcntl
 import functools
 import json
@@ -456,10 +457,30 @@ def _listed(text):
                     for row in quality.rated(lineup, role)}
 
 
+_READING = contextvars.ContextVar("reading", default=None)
+
+
+@contextlib.contextmanager
+def one_reading():
+    """Every `listed` inside answers as the first did, the outer reading where one is already
+    held: a pick weighing models against each other (staffing) never sets what one lineup says
+    of a model against what another, stored meanwhile, says of the next."""
+    if _READING.get() is not None:
+        yield
+        return
+    token = _READING.set(listed())
+    try:
+        yield
+    finally:
+        _READING.reset(token)
+
+
 def listed():
     """The lineup last stored and its listed releases, {slug: maker}: each a role rates a row of
     (`answer`'s `rated`), rated once per stored lineup, so a release without scores is never
-    listed; ([], {}) where nobody stored one."""
+    listed; ([], {}) where nobody stored one.  Inside `one_reading`, its reading."""
+    if (held := _READING.get()) is not None:
+        return held
     try:
         return _listed(cache_path().read_text())
     except (OSError, ValueError):

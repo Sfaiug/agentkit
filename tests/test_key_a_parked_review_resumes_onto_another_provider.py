@@ -1,5 +1,5 @@
-"""A run parked for its review resumes only onto a reviewer on another provider than its writer
-while one is marked.
+"""A run parked for its review resumes only onto a reviewer of another lab than its writer
+while one is marked: with no lineup stored, as here, each provider is a lab.
 
 The owner, 18 Nov 2026: "same provider or model for both roles should still be allowed if only
 picked, but if multiple picked then from different."  opus alone builds; opus and astra, on

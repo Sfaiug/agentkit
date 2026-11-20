@@ -4816,6 +4816,7 @@ def unhanded(path, before):
         pass       # its rulebook is rewritten on the next launch from whatever is there
 
 
+@matrix.one_reading()
 def default_crew(cfg, providers, default):
     """What a new seat starts from: `default` orchestrating, and [defaults]' executors and
     reviewers, each with something left to spend.  A group all spent falls back by tier -- a
