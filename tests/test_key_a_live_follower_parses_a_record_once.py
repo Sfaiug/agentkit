@@ -1,15 +1,15 @@
-"""A project's live follower parses a run's record once while it does not change, the asks after a
-deferred line of its seat's plan included.
+"""A project's live follower parses a run's record once while it does not change, while its
+seat's plan still holds a deferred line an earlier ak wrote.
 
 On 13 Nov 2026 a host held 6,464 run records, 122 MB, and a seat in a long turn owed two deferred
 lines with a merge of its own live: at each ask the merge's follower parsed every record again
 for whether a run had those lines, a whole core for as long as the notice was owed.  Black-box:
 AK_BIN on the Home, project, seat and merge of `test_key_merges_going_live_share_one_follower`,
 the Home also holding older runs' records, ended and padded to tens of megabytes together, and
-the seat's plan a deferred line of the project that no run has.  The seat works, never at its
-prompt, so the merge goes live with its notice owed and the follower goes on asking: over two
-intervals after the ask that took it live, what it reads (`rchar`) grows by less than those
-records weigh.
+the seat's plan an open line of its own beside a deferred one of the project that no run has.
+The seat works, never at its prompt, so the merge goes live with its notice owed and the
+follower goes on asking: over two intervals after the ask that took it live, what it reads
+(`rchar`) grows by less than those records weigh.
 """
 
 import json
@@ -39,7 +39,9 @@ class LiveFollowerParsesARecordOnce(FollowedMerges):
         root = api.git("rev-list", "--max-parents=0", "HEAD")
         self.home.write(f".agentkit/state/plan-{self.seat.name}.md",
                         f"- [ ] Fix app.py:1 · check: `false` · {api.path}#{root} · deferred"
-                        " · written 2026-11-13 09:00\n")
+                        " · written 2026-11-13 09:00\n"
+                        f"- [ ] the api retries · check: `false` · {api.path}#{root}"
+                        " · written 2026-11-13 09:05\n")
         self.weight = 0
         for n in range(OLDER):
             run_id = f"20261101-1200-api-old-{n}"

@@ -3,10 +3,10 @@
 A seat's done and its menu bar are counted from its plan.  A renamed seat keeps its
 conversation, and the orchestrator in it still carries the name it was launched with in
 AGENTKIT_SESSION, so its plan must read the same under either name, or a rename would lose the
-seat's work.  `ak orch rename` moves `plan-<old>.md` to `plan-<new>.md`; a plan still kept under
-the old name is listed for the new one, and a check passing on main is ticked in that same
-file.  Black-box: the program `AK_BIN` names, judged by what `ak plan` lists and the plan files
-under HOME; this test fails against `/bin/false`.
+seat's work.  `ak orch rename` moves `plan-<old>.md` to `plan-<new>.md`, an earlier ak's deferred
+line too; a plan still kept under the old name is listed for the new one, and a check passing on
+main is ticked in that same file.  Black-box: the program `AK_BIN` names, judged by what
+`ak plan` lists and the plan files under HOME; this test fails against `/bin/false`.
 """
 
 import re
@@ -33,6 +33,11 @@ def plan(rig):
             f"- [x] the logo looks calm · your eye · {project} · written 2026-10-01 09:05",
             f"- [ ] the api retries · check: `test -f retry.txt` · {project} · deferred · "
             f"written 2026-10-01 09:10 on {root}"]
+
+
+def after_listing(lines):
+    """What a listing leaves of `plan`'s lines: all but the open deferred one, the last."""
+    return lines[:-1]
 
 
 def listed(home, seat):
@@ -64,7 +69,7 @@ class PlanUnderTheOldName(unittest.TestCase):
     def test_the_new_name_and_the_old_one_both_list_the_plan_written_under_the_old(self):
         for seat in ("parser-fix", "fix-api"):
             with self.subTest(seat=seat):
-                self.assertEqual(listed(self.home, seat), self.lines)
+                self.assertEqual(listed(self.home, seat), after_listing(self.lines))
 
     def test_a_check_passing_on_main_is_ticked_in_the_plan_it_was_read_from(self):
         sha = self.rig.commit({"tabs.txt": ""}, "tabs")
@@ -73,20 +78,20 @@ class PlanUnderTheOldName(unittest.TestCase):
         self.assertEqual(shown, kept)
         self.assertTrue(kept[0].startswith(f"- [x] {self.lines[0][6:]} · done {sha[:12]}"),
                         kept[0])
-        self.assertEqual(kept[1:], self.lines[1:])
+        self.assertEqual(kept[1:], after_listing(self.lines)[1:])
         self.assertFalse((self.home.path / STATE / "plan-parser-fix.md").exists())
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class PlanThroughOrchRename(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.home = Home()
-        cls.addClassCleanup(cls.home.close)
-        cls.lines = plan(Rig(cls.home, "widgets"))
-        Seat(cls.home, "alpha")
-        cls.home.write(f"{STATE}/plan-alpha.md", "".join(f"{line}\n" for line in cls.lines))
-        cls.renamed = cls.home.ak("orch", "rename", "alpha", "beta")
+    def setUp(self):
+        # each case its own: a listing takes the deferred line out of the plan as moved
+        self.home = Home()
+        self.addCleanup(self.home.close)
+        self.lines = plan(Rig(self.home, "widgets"))
+        Seat(self.home, "alpha")
+        self.home.write(f"{STATE}/plan-alpha.md", "".join(f"{line}\n" for line in self.lines))
+        self.renamed = self.home.ak("orch", "rename", "alpha", "beta")
 
     def test_ak_orch_rename_moves_the_plan_to_the_new_name(self):
         self.assertEqual(self.renamed.code, 0, self.renamed.err)
@@ -98,7 +103,7 @@ class PlanThroughOrchRename(unittest.TestCase):
         self.assertEqual(self.renamed.code, 0, self.renamed.err)
         for seat in ("beta", "alpha"):
             with self.subTest(seat=seat):
-                self.assertEqual(listed(self.home, seat), self.lines)
+                self.assertEqual(listed(self.home, seat), after_listing(self.lines))
 
 
 if __name__ == "__main__":

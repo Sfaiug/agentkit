@@ -1,6 +1,6 @@
 """Runs delivered while a verification of their seat's plan checks never wait for it: they leave
 each line to one more verification begun after them, which the one checking runs once it lets go,
-and which a verifier killed meanwhile leaves to the next delivery, a fix run's too."""
+and which a verifier killed meanwhile leaves to the next."""
 
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,7 +19,7 @@ class ADeliveredRunLeavesThePlanToTheNext(Sandbox):
         super().setUp()
         config.save_session(self.cfg, "fix-api", "opus", ["opus"], {"cwd": str(self.root)})
         config.plan_path("fix-api").write_text(plan.compose(
-            "the feature exists", "check: `test -f feature.txt`", "~/acme", False, "2026-10-30 10:00", None) + "\n")
+            "the feature exists", "check: `test -f feature.txt`", "~/acme", "2026-10-30 10:00", None) + "\n")
         self.passes = []        # one per verification that reached its project's default branch
 
         @contextmanager
@@ -59,11 +59,9 @@ class ADeliveredRunLeavesThePlanToTheNext(Sandbox):
         with patch.object(plan, "fails", fails):
             with self.assertRaises(SystemExit):
                 plan.verify_delivered("fix-api")
-            # the next delivery is a fix run's, its own line ticked meanwhile: it checks nothing
-            # of its own, and lets go of the lock to what the killed one owed
-            plan.delivery("fix-api", "test -f fix.txt")
+            plan.verify_delivered("fix-api")     # the next delivery checks what the killed one owed
         # the four leave the line to one more check, not four; the killed one leaves it to the
-        # fix run, and the last delivery's to one more after it, which checks the new check
+        # next delivery, and the last delivery's to one more after it, which checks the new check
         self.assertEqual(checks, ["test -f feature.txt"] * 3 + ["test -s feature.txt"])
 
     def test_a_line_left_without_a_verdict_leaves_the_delivery_owed(self):
@@ -77,8 +75,8 @@ class ADeliveredRunLeavesThePlanToTheNext(Sandbox):
                 self.passes.clear()
                 plan.verify_delivered("fix-api")
                 self.assertEqual(len(self.passes), 1)   # never again at once: it would fail alike
-                for _ in range(2):      # the next delivery, a fix run's, verifies; the one after, not
-                    plan.delivery("fix-api", "test -f fix.txt")
+                for _ in range(2):      # the next to let go of the lock verifies; the one after, not
+                    plan.settle("fix-api")
                 self.assertEqual(len(self.passes), 2)
 
 

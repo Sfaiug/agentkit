@@ -20,7 +20,7 @@ from pathlib import Path
 import sys
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -188,12 +188,12 @@ class DoneFromThePlan(Sandbox):
 
     def test_a_merge_runs_the_seat_s_plan_checks(self):
         merged = {"merged": True, "launched_session": self.name}
-        with patch.object(plan, "verify_delivered") as verify, patch.object(plan, "delivery") as delivery:
-            handback.settle_delivered_line(merged, print)
-            handback.settle_delivered_line({**merged, "followup": {"check": "test -f fix.txt"}}, print)
-            handback.settle_delivered_line({**merged, "merged": False}, print)
-        verify.assert_called_once_with(self.name)
-        delivery.assert_called_once_with(self.name, "test -f fix.txt")
+        fix = {**merged, "followup": {"check": "test -f fix.txt"}}     # a fix run's, as any
+        for state, verified in ((merged, [call(self.name)]), (fix, [call(self.name)]),
+                                ({**merged, "merged": False}, [])):
+            with self.subTest(state=state), patch.object(plan, "verify_delivered") as verify:
+                handback.settle_delivered_line(state, print)
+                self.assertEqual(verify.call_args_list, verified)
 
 
 if __name__ == "__main__":
