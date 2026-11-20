@@ -377,12 +377,14 @@ sys.exit(row["code"])
             self.assert_undelivered(state)
             merge.assert_not_called()
 
-    def test_review_accepts_saved_same_provider_pair_and_falls_back_to_the_next_reviewer(self):
+    def test_a_saved_same_lab_pair_reviews_on_another_lab_then_falls_back(self):
         directory, state = self.legacy("fable")
         lp = self.loop_for(directory, state)
         count = len(self.calls())
         self.assertEqual(run.review(lp, "saved work", True, "passed"), "PASS")
-        self.assertEqual([r["model"] for r in self.calls()[count:]], ["fable"])
+        # fable, saved of opus's lab and not the reviewer the launch named, gives way to astra,
+        # of another, which has room
+        self.assertEqual([r["model"] for r in self.calls()[count:]], ["astra"])
         self.assertTrue(run.review_pass(state, self.cfg))
         lp.reviewer = "astra"
         self.respond({"astra": [{"code": 1, "text": "You've hit your usage limit."}]})

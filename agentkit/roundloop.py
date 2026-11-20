@@ -1327,19 +1327,24 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     rd = lp.dir("reviewer").parent
     name = f"reviewer-{lp.reviewer}" if handed else turns.open_review(rd)[0] or "reviewer"
 
-    def ready_reviewers(writers=None):
-        """The run's marked reviewers with room, as the meters read now, in pick order beside
-        everyone who wrote part of the head (`reviewer_order`); only those that already failed
-        this round stay out.  `writers` narrow the pick as `ready_order`'s do."""
-        failed = lp.state["review_pending"].get("failed", [])
+    def meters():
         try:
-            providers = staffing.collect_usage(lp.cfg)
+            return staffing.collect_usage(lp.cfg)
         except config.Error as exc:
-            providers = {}      # meters nobody could read withhold no reviewer from a dead review
             lp.log(f"WARN could not read the meters: {exc}")
-        ready = staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state),
-                                     lp.log, role="reviewer", repo=lp.state.get("repo"),
-                                     writers=writers)
+            return {}       # meters nobody could read withhold no reviewer from a dead review
+
+    def ready_reviewers(writers=None, providers=None, log=lp.log):
+        """The run's marked reviewers with room, as `providers` read them, else as the meters
+        read now, in pick order beside everyone who wrote part of the head (`reviewer_order`);
+        only those that already failed this round stay out.  `writers` narrow the pick as
+        `ready_order`'s do; `log`, None for a check that gives nobody the role, hears why each
+        is left out."""
+        failed = lp.state["review_pending"].get("failed", [])
+        ready = staffing.ready_order(lp.cfg, meters() if providers is None else providers,
+                                     staffing.run_reviewers(lp.cfg, lp.state), log,
+                                     role="reviewer", repo=lp.state.get("repo"), writers=writers,
+                                     quiet=log is None)
         return [n for n in staffing.reviewer_order(lp.cfg, staffing.head_writers(lp.state), ready)
                 if n not in failed]
 
@@ -1348,6 +1353,9 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         writers = staffing.head_writers(lp.state)
         return [n for n in names if not any(staffing.same_model(lp.cfg, wrote, n) for wrote in writers)]
 
+    # read as the review is entered, before the writer gives way below: a round begun on the
+    # reviewer the launch named begins as on main, and one a handover picked in its place not
+    named = lp.reviewer == (lp.state.get("launch_opts") or {}).get("--review")
     if not independent([lp.reviewer]):
         # a writer reviews its own work only while no other marked reviewer has room: a
         # self-review picked in a shortage, at launch or on a resume, ends with the shortage
@@ -1357,6 +1365,29 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
             lp.reviewer, lp.review_sid = offered[0], None
             name = f"reviewer-{lp.reviewer}"
             lp.save()
+
+    writers = staffing.review_writers(lp.state)
+    if (not this_round and not named
+            and any(staffing.pair_tier(lp.cfg, wrote, lp.reviewer) for wrote in writers)):
+        # A round's review begins as a fallback picks: one of a writer's lab gives way while a
+        # marked reviewer of another can run here, and waits while none of those has room.  Only
+        # where the round's record is new, so no turn of this review has run and nothing it
+        # handed in is lost: one entered again is reviewed as its resume picked (`resume_models`).
+        # Only a reviewer of a writer's lab is left out beside them, so only then are the meters
+        # read; without the writers first, so a window resetting between the two widens the second.
+        providers = meters()
+        if lp.reviewer in ready_reviewers(providers=providers, log=None):
+            offered = ready_reviewers(writers, providers, log=None)
+            if not offered:
+                raise turns.QuotaDry(f"reviewer {lp.reviewer} shares a lab with "
+                                     f"{', '.join(writers)} and no eligible reviewer of another "
+                                     f"is left to review; waiting for review")
+            if lp.reviewer not in offered:
+                lp.log(f"reviewer {offered[0]} is of another lab: {lp.reviewer} does not review "
+                       f"this round")
+                lp.reviewer, lp.review_sid = offered[0], None
+                name = f"reviewer-{lp.reviewer}"
+                lp.save()
 
     def fall_back(reason, out, allow_self=True, ending=turns.Exhausted):
         """The path a dry, twice-silent or twice-transient reviewer takes: next one, else Exhausted.
