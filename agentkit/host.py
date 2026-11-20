@@ -623,22 +623,21 @@ def cpu_room():
     but those of the scopes that yield to this process (`_yielding`), the mean of five looks
     over a second: work waiting for a core costs more CPU, and fails more, the more threads
     wait, while CPU used never passes the cores.  None below the top CPU weight, where this
-    process yields itself, or where no weight can be read, but for a process no user manager
-    holds (`user_manager_holds`): no scope yields to it and it to none, so every thread counts.
-    Injected readings give the threads as `cpu_wanted`, with no look; without it, as their
-    `procs_running` for a process no user manager holds in an injected membership
+    process yields itself, or where the cgroups cannot be read, but where every thread counts
+    (`_counts_every_thread`).  Injected readings give the threads as `cpu_wanted`, with no look;
+    without it, as their `procs_running` where every thread counts for an injected membership
     (AK_CGROUP_FILE), as an injected snapshot never reads the real machine's.
     """
     readings = _injected()
     if readings is not None:
         name = "cpu_wanted"
-        if name not in readings and os.environ.get("AK_CGROUP_FILE") and not user_manager_holds():
+        if name not in readings and os.environ.get("AK_CGROUP_FILE") and _counts_every_thread():
             name = "procs_running"
         wanted = _reading(readings, name)
         return None if wanted is None else (_reading(readings, "cpus", "nproc") or 1) - wanted
     yielding = _yielding()
     if yielding is None:
-        if user_manager_holds():
+        if not _counts_every_thread():
             return None
         yielding = []
     wanted = []
@@ -650,6 +649,19 @@ def cpu_room():
             return None
         wanted.append(max(0, running - sum(map(_ready, yielding))))
     return cpu_count() - sum(wanted) / len(wanted)
+
+
+def _counts_every_thread():
+    """Whether no scope yields to this process and it to none, so every thread that wants a core
+    is its rival: no user manager holds it (`user_manager_holds`), or its own cgroup shows no CPU
+    weight, as under a manager the CPU controller is not delegated to (cgroup v1, older systemd).
+    Beside injected readings only an injected cgroup tree (AK_CGROUP_ROOT) shows a weight."""
+    if not user_manager_holds():
+        return True
+    if os.environ.get("AK_HOST_READINGS") and not os.environ.get("AK_CGROUP_ROOT"):
+        return False
+    own = process_cgroup()
+    return not own or _cpu_weight(cgroup_path(own)) is None
 
 
 def _procs_running():
