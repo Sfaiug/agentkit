@@ -86,7 +86,8 @@ class SplitSuiteRun(unittest.TestCase):
                          (str(self.repo), "origin/main", "main"))
         for phrase in ("AK_SHARD=k/N", "1-based", "everything when unset", "--shard=k/N",
                        "conftest", "by position", "no temp dir, port, database or other file",
-                       "every test exactly once"):
+                       "every test exactly once", "`AK_RAN`", "`AK_FAILED`", "`AK_ONLY`",
+                       "`AK_NOT_THERE`", "cannot be loaded", "only where its variable is set"):
             self.assertIn(phrase, body)
 
     def test_wait_and_cost_lookup_are_not_suite_time(self):
@@ -237,6 +238,15 @@ class SplitSuiteRun(unittest.TestCase):
             (self.repo / "AGENTS.md").write_text(declaration)
             self.assertNotEqual(proof().returncode, 0)
         (self.repo / "suite.py").write_text('''import os, pathlib, sys, time
+tests = [str(i) for i in range(9)]
+def name(key, names):
+    with open(os.environ.get(key, os.devnull), "a") as named:
+        named.writelines(f"{test}\\n" for test in names)
+if "AK_ONLY" in os.environ:
+    asked = pathlib.Path(os.environ["AK_ONLY"]).read_text().split()
+    name("AK_RAN", [test for test in asked if test in tests])
+    name("AK_NOT_THERE", [test for test in asked if test not in tests])
+    sys.exit()
 k, n = map(int, os.environ["AK_SHARD"].split("/"))
 assert n == 3
 root = pathlib.Path("proof")
@@ -246,7 +256,9 @@ until = time.monotonic() + 5
 while len(list(root.glob("started-*"))) < n:
     assert time.monotonic() < until, "pieces were run serially"
     time.sleep(0.01)
-(root / f"tests-{k}").write_text(" ".join(str(i) for i in range(9) if i % n == k - 1))
+ran = [test for test in tests if int(test) % n == k - 1]
+(root / f"tests-{k}").write_text(" ".join(ran))
+name("AK_RAN", ran)
 sys.exit(3 if k == 2 and pathlib.Path("fail").exists() else 0)
 ''')
         (self.repo / "AGENTS.md").write_text("---\ntests: python3 suite.py # AK_SHARD\n---\n")

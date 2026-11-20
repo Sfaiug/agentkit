@@ -22,16 +22,17 @@ SUBS = ("usage", "models", "worker", "run", "notify", "wait", "orch", "attach", 
         "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move",
         "standby")
 # shown by no list or help: a check's own, lending its HOME this host's logins (agentkit/lend.py),
-# a check's own proving each harness's adapter (agentkit/contract.py), the way back from a
-# move (agentkit/back.py) and the home's lease (agentkit/lease.py), listed once Go, printing
-# the same list, has them
-UNLISTED = ("lend", "contract", "back", "lease")
+# a check's own proving each harness's adapter (agentkit/contract.py), the split run's check of
+# its branch's pieces (gate.check_suite_pieces), the way back from a move (agentkit/back.py) and
+# the home's lease (agentkit/lease.py), listed once Go, printing the same list, has them
+UNLISTED = ("lend", "contract", "pieces", "back", "lease")
 # `ak attach` is the menu under the name the phone key uses; a bare `ak` is the menu too, and
 # `ak doctor` is the tick's own check-up, which is where the tick lives, and so is `ak wait`,
 # beside the ladder that reads it
 ENTRY = {"attach": ("menu", "main"), "fetch": ("macbridge", "fetch_main"),
          "doctor": ("watch", "doctor"), "wait": ("watch", "wait_main"),
-         "hand-in": ("hand_in", "main"), "models": ("matrix", "main")}
+         "hand-in": ("hand_in", "main"), "models": ("matrix", "main"),
+         "pieces": ("gate", "check_suite_pieces")}
 INTERRUPT_GRACE = 1     # seconds Ctrl-C leaves stdout and stderr to take what ak still holds
 
 
