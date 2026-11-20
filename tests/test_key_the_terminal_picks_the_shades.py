@@ -18,6 +18,7 @@ before left kept.
 
 import sys
 from pathlib import Path
+import shutil
 import time
 import unittest
 
@@ -54,9 +55,6 @@ class TheTerminalPicksTheShades(unittest.TestCase):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
         Seat(home, "acme", screen="claude-working-pane.txt")
-        home.write(f".agentkit/runs/{RUN}/run.json", {
-            "run_id": RUN, "title": "Fix the API", "launched_session": "acme", "state": "done",
-            "verdict": "PASS", "started_at": time.time() - 120, "finished_at": time.time() - 60})
         cls.config = (home.path / CONFIG).read_text()
         # The terminals' tmux keeps the background a test sets only while it is up, and a
         # terminal left open keeps it up.
@@ -105,13 +103,21 @@ class TheTerminalPicksTheShades(unittest.TestCase):
             if shown == wanted or time.monotonic() > deadline:
                 break
             time.sleep(0.2)
-        self.assertEqual(shown, wanted)
+        self.assertEqual(shown, wanted, bar.screen())
 
     def assert_listing(self, shade):
-        """`ak run status` colours its run's state in that shade's success."""
-        listing = self.open("run", "status")
-        self.assertEqual(listing.exit_code(60), 0, listing.screen())
-        shown = look(looks(listing.screen(colours=True)), "done", on=RUN)
+        """`ak run status` colours a done run's state in that shade's success: the run there only
+        while it is listed, as a menu opened over a finished one would sweep it first."""
+        self.home.write(f".agentkit/runs/{RUN}/run.json", {
+            "run_id": RUN, "title": "Fix the API", "executor": "opus", "reviewer": "astra",
+            "state": "pass", "merged": True, "rounds": 2, "round_summaries": [{}, {}],
+            "started_at": time.time() - 120, "finished_at": time.time() - 60})
+        try:
+            listing = self.open("run", "status")
+            self.assertEqual(listing.exit_code(60), 0, listing.screen())
+            shown = look(looks(listing.screen(colours=True)), "done", on=RUN)
+        finally:
+            shutil.rmtree(self.home.path / ".agentkit/runs" / RUN)
         self.assertEqual(shown - ATTRIBUTES, {role("success", shade)})
 
     def test_a_c_shows_no_theme_row(self):
