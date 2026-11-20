@@ -1843,6 +1843,16 @@ def model_spent(cfg, name, providers):
     return False, f"{worst['name']} {worst['used']}% used < 100"
 
 
+def marked(cfg, workers=None, role="executor", reviewers=None):
+    """The list a pick for `role` reads: `workers` where given, else the role's selection."""
+    if workers is None:
+        workers, reviewers = config.role_groups(cfg, reviewers=reviewers)
+        if role == "reviewer" and reviewers is not None:
+            workers = reviewers
+    return (list(workers) if workers is not None else
+            config.reviewers(cfg) if role == "reviewer" else config.workers(cfg))
+
+
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
                repo=None, skip=(), reviewers=None):
     """The workers for a role, the one the matrix ranks first for it first.
@@ -1867,14 +1877,8 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     output uses `quiet` because the providers already carry their unknown reasons as
     structured fields.
     """
-    if workers is None:
-        workers, reviewers = config.role_groups(cfg, reviewers=reviewers)
-        if role == "reviewer" and reviewers is not None:
-            workers = reviewers
-    tier_b = (list(workers) if workers is not None else
-              config.reviewers(cfg) if role == "reviewer" else config.workers(cfg))
     offered = config.offered(cfg)
-    tier_b = [n for n in tier_b if n in offered and n not in skip]
+    tier_b = [n for n in marked(cfg, workers, role, reviewers) if n in offered and n not in skip]
     limit = margin(cfg)
 
     def mode(name):

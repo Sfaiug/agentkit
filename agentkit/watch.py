@@ -7173,8 +7173,9 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                         cfg, staffing.run_workers(cfg, state), state.get("reviewers"))
                     bound = bound if bound is not None else workers
                     review_bound = review_bound if review_bound is not None else bound
-                    reviewers = staffing.reviewable_models(cfg, providers, review_bound, now,
-                                                          executor=saved)
+                    reviewers = staffing.reviewable_models(
+                        cfg, providers, review_bound, now, executor=saved,
+                        writers=staffing.review_writers(state))
                     if not reviewers:
                         continue
                     chosen, reviewer = saved, None
