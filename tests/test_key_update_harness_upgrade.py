@@ -5,7 +5,7 @@ upgrade` command, then the acceptance gates (live, the fresh install), and keeps
 release only when they pass.  The live gate runs with its model turns also on a host GitHub did
 not say may push, as every Home here is: that host's tick checks new agentkit code without them
 (tests/test_key_a_host_that_may_not_push_takes_what_passed.py), and only those turns catch a
-harness that broke on it.
+harness that broke on it; a caller's exported AK_LIVE_NO_MODEL_CALLS=1 leaves none out.
 On a red gate it reinstalls the release it started from with
 `[update] revert` and says so; a reinstall that does not take is named with the command to run
 by hand, since a broken revert leaves every seat on a broken harness.  A second red gate in a row
@@ -63,7 +63,7 @@ class HarnessUpgrade(unittest.TestCase):
         self.gates = Gates(self.home)
 
     def update(self):
-        done = self.home.ak("update", timeout=120)
+        done = self.home.ak("update", env={"AK_LIVE_NO_MODEL_CALLS": "1"}, timeout=120)
         return done.code, done.out + done.err
 
     def release(self):
