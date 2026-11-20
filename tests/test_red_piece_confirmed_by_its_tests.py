@@ -111,7 +111,9 @@ class RedPieceConfirmedByItsTests(unittest.TestCase):
                                'sed "s/.*/ & \\n/" "$AK_ONLY" >> "$AK_FAILED"; exit 3'],
                 10, env=dict(os.environ), cwd=self.root, activity=activity, output=output,
                 stderr=subprocess.STDOUT, only=NAMED, failed=failed)
-        self.assertEqual((code, killed, failed), (3, False, sorted(NAMED, reverse=True)))
+        # each as written, as AK_ONLY hands it back, blank lines none
+        self.assertEqual((code, killed, failed), (3, False, [
+            *sorted(NAMED, reverse=True), *(f" {test} " for test in NAMED)]))
 
     def test_a_link_named_as_failed_is_not_followed_out_of_the_box(self):
         secret, failed, activity = self.root / "acme-token", [], self.root / "check.log"

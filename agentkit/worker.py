@@ -711,12 +711,20 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, used=None, times=None, only=None, f
                         kwargs["output"].flush()
                     else:
                         text += message
-        # Read outside the box, a link could reach a file the box masked, a credential.
         for path, into in named.values():
-            if path.is_file() and not path.is_symlink():
-                into.extend(dict.fromkeys(line.strip() for line in path.read_text(
-                    errors="replace").splitlines() if line.strip()))
+            into.extend(names(path))
     return code, text, killed
+
+
+def names(path):
+    """The tests a suite named in the file one of ak's variables names it (`AK_RAN` and its
+    kin), one a line, each once and as written, since ak hands them back in `AK_ONLY`; none where
+    it wrote none there.  Read outside the box, a link could reach a file the box masked, a
+    credential: a link names none."""
+    if not path.is_file() or path.is_symlink():
+        return []
+    return list(dict.fromkeys(line for line in path.read_text(
+        errors="replace").splitlines() if line.strip()))
 
 
 def recovered_session(out_dir):

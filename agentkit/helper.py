@@ -336,15 +336,15 @@ def piece(away, shard, command):
 def failed(away, shard, named="failed"):
     """The tests the ended piece of `shard` named as failed there (`AK_FAILED`), or with `named`
     "flaky" as failed, then passed (`AK_FLAKY`), "ran" as run (`AK_RAN`), or "not-there" as not
-    there (`AK_NOT_THERE`), from the file piece.sh gives it, never from what it printed; None
-    where the helper does not answer."""
+    there (`AK_NOT_THERE`), from the file piece.sh gives it, never from what it printed, each as
+    written (`worker.names`); None where the helper does not answer."""
     try:
         reply = _remote(away.alias, "failed", away.key, _vm(away, shard), named, text=True,
                         errors="replace", timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return None if reply.returncode else list(dict.fromkeys(
-        line.strip() for line in reply.stdout.splitlines() if line.strip()))
+        line for line in reply.stdout.splitlines() if line.strip()))
 
 
 def finish(away):

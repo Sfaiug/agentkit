@@ -1732,17 +1732,39 @@ def inherit_suite_cost(command, source, cwd):
         pass    # a cost not given keeps the initial estimate
 
 
-def check_suite_pieces():
-    """The split run checks its branch's declaration, never the target's fallback."""
+def check_suite_pieces(_argv=()):
+    """`ak pieces`, the split run's check (`split_suite_run`): its branch's `tests:` line, never
+    the target's fallback, as pieces 1/3, 2/3 and 3/3 at once, each naming what it ran in a file
+    of its own (`AK_RAN`), then as one piece given a test they named and one none of them did
+    (`AK_ONLY`), to name just the first as run and just the second as not there
+    (`AK_NOT_THERE`): ak retries a red piece's tests so, and narrows a red line by them.  That
+    run's exit is not read, as a runner may fail there (`passes_what_it_holds`)."""
     command = gitcall.declared(Path.cwd(), "tests")
     if not command or not names_shard(command):
         raise SystemExit("The branch's tests: line must name AK_SHARD")
     env = suite_env()
-    pieces = [subprocess.Popen(["bash", "-c", command],
-                              env={**env, "AK_SHARD": f"{index}/3"})
-              for index in range(1, 4)]
-    codes = [piece.wait() for piece in pieces]
-    raise SystemExit(int(any(codes)))
+    with tempfile.TemporaryDirectory() as scratch:
+        files = {name: Path(scratch, name) for name in
+                 ("1", "2", "3", "AK_ONLY", "AK_RAN", "AK_NOT_THERE")}
+        pieces = [subprocess.Popen(["bash", "-c", command], env={
+            **env, "AK_SHARD": f"{index}/3", "AK_RAN": str(files[str(index)])})
+            for index in range(1, 4)]
+        if any([piece.wait() for piece in pieces]):
+            raise SystemExit(1)
+        named = [test for index in "123" for test in worker.names(files[index])]
+        if not named:
+            raise SystemExit("No piece named a test it ran in the file AK_RAN names")
+        asked, lacked = named[0], max(named, key=len) + "-not-there"   # longer than any named
+        files["AK_ONLY"].write_text(f"{asked}\n{lacked}\n")
+        subprocess.run(["bash", "-c", command], env={
+            **env, "AK_SHARD": "1/1", **{key: str(files[key]) for key in
+                                         ("AK_ONLY", "AK_RAN", "AK_NOT_THERE")}})
+        reported = [worker.names(files[key]) for key in ("AK_RAN", "AK_NOT_THERE")]
+        if reported != [[asked], [lacked]]:
+            raise SystemExit(f"Given AK_ONLY listing {asked!r} and {lacked!r}, the line must run "
+                             f"just {asked!r}, naming it in AK_RAN, and name just {lacked!r} in "
+                             "AK_NOT_THERE")
+    return 0
 
 
 def split_suite_run(lp, command):
@@ -1755,9 +1777,7 @@ def split_suite_run(lp, command):
     if (cost.get("run_id") != lp.state.get("run_id")
             or type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds <= 120):
         return
-    check = "python3 -c " + shlex.quote(
-        f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r}); "
-        "from agentkit.gate import check_suite_pieces; check_suite_pieces()")
+    check = shlex.quote(str(config.REPO / "bin" / "ak")) + " pieces"
     text = (f"The repository's `tests:` suite ran whole for {seconds:g} seconds:\n"
             f"```bash\n{command}\n```\n\n"
             "Make the `tests:` line run only its `AK_SHARD=k/N` share (1-based), and "
@@ -1765,8 +1785,16 @@ def split_suite_run(lp, command):
             "jest, vitest and playwright take `--shard=k/N`; pytest can select by a "
             "conftest option. Otherwise split the test file list by position. Pieces share "
             "no temp dir, port, database or other file; together they run every test exactly "
-            "once. Keep the check below: it reads this branch's own `tests:` line and runs "
-            "pieces 1/3, 2/3 and 3/3 at the same time.\n")
+            "once.\n\n"
+            "Make it name its tests too, one a line, in the names the suite itself writes: "
+            "each test it ran in the file `AK_RAN` names, and each that failed, a test file "
+            "that cannot be loaded among them, in the file `AK_FAILED` names. With `AK_ONLY` "
+            "set it runs just the tests that file lists, by those same names, and names each "
+            "of them it does not have in the file `AK_NOT_THERE` names. Each of these happens "
+            "only where its variable is set.\n\n"
+            "Keep the check below: it reads this branch's own `tests:` line and runs pieces "
+            "1/3, 2/3 and 3/3 at the same time, then the line as one piece given a test they "
+            "named and one none of them did.\n")
     try:
         handback.start_followups(lp.state, lp.run_dir, lp.log, lp.cfg,
                             split={"command": command, "text": text, "check": check,
