@@ -22,9 +22,10 @@ SUBS = ("usage", "models", "worker", "run", "notify", "wait", "orch", "attach", 
         "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move",
         "standby")
 # shown by no list or help: a check's own, lending its HOME this host's logins (agentkit/lend.py),
-# a check's own proving each harness's adapter (agentkit/contract.py), and the way back from a
-# move (agentkit/back.py), listed once Go, printing the same list, has it
-UNLISTED = ("lend", "contract", "back")
+# a check's own proving each harness's adapter (agentkit/contract.py), the way back from a
+# move (agentkit/back.py) and the home's lease (agentkit/lease.py), listed once Go, printing
+# the same list, has them
+UNLISTED = ("lend", "contract", "back", "lease")
 # `ak attach` is the menu under the name the phone key uses; a bare `ak` is the menu too, and
 # `ak doctor` is the tick's own check-up, which is where the tick lives, and so is `ak wait`,
 # beside the ladder that reads it
