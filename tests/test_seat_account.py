@@ -4,7 +4,6 @@ from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
-import re
 import shlex
 import subprocess
 import sys
@@ -18,7 +17,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from agentkit import config, notify, orch, statusbar, usage, watch
 from fixtures import pane
-from agentkit.harness import codex, opencode
+from agentkit.harness import claude, codex, opencode
 from agentkit.usage import replenish
 from agentkit.worker import auth_ok
 
@@ -84,8 +83,7 @@ class SeatAccount(unittest.TestCase):
             "cwd": str(self.root), "repo": str(self.root), "created": self.now - 60,
             "conversation": CONVERSATION, "id_source": orch.LAUNCHER, "account": "default",
             "session_title": NAME})
-        slug = re.sub(r"[^A-Za-z0-9]", "-", str(self.root))
-        transcript = self.root / ".claude/projects" / slug / f"{CONVERSATION}.jsonl"
+        transcript = claude.transcript_path({"cwd": str(self.root)}, CONVERSATION)
         transcript.parent.mkdir(parents=True)
         transcript.write_text('{"message":"unfinished task"}\n')
         config.plan_path(NAME).write_text("- [ ] Finish the endpoint\n")
