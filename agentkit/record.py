@@ -101,6 +101,15 @@ def no_review(state):
     return review_off(state) or state.get("checks_only") is True
 
 
+def round_shown(state):
+    """The round every display of a run counts: its last recorded (`round_summaries`), or one a
+    step began past its own number (`step_round`, an extra round: `transitions.extra_round`),
+    whichever is later.  A review its budget refused never began a step, so it is never one."""
+    done = len(state.get("round_summaries") or [])
+    begun = state.get("step_round") or 0
+    return max(done, begun) if state.get("rounds") and begun > state["rounds"] else done
+
+
 def run_dirs():
     # Sorted as strings: comparing thousands of Paths was most of a tick's reads of the runs.
     try:

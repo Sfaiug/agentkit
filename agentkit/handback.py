@@ -242,7 +242,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     reviewer = "no review" if run_record.no_review(state) else state["reviewer"]
     parts = ["", f"VERDICT: {state['verdict']}",
              "no review" if run_record.no_review(state) else
-             f"rounds: {len(state['round_summaries'])} of {state['rounds']}"]
+             f"rounds: {run_record.round_shown(state)} of {state['rounds']}"]
     if state.get("scratch"):
         # no branch, no PR, no merge: the files are where this run's work went
         parts += [f"workspace: {wt}",
@@ -1491,7 +1491,7 @@ def decision(run_dir, state, word, why, move, save=True, report=False):
     UNSAID for `why`, else refused as `seat_notice` refuses.  A line cut short saves its whole, an older
     result maybe lacking it; without `save` the caller handles persistence. `report` returns its uncut opening."""
     rounds = ("(no review)" if run_record.no_review(state) else
-              f"({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0})")
+              f"({run_record.round_shown(state)} of {state.get('rounds') or 0})")
     if report:
         return (f"# {word} {rounds} — {state.get('title') or run_dir.name}\n"
                 f"Why: {decision_reason(run_dir, state, why)}\nNext: {''.join(move)}")
