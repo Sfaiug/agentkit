@@ -278,6 +278,18 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
             + "; log in to another harness or add another model to the groups")
 
 
+def run_refusal(cfg, providers, workers, want_exec=None, want_review=None, reviewers=None):
+    """`pair_refusal` over a run's saved role lists, less the names the config no longer
+    offers (`config.offered`): the lists outlive the config, and the pick passes over a spare
+    retired since (`usage.pick_order`), so a run the others could staff waits for a window.
+    No list saved stays None, the config's own selection.  A selection made now goes to
+    `pair_refusal` itself, which refuses a model that is gone, so no screen saves one."""
+    offered = config.offered(cfg)
+    workers, reviewers = (None if names is None else [name for name in names if name in offered]
+                          for names in (workers, reviewers))
+    return pair_refusal(cfg, providers, workers, want_exec, want_review, reviewers)
+
+
 def same_model(cfg, first, second):
     """Whether two worker names are the same model: the same name, or the same provider
     and model id under another name -- the `sonnet-2` the `c` screen adds an already
