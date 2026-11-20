@@ -1,8 +1,8 @@
 """`ak models --json` prices the orchestrator's row of a model at an effort (`task_usage`, its
 measured `cost`) at what its seats used a task: the points of a week every `seat_usage` row
 naming that model and effort took, at listed prices, times 100 over each row's login's
-`week_listed_usd` (`ak usage --json`), a subagent's on another model too, over the task runs that
-ended naming them and started no earlier than the first such row.  The orchestrator's other rows
+`week_listed_usd` (`ak usage --json`), a subagent's on another model too, over the task runs
+naming them, ended or still running, that started no earlier than the first such row.  The orchestrator's other rows
 are scaled by what those seats paid a board dollar, not by what the worker roles' runs paid.  A
 model and effort no such run names, a row with no listed price or a login with no week leaves no
 share.  A seat row counting no token, in all or of a type, is not read:
@@ -86,19 +86,19 @@ class OrchestratorCostFromSeats(unittest.TestCase):
         # before the run below that no row came before
         self.history.seat(("anvil", "high"), [("third", "easel-2", (0, 0, 0, 0))],
                           at=NOW - 2.5 * DAY)
-        # counted: a run launched as the first row was kept, and one after
+        # counted: a run launched as the first row was kept, one after, and one still running
         for started in (FIRST, NOW - 1.2 * DAY):
             self.history.launch(("anvil", "high"), started)
-        # not: one before any row, one running, one at another effort or of another model
-        self.history.launch(("anvil", "high"), NOW - 2 * DAY)
         self.history.launch(("anvil", "high"), NOW - 1.1 * DAY, ended=False)
+        # not: one before any row, one at another effort or of another model
+        self.history.launch(("anvil", "high"), NOW - 2 * DAY)
         self.history.launch(("anvil", "low"), NOW - DAY)
         self.history.launch(("bloom", "high"), NOW - DAY)
         # a build that pays a board dollar more than the seats do
         built = [("default", "anvil-1", (2_000_000, 0, 0, 0))]
         self.history.run(("anvil", "high"), built=[built])
         weeks, answer = self.answer()
-        orchestrator = self.points(weeks, own, subagent) / 2
+        orchestrator = self.points(weeks, own, subagent) / 3
         self.assertAlmostEqual(answer["task_usage"]["anvil"]["high"]["orchestrator"],
                                orchestrator)
         self.assertCost(answer, "orchestrate", "anvil-1", "measured", orchestrator)

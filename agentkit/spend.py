@@ -142,9 +142,9 @@ def roles(cfg):
     role a counted turn of which kept no row, a row of which has no listed price or a login of
     which has no week.  The orchestrator's rows are every `seat_usage` row naming the model and
     effort, its subagents' and its talk with its owner too, as orchestrating takes them all,
-    that counts a token, over the runs naming them that started no earlier than the first, as
-    one before has no usage to set against it; none where a row has no listed price or a login
-    no week."""
+    that counts a token, over the task runs naming them, ended or not, as its seat has written
+    and launched one that still runs, that started no earlier than the first, as one before has
+    no usage to set against it; none where a row has no listed price or a login no week."""
     from . import staffing, usage   # here, not at the top: usage reads this module as it loads
     held = {name: prov for name, prov in staffing._cached_providers().items()
             if name in cfg["providers"]}
@@ -186,7 +186,7 @@ def roles(cfg):
     # (model, effort, role): ([points, dollars] summed over its runs, how many)
     totals = {key: ([sum(one) for one in zip(*runs)], len(runs)) for key, runs in samples.items()}
     seats = {}      # (model, effort, the runs counted): its seats' rows
-    # The runs counted in the read of the rows, as one ending between two reads would be set
+    # The runs counted in the read of the rows, as one launched between two reads would be set
     # against usage read before it, and in SQL: a seat keeps a row of each message it takes.
     # Only its rows counting a token, in all or of a type: a harness files a message it made up
     # itself with none, under a model no board lists, and that row would leave the measure out.
@@ -196,8 +196,8 @@ def roles(cfg):
             "firsts AS (SELECT orchestrator, effort, MIN(at) AS first FROM used "
             "GROUP BY 1, 2), launched AS (SELECT firsts.orchestrator, firsts.effort, COUNT(*) "
             "AS runs FROM firsts JOIN runs ON runs.orchestrator = firsts.orchestrator AND "
-            "orchestrator_effort = firsts.effort AND started_at >= first WHERE kind = 'task' AND "
-            "finished_at IS NOT NULL GROUP BY 1, 2) SELECT orchestrator, effort, runs, account, "
+            "orchestrator_effort = firsts.effort AND started_at >= first WHERE kind = 'task' "
+            "GROUP BY 1, 2) SELECT orchestrator, effort, runs, account, "
             f"model, {{kept[seat_usage]}}, {', '.join(PRICES)} FROM used "
             "JOIN launched USING (orchestrator, effort)"):
         seats.setdefault((name, effort, runs), []).append((account, model, counts, listed_usd))
