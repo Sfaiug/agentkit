@@ -77,6 +77,19 @@ class Loop:
         return bool(self.state.get("followup") or any(words in self.body for words in (
             taskfile.FIX_THE_COMMAND, taskfile.OLD_FIX_THE_COMMAND)))
 
+    @property
+    def where(self):
+        """The checkout and the commit its branch starts from, which every turn opens with as it
+        starts (`turns.call_retrying`).  Every run's checkout shares one clone's
+        `origin/<target>`, which any run's fetch moves: a worker squashing onto that name would
+        undo what landed meanwhile.  A scratch run has no branch, so none."""
+        if self.scratch:
+            return ""
+        pr = self.state.get("review_pr")
+        head = f"PR #{transitions.PR_PARTS.match(pr).group(3)} head, " if pr else ""
+        return (f"Repo checkout: {self.wt}\nBranch: {self.state['branch']} ({head}based on "
+                f"{self.base_sha}, to be merged into {self.upstream}, which may have moved on since)")
+
     body = property(lambda self: self._body + self.scope,
                     lambda self, text: setattr(self, "_body", text))
     context = property(lambda self: self._context + self.scope,
@@ -1095,7 +1108,8 @@ def execute(lp, role, text, name):
                                                                                else "no limit"),
                                                                      "limit": lp.done_when_limit,
                                                                      "silence": lp.turn_limit},
-                                                             handover=handover, **resume)
+                                                             handover=handover,
+                                                             where=getattr(lp, "where", ""), **resume)
         except worker.LoginExpired as expired:
             lp.exec_sid = expired.session or lp.exec_sid
             lp.save()           # the parked conversation is in run.json before the run parks
@@ -1234,7 +1248,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         else:
             gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         diff = prompts.capped(lp, gitcall.git(lp.wt, "diff", f"{lp.base_sha}...{head}", check=False))
-        work = whole = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
+        work = whole = f"## Diff ({lp.base_sha}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
         at = gitcall.git(lp.wt, "rev-parse", head)
         # a later round judges what changed since the last review, where that review handed
         # in findings for a fix to answer: after a FAIL on the checks alone, and in a landing
@@ -1460,7 +1474,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                                                             lp.turn_limit,
                                                             handover=handover, findings=listed,
                                                             base=lp.state.get("target_sha") or lp.upstream,
-                                                            **resume)
+                                                            where=getattr(lp, "where", ""), **resume)
         except worker.LoginExpired as expired:
             lp.review_sid = expired.session or lp.review_sid
             lp.save()           # the parked conversation is in run.json before the run parks

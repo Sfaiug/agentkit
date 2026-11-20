@@ -923,7 +923,7 @@ def note_turn_meters(cfg, name, out_dir, account):
 
 def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit=None,
                   fresh_body=None, resume_note=None, handover=None, previous=None, findings=None,
-                  base=None, checks=None):
+                  base=None, checks=None, where=""):
     """worker.call, retried while the harness keeps dying on the provider instead of the task.
 
     Returns (code, text, session, dead): `dead` stays False -- a transient answer is resumed
@@ -962,7 +962,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     without it, and tries only once -- the waits after that are the run's own.
 
     An executor or fixer of a fix run may also write the run's regression folder.  `base` is
-    the target ref the reviewer's `users:` line is read at (`worker.users_declared`).
+    the target ref the reviewer's `users:` line is read at (`worker.users_declared`).  `where`
+    (`Loop.where`) opens every prompt this turn sends, a resumed conversation's too.
     """
     from . import usage     # here, not at the top: usage reaches turns
     limit = 60 * run_record.SILENCE_MINUTES if limit is None else limit
@@ -971,10 +972,13 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     places = [place for place in [run_dir / REGRESSION.parent]
               if role in ("executor", "fixer") and place.is_dir()]
     note = shell_foreground_note()
-    if note not in body:
-        # the executor and fixer bodies already carry it in the context header; the reviewer
-        # body is built from the task text, so it gets it here, said once either way
-        body = f"{note}\n\n{body}"
+
+    def opened(text):
+        # the executor and fixer bodies already carry the note in the context header; the
+        # reviewer body is built from the task text, so it gets it here, said once either way
+        text = text if note in text else f"{note}\n\n{text}"
+        return f"{where}\n\n{text}" if where else text
+    body = opened(body)
     entry = config.model(cfg, name)
     # Mark only the worker child; the loop's orphaned-orchestrator fallback may still speak.
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
@@ -1064,7 +1068,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             resume_note["restarted"] = True
             resume_note["at"] = time.time()
         if fresh_body is not None:
-            body = fresh_body if note in fresh_body else f"{note}\n\n{fresh_body}"
+            body = opened(fresh_body)
         session = None
         return True
 

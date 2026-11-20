@@ -454,17 +454,15 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     # Recover an interrupted probe before reading the checkout's suite and worker rules.
     lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, "")
     target = state.get("target") or state.get("base")
-    if state.get("scratch"):
-        where = (f"Workspace: {wt}\nThere is no git repository here: nothing to commit, no branch "
-                 "and no PR. What you leave in the workspace is the deliverable.")
-    else:
-        where = (f"Repo checkout: {wt}\nBranch: {state['branch']} (based on {state['base']}"
-                 + (f", to be merged into {target}" if target != state["base"] else "") + ")")
     cmds = round_commands(cmds, wt, target, scratch=state.get("scratch"), landing=not state.get("no_merge"))
     every, once = taskfile.group_commands(cmds)
     body += repo_rules(wt, state.get("base_sha"))
     run_record.save_state(run_dir, state)
-    context = (f"{where}\n\n{body}\n\n"
+    # a scratch workspace never moves, so the task says it; a branch's base is each turn's to say
+    where = (f"Workspace: {wt}\nThere is no git repository here: nothing to commit, no branch "
+             "and no PR. What you leave in the workspace is the deliverable.\n\n"
+             if state.get("scratch") else "")
+    context = (f"{where}{body}\n\n"
                f"{shell_foreground_note()}\n\n"
                f"Done-when commands, all must exit 0 (run them in {wt}):\n"
                + "\n".join(f"  $ {c}" for c in every))
@@ -1623,7 +1621,7 @@ def cmd_merge(argv):
     body += repo_rules(state["worktree"], state.get("base_sha"))
     run_record.save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
-              body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}")
+              body, cmds, body)
     stopped_on = state.get("merge_note") or "delivery did not finish"
     # This process owns the run while it delivers: a retry that is killed here must leave a
     # `running` receipt with this pid on it, so the reaper -- the menu, `ak run status` or the
@@ -2398,13 +2396,6 @@ def own_pr_fix(state):
     return done + 1, "executor"
 
 
-def pr_context(state, body):
-    """What a worker on a PR review's checkout is told first: where it is and on what branch."""
-    number = PR_PARTS.match(state["review_pr"]).group(3)
-    return (f"Repo checkout: {state['worktree']}\nBranch: {state['branch']} (PR #{number} head, "
-            f"based on origin/{state['target']})\n\n{body}")
-
-
 def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     """(the lines a seat's own PR's first review reads, the sentence refusing that review or
     None), or None where no first review is ahead: a PR a review already judged in this run
@@ -2538,8 +2529,8 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
                 lp.executor = state["executor"] = state["own_orchestrator"]
             log(f"--- {'landing fixer' if state.get('landing_fix') else f'round {lp.rnd}/{lp.rounds}: fixer'} "
                 f"{lp.executor} (findings on PR #{number})")
-            lp.context = pr_context(state, fix_body(state, current.get("body"), lp.cmds, number)
-                                    + repo_rules(lp.wt, state["base_sha"]))
+            lp.context = (fix_body(state, current.get("body"), lp.cmds, number)
+                          + repo_rules(lp.wt, state["base_sha"]))
             fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
             try:
                 # what the fixer says stays in its turn's directory, where the next round's
@@ -2774,7 +2765,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         history.first_review(state.get("run_id"), first[0], log=log)
 
     if off:
-        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, pr_context(state, body))
+        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
         lp.rnd = 1
         lp.round_dir.mkdir(parents=True, exist_ok=True)
         ok, dw_log = verify_work(lp)
@@ -2825,7 +2816,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                                                                  reviewer))))
     body += repo_rules(wt, base_sha)
     run_record.save_state(run_dir, state)
-    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, pr_context(state, body))
+    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
     lp.rnd = rnd
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     state.pop("final_check", None)
