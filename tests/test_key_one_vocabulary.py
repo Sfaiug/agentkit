@@ -19,7 +19,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.aklooks import look, plain, settled
-from test_key_models_company_list import ENV, KEYS, Opened
+from test_key_models_company_list import ADDING, ENV, Opened
 
 COLOUR = {**{name: value for name, value in ENV.items() if name != "NO_COLOR"},
           "COLORTERM": "truecolor"}
@@ -77,7 +77,7 @@ class OneVocabulary(Opened):
         self.assertEqual(look(shown, "□", on="Acme Max 5"), self.dim)
         self.assertEqual(look(shown, "■", on="Acme Mid 5"), self.accent)
         self.assertEqual([line for line in map(plain, shown) if {"●", "○"} & set(line)], [])
-        self.assertIn(KEYS, [plain(line).rstrip() for line in shown])
+        self.assertIn(ADDING, [plain(line).rstrip() for line in shown])
         term.keys("Up", "Up", "Right", "Space", "Down", "Down")      # Space on Acme Max 5
         shown = settled(term, lambda text: "  Acme  ■ Acme Max 5  ■ Acme Mid 5" in text
                         and "› + add a company" in text)

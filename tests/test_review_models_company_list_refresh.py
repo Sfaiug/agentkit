@@ -13,12 +13,12 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_key_models_company_list import Opened
+from test_key_models_company_list import ADDING, Opened
 
 
 class CompanyListRefresh(Opened):
     def test_the_add_row_stays_lit_when_the_first_of_yours_gains_scores(self):
-        term, shown = self.open(companies=["Fenix"])
+        term, shown = self.open(companies=["Fenix"], last=ADDING)
         self.assertEqual(shown[4:6], ["", "› + add a company"])
         stored = self.home.path / ".agentkit/state/matrix.json"
         held = json.loads(stored.read_text())
@@ -29,7 +29,7 @@ class CompanyListRefresh(Opened):
                 row["values"] = scores
         self.home.write(".agentkit/state/matrix.json", held)
         term.keys("Right")
-        shown = self.whole(term, "  Fenix  ■ Fenix 1")
+        shown = self.whole(term, "  Fenix  ■ Fenix 1", last=ADDING)
         self.assertEqual(shown[5:7], ["  Fenix  ■ Fenix 1", "› + add a company"])
 
 

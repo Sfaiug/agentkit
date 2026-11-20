@@ -40,11 +40,14 @@ func (view CompanyListView) Shown() []matrix.Company {
 // dim, how many models are on, from how many companies, and how many more have benchmark scores,
 // then the Note.
 func CompanyListFrame(s terminal.Screen, view CompanyListView) MatrixFrame {
-	keys := "↑↓←→ move   ␣ mark   a add a company   esc back"
-	if s.ASCII() {
-		keys = "arrows move   space mark   a add a company   esc back"
-	}
 	room, shown := s.LayoutWidth(), view.Shown()
+	keys := "↑↓←→ move   ␣ mark   a add a company   esc back"
+	if view.Row == len(shown) { // `+ add a company` opens a page: Enter's, not Space's
+		keys = "↑↓←→ move   ⏎ add   a add a company   esc back"
+	}
+	if s.ASCII() {
+		keys = strings.NewReplacer("↑↓←→", "arrows", "␣", "space", "⏎", "enter").Replace(keys)
+	}
 	var over []string
 	for _, part := range terminal.Wrap("ak uses only the models that are on. Space marks one on or off, or, on "+
 		"a company's name, all of them. A company with none on leaves the list.", room-2) {

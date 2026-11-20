@@ -5,7 +5,7 @@ effort steps it one up, saved to the seat's record at once, config.toml as it wa
 model's orchestrator mark asks under the
 matrix first, as the owner said on 24 Oct ("when pressing a different orch, it should ask me
 to confirm. As this restarts the session."): Esc keeps the record and the pane as they were,
-and `Move` moves the seat, its record naming the new orchestrator and its tmux session running
+and `Restart` moves the seat, its record naming the new orchestrator and its tmux session running
 that model's harness, config.toml as it was; and `Models` opens
 a harness's row onto the models its adapter lists, `□` one the config does not run: Space ticks
 it in, `■`, config.toml rewritten at once, whole, with the menu's header, every other value
@@ -111,7 +111,7 @@ class ConfigScreenEdits(unittest.TestCase):
         return self.term.wait(lambda screen: f"  Restart {SEAT} on {model}?" in rows(screen)
                               and "  It starts a new conversation, handed the one it had."
                               in rows(screen) and "› ✓ Keep" in rows(screen)
-                              and "  × Move" in rows(screen))
+                              and "  × Restart" in rows(screen))
 
     def test_another_model_s_orchestrator_mark_asks_and_moves_the_seat_on_move(self):
         # the command it opens astra with leaves the pane it runs in, writing nothing on it: a
@@ -135,7 +135,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.assertEqual(len(self.fakes["codex"].calls("interactive")), opened)
         self.assertFalse(ran.exists())
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
-        # asked again, and `Move` moves it
+        # asked again, and `Restart` moves it
         self.asked("6 Astra")
         self.term.keys("Down", "Enter")
         self.term.wait(lambda screen: "› 6 Astra    [●] ━━━───  high     ■  ━━━───  high     ■  ━━━───  high"

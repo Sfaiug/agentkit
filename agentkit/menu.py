@@ -4169,7 +4169,7 @@ def company_list(cfg, title):
     benchmark scores, until Esc.  ↑/↓ move between companies, ←/→ between a company's name and
     its models; Space or a click marks the model pointed at on or off, and on a name all its
     models on, or off where all are on, each change saved at once (models_listed).  `a`, or
-    Space or ⏎ on `+ add a company`, adds one all on (company_add).  Esc drops each company
+    ⏎ or a click on `+ add a company`, adds one all on (company_add).  Esc drops each company
     left with none on from `companies`, and all its releases from `models_off`.  What to say,
     or "".  It comes up as a page does, its marks moving as `c`'s do (motion.Clock)."""
     title, here, column, top, note = f"{title} · models", None, 0, 0, ""
@@ -4186,12 +4186,13 @@ def company_list(cfg, title):
                 f"{'company' if giving == 1 else 'companies'}",
                 f"{more} more {'company has' if more == 1 else 'companies have'} "
                 "benchmark scores"]
-        moves = []
+        moves, adding = [], here == ADD_COMPANY     # it opens a page: Enter's, not Space's
         body, places = companies_body(makers, yours, off, None if terminal.away() else here,
                                       column, moves)
         act, here, clicked, top = matrix_key(
             title, body, places, rows, here, top, note, terminal.keys(
-                "a add a company", "esc back", space="mark", enter=None),
+                "a add a company", "esc back", space=None if adding else "mark",
+                enter="add" if adding else None),
             marks=1 + max(map(len, makers.values()), default=0), keyed=column,
             clock=clock, moves=moves,
             over=[*("  " + part for part in terminal.wrap(
@@ -4212,7 +4213,7 @@ def company_list(cfg, title):
             return models_listed(cfg, [maker for maker in yours if maker not in gone],
                                  off - {row["release"] for row in lineup if row["maker"] in gone}
                                  ) if gone else ""
-        if act == "a" or act in ("space", "enter") and here == ADD_COMPANY:
+        if act == "a" or act == "enter" and here == ADD_COMPANY:
             clock.forget()            # another screen: the list back from it is drawn as it is
             added = company_add(title, makers, yours)
             if added:
@@ -6623,7 +6624,7 @@ def session_mark(cfg, name, selected, model, column, providers, ask=None):
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model under the
     same name, inside its running harness asking nothing where that harness takes the move
-    (orch.switch_lines), else by a restart once `Move` is picked on the card `ask` asks on
+    (orch.switch_lines), else by a restart once `Restart` is picked on the card `ask` asks on
     (asking), the owner's 24 Oct words: "when pressing a different orch, it should
     ask me to confirm. As this restarts the session. for exec and review should be instant."
     A harness that is not installed or not logged in is refused in one line before any
@@ -6639,7 +6640,7 @@ def session_mark(cfg, name, selected, model, column, providers, ask=None):
         note = orch.switch_orchestrator(cfg, name, model, providers,
                                         asked=ask and (lambda kept: ask(
                                             MOVE_ASK.format(name, config.model_name(cfg, model)),
-                                            MOVE_MEANS[kept], "Move")))
+                                            MOVE_MEANS[kept], "Restart")))
         if note == "":
             selected["orchestrator"] = model
         return note or ""
