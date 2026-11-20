@@ -168,7 +168,7 @@ def _costs(rated, lineup, cfg, logins, shares):
     a hundredth of that week.  A measured row costs what the first such model measured; any
     other, its board price times what a board dollar of every measurement of its role, rated or
     not, on its provider costs where one is, else times their listed dollars a board dollar at
-    its provider's rate; a role with none, as no run measures an orchestrator, takes every
+    its provider's rate; a role with none, as an orchestrator that launched no task, takes every
     role's.  A provider's rate, what a listed dollar takes of its plans, is the mean of its
     `logins`' weeks over what each holds ({provider: [(price, listed dollars)]}), as any of them
     may pay for the next task; one with none takes the mean of the others'.  Each row keeps its
