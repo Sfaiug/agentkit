@@ -1824,6 +1824,12 @@ def confirm(question, meaning, answer, around, wait=None):
     def drawn(lines, lit):
         enter = (answer if lit == act else "Keep").lower()
         return around([*lines, ""], keys("esc back", enter=enter))
+    # The owner, 20 Nov 2026: "Leave it as it is".  A click answers this card as it answers every
+    # screen, also where a position can be read a row off its line (a terminal of fewer rows than
+    # the screen, which scrolls it; a resize under the click) and the answer taken is not the one
+    # clicked: one way to operate every screen, and a subscription removed by mistake is signed
+    # in again.  The other choice, a card only the keys answer, would be the one screen the
+    # pointer does nothing on (tests/test_key_a_card_answers_to_a_click.py).
     _CARD = True
     try:
         return choose([keep, act], keep, around=drawn, wait=wait, warn=act, above=asked) == act
