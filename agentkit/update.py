@@ -451,6 +451,8 @@ def run_gate(key, fh):
     failed.unlink(missing_ok=True)
     mark, began = _end(fh), time.time()
     if key == "live":
+        # with its model turns on every host, one that may not push too (`may_push`): the owner,
+        # 20 Nov 2026, "Leave it" -- they alone catch a harness that broke on this host
         passed = step(["bash", str(live_gate())], fh,
                       {"AGENTKIT_ACCEPTANCE_REQUIRED": "1", "AK_LIVE_FAILED": str(failed)},
                       timeout=LIVE_CAP, target_slice=orch.slice_name())
