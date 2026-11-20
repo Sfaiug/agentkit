@@ -254,16 +254,40 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                     raise config.Error(f"{task_path}: {why}")
             # The run's branch starts at the base's tip, unless it goes on from a stopped or
             # blocked run's committed work (`from:`, before taking in `target`) or is the one
-            # the repository has out.
-            start = "HEAD" if opts["--no-worktree"] else from_branch or base_sha
-            # The base is the commit where that start forks from the tip: an older local branch
-            # or a from: branch stands behind the tip, and a worker squashing onto a commit its
-            # branch lacks makes one that takes the rest of the base back out.  Where git finds
-            # no fork there is no base to name, and no run.  Asked before the checkout is made:
+            # the repository has out: at one commit, as either name can move while the checkout
+            # is made.
+            start = (git(repo, "rev-parse", "HEAD") if opts["--no-worktree"] else
+                     git(repo, "rev-parse", f"refs/heads/{from_branch}") if from_branch else
+                     base_sha)
+            # Where the work lands, as origin has it or else the repository: pinned so another
+            # worktree's fetch cannot move what this run forks from and a from: run takes in.
+            upstream = target if target.startswith("origin/") else f"origin/{target}"
+            onto, source = upstream.removeprefix("origin/"), upstream
+            tip = git(repo, "rev-parse", "--verify", "--quiet",
+                      f"refs/remotes/{upstream}^{{commit}}", check=False)
+            if not tip:
+                source = f"local {onto}"
+                tip = git(repo, "rev-parse", "--verify", "--quiet",
+                          f"refs/heads/{onto}^{{commit}}", check=False)
+            # The base is the one commit where that start forks from the base's and the target's
+            # tips -- the start itself for a fresh worktree, a commit behind it for an older local
+            # branch or a from: branch -- or, failing one, from the target's tip alone.  A worker
+            # squashing onto a commit its branch lacks, or onto one short of what the branch
+            # shares with the target, makes a commit that undoes changes of the target's, so a
+            # start with no such commit is no run -- unless it is a from: branch the target's
+            # tip merges into cleanly: ak makes that merge before round 1 and the tip is then
+            # the base, the branch's own commit until then.  Asked before the checkout is made:
             # one a git stopping here left unrecorded would be in the resume's way.
-            base_sha = git(repo, "merge-base", start, base_sha, check=False)
+            base_sha = (gitcall.fork_from(repo, start, *filter(None, (base_sha, tip)))
+                        or tip and gitcall.fork_from(repo, start, tip))
+            if not base_sha and from_branch and tip and not git_out(
+                    repo, "merge-tree", "--write-tree", start, tip)[0]:
+                base_sha = start
             if not base_sha:
-                raise config.Error(f"{task_path}: {start} and {base} share no commit in {repo}")
+                raise config.Error(
+                    f"{task_path}: cannot tell where {from_branch or 'HEAD'} forks from "
+                    f"{' and '.join(dict.fromkeys((name, onto)))}: {repo} holds no such "
+                    "commit, several, or a shallow history that can hide a later one")
             if opts["--no-worktree"]:
                 wt, branch = repo, git(repo, "rev-parse", "--abbrev-ref", "HEAD")
                 log(f"no worktree: working directly in {wt} on {branch}")
@@ -312,16 +336,6 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             worktrees.drop_unrecorded_checkout(repo, wt, branch, log)
         raise
     if prior is None and state.get("from"):
-        upstream = target if target.startswith("origin/") else f"origin/{target}"
-        source = upstream
-        # Pin the commit so another worktree's fetch cannot move what this run takes in.
-        tip = git(wt, "rev-parse", "--verify", "--quiet",
-                  f"refs/remotes/{upstream}^{{commit}}", check=False)
-        if not tip:
-            name = upstream.removeprefix("origin/")
-            source = f"local {name}"
-            tip = git(wt, "rev-parse", "--verify", "--quiet",
-                      f"refs/heads/{name}^{{commit}}", check=False)
         if not tip:
             log(f"from: {upstream} unavailable; branch unchanged; "
                 f"{upstream} will be taken in at landing")

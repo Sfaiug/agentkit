@@ -1193,6 +1193,27 @@ def commit_identity(wt):
             "tree_sha": git(wt, "rev-parse", "HEAD^{tree}")}
 
 
+def fork_from(repo, start, *tips):
+    """The one commit where `start` forks from `tips`: its ancestor holding every commit it
+    shares with any of them, so a squash of the branch onto it carries the branch's changes
+    and none of theirs.  None where the repository shows no such commit, several of which
+    none holds the rest (as where each side merged the other, or two tips each hold commits
+    of `start`'s the other lacks), or one a shallow clone's cut can hide a later fork behind."""
+    found = git(repo, "merge-base", "--all", start, *tips, check=False).split()
+    if len(found) != 1:
+        return None
+    fork, = found
+    # what `start` shares with a tip it is behind, or holds whole, no cut can hide
+    apart = [tip for tip in tips if tip != fork]
+    if fork != start and apart:
+        # the commits a shallow clone holds without their parents
+        shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow"))
+        if shallow.is_file() and set(shallow.read_text().split()) & set(
+                git(repo, "rev-list", start, *apart, "--not", fork).split()):
+            return None
+    return fork
+
+
 def integrated_base(wt, base, upstream=None):
     """The newest target fork already integrated, never behind the run's base."""
     if upstream is None:

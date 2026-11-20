@@ -4,8 +4,9 @@ Every run's checkout shares one clone's `origin/main`, and any fetch moves it.  
 squashed onto that name made a commit holding main as the run started plus its work, whose
 landing took out of main whatever main merged meanwhile.  Its prompt names, at each turn, the
 commit its branch starts from, which ak's own rebase onto the target moves; a checkout behind
-origin's tip, such as an older local branch run with --no-worktree, starts from where it forks,
-and one whose clone holds no such commit starts no run.
+origin's tip, such as an older local branch run with --no-worktree, starts from the one commit
+where it forks from its base and its target, or failing one from its target alone, and one whose
+clone shows no such commit for certain starts no run.
 
 Black-box: the program `AK_BIN` names runs a task in the foreground through
 tests/fixtures/akbin.py, against gitrig.py's origin, fakegh.py's GitHub and fakeadapter.py's
@@ -90,11 +91,11 @@ class ASquashOntoTheNamedBaseKeepsMain(unittest.TestCase):
         self.assertEqual(self.bases, {"claude": [self.launched, self.tip],
                                       "codex": [self.tip, self.tip]}, self.said)
 
-    def run_in_the_clone(self, stand):
-        """Run the task with --no-worktree where `stand` leaves the rig's clone, main one change
-        past the commit `topic` forks from, with a worker that squashes onto the base its prompt
-        names.  Sets the rig, that fork, the run's exit and record, and the base each writing
-        turn's `Branch:` line named."""
+    def run_in_the_clone(self, stand, **front):
+        """Run the task, with `front` in its front matter, with --no-worktree where `stand` leaves
+        the rig's clone, main one change past the commit `topic` forks from, with a worker that
+        squashes onto the base its prompt names.  Sets the rig, that fork, the run's exit and
+        record, and the base each writing turn's `Branch:` line named."""
         home = Home()
         self.addCleanup(home.close)
         self.rig = Rig(home, "widgets")
@@ -109,36 +110,99 @@ class ASquashOntoTheNamedBaseKeepsMain(unittest.TestCase):
         fakes = fakeadapter.install(home, codex="pass", claude={
             "final": "## Summary\nwrote retry.txt", "hand_in": [["done"]],
             "sh": SQUASH.format(started=go, go=go)})
-        self.done = home.ak("run", str(taskfile.write(home, self.rig.path)), "--no-worktree", timeout=600)
+        self.done = home.ak("run", str(taskfile.write(home, self.rig.path, front=front)),
+                            "--no-worktree", timeout=600)
         self.said = self.done.out + self.done.err
         self.state = json.loads((taskfile.only_run(home) / "run.json").read_text())
         self.told = [BASE.search(Path(call["argv"][3]).read_text())[1] for call in fakes["claude"].runs()]
 
-    def test_an_older_local_branch_names_where_it_forks(self):
-        self.run_in_the_clone(lambda: self.rig.git("checkout", "-q", "-b", "local", "topic"))
-        self.assertEqual(self.done.code, 0, self.said)
-        self.assertTrue(self.state["merged"], self.said)
-        self.assertLessEqual({"topic.txt", "retry.txt", "other.txt"}, set(self.rig.files()))
-        self.assertEqual(self.told, [self.fork])
+    def shallow(self, branch, depth):
+        """Move the rig into a clone of its origin `depth` commits deep, with `branch` out."""
+        clone = self.rig.path.with_name("shallow")
+        # git cuts a clone short only of a URL; ak reads the project off the origin's path
+        self.rig.git("clone", "-q", f"--depth={depth}", "--no-single-branch", "-b", branch,
+                     self.rig.bare.as_uri(), str(clone))
+        self.rig.path = clone
+        self.rig.git("remote", "set-url", "origin", str(self.rig.bare))
 
-    def test_a_branch_whose_fork_the_clone_lacks_starts_no_worker(self):
+    def test_an_older_local_branch_names_where_it_forks(self):
+        def older():
+            self.rig.git("checkout", "-q", "-b", "local", "topic")
+
+        def cut_behind():
+            # two commits deep the clone still shows where `late` forks, main's commit before last
+            self.fork = self.rig.head()
+            self.rig.branch("late", {"topic.txt": "topic\n"})
+            self.rig.commit({"more.txt": "more\n"}, "one more change")
+            self.shallow("late", 2)
+            self.rig.git("checkout", "-q", "-b", "local")
+
+        for stand in (older, cut_behind):
+            with self.subTest(stand.__name__):
+                self.run_in_the_clone(stand)
+                self.assertEqual(self.done.code, 0, self.said)
+                self.assertTrue(self.state["merged"], self.said)
+                self.assertLessEqual({"topic.txt", "retry.txt", "other.txt"}, set(self.rig.files()))
+                self.assertEqual(self.told, [self.fork])
+
+    def test_a_branch_cut_from_its_target_names_where_it_forks_from_that(self):
+        def cut_from_release():
+            self.rig.git("checkout", "-q", "-b", "release")
+            self.fork = self.rig.commit({"retired.txt": "in use\n"})
+            self.rig.git("branch", "local")
+            self.rig.commit({"retired.txt": None}, "retire it")
+            self.rig.git("checkout", "-q", "local")
+
+        def holding_more_of_main():
+            # main's next commit is none of release's: local, taking it in, holds a commit of
+            # each that the other lacks, and still forks from release where it did
+            cut_from_release()
+            self.rig.git("checkout", "-q", "main")
+            self.rig.commit({"more.txt": "more\n"}, "one more change")
+            self.rig.git("checkout", "-q", "local")
+            self.rig.git("merge", "-q", "--no-edit", "main")
+
+        for stand in (cut_from_release, holding_more_of_main):
+            with self.subTest(stand.__name__):
+                self.run_in_the_clone(stand, target="release")
+                self.assertEqual((self.done.code, self.told), (0, [self.fork]), self.said)
+                # squashed onto a commit of main's, its commit would put retired.txt back
+                self.assertEqual({"retry.txt", "retired.txt"} & set(self.rig.files("release")),
+                                 {"retry.txt"})
+
+    def test_a_branch_with_no_one_certain_fork_starts_no_worker(self):
         def unrelated():
             self.rig.git("checkout", "-q", "--orphan", "local", "topic")
             self.rig.commit({}, "topic's files with no history", push=False)
 
-        def shallow():
-            clone = self.rig.path.with_name("shallow")
-            self.rig.git("clone", "-q", "--depth=1", "--no-single-branch", "-b", "topic",
-                         self.rig.bare.as_uri(), str(clone))
-            self.rig.path = clone
+        def crossed():
+            # main took topic in as local, cut from topic, took in main's commit before that
+            before = self.rig.head()
+            self.rig.git("merge", "-q", "--no-edit", "topic")
+            self.rig.git("push", "-q", "origin", "main")
+            self.rig.git("checkout", "-q", "-b", "local", "topic")
+            self.rig.git("merge", "-q", "--no-edit", before)
 
-        # ak has no base to name such a branch: squashed onto main's tip, its commit would
-        # take other.txt back out of main
-        for stand in (unrelated, shallow):
+        def shallow():
+            self.shallow("topic", 1)
+
+        def cut():
+            # three commits deep the clone shows `deep` down to where topic forks, the first
+            # commit, and not to where it forks itself, main's tip
+            self.rig.git("checkout", "-q", "-b", "deep")
+            self.rig.commit({"deep.txt": "one\n"}, push=False)
+            self.rig.commit({"deep.txt": "two\n"}, push=False)
+            self.rig.git("merge", "-q", "--no-edit", "topic")
+            self.rig.git("push", "-q", "origin", "deep")
+            self.shallow("deep", 3)
+
+        # ak has no base to name such a branch: squashed onto a commit that is not where it
+        # forks, its commit would take changes of main's back out
+        for stand in (unrelated, crossed, shallow, cut):
             with self.subTest(stand.__name__):
                 self.run_in_the_clone(stand)
                 self.assertEqual((self.done.code, self.told), (2, []), self.said)
-                self.assertIn("share no commit", self.state["error"])
+                self.assertIn("cannot tell where HEAD forks from main", self.state["error"])
                 self.assertIn("other.txt", self.rig.files())
 
 

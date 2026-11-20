@@ -186,6 +186,52 @@ class FromRunTakesTheTarget(unittest.TestCase):
         self.assertTrue(any("conflict" in line and "aborted" in line and "landing" in line
                             and "origin/main" in line for line in self.logs), self.logs)
 
+    def test_a_saved_branch_moved_while_the_checkout_is_made_starts_where_it_stood(self):
+        # the base is where that commit forks: a checkout cut from the name anew could lack it
+        real = gitcall.tool_run
+
+        def naming(cmd, *args, **kwargs):
+            if "ls-remote" in cmd and cmd[-1].startswith("refs/heads/ak/"):
+                self.git(self.repo, "branch", "-f", "ak/previous", self.base)
+            return real(cmd, *args, **kwargs)
+
+        with patch.object(gitcall, "tool_run", side_effect=naming):
+            lp = self.start()
+        self.assertEqual(self.git(lp.wt, "rev-parse", "HEAD"), self.previous)
+
+    def test_a_saved_branch_that_forks_from_its_target_alone_takes_it_in(self):
+        # release's history is its own: the saved work shares no commit with main, the base
+        self.git(self.origin, "checkout", "-q", "--orphan", "release")
+        self.commit(self.origin, "release.txt", "first\n")
+        self.git(self.repo, "fetch", "-q", "origin", "release")
+        self.git(self.repo, "checkout", "-q", "-B", "ak/previous", "FETCH_HEAD")
+        self.commit(self.repo, "carried.txt", "saved work\n")
+        self.git(self.repo, "checkout", "-q", "main")
+        fresh = self.commit(self.origin, "release.txt", "second\n")
+        lp = self.start("release")
+        self.assertEqual(lp.base_sha, fresh)
+        self.git(lp.wt, "merge-base", "--is-ancestor", fresh, "HEAD")
+
+    def test_a_saved_branch_with_no_one_fork_goes_on_only_where_the_target_merges_cleanly(self):
+        # main took the saved work in as the saved branch took in main's change before that
+        self.git(self.repo, "push", "-q", "origin", "ak/previous")
+        earlier = self.commit(self.origin, "fixed.txt", "target fix\n")
+        self.git(self.origin, "merge", "-q", "--no-edit", "ak/previous")
+        fresh = self.git(self.origin, "rev-parse", "HEAD")
+        self.git(self.repo, "fetch", "-q", "origin")
+        self.git(self.repo, "checkout", "-q", "ak/previous")
+        self.git(self.repo, "merge", "-q", "--no-edit", earlier)
+        self.git(self.repo, "checkout", "-q", "main")
+        self.assertEqual(self.start().base_sha, fresh)      # merged in, the tip is the base
+        # a conflict leaves no merge to make it one, and no run: nothing more is checked out
+        self.git(self.repo, "checkout", "-q", "ak/previous")
+        self.commit(self.repo, "shared.txt", "branch change\n")
+        self.git(self.repo, "checkout", "-q", "main")
+        self.commit(self.origin, "shared.txt", "target change\n")
+        with self.assertRaisesRegex(config.Error, "cannot tell where ak/previous forks from main"):
+            self.start()
+        self.assertEqual(len(list(config.WT.iterdir())), 1)
+
     def test_a_resume_never_fetches_or_merges_the_target_again(self):
         self.commit(self.origin, "fixed.txt", "target fix\n")
         lp = self.start()
