@@ -301,13 +301,15 @@ sys.exit(row["code"])
                     directory, state = self.legacy(reviewer, status)
                     self.assert_undelivered(state)
                     count = len(self.calls())
-                    self.available("anthropic")
+                    # a reviewer on another provider than opus has room: with none, the
+                    # review would wait for one (test_reviewers_beside_writers.py)
+                    self.available("anthropic", "openai")
                     self.assertEqual(run.cmd_resume([directory.name]), 0)
                     self.assertEqual([r["role"] for r in self.calls()[count:]], ["reviewer"])
                     state = record.read_state(directory)
                     self.assertTrue(run.review_pass(state, self.cfg))
-                    self.assertEqual(state["reviewer"], "fable")
-                    if reviewer in ("astra", "opus"):
+                    self.assertEqual(state["reviewer"], "astra")
+                    if reviewer in ("opus", "fable"):
                         self.assertEqual(self.calls()[-1]["session"], [])
         # nor at the slot gate, launch after launch: only a child's exit is polled for
         self.assertEqual([c for c in self.sleep.call_args_list if c.args and c.args[0] > 0.05], [])
