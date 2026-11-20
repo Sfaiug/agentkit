@@ -98,8 +98,8 @@ class AChangeToGoAloneRunsWhatReadsGo(unittest.TestCase):
                      AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}'),
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        ran = log.read_text().splitlines()
-        log.unlink()
+        ran = log.read_text().splitlines() if log.exists() else []
+        log.unlink(missing_ok=True)
         return set(ran)
 
     def test_a_change_to_go_alone_runs_go_the_static_checks_and_what_reads_go(self):
