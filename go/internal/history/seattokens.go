@@ -20,14 +20,16 @@ import (
 // seat_tokens.TABLES declares them: a table made before a column was added gets it at its end.  A
 // usage row's account is the login of the seat that owned its file when the tick read it; its
 // model and counts by type are NULL where its harness does not tell them; its listed_usd is what its
-// counts cost at listed prices as it was written (pricing), as a turn's row's.
+// counts cost at listed prices as it was written (pricing), as a turn's row's; its orchestrator and
+// effort are NULL, Go reading no seat's effort yet.
 var seatTables = []struct {
 	name    string
 	columns []string
 }{
 	{"seat_sources", []string{"path TEXT PRIMARY KEY", "harness TEXT", "repo TEXT", "cursor TEXT", "account TEXT"}},
 	{"seat_usage", []string{"event TEXT PRIMARY KEY", "repo TEXT", "at REAL", "tokens INTEGER", "account TEXT",
-		"model TEXT", "input INTEGER", "cache_write INTEGER", "cache_read INTEGER", "output INTEGER", "listed_usd REAL"}},
+		"model TEXT", "input INTEGER", "cache_write INTEGER", "cache_read INTEGER", "output INTEGER", "listed_usd REAL",
+		"orchestrator TEXT", "effort TEXT"}},
 }
 
 // errUntold is a source Go cannot tell from another file as Python does here.
@@ -142,16 +144,17 @@ func SeatTokens() (uncounted []string, read bool) {
 					}
 					listed = price(spend.Model, priced)
 				}
-				// a repeat counting more replaces all its line set, so the counts, model, login and
-				// dollars stay those of the line that set the tokens
-				if err := db.exec("INSERT INTO seat_usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
+				// a repeat counting more replaces all its line set, so the counts, model, login,
+				// dollars and orchestrating stay those of the line that set the tokens
+				if err := db.exec("INSERT INTO seat_usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
 					"ON CONFLICT(event) DO UPDATE SET tokens = excluded.tokens, "+
 					"account = excluded.account, model = excluded.model, "+
 					"input = excluded.input, cache_write = excluded.cache_write, "+
 					"cache_read = excluded.cache_read, output = excluded.output, "+
-					"listed_usd = excluded.listed_usd WHERE excluded.tokens > tokens",
+					"listed_usd = excluded.listed_usd, orchestrator = excluded.orchestrator, "+
+					"effort = excluded.effort WHERE excluded.tokens > tokens",
 					append([]any{own + ":" + event, row["repo"], spend.At, spend.Tokens, row["account"], spend.Model},
-						append(counts, listed)...)...); err != nil {
+						append(counts, listed, nil, nil)...)...); err != nil {
 					return err
 				}
 			}
