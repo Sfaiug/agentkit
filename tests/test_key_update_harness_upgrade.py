@@ -12,8 +12,8 @@ by hand, since a broken revert leaves every seat on a broken harness.  A second 
 is kept for the tick to hand back, and a green one clears it.  While a seat is working, no
 harness moves.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, with a fake `claude` that keeps its installed release in a file and the
-gates stood in for by tests/fixtures/akgates.py, where a live gate run without its model turns
-(AK_LIVE_NO_MODEL_CALLS=1) is another gate, `live-no-model-calls`.
+gates stood in for by tests/fixtures/akgates.py, which keeps a live gate run without its model
+turns (AK_LIVE_NO_MODEL_CALLS=1) as `live-no-model-calls`.
 """
 
 import json

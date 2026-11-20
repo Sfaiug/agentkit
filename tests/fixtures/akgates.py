@@ -9,7 +9,7 @@ printing a `FAIL` line for each failed check label it set and writing the label 
 $AK_LIVE_FAILED, as tests/acceptance.sh does, and runs
 everything else as the real bash.  It keeps each gate it answered, in order, with whether
 AGENTKIT_ACCEPTANCE_REQUIRED was 1 for it.  tests/live.sh run with AK_LIVE_NO_MODEL_CALLS=1
-leaves out its model calls, which an upgrade's gate never may: here that is a gate of its own,
+leaves out its model calls, which an upgrade's gate never may: that run of live is kept as
 `live-no-model-calls`.
 
     from fixtures.akbin import Home
@@ -33,9 +33,10 @@ for arg do
   case $arg in
     */tests/smoke.sh|*/tests/live.sh|*/tests/e2e-fresh.sh)
       gate=$(basename "$arg" .sh)
-      [ "$gate ${{AK_LIVE_NO_MODEL_CALLS:-}}" != "live 1" ] || gate=live-no-model-calls
-      echo "$gate ${{AGENTKIT_ACCEPTANCE_REQUIRED:-unset}}" >>{log}
-      answer=$gate.$(grep -c "^$gate " {log})
+      kept=$gate
+      [ "$gate ${{AK_LIVE_NO_MODEL_CALLS:-}}" != "live 1" ] || kept=live-no-model-calls
+      echo "$kept ${{AGENTKIT_ACCEPTANCE_REQUIRED:-unset}}" >>{log}
+      answer=$gate.$(grep -c "^$gate" {log})
       [ -f {dir}/"$answer".exit ] || answer=$gate
       code=$(cat {dir}/"$answer".exit 2>/dev/null || echo 0)
       [ -z "${{AK_LIVE_FAILED:-}}" ] || cat {dir}/"$answer".failed >>"$AK_LIVE_FAILED" 2>/dev/null
