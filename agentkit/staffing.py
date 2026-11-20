@@ -329,9 +329,9 @@ def head_writers(state):
 
 
 def review_writers(state):
-    """The writers a parked review's reviewer is picked beside (`ready_order`): a task run's
-    `head_writers`; none for a pull request's review, whose reviewer `run.review_pr` picks
-    again by its own rules."""
+    """The writers a review's reviewer is picked beside (`ready_order`) where the review resumes
+    or falls back: a task run's `head_writers`; none for a pull request's review, whose
+    reviewer `run.review_pr` picks again by its own rules."""
     return [] if state.get("review_pr") else head_writers(state)
 
 

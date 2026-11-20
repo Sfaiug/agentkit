@@ -59,6 +59,13 @@ class SelfReviewLast(unittest.TestCase):
                        "resets": 0}
                 for name, used in (("acme", acme), ("beta", beta))}
 
+    def cannot_run(self, *names):
+        """The meters, with the harness of each of `names` saying it cannot run here."""
+        providers = usage.Readings(self.meters())
+        providers.harnesses = {usage._asked(self.cfg, self.cfg["models"][name]):
+                               "test is not logged in" for name in names}
+        return providers
+
     def pick(self, executor=None, reviewer=None):
         return run.pick_models(self.cfg, self.providers, executor, reviewer, self.logs.append)
 
@@ -169,11 +176,9 @@ class SelfReviewLast(unittest.TestCase):
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["acme-one"],
                                            "acme-one", "acme-one"))
         # only a launch with no runnable worker is refused, in one sentence
-        providers = usage.Readings(self.meters())
-        providers.harnesses = {usage._asked(self.cfg, self.cfg["models"][name]):
-                               "test is not logged in" for name in ("acme-one", "beta-one")}
         self.assertEqual(
-            run.pair_refusal(self.cfg, providers, ["acme-one", "beta-one"]),
+            run.pair_refusal(self.cfg, self.cannot_run("acme-one", "beta-one"),
+                             ["acme-one", "beta-one"]),
             "none of the workers acme-one, beta-one and reviewers acme-one, beta-one "
             "can run here (acme-one: test is not logged in; "
             "beta-one: test is not logged in); log in to another harness or add "
@@ -193,13 +198,18 @@ class SelfReviewLast(unittest.TestCase):
             self.assertEqual(run.review(lp, "Work done.", True, "passed"), "PASS")
         return calls
 
-    def test_a_spare_falls_back_to_the_next_other_model_before_own(self):
+    # A spare on another provider than the executor's is waited for while it can run here
+    # (tests/test_key_a_review_waits_for_another_provider.py): only one that cannot hands the
+    # review to the executor's provider.
+    def test_a_spare_that_cannot_run_falls_back_to_the_next_other_model_before_own(self):
         lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-one", "acme-two"])
+        self.providers = self.cannot_run("beta-one")
         self.assertEqual(self.fallback(lp, "beta-one"), ["beta-one", "beta-one", "acme-two"])
         self.assertEqual(lp.reviewer, "acme-two")
 
-    def test_a_spare_falls_back_to_the_executors_own_model(self):
+    def test_a_spare_that_cannot_run_falls_back_to_the_executors_own_model(self):
         lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-one"])
+        self.providers = self.cannot_run("beta-one")
         self.assertEqual(self.fallback(lp, "beta-one"), ["beta-one", "beta-one", "acme-one"])
         self.assertTrue(run.review_pass(lp.state, self.cfg))
         self.assertTrue(staffing.self_reviewed(lp.state))
