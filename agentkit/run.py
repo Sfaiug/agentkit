@@ -261,6 +261,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), from_branch)
             else:
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), base_sha)
+            # the base is what the checkout holds of it: an older local branch or a from: branch
+            # starts behind origin's tip, and a worker squashing onto a commit its branch lacks
+            # makes one that takes the rest of the base back out.  Unrelated histories keep the tip
+            base_sha = git(wt, "merge-base", "HEAD", base_sha, check=False) or base_sha
         # run.json names the worktree before anything else can fail: a step that ends the run here
         # -- exclude_junk does -- would otherwise leave a worktree `ak run clean` cannot find
         state = stamp_origin({**receipt, "run_id": run_dir.name, "title": title, "task": str(task_path),

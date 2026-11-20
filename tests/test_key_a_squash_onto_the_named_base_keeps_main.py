@@ -3,7 +3,8 @@
 Every run's checkout shares one clone's `origin/main`, and any fetch moves it.  A worker that
 squashed onto that name made a commit holding main as the run started plus its work, whose
 landing took out of main whatever main merged meanwhile.  Its prompt names, at each turn, the
-commit its branch starts from, which ak's own rebase onto the target moves.
+commit its branch starts from, which ak's own rebase onto the target moves; a checkout behind
+origin's tip, such as an older local branch run with --no-worktree, starts from where it forks.
 
 Black-box: the program `AK_BIN` names runs a task in the foreground through
 tests/fixtures/akbin.py, against gitrig.py's origin, fakegh.py's GitHub and fakeadapter.py's
@@ -87,6 +88,29 @@ class ASquashOntoTheNamedBaseKeepsMain(unittest.TestCase):
         self.assertEqual(self.done.code, 0, self.said)
         self.assertEqual(self.bases, {"claude": [self.launched, self.tip],
                                       "codex": [self.tip, self.tip]}, self.said)
+
+    def test_an_older_local_branch_names_where_it_forks(self):
+        home = Home()
+        self.addCleanup(home.close)
+        rig = Rig(home, "widgets")
+        fork = rig.head()
+        rig.branch("topic", {"topic.txt": "topic\n"}, push=False)
+        rig.commit({"other.txt": "landed on main\n"}, "another change")
+        rig.git("checkout", "-q", "topic")
+        GitHub(home).grant(rig.slug, "WRITE")
+        akconfig.write(home, ["opus", "astra"])
+        # main moves before the run, not during it: the turn's own `started` is its `go`
+        go = home.root / "adapters" / "go"
+        fakes = fakeadapter.install(home, codex="pass", claude={
+            "final": "## Summary\nwrote retry.txt", "hand_in": [["done"]],
+            "sh": SQUASH.format(started=shlex.quote(str(go)), go=shlex.quote(str(go)))})
+        done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-worktree", timeout=600)
+        said = done.out + done.err
+        self.assertEqual(done.code, 0, said)
+        self.assertTrue(json.loads((taskfile.only_run(home) / "run.json").read_text())["merged"], said)
+        self.assertLessEqual({"topic.txt", "retry.txt", "other.txt"}, set(rig.files()))
+        (call,) = fakes["claude"].runs()
+        self.assertEqual(BASE.search(Path(call["argv"][3]).read_text())[1], fork)
 
 
 if __name__ == "__main__":
