@@ -144,8 +144,9 @@ def roles(cfg):
     effort, its subagents' and its talk with its owner too, as orchestrating takes them all,
     over the runs naming them that started no earlier than the first, as one before has no
     usage to set against it; none where a row has no listed price or a login no week.  A row of
-    no token, a seat row's `tokens` or a turn row's counts summed, takes nothing whatever its
-    model and login, and rows all of none measure nothing."""
+    no token costs nothing whatever its model and login: one that kept no dollars, whose tokens,
+    a seat row's `tokens` and a turn row's counts summed, are 0 and whose counts are each 0 or
+    unknown."""
     from . import staffing, usage   # here, not at the top: usage reads this module as it loads
     held = {name: prov for name, prov in staffing._cached_providers().items()
             if name in cfg["providers"]}
@@ -175,13 +176,20 @@ def roles(cfg):
     def spent(name, rows):
         """[points, dollars] `rows`, (tokens, account, model, counts, listed_usd) each, took on
         model `name`'s provider; None where one has no listed price or its login no week."""
-        # One of no token took nothing, whatever its model and login: a harness files a message
-        # it made up itself under a model no board lists.  Tokens unknown are None, and priced.
-        rows = [row for tokens, *row in rows if tokens != 0]
-        each = [(100 * dollars / week, dollars) for account, model, counts, listed_usd in rows
-                if (dollars := _cost(prices, model, counts, listed_usd)) is not None
-                and (week := weeks.get((providers[name], account))) is not None]
-        return [sum(one) for one in zip(*each)] if len(each) == len(rows) else None
+        each = []
+        for tokens, account, model, counts, listed_usd in rows:
+            # One of no token took nothing, whatever its model and login: a harness files a
+            # message it made up itself under a model no board lists.  `tokens` and counts say
+            # so together: a total may rise with no count or stay 0 while one rises, and a row
+            # attributed only by its total leaves its counts unknown.
+            if tokens == 0 and not any(counts) and not listed_usd:
+                each.append((0.0, 0.0))
+            elif ((dollars := _cost(prices, model, counts, listed_usd)) is None
+                  or (week := weeks.get((providers[name], account))) is None):
+                return None
+            else:
+                each.append((100 * dollars / week, dollars))
+        return [sum(one) for one in zip(*each)]
     samples = {}
     for (run, role), (name, effort, turns) in did.items():
         rows = kept.get((run, role), [])

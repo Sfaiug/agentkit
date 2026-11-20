@@ -5,9 +5,8 @@ naming that model and effort took, at listed prices, times 100 over each row's l
 ended naming them and started no earlier than the first such row.  The orchestrator's other rows
 are scaled by what those seats paid a board dollar, not by what the worker roles' runs paid.  A
 model and effort no such run names, a row with no listed price or a login with no week leaves no
-share.  A row whose `tokens` are 0 takes nothing, whatever its model and login and whether it
-tells its counts, as a worker's turn row counting no token does; seats whose rows all are such
-leave no share.
+share; a row of no token costs nothing whatever its model and login, as a worker's turn row of
+none does, and seats or runs with no other row cost nothing a task.
 
 Black-box through tests/fixtures/akbin.py on tests/fixtures/meters.py's harness, with
 tests/test_key_role_cost_from_runs.py's boards, plans and readings in its Home and seat rows and
@@ -82,12 +81,20 @@ class OrchestratorCostFromSeats(unittest.TestCase):
     def test_its_seats_use_a_task_measures_its_row_and_scales_its_others(self):
         own = [("default", "anvil-1", (1_000_000, 0, 2_000_000, 100_000))]
         subagent = [("second", "bloom-1", (100_000, 0, 0, 20_000))]
+        # its `tokens` are 0 and it counts output: it is of some, and costs what it counts
+        output = [("default", "anvil-1", (0, 0, 0, 100_000))]
         self.history.seat(("anvil", "high"), own)
         self.history.seat(("anvil", "high"), subagent, at=NOW - DAY)
-        # rows of no token take nothing: one under a model no board prices, and one telling no
-        # model and no counts on a login with no week
+        self.history.seat(("anvil", "high"), output, tokens=0)
+        # a row of no token costs nothing, though no board prices its model, or though it tells
+        # neither model nor counts on a login with no week
         nothing = [("default", "easel-2", (0, 0, 0, 0)), ("third", None, None)]
         self.history.seat(("anvil", "high"), nothing, tokens=0)
+        # ... and seats or runs with no other row cost nothing a task
+        self.history.seat(("bloom", "low"), nothing, tokens=0)
+        self.history.launch(("bloom", "low"), FIRST)
+        zero = [("third", "easel-2", (0, 0, 0, 0))]
+        self.history.run(("bloom", "low"), "bloom", ["low"], built=[zero], reviewed=[zero])
         # counted: a run launched as the first row was kept, and one after
         for started in (FIRST, NOW - 1.2 * DAY):
             self.history.launch(("anvil", "high"), started)
@@ -96,14 +103,16 @@ class OrchestratorCostFromSeats(unittest.TestCase):
         self.history.launch(("anvil", "high"), NOW - 1.1 * DAY, ended=False)
         self.history.launch(("anvil", "low"), NOW - DAY)
         self.history.launch(("bloom", "high"), NOW - DAY)
-        # a build that pays a board dollar more than the seats do; its turn's row counting no
-        # token takes nothing, under a model no board prices on a login with no week
+        # a build that pays a board dollar more than the seats do; its turn's row of no token
+        # costs nothing, under a model no board prices on a login with no week
         built = [("default", "anvil-1", (2_000_000, 0, 0, 0))]
-        self.history.run(("anvil", "high"), built=[built + [("third", "easel-2", (0, 0, 0, 0))]])
+        self.history.run(("anvil", "high"), built=[built + zero])
         weeks, answer = self.answer()
-        orchestrator = self.points(weeks, own, subagent) / 2
+        orchestrator = self.points(weeks, own, subagent, output) / 2
         self.assertAlmostEqual(answer["task_usage"]["anvil"]["high"]["orchestrator"],
                                orchestrator)
+        self.assertEqual(answer["task_usage"]["bloom"]["low"],
+                         {"orchestrator": 0, "executor": 0, "reviewer": 0})
         self.assertCost(answer, "orchestrate", "anvil-1", "measured", orchestrator)
         # Crown orchestrated nothing: its board dollars, 40, scaled as Anvil's seats scale its 10
         self.assertCost(answer, "orchestrate", "crown-1", "provider", 40 * orchestrator / 10)
@@ -125,20 +134,18 @@ class OrchestratorCostFromSeats(unittest.TestCase):
         self.assertEqual((rows["anvil-1"]["cost_rule"], rows["crown-1"]["cost"]),
                          ("measured", None))
 
-    def test_a_pair_with_no_run_since_its_first_row_no_price_no_week_or_no_token_has_no_share(self):
+    def test_a_pair_with_no_run_since_its_first_row_an_unpriced_row_or_no_week_has_no_share(self):
         priced = [("default", "anvil-1", (1_000_000, 0, 0, 0))]
         self.history.seat(("bloom", "high"), priced)
         self.history.launch(("bloom", "high"), NOW - 2 * DAY)
         self.history.seat(("crown", "high"), priced + [("default", "easel-2", (1, 0, 0, 0))])
-        # tokens of no type under no model are unpriced, not none
+        # tokens that none of its row's counts hold, under no model, have no price
         self.history.seat(("crown", "low"), priced)
         self.history.seat(("crown", "low"), [("default", None, (0, 0, 0, 0))], tokens=50_000)
         self.history.seat(("anvil", "high"), priced + [("third", "anvil-1", (1, 0, 0, 0))])
-        # seats whose only row is of no token
-        self.history.seat(("bloom", "low"), [("default", "anvil-1", (0, 0, 0, 0))])
         self.history.seat(("anvil", "low"), priced)
         for orchestrating in (("crown", "high"), ("crown", "low"), ("anvil", "high"),
-                              ("bloom", "low"), ("anvil", "low")):
+                              ("anvil", "low")):
             self.history.launch(orchestrating, NOW - 1.2 * DAY)
         weeks, answer = self.answer()
         found = answer["task_usage"]
