@@ -27,6 +27,8 @@ class WaitsForLastingLogins(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
+        # GitHub's kept answer, this host may push: its check is of origin's main
+        home.write(".agentkit/state/agentkit-may-push", "true\n")
         home.fake("security", "#!/bin/sh\nexit 1\n")    # no Keychain: the login is the file
         akconfig.write(home, ["opus"])
         cls.install = Install(home)

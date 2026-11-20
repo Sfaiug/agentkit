@@ -43,6 +43,8 @@ class APutBackHoldsUntilItsFix(unittest.TestCase):
     def moved(self):
         """A Home whose tick moved ~/agentkit one commit on: the commit moved to."""
         self.home = home = self.enterContext(Home())
+        # GitHub's kept answer, this host may push: its check is of origin's main
+        home.write(".agentkit/state/agentkit-may-push", "true\n")
         akconfig.write(home, ["opus"])
         self.install = Install(home)
         self.before, after = self.install.head(), self.install.advance()
