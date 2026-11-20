@@ -72,6 +72,8 @@ class AkLeaseCreatesALease(unittest.TestCase):
         remote = remote or machine.install.bare
         value = refs(remote).get(REF)
         self.assertEqual(made(machine), {MADE: value})
+        # a commit itself: `cat-file commit` would read the commit a tag names as well
+        self.assertEqual(_git(remote, "cat-file", "-t", value), "commit")
         head = _git(remote, "cat-file", "commit", value).partition("\n\n")[0]
         empty = _git(remote, "hash-object", "-t", "tree", "/dev/null")
         self.assertEqual(head.splitlines(), [f"tree {empty}", *STAMPED])

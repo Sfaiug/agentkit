@@ -20,7 +20,7 @@ from . import config, gitcall, pair_clock, update
 REF = "refs/agentkit/home"
 MADE = "refs/made/"
 REMOTE = 45     # seconds for each call that reaches the remote
-VALUE = rb"(?:[0-9a-f]{40}|[0-9a-f]{64})"
+VALUE = rb"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})"
 # One address, of printable bytes without a space, that is no option: the one string git
 # resolved, which the read and the write each take whole.
 ADDRESS = re.compile(rb"(?!-)[!-~]+\n")
