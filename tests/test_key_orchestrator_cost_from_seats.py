@@ -5,7 +5,9 @@ naming that model and effort took, at listed prices, times 100 over each row's l
 ended naming them and started no earlier than the first such row.  The orchestrator's other rows
 are scaled by what those seats paid a board dollar, not by what the worker roles' runs paid.  A
 model and effort no such run names, a row with no listed price or a login with no week leaves no
-share.
+share.  A seat row counting no token, in all or of a type, is not read:
+a row of no token costs nothing whatever its model and login, starts no count of runs, and a pair
+with no other row has no share.
 
 Black-box through tests/fixtures/akbin.py on tests/fixtures/meters.py's harness, with
 tests/test_key_role_cost_from_runs.py's boards, plans and readings in its Home and seat rows and
@@ -80,6 +82,10 @@ class OrchestratorCostFromSeats(unittest.TestCase):
         subagent = [("second", "bloom-1", (100_000, 0, 0, 20_000))]
         self.history.seat(("anvil", "high"), own)
         self.history.seat(("anvil", "high"), subagent, at=NOW - DAY)
+        # not read: a row of no token, of a model no board prices on a login with no week, kept
+        # before the run below that no row came before
+        self.history.seat(("anvil", "high"), [("third", "easel-2", (0, 0, 0, 0))],
+                          at=NOW - 2.5 * DAY)
         # counted: a run launched as the first row was kept, and one after
         for started in (FIRST, NOW - 1.2 * DAY):
             self.history.launch(("anvil", "high"), started)
@@ -123,7 +129,9 @@ class OrchestratorCostFromSeats(unittest.TestCase):
         self.history.seat(("crown", "high"), priced + [("default", "easel-2", (1, 0, 0, 0))])
         self.history.seat(("anvil", "high"), priced + [("third", "anvil-1", (1, 0, 0, 0))])
         self.history.seat(("anvil", "low"), priced)
-        for orchestrating in (("crown", "high"), ("anvil", "high"), ("anvil", "low")):
+        self.history.seat(("crown", "low"), [("default", "anvil-1", (0, 0, 0, 0))])
+        for orchestrating in (("crown", "high"), ("anvil", "high"), ("anvil", "low"),
+                              ("crown", "low")):
             self.history.launch(orchestrating, NOW - 1.2 * DAY)
         weeks, answer = self.answer()
         found = answer["task_usage"]
