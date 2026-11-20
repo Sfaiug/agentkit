@@ -1,5 +1,5 @@
 """Each usage row of a seat's tokens keeps them by type, with the model and login they were
-spent on.
+spent on, and the model and effort their seat orchestrates with.
 
 A tick files each usage line of a seat's conversations in history.db's `seat_usage`, its tokens
 summed, and beside them its counts of input, cache-written, cache-read and output tokens, its
@@ -9,7 +9,10 @@ the lines Claude Code writes for one message, the one counting the most is kept.
 counts are the growth of each running count in its rollout's `total_token_usage` since the step
 before, its input less the cached and cache-written input it holds, a count the rollout leaves
 out being 0; its model is the latest turn's before it in its rollout.  A seat moved to another
-login has the lines read after the move filed under that one.
+login has the lines read after the move filed under that one.  Each row also names the model the
+seat's record orchestrates with as the tick reads the line, and the effort its record holds for
+that model orchestrating, else the model's entry's: a seat moved to another model or effort has
+the lines read after the move filed under those, a repeat counting more among them.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each
 tick in the box `home.tick()` builds, on seats of tests/fixtures/akseat.py whose conversations
@@ -104,13 +107,33 @@ def rows(home):
     return found
 
 
+def orchestrating(home):
+    """Each project's seat usage, as (seconds past T0, orchestrator, effort) rows."""
+    found = {}
+    with closing(sqlite3.connect((home.path / ".agentkit/history.db").as_uri() + "?mode=ro",
+                                 uri=True)) as db:
+        for repo, at, *kept in sorted(db.execute(
+                "SELECT repo, at, orchestrator, effort FROM seat_usage WHERE tokens != 0")):
+            found.setdefault(repo, []).append((round(at - T0, 3), *kept))
+    return found
+
+
+def update(home, seat, **fields):
+    """Seat `seat`'s record with `fields` over it, as ak moves a seat."""
+    record = home.path / f".agentkit/state/session-{seat}.json"
+    record.write_text(json.dumps({**json.loads(record.read_text()), **fields}))
+
+
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class SeatTokensByType(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        akconfig.write(home, ["opus", "astra"])     # no audit, which opens a seat of its own
+        # no audit, which opens a seat of its own
+        akconfig.write(home, {"opus": {}, "astra": {}, "sol": {"harness": "codex",
+                                                              "model": "gpt-6.1-sol",
+                                                              "effort": "medium"}})
         claude = Seat(home, "acme", record={"conversation": CONVERSATION,
                                             "repo": str(home.path / "code/acme")})
         folder = home.path / ".claude/projects" / re.sub(r"[^A-Za-z0-9]", "-", str(claude.cwd))
@@ -146,14 +169,20 @@ class SeatTokensByType(unittest.TestCase):
                       "session_id": THREAD, "cwd": str(codex.cwd),
                       "transcript_path": str(rollout)}})
         tick(home)
-        cls.first = rows(home)
+        cls.first, cls.orchestrated = rows(home), orchestrating(home)
         # The seat moves to another login, its home with it, as ak moves a seat between them.
-        record = home.path / ".agentkit/state/session-beta.json"
-        record.write_text(json.dumps({**json.loads(record.read_text()),
-                                      "account": "second", "home_account": "second"}))
+        update(home, "beta", account="second", home_account="second")
         append(rollout, step(T0 + 30, 25_000, 17_000, 1_000, written=2_400))
         tick(home)
         cls.moved = rows(home)
+        # One seat moves to another model, the other to another effort, a repeat of its line
+        # counting more read after the move.
+        update(home, "beta", orchestrator="sol")
+        update(home, "acme", efforts={"opus": {"effort": "low"}})
+        append(rollout, step(T0 + 40, 26_000, 18_000, 1_100, written=2_400))
+        append(folder / f"{CONVERSATION}.jsonl", said("msg_01acme", T0 + 5.25, 3, 1200, 5000, 90))
+        tick(home)
+        cls.reorchestrated = orchestrating(home)
 
     def test_a_claude_line_keeps_its_four_counts_its_model_and_its_seats_login(self):
         self.assertEqual(self.first["acme"],
@@ -170,6 +199,17 @@ class SeatTokensByType(unittest.TestCase):
         self.assertEqual(self.moved["beta"], self.first["beta"] + [
             (30.0, "second", "gpt-6.1-sol", 400, 600, 3_000, 100, 4_100)])
         self.assertEqual(self.moved["acme"], self.first["acme"])
+
+    def test_a_row_names_the_model_and_effort_its_seat_orchestrates_with(self):
+        # a subagent's line too, whatever model answered it
+        self.assertEqual(self.orchestrated, {
+            "acme": [(5.25, "opus", "xhigh")],
+            "beta": [(6.0, "astra", "xhigh"), (9.0, "astra", "xhigh"), (11.0, "astra", "xhigh"),
+                     (12.0, "astra", "xhigh")]})
+        self.assertEqual(self.reorchestrated, {
+            "acme": [(5.25, "opus", "low")],
+            "beta": [*self.orchestrated["beta"], (30.0, "astra", "xhigh"),
+                     (40.0, "sol", "medium")]})
 
 
 if __name__ == "__main__":

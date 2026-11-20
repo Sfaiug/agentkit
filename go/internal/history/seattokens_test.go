@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ncruces/go-sqlite3"
@@ -45,7 +46,8 @@ func readSeats() bool {
 }
 
 // A source is read on after no seat names it any more, each event once, its cursor in the same
-// commit.
+// commit, and a line Python filed counting less refiled under no orchestrating, as Go reads no
+// seat's effort.
 func TestSeatTokensReadASourceNoSeatNames(t *testing.T) {
 	home(t)
 	conversation := filepath.Join(t.TempDir(), "conversation.jsonl")
@@ -54,7 +56,9 @@ func TestSeatTokensReadASourceNoSeatNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	older(t, "PRAGMA user_version=2", "CREATE TABLE seat_sources (path TEXT PRIMARY KEY, harness TEXT, repo TEXT, cursor TEXT)",
-		"INSERT INTO seat_sources VALUES ('"+conversation+"', 'claude', 'acme', '{}')")
+		"INSERT INTO seat_sources VALUES ('"+conversation+"', 'claude', 'acme', '{}')",
+		"CREATE TABLE seat_usage ("+strings.Join(seatTables[1].columns, ", ")+")",
+		"INSERT INTO seat_usage (event, repo, at, tokens, orchestrator, effort) VALUES ('claude:msg_01acme', 'acme', 1793869205.25, 12, 'opus', 'high')")
 	for range 2 {
 		if !readSeats() {
 			t.Fatal("left to Python")
@@ -67,7 +71,8 @@ func TestSeatTokensReadASourceNoSeatNames(t *testing.T) {
 	defer db.Close()
 	usage := query(t, db, "SELECT * FROM seat_usage")
 	if len(usage) != 1 || usage[0]["event"] != "claude:msg_01acme" || usage[0]["repo"] != "acme" || usage[0]["tokens"] != int64(40) ||
-		usage[0]["output"] != int64(40) || usage[0]["account"] != nil || usage[0]["at"] != 1793869205.25 {
+		usage[0]["output"] != int64(40) || usage[0]["account"] != nil || usage[0]["at"] != 1793869205.25 ||
+		usage[0]["orchestrator"] != nil || usage[0]["effort"] != nil {
 		t.Fatalf("%v", usage)
 	}
 	sources := query(t, db, "SELECT * FROM seat_sources")
