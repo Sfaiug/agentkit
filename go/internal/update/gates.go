@@ -32,7 +32,8 @@ func (u *upgrade) gate(key string) (bool, []string, []string, string) {
 	passed, why := false, "failed"
 	if key == "fresh" {
 		passed, why = u.fresh(env)
-	} else if passed = u.step([]string{"bash", filepath.Join(u.repo, "tests", "live.sh")}, env, liveCap*time.Second); passed {
+	} else if passed = u.step([]string{"bash", filepath.Join(u.repo, "tests", "live.sh")},
+		append(env, "AK_LIVE_NO_MODEL_CALLS=0"), liveCap*time.Second); passed { // with its model turns, whatever the caller exported
 		why = "passed"
 	}
 	if passed {

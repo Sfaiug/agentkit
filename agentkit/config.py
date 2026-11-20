@@ -266,11 +266,8 @@ def child_env():
     AK_RUN_SCOPE go the same way and for the same reason: they are the launch's, not its
     children's -- see `seat_env_names`.  So does AGENTKIT_ACCOUNT: it names the login one
     adapter call is for, and a turn on one account starts nothing that should run on it unasked.
-    AK_LIVE_NO_MODEL_CALLS too: ak decides per live check whether it pays model turns
-    (`update.run_gate`, `update.live_tick`), and an exported one would leave out the turns
-    that alone catch a broken harness.
     """
-    dropped = {RUN_DIR_ENV, "AK_RUN_SCOPE", ACCOUNT_ENV, "AK_LIVE_NO_MODEL_CALLS", *seat_env_names()}
+    dropped = {RUN_DIR_ENV, "AK_RUN_SCOPE", ACCOUNT_ENV, *seat_env_names()}
     return {k: v for k, v in os.environ.items() if k not in dropped}
 
 
