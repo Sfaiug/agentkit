@@ -67,7 +67,7 @@ def _turn():
     if not ADDRESS.fullmatch(told):
         return
     address = told[:-1].decode()
-    repo = config.TMP / "lease" / "repo"
+    repo = _repo()
     env["GIT_DIR"] = str(repo)      # the checkout is the working folder alone from here on
     git("init", "-q", "--bare", "--template=", str(repo))
     held = git("ls-remote", address, REF, timeout=REMOTE)
@@ -102,3 +102,27 @@ def _turn():
     if re.fullmatch(VALUE + b"\n", value):
         git("push", address, f"{value[:-1].decode()}:{REF}", f"--force-with-lease={REF}:",
             timeout=REMOTE, check=False)
+
+
+def proof_age():
+    """Seconds since this machine last knew it was the home, by `age_at_most`: a turn makes a value,
+    named for its stamp, only right after the remote said the lease is this machine's or that there
+    is none, so those stamps are its proofs and the youngest is the one that counts.  None for no
+    proof: none made, or a read that fails, as a clock that cannot be read does; a name holding no
+    stamp is none.  It asks no remote."""
+    repo = _repo()
+    try:
+        code, names, _ = gitcall.tool_run(["git", "for-each-ref", "--format=%(refname)", MADE],
+                                          env={**gitcall.project_env(repo), "GIT_DIR": str(repo)})
+        if code != 0:
+            return None
+        stamps = [pair_clock.read(name[len(MADE):].replace("_", " "))
+                  for name in names.splitlines()]
+        return min((stamp.age_at_most() for stamp in stamps if stamp), default=None)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _repo():
+    """The lease's own repository, where the values this machine made are kept."""
+    return config.TMP / "lease" / "repo"

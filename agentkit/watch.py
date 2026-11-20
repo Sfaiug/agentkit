@@ -49,8 +49,8 @@ from urllib.parse import urlsplit
 
 from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, handback,
                history, host, lease, login_refusals, logins, look, notify, orch, owner, parsed,
-               questions, seat_tokens, staffing, standby, statusbar, transitions, turns, update,
-               usage, versions, worker)
+               pause, questions, seat_tokens, staffing, standby, statusbar, transitions, turns,
+               update, usage, versions, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
@@ -9150,6 +9150,10 @@ def main(argv):
         if standby.takes_over():
             with suppress(Exception):
                 lease._turn()
+        # ... and one that has not known for long that it is the home stands still, none of the
+        # tick's work done
+        if pause.paused():
+            return 0
         try:
             previous = tick_lock_path().stat().st_mtime   # before the lock stamps our start
         except OSError:
