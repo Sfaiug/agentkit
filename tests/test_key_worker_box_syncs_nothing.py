@@ -4,7 +4,7 @@ Nothing a box writes has to survive a crash of the machine, and every sync asked
 host's filesystem commit its journal, holding up every writer on the host.  The kernel refuses
 to sync a pipe, so a command syncing one's writing end, by `os.fsync` and `os.fdatasync`, and
 then everything by `os.sync()`, exits 0 only where no call reached it.  ak answers those calls
-on arm64 and x86-64 alone; elsewhere the class skips.  Black-box: the program `AK_BIN` names runs
+on the six 64-bit machines of KNOWN alone; elsewhere the class skips.  Black-box: the program `AK_BIN` names runs
 from outside through tests/fixtures/akbin.py, with a scripted harness from fakeadapter.py whose
 `sh` step runs PROBE inside the turn; the class skips where bubblewrap cannot box one.
 """
@@ -21,10 +21,10 @@ from fixtures.akbin import Home, boxable
 
 PROBE = "import os; read, write = os.pipe(); os.fsync(write); os.fdatasync(write); os.sync()"
 MACHINE = os.uname().machine
+KNOWN = ("aarch64", "x86_64", "riscv64", "loongarch64", "ppc64le", "s390x")
 
 
-@unittest.skipUnless(MACHINE in ("aarch64", "x86_64"),
-                     f"ak answers syncs inside a box on arm64 and x86-64, not on {MACHINE}")
+@unittest.skipUnless(MACHINE in KNOWN, f"ak answers syncs inside a box on none of {MACHINE}")
 @unittest.skipUnless(boxable(), "no bwrap able to box a turn here")
 class WorkerBoxSyncsNothing(unittest.TestCase):
     def test_a_sync_the_kernel_would_refuse_returns_inside_the_box(self):
