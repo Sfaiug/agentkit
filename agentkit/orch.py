@@ -545,7 +545,7 @@ def can_scope():
     it, however reachable the manager is.  Work detached from there goes in as a service
     instead, which the manager starts inside the slice to begin with.
     """
-    return host.cgroup_contains(f"user@{os.getuid()}.service")
+    return host.user_manager_holds()
 
 
 def in_slice(argv, unit, socket=None, env=None, target_slice=None, properties=()):

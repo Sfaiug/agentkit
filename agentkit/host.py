@@ -144,6 +144,12 @@ def cgroup_contains(name, pid="self"):
     return name in (_cgroup_text(pid) or "")
 
 
+def user_manager_holds():
+    """Whether this user's systemd manager holds this process: its membership lies under
+    `user@<uid>.service`.  One whose membership cannot be read is held by none."""
+    return cgroup_contains(f"user@{os.getuid()}.service")
+
+
 def cgroup_path(relative="", cgroup_root=None):
     root = cgroup_root if cgroup_root is not None else os.environ.get("AK_CGROUP_ROOT", CGROUP_ROOT)
     return Path(root) / relative.lstrip("/")
@@ -617,15 +623,23 @@ def cpu_room():
     but those of the scopes that yield to this process (`_yielding`), the mean of five looks
     over a second: work waiting for a core costs more CPU, and fails more, the more threads
     wait, while CPU used never passes the cores.  None below the top CPU weight, where this
-    process yields itself.  Injected readings give the threads as `cpu_wanted`, with no look.
+    process yields itself, or where no weight can be read, but for a process no user manager
+    holds (`user_manager_holds`): no scope yields to it and it to none, so every thread counts.
+    Injected readings give the threads as `cpu_wanted`, with no look; without it, as their
+    `procs_running` for a process no user manager holds in an injected membership
+    (AK_CGROUP_FILE), as an injected snapshot never reads the real machine's.
     """
     readings = _injected()
     if readings is not None:
         wanted = _reading(readings, "cpu_wanted")
+        if wanted is None and os.environ.get("AK_CGROUP_FILE") and not user_manager_holds():
+            wanted = _reading(readings, "procs_running")
         return None if wanted is None else (_reading(readings, "cpus", "nproc") or 1) - wanted
     yielding = _yielding()
     if yielding is None:
-        return None
+        if user_manager_holds():
+            return None
+        yielding = []
     wanted = []
     for look in range(5):
         if look:
