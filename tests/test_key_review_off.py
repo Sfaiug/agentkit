@@ -40,7 +40,9 @@ class ReviewOff(unittest.TestCase):
         home.env.update(AK_NOTIFY_SINK=None,
                         AK_HOST_READINGS=json.dumps({"cpus": 4, "load": 0, "free_mb": 16000}))
         akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"],
-                       settings={"review_rounds": 1 - rounds if project else rounds})
+                       # a reviewed round is one: no extra one; review off keeps ak's extra rounds
+                       settings={"review_rounds": 1 - rounds if project else rounds,
+                                 **({"extra_rounds": 0} if rounds else {})})
         rules = "---\ntests: test ! -f bad.txt\nhealth: none\nusers: none\n"
         rules += f"review_rounds: {rounds}\n" if project else ""
         rig = Rig(home, "widgets", files={"AGENTS.md": rules + "---\n# Widgets\n"})

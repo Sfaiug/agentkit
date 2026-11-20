@@ -42,7 +42,8 @@ class Run:
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.rig = Rig(cls.home, "widgets")
-        akconfig.write(cls.home, ["opus", "astra"])
+        # no extra round for a finding left: the fixes are the three rounds' alone
+        akconfig.write(cls.home, ["opus", "astra"], settings={"extra_rounds": 0})
         cls.fakes = fakeadapter.install(cls.home, **cls.steps)
         cls.task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
         cls.done = cls.home.ak("run", str(cls.task), "--no-merge", timeout=300)

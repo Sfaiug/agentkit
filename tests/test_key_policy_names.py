@@ -39,6 +39,7 @@ class PolicyNames(unittest.TestCase):
         return sum(turn["role"] == "reviewer" for fake in self.fakes.values() for turn in fake.runs())
 
     def two_rounds(self):
+        # each test's config has no extra round for the one finding left: two rounds are the budget
         self.fakes["claude"].behave("work", "dispute")
         self.fakes["codex"].behave(FAILING)
         done = self.home.ak("run", str(self.task), "--no-merge", timeout=300)
@@ -50,12 +51,13 @@ class PolicyNames(unittest.TestCase):
         self.assertIn("rounds: 2 of 2", (directory / "result.md").read_text().splitlines())
 
     def test_review_rounds_sets_the_budget(self):
-        akconfig.write(self.home, ["opus", "astra"], settings={"review_rounds": 2})
+        akconfig.write(self.home, ["opus", "astra"], settings={"review_rounds": 2, "extra_rounds": 0})
         self.two_rounds()
 
     def test_any_command_migrates_host_keys_and_keeps_every_value(self):
         akconfig.write(self.home, ["opus", "astra"],
-                       settings={"rounds": 2, "review_lines": 120, "seat_lines": 40, "custom_flag": 7})
+                       settings={"rounds": 2, "review_lines": 120, "seat_lines": 40, "custom_flag": 7,
+                                 "extra_rounds": 0})
         expected = akconfig.read(self.home)
         for old, new in (("rounds", "review_rounds"), ("review_lines", "executor_lines"),
                          ("seat_lines", "orchestrator_lines")):

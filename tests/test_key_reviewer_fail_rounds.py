@@ -2,11 +2,13 @@
 
 Rounds are the repair: after a FAIL the executor goes again as a fixer, handed the finding, and
 the reviewer looks again, until the work passes or the task's rounds (three, or fewer if its
-front matter says so) are spent.  Then the run ends FAIL with exit 1, nothing pushed, the work
-kept on its branch, and result.md telling a person what still blocks it, each finding with its
-proof command, and, below the budget's cap, how to carry it on.  Black-box: the program `AK_BIN`
-names runs from outside through tests/fixtures/akbin.py, on a project from gitrig.py, a config
-from akconfig.py, a task from taskfile.py and scripted harnesses from fakeadapter.py.
+front matter says so) are spent, with no extra round for the one finding left (`extra_rounds = 0`;
+tests/test_key_one_finding_left_gets_extra_rounds.py has them).  Then the run ends FAIL with
+exit 1, nothing pushed, the work kept on its branch, and result.md telling a person what still
+blocks it, each finding with its proof command, and, below the budget's cap, how to carry it
+on.  Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
+on a project from gitrig.py, a config from akconfig.py, a task from taskfile.py and scripted
+harnesses from fakeadapter.py.
 """
 
 import json
@@ -30,7 +32,7 @@ def failing_run(cls, front=None):
     cls.home = Home()
     cls.addClassCleanup(cls.home.close)
     cls.rig = Rig(cls.home, "widgets")
-    akconfig.write(cls.home, ["opus", "astra"])
+    akconfig.write(cls.home, ["opus", "astra"], settings={"extra_rounds": 0})
     # each fixer disputes it, as a fixer's done waits on every earlier finding's proof
     cls.fakes = fakeadapter.install(cls.home, claude=["work", "dispute"], codex=REVIEW)
     task = taskfile.write(cls.home, cls.rig.path, "Add retry file", front=front)

@@ -26,7 +26,8 @@ class ResultDecision(unittest.TestCase):
         rig = Rig(home, "widgets")
         gh = GitHub(home)
         gh.grant(rig.slug, "WRITE")
-        akconfig.write(home, ["opus", "astra"], settings={"rounds": 1})
+        # no extra round for a finding left: the one round is the budget
+        akconfig.write(home, ["opus", "astra"], settings={"rounds": 1, "extra_rounds": 0})
         fakeadapter.install(home, claude="work", codex=review)
         task = taskfile.write(home, rig.path, "Add retry file")
         done = home.ak("run", str(task), *flags, timeout=300)

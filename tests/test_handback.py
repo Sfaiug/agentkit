@@ -1686,8 +1686,9 @@ class BlockedRuns(unittest.TestCase):
             check='printf x >>tries; echo "missing after $(wc -c <tries) tries"; false')
         self.assertEqual(code, 1)
         self.assertEqual(state["state"], "fail")           # a FAIL, never a `blocked`
-        self.assertEqual(len(state["round_summaries"]), 3)
-        self.assertEqual(len(self.calls("reviewer")), 3)
+        # the three, then the two extra ones the review's one finding buys
+        self.assertEqual(len(state["round_summaries"]), 5)
+        self.assertEqual(len(self.calls("reviewer")), 5)
         self.assertEqual(len(state["done_when_failure"]["every"]), 1)
 
     def test_a_scratch_run_keeps_its_files_links_each_and_names_its_workspace(self):

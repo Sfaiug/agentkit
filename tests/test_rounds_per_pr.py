@@ -138,6 +138,17 @@ class RoundsPerPr(Sandbox):
                      step="executor", step_round=3, review_pending={"round": 3, "summary": ""})
         self.assertEqual(transitions.allowed_rounds(lp), 1)
 
+    def test_an_extra_round_its_own_record_opens_goes_on_whatever_rounds_it_saved(self):
+        # a record from before policy snapshots may hold more rounds than the host's
+        # review_rounds: its extra round is asked before the change's budget, which it spent
+        found = [{"round": n, "verdict": "FAIL", "finding_count": 1} for n in (1, 2)]
+        lp = SimpleNamespace(rounds=3, rnd=2, run_dir=config.RUNS / "20260101-0600-a", log=lambda _: None,
+                             state={"policy": {"review_rounds": 1}, "round_summaries": found})
+        self.assertTrue(transitions.round_allowed(lp))
+        lp.state["round_summaries"].append({"round": 3, "verdict": "FAIL", "finding_count": 1})
+        lp.rnd = 3
+        self.assertFalse(transitions.round_allowed(lp))      # its one and two extra spent
+
     def test_the_budget_is_what_earlier_runs_left_of_three(self):
         self.assertEqual(run.round_budget(3, 3, pr=URL, what="PR #7"), (3, None))
         self.earlier("20260101-0900-review-pr-widget-7", 1, review_pr=URL, pr=URL)

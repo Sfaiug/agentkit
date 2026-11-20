@@ -461,7 +461,8 @@ sys.exit(1)
     def test_v5l_an_existing_run_spends_a_resumed_round_without_converging(self):
         self.reviews(fail(3), fail(2), fail(1), PASS)
         _, directory, _ = self.launch(rounds=2)
-        state = self.existing_format(directory)
+        # the one finding round 3 leaves buys no extra round: the resumed one is the last
+        state = self.existing_format(directory, policy={**config.policy(), "extra_rounds": 0})
         self.assertFalse(any("finding_count" in e for e in state["round_summaries"]))
         self.assertEqual(run.cmd_resume([directory.name, "--rounds", "3"]), 1, self.log(directory))
         after = record.read_state(directory)
