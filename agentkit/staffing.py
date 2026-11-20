@@ -706,12 +706,16 @@ def exhausted_waits_for(state, providers, cfg=None, workers=None, now=None):
     `resets_at` on any of its meters -- (None, None, True) when no spent provider
     carries a future reset, which reads as a window with no known hour.  A run a
     later merged run replaced waits on no window: the tick stood down, marked
-    `replaced`, and naming an hour would promise a resume that never comes.
+    `replaced`, and naming an hour would promise a resume that never comes.  A run
+    parked for its review waits on a reviewer the tick picks when it resumes: naming
+    one here would be a second pick, which can part from the tick's, so it names none.
     """
     if state.get("replaced"):
         return None, None, False
     if state.get("state") != "exhausted" or not state.get("quota_dry"):
         return None, None, False
+    if not resume_needs_executor(state):
+        return None, None, True
     now = time.time() if now is None else now
     if cfg is None:
         return None, None, True
