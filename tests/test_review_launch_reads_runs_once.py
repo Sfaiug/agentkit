@@ -88,8 +88,8 @@ class ReviewLaunchReadsRunsOnce(Sandbox):
             return read_state(run_dir)
         with patch.object(transitions.run_record, "read_state", counting_read):
             failed = transitions.budget_failed_reviews(self.repo, 3, exclude=launching)
-        self.assertEqual(sorted(failed), sorted((URL.format(number), self.base, heads[number])
-                                                for number in (1, 2, 3, 8)))
+        self.assertEqual(sorted(failed), sorted((URL.format(number), self.base, heads[number], spent)
+                                                for number, spent in ((1, 3), (2, 3), (3, 5), (8, 3))))
         self.assertEqual(len(reads), 59)
         self.assertEqual(max(reads.values()), 1)
 

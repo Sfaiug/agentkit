@@ -112,7 +112,8 @@ class OwnPullRequest(unittest.TestCase):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
         rig, cls.gh = Rig(home, "widgets"), GitHub(home)
-        akconfig.write(home, ["opus", "astra"])
+        # no extra round for the one finding its third review leaves
+        akconfig.write(home, ["opus", "astra"], settings={"extra_rounds": 0})
         cls.fakes = fakeadapter.install(home, claude="pass", codex=REVIEW)
         Seat(home, "acme", cwd=rig.path, alive=False, record={"workers": ["opus", "astra"]},
              planned=True)
