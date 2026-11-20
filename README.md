@@ -3,7 +3,7 @@
 You talk. It ships.
 
 ```bash
-git clone https://github.com/Sfaiug/agentkit ~/agentkit && ~/agentkit/install.sh
+git clone https://github.com/Sfaiug/agentkit ~/agentkit && git -C ~/agentkit reset -q --hard origin/live && ~/agentkit/install.sh
 ```
 
 Type `ak`, press `n` and say what you want. It asks until the goal is clear, works until the change is live or it truly needs you, then tells you once.

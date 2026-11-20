@@ -23,7 +23,8 @@ REMOVED = ("resumable", "starts fresh", "draft unsent", "needs a look", "press r
            "merge turn", "merge-turn", "merge queue", "first to merge",
            "".join(chr(c) for c in (83, 102, 97, 105, 117, 103)))
 # The one place that name belongs: the README's install line, a clone a stranger can run as is.
-CLONE = f"git clone https://github.com/{REMOVED[-1]}/agentkit ~/agentkit && ~/agentkit/install.sh\n"
+CLONE = (f"git clone https://github.com/{REMOVED[-1]}/agentkit ~/agentkit"
+         " && git -C ~/agentkit reset -q --hard origin/live && ~/agentkit/install.sh\n")
 
 
 class Docs(unittest.TestCase):
