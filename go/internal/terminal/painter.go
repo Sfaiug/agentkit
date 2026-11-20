@@ -80,19 +80,6 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	p.up, p.over, p.of, p.known = slices.Clone(lines), slices.Clone(over), screen, !tall
 }
 
-// Holds is what the terminal holds, the lines last written and the screen they are on, or nil where
-// that is not known: what a theme chosen comes down over (motion.Clock.Turned).
-func (p *Painter) Holds() ([]string, Screen) {
-	if !p.known {
-		return nil, Screen{}
-	}
-	return p.up, p.of
-}
-
-// Kept is line written as a row of this screen, its tail cleared, in this screen's theme whatever
-// screen it goes out on: a row of what was up before a theme was chosen (motion.Clock.Turned).
-func (s Screen) Kept(line string) string { return s.paint(cleared(line, s)) }
-
 // paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the theme's
 // background, in its text wherever it sets no colour, each reset putting both back, and the terminal
 // its own colours again after it, for whatever has it next.  At eight colours, whose tones read on any

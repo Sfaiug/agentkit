@@ -20,8 +20,6 @@ type Clock struct {
 	seen   map[string]shown
 	still  time.Duration // when all this draw holds is still; forever while something breathes
 	grown  bool          // the opening lines reached their lengths, or a key finished them
-	// while a theme chosen comes down the screen, its rows as they were up in the one before (Turned)
-	turning []terminal.Span
 }
 
 // shown is a value a draw showed, what it showed before and since when, where it changed while

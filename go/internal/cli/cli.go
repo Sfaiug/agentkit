@@ -22,7 +22,7 @@ import (
 	"agentkit/internal/update"
 )
 
-// colours says each role's colour in the theme in force, on one line: what Ctrl-b m's popup asks as
+// colours says each role's colour in the shades kept, on one line: what Ctrl-b m's popup asks as
 // the key is pressed (tmux.ColoursVerb).
 func colours(roles []string, out io.Writer) int {
 	said := make([]string, len(roles))

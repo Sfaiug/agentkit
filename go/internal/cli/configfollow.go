@@ -16,8 +16,7 @@ const followEvery = time.Second
 // last was, however many keys or pointer moves come meanwhile, and on the goroutine that draws so
 // a read cannot land over a save (menu.config_matrix).  A record that reads differently becomes
 // the selection and says `wake`, to be drawn; one that reads the same draws nothing, so a screen
-// left alone writes nothing, and one that will not read keeps the last that did.  A `wake` before
-// then is the screen's own, a frame due, and says so.
+// left alone writes nothing, and one that will not read keeps the last that did.
 func followSeat(session string, keyboard *terminal.Keyboard) func(*matrix.Configuration) terminal.Key {
 	due := time.Now().Add(followEvery) // the record was read as `c` opened
 	return func(c *matrix.Configuration) terminal.Key {
@@ -35,7 +34,7 @@ func followSeat(session string, keyboard *terminal.Keyboard) func(*matrix.Config
 			follow := time.AfterFunc(time.Until(due), keyboard.Wake)
 			key := keyboard.ReadKey()
 			follow.Stop()
-			if key.Name != "wake" || time.Now().Before(due) {
+			if key.Name != "wake" {
 				return key
 			}
 		}
