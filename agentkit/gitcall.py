@@ -323,7 +323,9 @@ def in_progress(wt, *hows):
 
 
 def gh(cwd, *args, timeout=None, once=False):
-    """(exit code, output); the code is None when the command ran out of time.
+    """(exit code, output); the code is None when the command ran out of time.  The output is
+    gh's stdout, with its stderr after it only when it failed: a diagnostic beside an answer is
+    no part of it.
 
     A run's call that fails while GitHub's own count says its API allowance is spent waits
     for the reset and asks again, for as long as GitHub says spent, so a checks wait, merge,
@@ -335,7 +337,7 @@ def gh(cwd, *args, timeout=None, once=False):
         code, out, err = tool_run(["gh", *args], cwd=cwd, timeout=timeout, once=once)
         reset = allowance_reset(cwd) if code and not once else None
         if reset is None:
-            return code, (out + err).strip()
+            return code, (out if code == 0 else out + err).strip()
         from . import turns     # turns imports this module
         run_dir = config.RUNS / _RUN_CONTEXT.state["run_id"]
         if reset != said:
