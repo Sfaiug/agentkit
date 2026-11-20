@@ -3,7 +3,9 @@ at the mean over the task runs that ended where it did it of the points of a wee
 rows took: at listed prices, times 100 over each row's login's `week_listed_usd` (`ak usage
 --json`).  A counted turn with no row, or a row with no listed price, leaves its run out of the
 role, reviews naming two efforts out of the reviewer's, as does a run running again (resumed);
-a model with no runs keeps its estimate.
+a model with no runs keeps its estimate.  Where the plans its provider's logins are on have list
+prices, the role costs those points of a week of their mean plan in dollars, a week 12/52 of a
+month.
 
 Black-box through tests/fixtures/akbin.py on tests/fixtures/meters.py's harness, with invented
 boards, plans, readings, seat spend and finished runs in its Home.  Fails against /bin/false.
@@ -12,6 +14,7 @@ boards, plans, readings, seat spend and finished runs in its Home.  Fails agains
 from contextlib import closing
 import json
 from pathlib import Path
+import shutil
 import sqlite3
 import sys
 import time
@@ -105,7 +108,7 @@ class RoleCostFromRuns(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
-        meter = meters.install(self.home)
+        self.meter = meter = meters.install(self.home)
         # the echo harness lists no models, so no [defaults] model names its company: Acme,
         # the boards' maker, is named, or no row would be compared
         akconfig.write(self.home, {name: {"harness": "echo", "model": f"{name}-1"}
@@ -187,6 +190,37 @@ class RoleCostFromRuns(unittest.TestCase):
                          {"anvil": {"high": ["executor"]}, "bloom": {"high": ["reviewer"]}})
         self.assertAlmostEqual(found["anvil"]["high"]["executor"], self.points(weeks, kept))
         self.assertAlmostEqual(found["bloom"]["high"]["reviewer"], self.points(weeks, review))
+
+    def test_a_measured_cost_is_in_dollars_of_the_plans_its_providers_logins_hold(self):
+        with open(self.meter.dir / "echo.toml", "a") as toml:
+            toml.write("\n[plans]\nMax = 100\nPro = 20\n")
+        # bolt's models run on a copy of it, `chime`, as a harness's spend is a provider's only
+        # where it runs that provider's models alone
+        for suffix in (".sh", ".toml"):
+            shutil.copy2(self.meter.dir / f"echo{suffix}", self.meter.dir / f"chime{suffix}")
+        # bolt has no usual login: its one, named, is on Pro, and its week holds $20
+        akconfig.write(self.home, {"anvil": {"harness": "echo", "model": "anvil-1"},
+                                   "crown": {"harness": "chime", "model": "crown-1",
+                                             "provider": "bolt"}},
+                       settings={"companies": ["Acme"]},
+                       providers={"acme": {"mode": "subscription",
+                                           "accounts": ["default", "second"]},
+                                  "bolt": {"mode": "subscription", "accounts": ["work"]}})
+        logins = json.loads((self.home.path / ".agentkit/state/logins.json").read_text())
+        logins["bolt"] = {"work": {"email": "work@bolt.test", "ends": None, "plan": "Pro",
+                                   "checked_at": NOW}}
+        self.home.write(".agentkit/state/logins.json", logins)
+        self.meter.week("bolt", "work", used=50)
+        self.history.week("bolt", "work", "chime", "crown-1", 2.5e6, 50, "Pro")
+        self.history.run(("anvil", "high"), built=[[("default", "anvil-1", (200_000, 0, 0, 0))]])
+        self.history.run(("crown", "high"), built=[[("work", "crown-1", (500_000, 0, 0, 0))]])
+        answer = self.answer()[1]
+        self.assertEqual(answer["execute"]["cost_unit"], "money")
+        share = lambda model: answer["task_usage"][model]["high"]["executor"]
+        # acme's logins are on Max and Pro: $60 a month, though its usual one is on Max
+        for release, model, price in (("anvil-1", "anvil", 60), ("crown-1", "crown", 20)):
+            self.assertCost(answer, "execute", release, "measured",
+                            share(model) / 100 * price * 12 / 52)
 
 
 if __name__ == "__main__":

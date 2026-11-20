@@ -161,7 +161,8 @@ def _costs(rated, lineup, cfg, logins, shares):
     """Prices the rows of each role of `rated` ({role: `quality.rated`'s rows}) and returns the
     one unit every role is in: `board_dollars`, the boards' price of their own task, before any
     run of yours measured a row of `lineup`; else `money`, dollars a task, where a provider your
-    runs measured has a price a month (`usage.price`); else `share`, points of a week.  A week
+    runs measured has a price a month; else `share`, points of a week.  A provider's price is
+    the mean of its `logins`' that have one, else its usual login's (`usage.price`).  A week
     of a plan is 100 points, or 12/52 of its price, else of the mean price of the measured
     providers with one.  Each offered model `found` as one release alone measures its rows at
     the points of its provider's week and the listed dollars its runs took (`shares`), a point
@@ -206,8 +207,11 @@ def _costs(rated, lineup, cfg, logins, shares):
                        provider=None)
     if not measured:
         return "board_dollars"
+    def price(provider):    # a share is of its logins' weeks, any of which pays the next task
+        held = [one for one, _ in logins.get(provider, ()) if one is not None]
+        return sum(held) / len(held) if held else usage.price(cfg, provider)
     # every provider your runs measured, though no row the boards rate is its measured model
-    prices = {provider: usage.price(cfg, provider) for provider in {
+    prices = {provider: price(provider) for provider in {
         cfg["models"][name]["provider"] for name in config.offered(cfg) if shares.get(name)}}
     known = [price for price in prices.values() if price is not None]
     mean = sum(known) / len(known) if known else None
