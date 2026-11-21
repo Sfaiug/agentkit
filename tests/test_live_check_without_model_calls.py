@@ -82,6 +82,8 @@ class LiveCheckWithoutModelCalls(unittest.TestCase):
             ran[bool(asked)] = {line.removeprefix("ran ") for line in proc.stdout.splitlines()
                                 if line.startswith("ran ")}
         self.assertEqual(ran[True], suite.LIVE_CHECKS - suite.MODEL_CALLS)
+        # the usage check reads every provider's meter, and Muse's costs a request to its model
+        self.assertNotIn("1", ran[True])
         # each group it runs a part of, it runs whole but for MODEL_CALLS
         for group in suite.DEPENDENCIES:
             if ran[True] & set(group):
