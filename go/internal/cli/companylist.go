@@ -54,21 +54,22 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 			key = frame.Pressed(key) // a key-line item does what its key does
 		}
 		switch {
-		case key.Name == "again":
-			painter.Forget()
-			continue
-		case key.Name == "wake": // the boards landed: drawn again
+		case key.Name == "again" || key.Name == "wake": // a resize, or the boards landed: drawn again
+			if key.Name == "again" {
+				painter.Forget()
+			}
+			keyboard.Unread(view.Pointer.Resting()...) // what that draw puts under the pointer has it
 			continue
 		case key.Name == "pointer" && !key.Mouse.Released && key.Mouse.Button&(32|64) == 0:
 			continue // the button going down lights nothing: the click is when it comes up (read_key)
 		case view.Away && (key.Name == "space" || key.Name == "enter"):
-			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it
+			view.Away, view.Pointer = false, terminal.Mouse{} // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
 		}
 		if key.Name != "pointer" || key.Mouse.Released || key.Mouse.Button&64 != 0 {
 			view.Note = "" // the pointer passing over keeps what was said
 		}
-		view.Away = false
+		view.Away, view.Pointer = false, terminal.Mouse{} // a key has the highlight
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return dropped(rows, view)

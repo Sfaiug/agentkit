@@ -35,7 +35,7 @@ func companyAdded(view menu.CompanyListView, keyboard *terminal.Keyboard, painte
 // picks the row the keys are on, or Esc goes back: that row, or -1.
 func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Keyboard, painter *terminal.Painter) int {
 	at, top, away := 0, 0, false
-	var pointer terminal.Mouse // where it was read last
+	var pointer terminal.Mouse // where it was read last while it has the highlight
 	var clicks terminal.Clicks
 	for {
 		screen := keyboard.Screen()
@@ -50,16 +50,17 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 		switch {
 		case key.Name == "again":
 			painter.Forget()
+			keyboard.Unread(pointer.Resting()...) // what the new draw puts under the pointer has it
 			continue
 		case key.Name == "wake": // the boards landed, which only the company list reads
 			continue
 		case key.Name == "pointer" && !key.Mouse.Released && key.Mouse.Button&(32|64) == 0:
 			continue // the button going down lights nothing: the click is when it comes up (read_key)
 		case away && (key.Name == "space" || key.Name == "enter"):
-			away = false // pressed with no highlight drawn: it only comes back where the keys left it
+			away, pointer = false, terminal.Mouse{} // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
 		}
-		away = false
+		away, pointer = false, terminal.Mouse{} // a key has the highlight
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return -1

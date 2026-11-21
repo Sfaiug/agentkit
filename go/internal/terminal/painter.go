@@ -38,7 +38,7 @@ func NewPainter(out io.Writer) *Painter { return &Painter{out: out} }
 // which addressing would stack on the last; what is up after it is unknown.  A span goes out where
 // it is not up as it is, or the row under it went out; a row past the lines a span left is cleared.
 func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
-	tall := screen.Scrolled(len(lines)) > 0
+	tall := len(lines) > screen.Height()
 	whole := !p.known || screen != p.of || tall || time.Since(p.whole) >= Tick
 	left, wrapped := moved(p.over, over), onto(p.up, p.of)
 	past := false // a span left a row past the lines, which no line writes over
@@ -82,12 +82,12 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 
 // Scrolled is how many rows Write scrolls the screen by to put up a frame of `lines` rows: one
 // taller than the screen goes out whole, each row ended by a newline, so its first rows go off the
-// top and the screen's last row is left blank.
+// top and the screen's last row is left blank.  None is known on a screen no Keyboard measured.
 func (s Screen) Scrolled(lines int) int {
-	if lines <= s.Height() {
+	if s.height == 0 || lines <= s.height {
 		return 0
 	}
-	return lines - s.Height() + 1
+	return lines - s.height + 1
 }
 
 // paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the theme's

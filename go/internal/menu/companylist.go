@@ -14,7 +14,8 @@ import (
 // with a listed model and yours (matrix.Companies), the releases on (matrix.Compared), the row of
 // Shown the keys are on, `+ add a company` after the last, and its cell, 0 the name; the first
 // line of the page; whether the pointer left every row, which draws none lit, and where it was
-// read last; and what to say under the count, why a change was not saved.
+// read last while it has the highlight, the zero Mouse once a key took it; and what to say under
+// the count, why a change was not saved.
 type CompanyListView struct {
 	Title, Note      string
 	Listed           []matrix.Company

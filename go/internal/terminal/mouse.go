@@ -13,6 +13,15 @@ type Mouse struct {
 	Released                     bool
 }
 
+// Resting is the pointer read again where it was read, as a move there with no button, for a
+// draw that may have put something else under it (Keyboard.Unread); none for the zero Mouse.
+func (m Mouse) Resting() []Key {
+	if m == (Mouse{}) {
+		return nil
+	}
+	return []Key{{Name: "pointer", Mouse: Mouse{Column: m.Column, Row: m.Row, Button: 35}}}
+}
+
 func mouseKey(body string) Key {
 	parts := strings.Split(body[1:len(body)-1], ";")
 	if len(parts) != 3 {
