@@ -17,6 +17,7 @@ import shlex
 import subprocess
 import tempfile
 import time
+from collections import Counter
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
@@ -1593,6 +1594,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
              "finding_count": len(submitted.findings),
+             "files": dict(Counter(row["path"] for row in submitted.findings)),
              "summary": summary.strip(), **validation, **passed})
         if transitions.rescope(lp.state, len(submitted.findings)):
             # its budget ends at the rounds it recorded, so whatever asks whether a run's
