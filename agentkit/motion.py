@@ -513,7 +513,7 @@ class Clock:
         comes, from COMES -- or from where it still fades there -- onto the selection in LANDS
         seconds; where it left, on what is still there, from where it was into the background in
         LEAVES: at rest on a screen up first or at another size, and where nothing can;
-        after `hold`, where it comes too."""
+        after `hold`, where it comes too, and what it left there fades where its text `stays`."""
         was, self.lights, glows, self.glows = self.lights, terminal.lights(), self.glows, {}
         size, self.size = self.size, (terminal.width(), terminal.height())
         held, self.held = self.held, False
@@ -535,9 +535,19 @@ class Clock:
             if what in was:
                 glow = (now, LEAVES, lighting(glow, now) if glow else SELECTED, BACKGROUND,
                         was[what])
-            still = [span for span in glow[4] if terminal.held(*span[:2]) == what]
+            # under a card its row is no spot (terminal.confirm): there it is its text that stays
+            still = [span for span in glow[4]
+                     if terminal.held(*span[:2]) == what or held and self.stays(*span)]
             if still:
                 self.glows[what] = *glow[:4], still
+
+    def stays(self, row, first, last):
+        """Whether cells `first` to `last` of `row` read in this draw as in the last, cell for
+        cell, but that the highlight's mark, gone with it, is a space."""
+        was, now = (terminal.plain(terminal.columns(lines[row - 1], first, last), True).rstrip()
+                    if row <= len(lines) else None for lines in (self.up, terminal.on_screen()))
+        return was is not None and (was == now or now is not None and was[:1] in ("›", ">")
+                                    and now[:1] in ("", " ") and was[1:] == now[1:])
 
     def rest(self):
         """A key: where the highlight moves, its last frame to write before anything else."""
