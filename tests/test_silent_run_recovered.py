@@ -345,7 +345,7 @@ class V5X(unittest.TestCase):
                                    "effort": "e", "provider": "anthropic"},
                           "astra": {"harness": "codex", "model": "m",
                                     "effort": "e", "provider": "openai"}},
-               "tiers": {"A": ["opus"], "B": ["opus", "astra"]},
+               "defaults": {"orchestrator": "opus", "workers": ["opus", "astra"]},
                "providers": {"anthropic": {}, "openai": {}}}
         run_dir, _ = self.make_run(
             "20260916-0000-v5x-handover",
