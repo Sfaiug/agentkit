@@ -44,8 +44,9 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, motion, orch, terminal, themes
 
-DIM = f"fg=#{terminal.colour('dim', tmux=True)}"
-BORDER = f"fg=#{terminal.colour('border', tmux=True)}"
+# the fake's home keeps no light answer, so the binding draws black
+DIM = f"fg=#{themes.ROLES['dim'][themes.BLACK]}"
+BORDER = f"fg=#{themes.ROLES['border'][themes.BLACK]}"
 OWN = "fg=red,bg=blue,bold"         # a style a pane may have of its own
 STYLES = ("window-style", "window-active-style")   # the active pane draws in the second's colour
 # a pane's own styles: none, one or the other, both empty
