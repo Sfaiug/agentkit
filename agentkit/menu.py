@@ -3196,16 +3196,22 @@ def stands(found, row):
     return id(row) in found["whys"] and row["cost"] is not None
 
 
+def role_steps(cfg, found, kept):
+    """The steps ← and → take (next_choice) of a role's answer `found` (matrix.answer), each
+    (row, model, effort) as a take of it is asked (take_choice): its `choices`, each as the model
+    a take of it takes (matrix.takes) at its effort, and the row of `kept` (model, effort, row)
+    where it stands (`stands`), as the role used it."""
+    name, effort, own = kept
+    return [(one, matrix.takes(cfg, one), one["effort"]) for one in found["choices"]] + (
+        [(own, name, effort)] if stands(found, own) else [])
+
+
 def next_choice(cfg, found, row, step, kept):
     """What ← (`step` -1) or → (1) takes off `row`, the row a role uses, of its answer `found`
     (matrix.answer), the owner's design of 5 Nov 2026: (model, effort) of its next step down or
-    up, in order of cost and on a tie of quality; None past either end.  The steps: its
-    `choices`, each as the model a take of it takes (matrix.takes) at its effort, and the row
-    of `kept` (model, effort, row) where it stands (`stands`), as the role used it.  A `row`
+    up (role_steps), in order of cost and on a tie of quality; None past either end.  A `row`
     that is no step stands at its cost and quality, one with no cost as its best choice."""
-    name, effort, own = kept
-    steps = [(one, matrix.takes(cfg, one), one["effort"]) for one in found["choices"]]
-    steps += [(own, name, effort)] if stands(found, own) else []
+    steps = role_steps(cfg, found, kept)
     here = row if row and row["cost"] is not None else next(reversed(found["choices"]), None)
     if here is None:
         return None
@@ -3905,7 +3911,7 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     after its first two cells further in, so each other's first line stands out.  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
     best choice it is, else, with no choice, the best on the boards, and, where `runs`, the
-    effort a take of it writes (None for a row no take takes), is another than it was rated at,
+    effort a step to it writes (None for a row no step is), is another than it was rated at,
     both, the owner's choice of 20 Nov 2026, its bars keeping the one rated; its cost in `unit`,
     said as UNITS says it, where that comes from (SOURCES) and how far off each of `weeks`
     foretold (week_checked); the rule that makes the choices; and why each model is none (WHYS):
@@ -4089,8 +4095,10 @@ def models_screen(cfg, session, selected, providers):
             # its plans' weeks take seconds to read: the page is drawn without them till they land
             weeks = []
             checking = row and Fetch(lambda name=row["provider"]: plans_checked(cfg, name))
-            taken = row and matrix.takes(cfg, row)      # the effort its take writes (take_choice)
-            runs = taken and _taken_at(cfg, taken, row["effort"])
+            # the effort a step to it writes (take_choice), None for a row no step is
+            step = next(((model, level) for one, model, level
+                         in role_steps(cfg, answer[role], own[role]) if one is row), None)
+            runs = step and _taken_at(cfg, *step)
             clock.forget()            # another screen: the models back from it are as they are
             opened = motion.Clock(page=True)      # the why comes up as a page of `c`'s does
             while row and key != "back":

@@ -6,9 +6,9 @@ leaving the record as it was and `Restart` moving it, on a terminal too short fo
 role lines paged around the question, under the header and their numbers' heading and over the
 key line.  On `· new seats` [defaults] takes the orchestrator at once.  A model its harness lists
 at other efforts is taken at the nearest it lists, a model listing only `none` at `none`, the why
-page of a choice so taken saying both, `rated at high, runs at none`, and of one taken as rated,
-neither.  The key line says `← cheaper` and `better →`, `r` takes nothing, and a save that fails
-changes nothing and says why.
+page of a choice so taken saying both, `rated at high, runs at none`, and of one taken as rated
+or of a row no step is, neither.  The key line says `← cheaper` and `better →`, `r` takes
+nothing, and a save that fails changes nothing and says why.
 
 Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40, and 40 by 16, 15 and
 13 (tests/fixtures/akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own,
@@ -92,12 +92,12 @@ class ArrowsTake(unittest.TestCase):
             self.home.write(f".agentkit/state/session-{name}.json", seat.record)
         self.given = self.config.read_bytes()
 
-    def flat(self, **crew):
-        """The config holding Flat at none, its one effort, beside MODELS, [defaults] `crew`; and
-        the boards FLAT, its row rated at high made its release's default, the one a model at no
-        effort runs."""
+    def flat(self, **given):
+        """The config holding Flat at none, its one effort, beside MODELS, as akconfig.write is
+        `given` the rest; and the boards FLAT, its row rated at high made its release's default,
+        the one a model at no effort runs."""
         akconfig.write(self.home, {**MODELS, "flat": {
-            "harness": "claude", "model": "acme-flat-1", "effort": "none"}}, **crew)
+            "harness": "claude", "model": "acme-flat-1", "effort": "none"}}, **given)
         hold(self.home, FLAT)
         boards = json.loads((self.home.path / ".agentkit/state/boards.json").read_text())
         for row in boards["artificialanalysis.ai"]["rows"]:
@@ -105,9 +105,9 @@ class ArrowsTake(unittest.TestCase):
                 row["slug"] = "acme-flat-1"
         self.home.write(".agentkit/state/boards.json", boards)
 
-    def models(self, width, seat=None, height=60):
+    def models(self, width, seat=None, height=60, choices="three"):
         """`r` on `c`, `width` cells wide and `height` high, over `seat` or in a window of its
-        own, once the orchestrator's choices are drawn."""
+        own, once the orchestrator's `choices` choices are drawn."""
         term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=(width, height),
                         env={**ENV, **({"AGENTKIT_SESSION": seat} if seat else {})})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
@@ -116,7 +116,7 @@ class ArrowsTake(unittest.TestCase):
         term.keys("c")
         term.wait("r recommended")
         term.keys("r")
-        term.wait("orchestrator · three choices")
+        term.wait(f"orchestrator · {choices} choices")
         return term
 
     def path(self, name):
@@ -254,14 +254,18 @@ class ArrowsTake(unittest.TestCase):
 
     def test_the_why_page_of_a_choice_a_take_writes_at_another_effort_says_rated_at_and_runs_at(
             self):
-        for width in WIDTHS:
-            with self.subTest(width=width):
+        # Flat a choice, then switched off in comparisons: a row no step is, ← and → pass it by
+        for width, off in [*((width, []) for width in WIDTHS), (100, ["acme-flat-1"])]:
+            with self.subTest(width=width, off=off):
                 self.fresh()
-                self.flat(**{**CREW, "orchestrator": "flat"})
-                term = self.models(width)
+                self.flat(**{**CREW, "orchestrator": "flat"}, settings={"models_off": off})
+                term = self.models(width, choices="two" if off else "three")
                 term.wait("Acme Flat 1 high")       # what the orchestrator uses, these boards read
                 term.keys("Enter")
                 shown = said(term.wait("why Acme Flat 1 high orchestrates"))
+                if off:
+                    self.assertNotIn("rated at", shown)
+                    continue
                 quality = shown[shown.index(" quality "):shown.index(" cost ")]
                 self.assertIn(" rated at high, runs at none", quality)
                 term.keys("Escape", "Down", "Enter")    # Base, which runs at the high it is rated
