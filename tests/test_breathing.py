@@ -214,15 +214,17 @@ class Breathing(MainScreen):
         self.assertGreater(opened - redrawn, 2)
         self.assert_breathing(waits[redrawn][2], waits[redrawn + 1:opened])
         # `x` in the popup over fix-api asks under its row, and the dots breathe where that screen
-        # put them
-        script = iter([Key("char", "x"), *[None] * 6, Key("esc"), ""])
+        # put them, once the card is up and the highlight it took off that row has faded there
+        # (tests/test_a_cards_highlight.py)
+        script = iter([Key("char", "x"), *[None] * 8, Key("esc"), ""])
         waits = self.run_menu(answer, own="fix-api")
         asked = next(n for n, (_, _, written) in enumerate(waits)
                      if "Stop fix-api and everything it runs?" in terminal.ANSI.sub("", written))
-        self.assertEqual(waits[asked + 7][2][:3], "\033[H")          # Esc kept it: the list
+        self.assertEqual(waits[asked + 9][2][:3], "\033[H")          # Esc kept it: the list
         self.assertNotEqual(self.dots(waits[asked][2]), self.dots(waits[0][2]))
-        up = next(n for n in range(asked + 1, asked + 7) if "Keep" not in waits[n][2])  # it is up
-        self.assert_breathing(waits[asked][2], waits[up:asked + 7])
+        up = next(n for n in range(asked + 1, asked + 9)      # neither is written any more
+                  if not re.search("Keep|fix-api", terminal.ANSI.sub("", waits[n][2])))
+        self.assert_breathing(waits[asked][2], waits[up:asked + 9])
 
     def test_a_resize_as_a_frame_falls_due_draws_the_whole_screen(self):
         script = iter([*[None] * 6, "resize", *[None] * 6, ""])

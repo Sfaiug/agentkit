@@ -354,6 +354,67 @@ class OneHighlight(unittest.TestCase):
                for shown in map(looks, draws(raw.read_text("utf-8")))]
         self.assertTrue(any(acme in fading and beta in coming for fading, coming in lit), lit)
 
+    def tick(self, moment):
+        """ak's clock at `moment`: `AK_MOTION_CLOCK`'s file, which it names, standing still
+        till the test moves it."""
+        clock, new = self.home.root / "clock", self.home.root / "new"
+        new.write_text(moment)
+        new.replace(clock)
+        return str(clock)
+
+    def asked_under(self, name, answer, since):
+        """`x` over `name`'s row, lit, as ak's clock stands at `since`: the row where it was
+        under the card asked under it, and its band's backgrounds then, a tenth of a second
+        on, there still with the pointer moved onto `answer`, and at 0.2 s."""
+        shown = self.rest(lambda shown: starts(shown, f"› 1  {name}") and lit_rows(shown))
+        row = self.row(shown, f"1  {name}")[1]
+        band, backs = lit_rows(shown)[row], []
+        self.term.keys("x")
+        for after, on in (("", "✓ Keep"), (".1", "✓ Keep"), (".1", answer), (".2", answer)):
+            if on == answer and len(backs) == 2:
+                self.term.type(point(*self.row(shown, answer)))
+            self.tick(f"{since}{after}")
+            shown = self.rest(lambda shown: any(f"› {on}" in plain(line) for line in shown))
+            self.assertTrue(starts(shown, f"  1  {name}", row))
+            backs += [{ground(shown[row - 1][column - 1][1]) for column in band}]
+        return backs
+
+    def test_the_row_a_card_is_asked_under_fades_whatever_the_pointer_does(self):
+        # (the owner, 20 Nov 2026: "Build the fade") as the row Down left does, under the stop
+        # card in acme's popup and under past sessions' own, over a seat the owner stopped
+        self.home.write(".agentkit/state/session-crew.json", {
+            "orchestrator": "fable", "workers": ["fable"], "cwd": str(self.home.path),
+            "created": int(time.time()) - 90000})
+        self.home.write(".agentkit/state/seat-crew.json", {
+            "stopped_at": time.time() - 9000, "closed_by_owner": True})
+        self.term = Terminal(self.home, "attach", "--overlay", size=(WIDTH, 40),
+                             env={"AGENTKIT_SESSION": "acme", "COLORTERM": "truecolor",
+                                  "AK_MOTION_CLOCK": self.tick("1000")})
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
+                        "sleep 86400", server=SERVER)
+        self.rest(lambda shown: any("x stop" in plain(line) for line in shown))
+        self.tick("1010")                           # the popup up, its coming over
+        stop = self.asked_under("acme", "× Stop", 1010)
+        self.term.keys("Escape", "p")               # kept: past sessions, opening as it stands
+        self.tick("1030")
+        for backs in (stop, self.asked_under("crew", "× Remove", 1030)):
+            self.assertEqual((backs[0], backs[1], backs[3]), ({SELECTION}, backs[2], {BLACK}))
+            sums = [sum(map(int, back.split(";")[2:])) for (back,) in backs[:2]]
+            self.assertTrue(sums[0] > sums[1] > 0, sums)
+
+    def test_a_meter_under_a_card_is_nothing_the_pointer_lands_on(self):
+        # `a` asks before every session takes a new window's marks: the pointer on ChatGPT's
+        # meter is off its card's answers, as on a row there, so Enter only lights Apply again
+        self.config()
+        self.term.keys("a")
+        self.term.wait("› ✓ Keep")
+        self.term.keys("Down")
+        shown = self.rest(lambda shown: starts(shown, "› × Apply"))
+        self.term.type(point(*self.row(shown, "ChatGPT")))
+        self.rest(lambda shown: starts(shown, "  × Apply"))
+        self.term.keys("Enter")
+        self.rest(lambda shown: starts(shown, "› × Apply"))
+
     def test_in_sixteen_colours_a_seat_has_its_mark_alone(self):
         self.assertEqual(grounds(self.main(TERM="xterm-16color")), {None})
 

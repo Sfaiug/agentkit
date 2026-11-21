@@ -535,7 +535,7 @@ class Clock:
             if what in was:
                 glow = (now, LEAVES, lighting(glow, now) if glow else SELECTED, BACKGROUND,
                         was[what])
-            still = [span for span in glow[4] if terminal.held(*span[:2]) == what]
+            still = [span for span in glow[4] if terminal.held(*span[:2]) == (what, span[3])]
             if still:
                 self.glows[what] = *glow[:4], still
 
@@ -585,7 +585,7 @@ class Clock:
         for what, glow in list(self.glows.items()):
             since, took, *_, spans = glow
             x, rgb = (now - since) / took, painted(lighting(glow, now))
-            for row, left, right in spans:
+            for row, left, right, _ in spans:
                 if row > len(screen):
                     continue
                 text = terminal.columns(screen[row - 1], left, right)
