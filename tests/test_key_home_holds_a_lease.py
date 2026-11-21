@@ -2,13 +2,14 @@
 there swaps in a value the lease never held, so a standby watching it sees it change.  The value is
 made and kept as the create's is (tests/test_key_ak_lease_creates_a_lease.py): a commit of the
 empty tree, no parent, ak's name and dates, under `refs/made/` named for the turn's stamp, and what
-is kept shrinks to the value the turn found and its own.  A lease is the machine's own where its
-lease's repository holds the commit, the ref of it kept or not; another machine's, there before the
-read or put there between the read and the push, is left and no object written.  An unreachable
-origin writes none and keeps what was kept; a push whose answer is lost is the lease the next turn
-swaps from.  A turn while another holds the lease's folder, `.agentkit/tmp/lease`, locked ends
-there: it leaves the origin, the folder and what is in it as they were, and the next turn takes
-its own.  A turn prints nothing and exits 0, and ~/agentkit/.git is left byte for byte.
+is kept shrinks to the value the turn found and its own.  A lease is the machine's own where a ref
+under `refs/made/` names it.  Any other, another machine's there before the read or put there
+between the read and the push, or its own whose ref is gone, is left and no object written, and
+the machine keeps no ref, at that turn and the next.  An unreachable origin writes none and keeps
+what was kept; a push whose answer is lost is the lease the next turn swaps from.  A turn while
+another holds the lease's folder, `.agentkit/tmp/lease`, locked ends there: it leaves the origin,
+the folder and what is in it as they were, and the next turn takes its own.  A turn prints nothing
+and exits 0, and ~/agentkit/.git is left byte for byte.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, a later turn at a later clock, and
@@ -89,6 +90,16 @@ class AHomeHoldsALease(unittest.TestCase):
         self.turn(machine, turn)
         self.assertEqual((machine.install.refs(), made(machine), objects(machine)), before)
 
+    def yields(self, machine, turn):
+        """`machine`'s `turn`th turn, which reads a lease no ref of `machine` names: it leaves the
+        origin's lease and the objects of `machine`'s lease's repository as they were, keeps no
+        ref under refs/made/, and the turn after leaves all so."""
+        origin, held = machine.install.refs(), objects(machine)
+        self.turn(machine, turn)
+        self.assertEqual((machine.install.refs(), made(machine), objects(machine)),
+                         (origin, {}, held))
+        self.leaves(machine, turn + 1)
+
     def test_each_turn_swaps_and_keeps_the_value_it_found_and_its_own(self):
         mini, = self.machines()
 
@@ -138,7 +149,7 @@ class AHomeHoldsALease(unittest.TestCase):
         machines.break_remote("between", mini, refs={REF: theirs})
         self.turn(mini, 1)
         self.assertEqual(mini.install.refs(), {REF: theirs})
-        self.leaves(mini, 2)
+        self.yields(mini, 2)
 
     def test_a_turn_while_another_is_under_way_leaves_all_and_the_next_swaps(self):
         mini, = self.machines()
@@ -165,11 +176,12 @@ class AHomeHoldsALease(unittest.TestCase):
         self.turn(mini, 1)
         self.assertEqual(made(mini), {named(1): mini.install.refs().get(REF)})
 
-    def test_a_value_whose_ref_is_gone_is_swapped_out(self):
+    def test_a_lease_whose_ref_is_gone_is_read_as_another_machines(self):
         mini, = self.machines()
         self.turn(mini, 0)
-        _git(kept(mini), "update-ref", "-d", named(0))
         self.swaps(mini, 1)
+        _git(kept(mini), "update-ref", "-d", named(1))
+        self.yields(mini, 2)
 
 
 if __name__ == "__main__":

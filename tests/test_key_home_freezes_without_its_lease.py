@@ -2,13 +2,14 @@
 whose oldest value kept, the proof that it is the home, is 10 minutes old by either clock or that
 keeps none, writes `1` to the `cgroup.freeze` of ak's slice and exits 0 before the tick's lock: a
 standby that takes a lease standing still finds the home doing nothing.  A turn that reads the
-home's own lease keeps only that value and the one it makes, so an unreachable origin, another
-machine's lease, or an origin that answers reads and refuses pushes pauses it; one that never made
-a value, or lost its lease's folder and so reads its own lease as another's, keeps none.  Any other
-firing that is no dry run and no client's writes `0` there where it reads `1`, whoever froze it: a
-mended origin's second firing, its first having swapped, the firing that makes a home's first
-value, one with no record or one saying `no`.  A freezer's file that is not there is not made.  No
-output of a firing is compared: what a tick prints varies with the clock.
+home's own lease keeps only that value and the one it makes, so an unreachable origin or one that
+answers reads and refuses pushes pauses it at 10 minutes.  One that reads another machine's lease
+keeps none, as one that never made a value does, so it pauses at once and at each firing after,
+the origin reachable or not; one that lost its lease's folder reads its own lease as another's.
+Any other firing that is no dry run and no client's writes `0` there where it reads `1`, whoever
+froze it: a mended origin's second firing, its first having swapped, the firing that makes a
+home's first value, one with no record or one saying `no`.  A freezer's file that is not there is
+not made.  No output of a firing is compared: what a tick prints varies with the clock.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, a later firing at a later clock, and
@@ -151,13 +152,16 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
                 self.paused(home, clock(10))
                 self.paused(home, clock(13))
 
-    def test_another_machines_lease_pauses_the_home_at_10_minutes(self):
-        home, vm = self.machines("acme-mini", "acme-vm")
+    def test_another_machines_lease_pauses_the_home_at_once_reachable_or_not(self):
+        machines = self.machines("acme-mini", "acme-vm")
+        home, vm = machines
         self.home(home)
         home.install.set_ref(REF, None)
         self.assertEqual(vm.ak("lease", env={"AK_NOW": now(4)}).code, 0)
         self.assertNotIn(home.install.refs().get(REF), (None, *made(home).values()))
-        self.paused(home, now(10))
+        self.paused(home, now(6))
+        machines.break_remote("unreachable")
+        self.paused(home, now(9))
 
     def test_a_home_that_lost_its_lease_folder_pauses(self):
         home, = self.machines()
