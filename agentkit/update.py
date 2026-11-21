@@ -1148,6 +1148,10 @@ def owed_live(now):
 
 def may_push():
     """Asks GitHub, keeps its answer; False for a host it never answered."""
+    # The owner, 20 Nov 2026, "Drop all three": every login GitHub lets push pays the turns and
+    # moves `live` (a second machine of the owner's needs just that); a denial ak could not
+    # keep is lost to a tick GitHub does not answer; and a main without tests/live.sh is
+    # taken unchecked (`live_target`), as before there was a `live`.
     kept = config.STATE / MAY_PUSH
     try:
         code, said = gitcall.gh(agentkit_dir(), "api", "repos/{owner}/{repo}", "--jq",
