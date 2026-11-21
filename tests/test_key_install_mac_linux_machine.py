@@ -3,15 +3,13 @@ its client.
 
 ak's worker box, landing gate and limits exist only on Linux.  So a Mac's server install (no saved
 server elsewhere, or `--server`) sets up a Linux machine once, sized from the Mac with a share left
-to macOS, with the account's name and /home/<name>, no folder of the Mac's but an empty one of its
-own to read the Mac's free space through (`host.disk_use`), over virtiofs whatever Lima's defaults
-on the Mac say, and the Mac's
+to macOS, with the account's name and /home/<name>, none of the Mac's folders named in its file
+but a read-only one of its own, and the Mac's
 checkout at the same commit, its origin the Mac's or none where the Mac has none; runs the Linux
 server install in it, with a terminal when it has one; starts it with the Mac; and records it as
 the Mac's server, reached over a local ssh alias.  A second install finds it and changes nothing
-already right; a client stays a client.  However LIMA_HOME names Lima's store, Lima, launchd and
-ssh are each given that folder's own path.  Black-box: install.sh of the checkout `AK_BIN` names,
-or of a Mac's own copy of it, runs in an answer-key Home that is the account's own
+already right; a client stays a client.  Black-box: install.sh of the checkout `AK_BIN` names, or
+of a Mac's own copy of it, runs in an answer-key Home that is the account's own
 (tests/fixtures/installer.py), on a Mac of fakes: `uname`, `df`, `brew`, `fdesetup`, a `sysctl`
 whose boot time is `<root>/boot` and whose boot's id `<root>/session`, a `launchctl` keeping what
 launchd has loaded in `<root>/launchd.json`, a `pmset` keeping its settings in `<root>/pmset.json`,
@@ -21,7 +19,6 @@ machine is a directory, `<root>/guest`, in the state `<root>/machine` names.
 
 import json
 import os
-import plistlib
 import shlex
 import shutil
 import subprocess
@@ -40,8 +37,7 @@ GIB = 1024 ** 3
 # the files Lima leaves.  `<root>/machine` says Running once it starts, Stopped once it stops; a
 # start clears a hang (`<root>/hung`), but not of one already running, and refuses a Broken one.
 # `<root>/memory` holds its GiB, Lima's default 4 until a call's `--memory=` writes it, whatever
-# the machine's state, and `list` reports it in bytes.  Lima fills {{.Dir}} in from LIMA_HOME and
-# takes a mount's folder only by its full path, so `create` refuses a store named any other way.
+# the machine's state, and `list` reports it in bytes.
 LIMACTL = """#!{python}
 import json, os, subprocess, sys
 from pathlib import Path
@@ -58,8 +54,8 @@ if args[:2] == ["autostart", "--help"]:
     sys.exit(0)
 if args[0] == "create":
     lima = Path(os.environ.get("LIMA_HOME", os.environ["HOME"] + "/.lima"), "ak")
-    if not lima.is_absolute():
-        sys.exit(f"field `mounts[0].location` must be an absolute path, got `{{lima}}/free-space`")
+    if "{{{{.Dir}}}}" in " ".join(args) and not lima.is_absolute():    # as Lima 2.2.1 does
+        sys.exit("field `mounts[0].location` must be an absolute path")
     lima.mkdir(parents=True)
     (lima / "lima.yaml").write_text("")
     (lima / "ssh.config").write_text("Host lima-ak\\n")
@@ -252,15 +248,15 @@ class FreshMac(unittest.TestCase):
         self.assertIn('.user.name = "acme"', user)
         self.assertIn('.user.home = "/home/acme"', user)
 
-    def test_it_shares_one_empty_read_only_folder_of_its_own_to_read_the_mac_s_room_through(self):
+    def test_its_file_names_one_read_only_folder_of_its_own_and_lima_gets_its_store_whole(self):
         [create] = self.created()
-        self.assertEqual(create[create.index("--set") + 1].split(" | ")[-1],
-                         '.mounts = [{"location": "{{.Dir}}/free-space", '
-                         '"mountPoint": "/mnt/ak-free-space", "writable": false}]')
-        self.assertEqual(list((self.mac.home.path / ".lima/ak/free-space").iterdir()), [])
-        # Lima's defaults on a Mac may name another kind of mount, or a plain machine, with none
-        for flag in ("--mount-type=virtiofs", "--plain=false"):
-            self.assertIn(flag, create)
+        self.assertIn('.mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": '
+                      '"/mnt/ak-free-space", "writable": false}]', create[create.index("--set") + 1])
+        mac = Mac()
+        self.addCleanup(mac.close)
+        mac.home.env["LIMA_HOME"] = "store"      # the install runs in the account's home
+        mac.install()
+        self.assertTrue((mac.home.path / "store/ak/lima.yaml").exists())
 
     def test_it_is_sized_from_the_mac_leaving_macos_its_share(self):
         [create] = self.created()
@@ -336,30 +332,6 @@ class SmallMac(unittest.TestCase):
         [create] = [call for call in mac.lima() if call[0] == "create"]
         for flag in ("--cpus=2", "--memory=4", "--disk=50"):
             self.assertIn(flag, create)
-
-
-class Store(unittest.TestCase):
-    def test_a_store_named_from_the_install_s_folder_or_past_a_link_is_one_folder_to_all(self):
-        # the install runs in the account's home; a link is followed before the `..` after it
-        for named, own in (("store", "home/store"), ("{root}/link/../store", "far/store")):
-            with self.subTest(named=named):
-                mac = Mac()
-                self.addCleanup(mac.close)
-                root = mac.home.root
-                (root / "far/nested").mkdir(parents=True)
-                (root / "link").symlink_to(root / "far/nested")
-                (root / "store").mkdir()     # where the name leads with its link dropped
-                mac.home.env["LIMA_HOME"] = named.format(root=root)
-                mac.install()
-                machine = root / own / "ak"
-                self.assertTrue((machine / "lima.yaml").exists())
-                self.assertEqual(list((machine / "free-space").iterdir()), [])
-                self.assertEqual(list((root / "store").iterdir()), [])
-                plist = (mac.daemons / "com.agentkit.linux-machine.plist").read_bytes()
-                self.assertEqual(plistlib.loads(plist)["EnvironmentVariables"]["LIMA_HOME"],
-                                 str(machine.parent))
-                self.assertEqual((mac.home.path / ".ssh/config").read_text().splitlines()[0],
-                                 f"Include {machine}/ssh.config")
 
 
 class KeptMachine(unittest.TestCase):

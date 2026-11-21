@@ -78,9 +78,20 @@ func linuxMachine(out, errOut io.Writer) error {
 // machineUp is tools/linux-machine.sh's linux_machine_up: the machine exists, is up and stays up
 // with the Mac, and ssh reaches it.
 func machineUp(name string, out, errOut io.Writer) error {
-	limaHome, err := store()
-	if err != nil {
-		return err
+	limaHome := os.Getenv("LIMA_HOME")
+	if limaHome == "" {
+		limaHome = filepath.Join(config.UserHome(), ".lima")
+	} else if !filepath.IsAbs(limaHome) {
+		// Lima takes a shared folder by its full path alone: a store named from the folder the
+		// install runs in is named whole from here on.
+		wd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		limaHome = wd + "/" + limaHome
+		if err := os.Setenv("LIMA_HOME", limaHome); err != nil {
+			return err
+		}
 	}
 	dir := filepath.Join(limaHome, machineName)
 	if !lima() {
@@ -109,20 +120,15 @@ func machineUp(name string, out, errOut io.Writer) error {
 			return err
 		}
 		cpus, disk := share(cores, 2), share(free>>20, 64) // KiB, in GiB
-		// Debian stable, which boots systemd; --mount-none: the machine sees none of the Mac's folders
-		// but `free-space` in its own, empty and read-only, through which it reads how full the
-		// volume holding its disk is.  Lima fills in {{.Dir}}: no path of the Mac's is in the expression.
-		// The reader counts a virtiofs mount alone and a plain machine mounts nothing, so the
-		// machine's own file says virtiofs and not plain, whatever Lima's defaults on this Mac say.
+		// Debian stable, which boots systemd; --mount-none: the machine's file names none of the
+		// Mac's folders but `free-space` in its own, read-only, which Lima makes as the machine
+		// starts and fills in as {{.Dir}}.  Through it, where Lima shares it over virtiofs, the
+		// machine reads how full the volume holding its disk is.
 		if err := tool(out, errOut, "limactl", "create", "--tty=false", "--name="+machineName,
 			fmt.Sprintf("--cpus=%d", cpus), fmt.Sprintf("--memory=%d", mem), fmt.Sprintf("--disk=%d", disk),
-			"--mount-none", "--mount-type=virtiofs", "--plain=false",
-			"--set", fmt.Sprintf(".user.name = %q | .user.home = %q | "+
+			"--mount-none", "--set", fmt.Sprintf(".user.name = %q | .user.home = %q | "+
 				`.mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": "/mnt/ak-free-space", "writable": false}]`,
 				name, "/home/"+name), "template:debian"); err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Join(dir, "free-space"), 0o755); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "linux: this Mac's Linux machine has %d cores, %d GiB of memory and %d GiB of disk\n", cpus, mem, disk)
@@ -161,33 +167,6 @@ func machineUp(name string, out, errOut io.Writer) error {
 		fmt.Fprintln(out, "power: FileVault is on, so after a restart this Mac waits for its password, and ak's machine stays down until someone enters it")
 	}
 	return reachable(dir, out)
-}
-
-// store is the folder Lima keeps its machines in, the one LIMA_HOME names, else ~/.lima, as
-// linux_machine_up leaves it: there, and LIMA_HOME its own path, whole and with no link in it.
-// One that starts in the install's folder gives Lima no mount, launchd's check a store in / and
-// ssh an Include in ~/.ssh; Lima follows a link before the `..` after it only once the store is
-// there, and filepath.Join drops both.
-func store() (string, error) {
-	named := os.Getenv("LIMA_HOME")
-	if named == "" {
-		named = filepath.Join(config.UserHome(), ".lima")
-	}
-	if !filepath.IsAbs(named) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return "", err
-		}
-		named = wd + "/" + named // unjoined, which keeps such a link
-	}
-	if err := os.MkdirAll(named, 0o700); err != nil {
-		return "", err
-	}
-	own, err := filepath.EvalSymlinks(named)
-	if err != nil {
-		return "", err
-	}
-	return own, os.Setenv("LIMA_HOME", own)
 }
 
 // status is the machine's state as Lima says it: Running, Stopped, or Broken while its host agent
