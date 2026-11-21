@@ -6,14 +6,19 @@ is kept shrinks to the value the turn found and its own.  A lease is the machine
 lease's repository holds the commit, the ref of it kept or not; another machine's, there before the
 read or put there between the read and the push, is left and no object written.  An unreachable
 origin writes none and keeps what was kept; a push whose answer is lost is the lease the next turn
-swaps from.  A turn prints nothing and exits 0, and ~/agentkit/.git is left byte for byte.
+swaps from.  A turn while another holds the lease's folder, `.agentkit/tmp/lease`, locked ends
+there: it leaves the origin, the folder and what is in it as they were, and the next turn takes
+its own.  A turn prints nothing and exits 0, and ~/agentkit/.git is left byte for byte.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, a later turn at a later clock, and
 each case builds its own machines.  What came back is the refs git reads in the origin and in each
-lease's repository, and that repository's objects.
+lease's repository, that repository's objects and `config` file, and what the lease's folder holds.
 """
 
+import contextlib
+import fcntl
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -22,7 +27,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import boxable
 from fixtures.akinstall import _git
 from fixtures.twohomes import Machines
-from test_key_ak_lease_creates_a_lease import REF, STAMPED, kept, lease, made, objects
+from test_key_ak_lease_creates_a_lease import (LEASE, REF, STAMPED, kept, lease, made, objects,
+                                               refs)
 
 
 def now(turn):
@@ -33,6 +39,18 @@ def now(turn):
 def named(turn):
     """The ref under refs/made/ named for the stamp of the `turn`th turn."""
     return "refs/made/" + now(turn).replace(" ", "_")
+
+
+@contextlib.contextmanager
+def under_way(machine):
+    """A turn under way on `machine`, as the test's side sees one: an exclusive lock on its lease's
+    folder, held till the block ends."""
+    folder = os.open(machine.path / LEASE, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(folder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+    finally:
+        os.close(folder)
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
@@ -121,6 +139,31 @@ class AHomeHoldsALease(unittest.TestCase):
         self.turn(mini, 1)
         self.assertEqual(mini.install.refs(), {REF: theirs})
         self.leaves(mini, 2)
+
+    def test_a_turn_while_another_is_under_way_leaves_all_and_the_next_swaps(self):
+        mini, = self.machines()
+        self.turn(mini, 0)
+        repo = kept(mini)
+
+        def held():
+            return (mini.install.refs(), refs(repo), objects(mini),
+                    (repo / "config").read_bytes())
+
+        before = held()
+        with under_way(mini):
+            self.turn(mini, 1)
+        self.assertEqual(held(), before)
+        self.swaps(mini, 2)
+
+    def test_a_first_turn_while_another_is_under_way_makes_nothing_and_the_next_creates(self):
+        mini, = self.machines()
+        folder = mini.path / LEASE
+        folder.mkdir(parents=True)
+        with under_way(mini):
+            self.turn(mini, 0)
+        self.assertEqual((mini.install.refs(), list(folder.iterdir())), ({}, []))
+        self.turn(mini, 1)
+        self.assertEqual(made(mini), {named(1): mini.install.refs().get(REF)})
 
     def test_a_value_whose_ref_is_gone_is_swapped_out(self):
         mini, = self.machines()
