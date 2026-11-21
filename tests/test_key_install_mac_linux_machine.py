@@ -3,17 +3,18 @@ its client.
 
 ak's worker box, landing gate and limits exist only on Linux.  So a Mac's server install (no saved
 server elsewhere, or `--server`) sets up a Linux machine once, sized from the Mac with a share left
-to macOS, with the account's name and /home/<name>, none of the Mac's folders and the Mac's
-checkout at the same commit, its origin the Mac's or none where the Mac has none; runs the Linux
-server install in it, with a terminal when it has one; starts it with the Mac; and records it as
-the Mac's server, reached over a local ssh alias.  A second install finds it and changes nothing
-already right; a client stays a client.  Black-box: install.sh of the checkout `AK_BIN` names, or
-of a Mac's own copy of it, runs in an answer-key Home that is the account's own
-(tests/fixtures/installer.py), on a Mac of fakes: `uname`, `df`, `brew`, `fdesetup`, a `sysctl`
-whose boot time is `<root>/boot` and whose boot's id `<root>/session`, a `launchctl` keeping what
-launchd has loaded in `<root>/launchd.json`, a `pmset` keeping its settings in `<root>/pmset.json`,
-a `sudo` that runs only `pmset`, `tee`, `chmod` and `launchctl`, as root, and a `limactl` whose
-machine is a directory, `<root>/guest`, in the state `<root>/machine` names.
+to macOS, with the account's name and /home/<name>, of the Mac's folders only an empty, read-only
+one of its own where Lima takes one, and the Mac's checkout at the same commit, its origin the
+Mac's or none where the Mac has none; runs the Linux server install in it, with a terminal when it
+has one; starts it with the Mac; and records it as the Mac's server, reached over a local ssh
+alias.  A second install finds it and changes nothing already right; a client stays a client.
+Black-box: install.sh of the checkout `AK_BIN` names, or of a Mac's own copy of it, runs in an
+answer-key Home that is the account's own (tests/fixtures/installer.py), on a Mac of fakes:
+`uname`, `df`, `brew`, `fdesetup`, a `sysctl` whose boot time is `<root>/boot` and whose boot's
+id `<root>/session`, a `launchctl` keeping what launchd has loaded in `<root>/launchd.json`, a
+`pmset` keeping its settings in `<root>/pmset.json`, a `sudo` that runs only `pmset`, `tee`,
+`chmod` and `launchctl`, as root, and a `limactl` whose machine is a directory, `<root>/guest`, in
+the state `<root>/machine` names.
 """
 
 import json
@@ -33,8 +34,10 @@ from fixtures.akinstall import PROGRAM, copy_tracked
 GIB = 1024 ** 3
 # The machine is a directory: `shell` runs its command in the home there, but for ak's own
 # install, which it only records, with whether it had a terminal; `create` and `autostart` leave
-# the files Lima leaves.  `<root>/machine` says Running once it starts, Stopped once it stops; a
-# start clears a hang (`<root>/hung`), but not of one already running, and refuses a Broken one.
+# the files Lima leaves, and `create` refuses a folder that is no full path, as Lima 2.2.1 does
+# `{{.Dir}}` in a store named relatively.  `<root>/machine` says Running once it starts, Stopped
+# once it stops; a start clears a hang (`<root>/hung`), but not of one already running, and
+# refuses a Broken one.
 # `<root>/memory` holds its GiB, Lima's default 4 until a call's `--memory=` writes it, whatever
 # the machine's state, and `list` reports it in bytes.
 LIMACTL = """#!{python}
@@ -53,6 +56,8 @@ if args[:2] == ["autostart", "--help"]:
     sys.exit(0)
 if args[0] == "create":
     lima = Path(os.environ.get("LIMA_HOME", os.environ["HOME"] + "/.lima"), "ak")
+    if "{{{{.Dir}}}}" in args[args.index("--set") + 1] and not lima.is_absolute():
+        sys.exit("field `mounts[0].location` must be an absolute path")
     lima.mkdir(parents=True)
     (lima / "lima.yaml").write_text("")
     (lima / "ssh.config").write_text("Host lima-ak\\n")
@@ -197,8 +202,8 @@ class Mac:
             assert done.code == 0, done.err
         self.script = checkout / installer.INSTALL.resolve().relative_to(PROGRAM)
 
-    def install(self, *args, tty=False):
-        done = self.home.run("bash", str(self.script), *args, tty=tty)
+    def install(self, *args, tty=False, cwd=None):
+        done = self.home.run("bash", str(self.script), *args, tty=tty, cwd=cwd)
         assert done.code == 0, done.out + done.err
         return done
 
@@ -244,6 +249,21 @@ class FreshMac(unittest.TestCase):
         user = create[create.index("--set") + 1]
         self.assertIn('.user.name = "acme"', user)
         self.assertIn('.user.home = "/home/acme"', user)
+
+    def test_it_names_a_read_only_folder_of_its_own_where_lima_takes_one(self):
+        [create] = self.created()
+        mounts = ('.mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": '
+                  '"/mnt/ak-free-space", "writable": false}]')
+        self.assertIn(mounts, create[create.index("--set") + 1])
+        mac = Mac()
+        self.addCleanup(mac.close)
+        mac.home.env["LIMA_HOME"] = "store"
+        where = mac.home.root / "elsewhere"
+        where.mkdir()
+        mac.install(cwd=where)
+        [create] = [call for call in mac.lima() if call[0] == "create"]
+        self.assertNotIn(".mounts", create[create.index("--set") + 1])
+        self.assertTrue((where / "store/ak/lima.yaml").is_file())
 
     def test_it_is_sized_from_the_mac_leaving_macos_its_share(self):
         [create] = self.created()
