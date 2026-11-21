@@ -195,8 +195,10 @@ def unpinned(env):
 
 def pinned(state):
     """The `ak_checkout` `state` keeps, if any: a run that ended in `error` has no process left
-    that depends on its version, so resuming it runs the installed ak."""
-    if not state or state.get("state") == "error" or (
+    that depends on its version, so resuming it runs the installed ak, as does one ended for
+    rescoping, so that the installed ak's refusal holds for it whichever version ended it."""
+    from . import transitions     # here, not at the top: every command starts in this module
+    if not state or state.get("state") == "error" or transitions.rescoped(state) or (
             state.get("state") == "queued" and state.get("resume_from") == "error"):
         return None
     return state.get("ak_checkout")
@@ -212,10 +214,15 @@ def dispatch(argv):
         enter(Path(path))
     elif argv[:2] in (["run", "resume"], ["run", "merge"]):
         args = [arg for arg in argv[2:] if arg != "--bg"] if argv[1] == "resume" else argv[2:]
-        state = (record.read_state(config.RUNS / args[0])
-                 if args and Path(args[0]).name == args[0] and args[0] not in (".", "..")
-                 else None) or {}
-        if code := (state.get("ak_checkout") if argv[1] == "merge" else pinned(state)):
+        run_dir = (config.RUNS / args[0]
+                   if args and Path(args[0]).name == args[0] and args[0] not in (".", "..") else None)
+        state = (record.read_state(run_dir) if run_dir else None) or {}
+        # one in flight, resumed from outside its run, may end before the version it names reads it
+        # again, as one that version carries on and this one refuses (`transitions.rescoped`): this
+        # one decides, and its slot enters that version for the work (`run.run_slot`)
+        in_flight = (argv[1] == "resume" and state.get("state") in record.ACTIVE
+                     and os.environ.get(config.RUN_DIR_ENV) != str(run_dir))
+        if code := (state.get("ak_checkout") if argv[1] == "merge" else not in_flight and pinned(state)):
             with checkout(code) as path:
                 enter(path)
         elif (argv[1] == "resume" and state

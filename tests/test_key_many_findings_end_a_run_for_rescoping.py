@@ -2,8 +2,10 @@
 
 With ak's six, a run whose first review leaves six ends FAIL after that round, as a run that
 spent its rounds ends: its budget is the one round it recorded, its result says why in one
-sentence -- the count, the number, and that the task is to be rescoped -- and its resume is
-refused as at its round budget.  One left five goes on to its second round, as does one left six
+sentence -- the count, the number, and that the task is to be rescoped --, its next step is to
+split the task, and its resume is refused in that sentence, whatever its `--rounds`, its worktree
+cleaned or not, with no worker box, and whichever version ended it (started before the run
+ended too: tests/test_a_resume_as_its_run_ends_for_rescoping.py).  One left five goes on to its second round, as does one left six
 under `rescope_findings = 0`; a project's front matter of four ends a run its review left four.
 Under two, two left at the third round end the run there, with no extra round
 (tests/test_key_one_finding_left_gets_extra_rounds.py) after it.  Black-box: the program
@@ -58,6 +60,20 @@ def run(cls, count, settings=None, files=None):
     cls.result = (cls.run_dir / "result.md").read_text()
 
 
+def older(home):
+    """An older ak's checkout, whose bin/ak would carry a resume on: the file it leaves as it runs."""
+    ran = home.root / "older-ak" / "ran"
+    home.write(ran.parent / "bin/ak", f"from pathlib import Path\nPath({str(ran)!r}).touch()\n")
+    return ran
+
+
+def refused(case, home, run_dir, *more):
+    resumed = home.ak("run", "resume", run_dir.name, *more, timeout=300)
+    case.assertEqual(resumed.code, 2, resumed.out + resumed.err)
+    case.assertIn("The review left 6 blocking findings, at or past rescope_findings = 6: "
+                  "rescope the task.", resumed.err)
+
+
 def rounds(state):
     return [(row["round"], row["verdict"], row["finding_count"]) for row in state["round_summaries"]]
 
@@ -79,6 +95,10 @@ class Ends:
         self.assertEqual(lines[at + 2], f"The review left {self.count} blocking findings, at or past "
                                         f"rescope_findings = {self.number}: rescope the task.")
 
+    def test_its_result_offers_no_more_rounds(self):
+        self.assertEqual(self.result.splitlines()[2], "Next: split the task")
+        self.assertNotIn("ak run resume", self.result)
+
 
 class GoesOn:
     """The run goes on to its second round, which passes."""
@@ -98,12 +118,25 @@ class SixLeft(Ends, unittest.TestCase):
     def setUpClass(cls):
         run(cls, 6)
 
-    def test_its_resume_is_refused_as_at_its_round_budget(self):
-        resumed = self.home.ak("run", "resume", self.run_dir.name, timeout=300)
-        self.assertEqual(resumed.code, 2, resumed.out + resumed.err)
-        self.assertIn(f"{self.run_dir.name} FAILed at its round budget (1); give --rounds N above "
-                      "it, at most 3, to continue", resumed.err)
-        self.assertEqual(json.loads((self.run_dir / "run.json").read_text()), self.state)
+    def test_its_resume_is_refused_for_rescoping(self):
+        for more in ((), ("--rounds", "3"), ("--rounds", "4")):
+            with self.subTest(more=more):
+                refused(self, self.home, self.run_dir, *more)
+                self.assertEqual(json.loads((self.run_dir / "run.json").read_text()), self.state)
+        # its record naming an older ak, which never runs, its worktree cleaned or not, and with
+        # no worker box to be had
+        ran = older(self.home)
+        record = {**self.state, "ak_checkout": str(ran.parent)}
+        self.home.write(self.run_dir / "run.json", record)
+        for step in ("older", "cleaned", "no box"):
+            with self.subTest(step):
+                if step == "cleaned":
+                    self.assertEqual(self.home.ak("run", "clean", self.run_dir.name).code, 0)
+                if step == "no box":
+                    self.home.fake("bwrap", "#!/bin/sh\nexit 1\n")
+                refused(self, self.home, self.run_dir, "--rounds", "3")
+                self.assertFalse(ran.exists())
+                self.assertEqual(json.loads((self.run_dir / "run.json").read_text()), record)
         self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (1, 1))
 
 

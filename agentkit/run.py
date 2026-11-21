@@ -46,7 +46,7 @@ from .transitions import (change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, drop_error_retry, extra_round, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, leaves_line, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
+    queued, report_config, rescoped, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
     stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
@@ -1795,6 +1795,10 @@ def resume_run(argv):
     config.ensure_dirs()
     run_dir = config.RUNS / run_id
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
+    # whatever its --rounds and before anything the host may lack, its worktree cleaned or not:
+    # the task is what changes; asked again below of what a loop ending meanwhile left
+    if state and (why := rescoped(state)):
+        raise config.Error(why)
     refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["review_rounds"])
     if refusal:
         raise config.Error(refusal)
@@ -1845,6 +1849,9 @@ def resume_run(argv):
         if run_record.process_active(state):
             raise config.Error(f"{run_id} is still running as pid {state['pid']}")
         state = reap(run_dir, state)
+    # what a loop that ended since the first look left, read again by `reap` once it is gone
+    if why := rescoped(state):
+        raise config.Error(why)
     if state.get("state") == "blocked":
         # The task itself is what failed, so there is nothing here to carry on: another
         # round would spend a model turn to be told the same thing again.

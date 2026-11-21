@@ -698,11 +698,11 @@ def continue_line(state, run_dir=None):
             and "gave no verdict twice" in (state.get("error") or "")):
         return f"continue: ak run resume {state['run_id']}"
     if failed_at_budget(state):
-        # up to the change's budget across its runs and no further: past it the task is
-        # split or redesigned instead
+        # up to the change's budget across its runs and no further: past it, or with its last
+        # round at its `rescope_findings` (`rescoped`), the task is split or redesigned instead
         cap = lineage_cap(state, run_dir or config.RUNS / state["run_id"])
         return (f"continue: ak run resume {state['run_id']} --rounds {cap}"
-                if state["rounds"] < cap else "")
+                if state["rounds"] < cap and not rescoped(state) else "")
     if failed_in_integration(state, run_dir):
         return f"continue: ak run resume {state['run_id']}"
     if judged_in_integration(state, run_dir):
@@ -1518,6 +1518,15 @@ def rescope(state, count):
         return None
     return (f"The review left {count} blocking finding{'s' * (count != 1)}, at or past "
             f"rescope_findings = {number}: rescope the task.")
+
+
+def rescoped(state):
+    """Why a run that ended failed is carried on by nothing, else None: its last recorded round
+    left its `rescope_findings` (`rescope`), so neither its result (`continue_line`) nor a
+    resume (`run.resume_run`) hands it more rounds, whichever version ended it
+    (`versions.pinned`).  A run an older ak resumed past that round counts its later one."""
+    rows = state.get("round_summaries") or [{}]
+    return state.get("state") == "fail" and rescope(state, rows[-1].get("finding_count") or 0) or None
 
 
 def round_allowed(lp):
