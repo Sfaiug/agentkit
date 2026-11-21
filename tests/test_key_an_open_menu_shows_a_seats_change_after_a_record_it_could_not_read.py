@@ -9,6 +9,7 @@ then shows its new word.  Black-box: the program `AK_BIN` names runs in a person
 (tests/fixtures/akterm.py) beside a seat of tests/fixtures/akseat.py.
 """
 
+import fcntl
 import json
 import sys
 import time
@@ -38,15 +39,17 @@ class AnOpenMenuShowsASeatsChangeAfterARecordItCouldNotRead(unittest.TestCase):
         self.menu.wait(row("acme", "○ idle"), bound=120)
         self.record = self.home.path / ".agentkit/state/seat-acme.json"
         deadline = time.monotonic() + 120
-        # The first look's word, which would land over ours: the look writes what it read first,
-        # then its word, each through the `.tmp` ours goes through.
+        # the first look's word, written a moment after its record, would land over ours
         while not self.record.exists() or "word" not in json.loads(self.record.read_text()):
             self.assertLess(time.monotonic(), deadline, "the screen never looked at acme")
             time.sleep(0.05)
 
     def say(self, state):
-        """The seat's record replaced by one holding `state`, as ak writes one."""
-        self.home.write(self.record.with_suffix(".tmp"), state).replace(self.record)
+        """The seat's record replaced by one holding `state`, as ak writes one: under the
+        record's lock, through the `.tmp` all its writers share."""
+        with self.record.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self.home.write(self.record.with_suffix(".tmp"), state).replace(self.record)
 
     def test_the_row_shows_the_record_once_it_is_whole_again(self):
         self.say({**OUT, "usage_wait": "x"})
