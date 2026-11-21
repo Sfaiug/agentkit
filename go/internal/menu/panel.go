@@ -25,7 +25,9 @@ func Panel(s terminal.Screen, title, clock string, body []string, keys string) [
 // cells (spots), and where its key line's items are, for a click to press their keys (Pressed).
 func matrixPanel(s terminal.Screen, title, clock string, body []string, keys string, top int, spots []matrixRow) MatrixFrame {
 	lines, keyed := Panel(s, title, clock, body, keys), keyLine(s, keys, s.Width(), "")
-	return MatrixFrame{lines, top, spots, spotted(keyed, len(lines)-len(keyed)+1, s.LayoutWidth())}
+	scrolled := s.Scrolled(len(lines))
+	return MatrixFrame{Lines: lines, Top: top, spots: spots, scrolled: scrolled,
+		keySpots: spotted(keyed, len(lines)-len(keyed)+1-scrolled, s.LayoutWidth())}
 }
 
 // panelHeader is `agentkit`, the screen name after it and the clock at the right.  The title gives

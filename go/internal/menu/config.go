@@ -54,26 +54,29 @@ type matrixRow struct {
 }
 
 // MatrixFrame keeps the visible page, its cells and its key line together for keyboard and pointer
-// input.
+// input: its key line where it is up, as the pointer reads it, the frame's first rows gone off the
+// top where it is taller than the screen (terminal.Screen.Scrolled).
 type MatrixFrame struct {
-	Lines []string
-	Top   int
-	spots []matrixRow
+	Lines    []string
+	Top      int
+	spots    []matrixRow
+	scrolled int
 	keySpots
 }
 
 // Hit is the row and cell the pointer is on where they are drawn (terminal.Under), column -1 on the
 // row off its cells; not ok on nothing.
 func (f MatrixFrame) Hit(mouse terminal.Mouse) (row, column int, ok bool) {
-	if mouse.Row <= 0 || mouse.Row > min(len(f.spots), len(f.Lines)) || f.spots[mouse.Row-1].row < 0 {
+	line := mouse.Row - 1 + f.scrolled
+	if mouse.Row <= 0 || line >= min(len(f.spots), len(f.Lines)) || f.spots[line].row < 0 {
 		return 0, 0, false
 	}
-	spot := f.spots[mouse.Row-1]
+	spot := f.spots[line]
 	cells := make([][2]int, len(spot.cells))
 	for i, cell := range spot.cells {
 		cells[i] = [2]int{cell.first, cell.last}
 	}
-	switch at, on := terminal.Under(f.Lines[mouse.Row-1], mouse.Column, cells...); {
+	switch at, on := terminal.Under(f.Lines[line], mouse.Column, cells...); {
 	case !on:
 		return 0, 0, false
 	case at < 0:
@@ -81,6 +84,11 @@ func (f MatrixFrame) Hit(mouse terminal.Mouse) (row, column int, ok bool) {
 	default:
 		return spot.row, spot.cells[at].column, true
 	}
+}
+
+// pointed lights the key-line item the pointer is on (keySpots.light) on the rows it is up on.
+func (f MatrixFrame) pointed(s terminal.Screen, mouse terminal.Mouse) {
+	f.light(s, f.Lines[f.scrolled:], mouse)
 }
 
 // A ConfigMatrix is a draw of `c`: its matrix's frame, and the meters shown over it or paged with
