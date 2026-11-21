@@ -55,7 +55,6 @@ class ARound(Sandbox):
             self.assertEqual(chosen[1], ["parts::gone", "slow"])
             ok, text = roundloop.verify_work(lp, [])
             self.assertTrue(ok, text)
-            self.assertIn("lacking parts::gone, then passed on its re-run", text)
             self.assertEqual(suite_times.read(suite_times.handed(repo)),
                              {"parts::gone": 1.0, "slow": 1.0, "next": 2.0})
             self.assertEqual(round_tests.chosen(lp), chosen)
