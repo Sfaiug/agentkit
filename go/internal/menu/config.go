@@ -54,26 +54,37 @@ type matrixRow struct {
 }
 
 // MatrixFrame keeps the visible page, its cells and its key line together for keyboard and pointer
-// input.
+// input: its key line where it is up, as the pointer reads it, the frame's first rows gone off the
+// top where it is taller than the screen (terminal.Screen.Scrolled).
 type MatrixFrame struct {
-	Lines []string
-	Top   int
-	spots []matrixRow
+	Lines    []string
+	Top      int
+	spots    []matrixRow
+	scrolled int
 	keySpots
+}
+
+// line is the frame's line, from 0, up on the screen's row the pointer is on, -1 for none.
+func (f MatrixFrame) line(mouse terminal.Mouse) int {
+	if at := mouse.Row - 1 + f.scrolled; mouse.Row > 0 && at < min(len(f.spots), len(f.Lines)) {
+		return at
+	}
+	return -1
 }
 
 // Hit is the row and cell the pointer is on where they are drawn (terminal.Under), column -1 on the
 // row off its cells; not ok on nothing.
 func (f MatrixFrame) Hit(mouse terminal.Mouse) (row, column int, ok bool) {
-	if mouse.Row <= 0 || mouse.Row > min(len(f.spots), len(f.Lines)) || f.spots[mouse.Row-1].row < 0 {
+	line := f.line(mouse)
+	if line < 0 || f.spots[line].row < 0 {
 		return 0, 0, false
 	}
-	spot := f.spots[mouse.Row-1]
+	spot := f.spots[line]
 	cells := make([][2]int, len(spot.cells))
 	for i, cell := range spot.cells {
 		cells[i] = [2]int{cell.first, cell.last}
 	}
-	switch at, on := terminal.Under(f.Lines[mouse.Row-1], mouse.Column, cells...); {
+	switch at, on := terminal.Under(f.Lines[line], mouse.Column, cells...); {
 	case !on:
 		return 0, 0, false
 	case at < 0:
@@ -81,6 +92,11 @@ func (f MatrixFrame) Hit(mouse terminal.Mouse) (row, column int, ok bool) {
 	default:
 		return spot.row, spot.cells[at].column, true
 	}
+}
+
+// pointed lights the key-line item the pointer is on (keySpots.light) on the rows it is up on.
+func (f MatrixFrame) pointed(s terminal.Screen, mouse terminal.Mouse) {
+	f.light(s, f.Lines[f.scrolled:], mouse)
 }
 
 // A ConfigMatrix is a draw of `c`: its matrix's frame, and the meters shown over it or paged with
@@ -200,6 +216,7 @@ func ConfigFrame(s terminal.Screen, view ConfigView) ConfigMatrix {
 		}
 		for _, spot := range meterSpots(grid, len(view.Cells), per, row) {
 			if spot.row >= 3 && spot.row <= len(spots) { // on the page, not paged past
+				spot.row -= frame.scrolled // where it is up
 				frame.meters = append(frame.meters, spot)
 			}
 		}

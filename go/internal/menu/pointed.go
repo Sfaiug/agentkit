@@ -43,6 +43,15 @@ func spotted(keys []string, row, layout int) keySpots {
 	return spots
 }
 
+// light puts the item of the key line the pointer is on, of the screen `lines` from its first row,
+// on the selection: the pointer lights what a click there acts on (terminal.lit).
+func (spots keySpots) light(s terminal.Screen, lines []string, mouse terminal.Mouse) {
+	if at := spots.keyAt(mouse); at >= 0 {
+		spot := spots[at]
+		lines[spot.row-1] = s.Selected(lines[spot.row-1], spot.first, spot.last)
+	}
+}
+
 // keyAt is the item of the key line the pointer is on, -1 for none.
 func (spots keySpots) keyAt(mouse terminal.Mouse) int {
 	return slices.IndexFunc(spots, func(spot keySpot) bool {

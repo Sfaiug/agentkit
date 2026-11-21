@@ -10,8 +10,8 @@ import (
 // CompanyAddFrame is `<title> · add a company` (menu.company_add): a row for each of `others`,
 // its name, how many listed models it has and the first, its strongest, laid out by TableRow with
 // the first two columns as wide as their widest; the row `at` lit unless the pointer is `away`, and
-// paged so it is shown.
-func CompanyAddFrame(s terminal.Screen, title string, others []matrix.Company, at, top int, away bool) MatrixFrame {
+// paged so it is shown; while it is away, the key-line item under `pointer` lit.
+func CompanyAddFrame(s terminal.Screen, title string, others []matrix.Company, at, top int, away bool, pointer terminal.Mouse) MatrixFrame {
 	keys := "↑↓ company   ⏎ add   esc back"
 	if s.ASCII() {
 		keys = "up/down company   enter add   esc back"
@@ -33,5 +33,9 @@ func CompanyAddFrame(s terminal.Screen, title string, others []matrix.Company, a
 		}
 		lines, spots = append(lines, line), append(spots, matrixRow{line: line, row: row})
 	}
-	return matrixPanel(s, title, time.Now().Format("15:04"), lines, keys, top, spots)
+	frame := matrixPanel(s, title, time.Now().Format("15:04"), lines, keys, top, spots)
+	if away { // the pointer lights its key-line item only where no row is lit: one highlight
+		frame.pointed(s, pointer)
+	}
+	return frame
 }
