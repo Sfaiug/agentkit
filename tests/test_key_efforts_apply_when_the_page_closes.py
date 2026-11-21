@@ -1,7 +1,9 @@
 """A seat's models page holds each effort stepped on it, with where it began, and applies what it
 holds once, as it closes or before a model is picked on it: the owner (17 Nov 2026), "see the
-closing of the hover menu as kind of like 'apply'".  Black-box: `AK_BIN`, as the popup over a
-seat on Opus 5.5 at `xhigh` in every role (tests/fixtures/akseat.py); fails against `/bin/false`.
+closing of the hover menu as kind of like 'apply'".  It holds no mark: one made is in the seat's
+record before the page closes, and the close applies nothing of it.  Black-box: `AK_BIN`, as the
+popup over a seat on Opus 5.5 at `xhigh` in every role (tests/fixtures/akseat.py); fails against
+`/bin/false`.
 """
 
 import json
@@ -144,6 +146,12 @@ class EffortsApplyWhenThePageCloses(unittest.TestCase):
                 self.closed()
                 self.assertEqual(self.says(role), "xhigh")
                 self.opened()
+
+    def test_a_mark_is_saved_before_the_page_closes_and_the_close_applies_nothing(self):
+        self.term.keys("Down", "Right", "Space")     # Fable 5.1's build mark
+        self.until(lambda: self.record()["workers"] == ["opus", "fable"], "the mark was not saved")
+        self.closed()
+        self.assertEqual(self.record()["workers"], ["opus", "fable"])
 
 
 if __name__ == "__main__":
