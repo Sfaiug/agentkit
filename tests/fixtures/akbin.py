@@ -527,15 +527,24 @@ def _relay(listener, family, address):
         except OSError:
             pass
 
+    def carry(near):
+        with near, socket.socket(family) as far:     # closed once both ways have ended
+            try:
+                far.connect(address)
+            except OSError:
+                return
+            back = threading.Thread(target=pipe, args=(far, near), daemon=True)
+            back.start()
+            pipe(near, far)
+            back.join()
+
     def serve():
         while True:
             try:
-                near, far = listener.accept()[0], socket.socket(family)
-                far.connect(address)
+                near = listener.accept()[0]
             except OSError:     # the tick is over
                 return
-            for ends in ((near, far), (far, near)):
-                threading.Thread(target=pipe, args=ends, daemon=True).start()
+            threading.Thread(target=carry, args=(near,), daemon=True).start()
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
