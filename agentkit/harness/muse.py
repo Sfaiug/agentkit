@@ -545,18 +545,18 @@ def seat_token_usage(entry, cursor):
     `model_completed` Muse writes right after attributing it, the one line naming its model
     beside its counts, so its attribution is no row.  Any other provider attribution -- a
     parent's log attributes its reminder children's requests, and completes none -- is filed
-    by itself, its tokens and no model."""
+    by itself, its counts and no model, as it names none."""
     completed = run_event(entry, "model_completed")
     if isinstance(completed.get("usage"), dict):
         model, counts = completed.get("model"), by_type(completed["usage"])
         return (entry["recorded_at"] / 1_000_000, entry.get("id"), sum(counts),
                 model if isinstance(model, str) else None, counts)
     record = run_event(entry, "goal_usage_attribution").get("record") or {}
-    tokens = provider_tokens(record)
     session = (entry.get("stream") or {}).get("id")
     own = session is not None and (record.get("owner") or {}).get("session_id") == session
-    if tokens is not None and not own:
-        return entry["recorded_at"] / 1_000_000, entry.get("id"), tokens, None, None
+    if provider_tokens(record) is not None and not own:
+        counts = by_type(record["quantity"])
+        return entry["recorded_at"] / 1_000_000, entry.get("id"), sum(counts), None, counts
 
 
 def by_type(quantity):

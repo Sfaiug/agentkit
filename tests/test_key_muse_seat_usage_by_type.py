@@ -6,8 +6,8 @@ model, then right after it a `model_completed` naming the model under the same c
 files the completion alone: dated when Muse recorded it, its input less what it says it cached,
 that under cache read, no cache write, and its output, the tokens their sum; a tick read between
 the two lines files the request once all the same.  A parent's log attributes its reminder
-children's requests and completes none: each such attribution stays a row of its tokens alone,
-as before, with no model and no counts.
+children's requests and completes none: each such attribution is a row by itself, its counts
+split as a completion's are, the tokens their sum, and no model, as it names none.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each
 tick in the box `home.tick()` builds, on a seat of tests/fixtures/akseat.py whose session logs
@@ -101,7 +101,7 @@ class MuseSeatUsageByType(unittest.TestCase):
         # The tick comes between the second request's attribution and its completion.
         append(cls.log, attributed(SESSION, 1, SESSION, "main", 33_260, 15, 33_140),
                completed(SESSION, 3, "orbit-2", 33_260, 15, 33_140),
-               attributed(SESSION, 5, RUN, "reminder", 4_949, 110, 0),
+               attributed(SESSION, 5, RUN, "reminder", 19, 4, 7),
                attributed(SESSION, 7, SESSION, "main", 40_000, 500, 30_000))
         append(folder / f"subagent/{CHILD}/session.jsonl",
                attributed(CHILD, 6, CHILD, "reminder", 4_313, 715, 0),
@@ -119,9 +119,12 @@ class MuseSeatUsageByType(unittest.TestCase):
         self.assertEqual(self.second, sorted(self.first + [
             (9.0, "orbit-3", 10_000, 0, 30_000, 500, 40_500)]))
 
+    def test_a_request_a_log_attributes_to_another_session_is_filed_with_its_four_counts(self):
+        self.assertIn((5.0, None, 12, 0, 7, 4, 23), self.first)
+
     def test_a_request_a_log_attributes_to_its_own_session_is_one_row_whatever_asked_it(self):
         self.assertEqual(self.first, [(3.0, "orbit-2", 120, 0, 33_140, 15, 33_275),
-                                      (5.0, None, None, None, None, None, 5_059),
+                                      (5.0, None, 12, 0, 7, 4, 23),
                                       (6.5, "orbit-2-mini", 4_313, 0, 0, 715, 5_028)])
 
 
