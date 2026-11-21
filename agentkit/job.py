@@ -1022,8 +1022,16 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     if not task.get("rerun_attempted") and job_classify(run_state, cfg) == "failed" \
             and (transitions.failed_at_budget(run_state) or job_round_shortfall(run_state)) \
             and not handback.review_failed(run_state):
-        nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"),
-                                staffing.run_workers(cfg, run_state))
+        workers = staffing.run_workers(cfg, run_state)
+        if not record.review_off(run_state):
+            # only an executor another lab's marked reviewer can review, as a handover's is;
+            # asked of marks and config alone, so one spent or logged out now is rotated to,
+            # as before
+            reviewers = staffing.run_reviewers(cfg, run_state)
+            workers, review_list = config.pair_marks(cfg, workers, reviewers)
+            workers, _ = staffing.takers(cfg, None, workers, reviewers=reviewers,
+                                         reviewed_by=review_list)
+        nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"), workers)
         if nxt:
             # The rerun keeps the job's reviewer unless it is the rerun executor's own
             # model; then the fresh run picks another reviewer (`job_start_task`).
