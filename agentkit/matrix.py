@@ -489,8 +489,12 @@ def off(cfg):
     `rank` reads it, hold its harness and model in their `yours`, scored or not; else, once no
     row holds it, a slug of `models_off` its own id (`config.model_id`) names (`found`).  A
     model running an unlisted release nobody turned off, or none, is not the list's to turn
-    off.  The picks leave them out (usage.pick_order, usage.unready, orch.in_order), and a turn
-    or a seat named on one outright is refused (`refuse_off`)."""
+    off: so one off through its company alone is on again once the boards rate its release no
+    more, and one whose id names no slug of `models_off` once they list it no more, where a
+    role still marks it.  The owner, 21 Nov 2026, left it so ("Drop it"): three designs
+    remembering what was off failed nine reviews on a config edit beside a refresh, and no
+    model of theirs off is marked.  The picks leave them out (usage.pick_order, usage.unready,
+    orch.in_order), and a turn or a seat named on one outright is refused (`refuse_off`)."""
     lineup, makers = listed()
     turned = set(cfg.get("models_off") or ())
     if not makers and not turned:
