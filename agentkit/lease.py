@@ -67,7 +67,8 @@ def _turn():
     if read:
         # this machine's own where its commit is here; another's ends the turn
         git("cat-file", "-e", read + b"^{commit}")
-        # what is kept shrinks to the value read and the one made next, or would grow a ref a turn
+        # what is kept shrinks to the value read and the one made next, or would grow a ref a
+        # turn; the value read stays, as it is the proof (`proof_age`) till a turn reads the next
         kept = git("for-each-ref", "--format=%(objectname) %(refname)", MADE)
         for value, name in (line.split(b" ", 1) for line in kept.splitlines()):
             if value != read:
@@ -95,11 +96,14 @@ def _turn():
 
 
 def proof_age():
-    """Seconds since this machine last knew it was the home, by `age_at_most`: a turn makes a value,
-    named for its stamp, only right after the remote said the lease is this machine's or that there
-    is none, so those stamps are its proofs and the youngest is the one that counts.  None for no
-    proof: none made, or a read that raises, as a git that does not exit 0 and a clock that cannot
-    be read do; a name holding no stamp is none.  It asks no remote."""
+    """Seconds since the oldest value this machine keeps was made, by `age_at_most`: its proof that
+    it is the home.  A turn that reads this machine's own lease keeps only that value and the one it
+    makes next, so this machine's lease on the remote, its swap taken or not, was made no earlier
+    than the oldest kept, and a standby has seen it stand still for no longer than that value's age.
+    The youngest is no proof: a turn makes a value right after its read, so on a remote that answers
+    reads and refuses pushes it stays young while the lease stands still.  None for no proof: none
+    made, or a read that raises, as a git that does not exit 0 and a clock that cannot be read do;
+    a name holding no stamp is none.  It asks no remote."""
     try:
         # the variables git keeps for one repository dropped, as `gitcall.project_env` drops them
         local = _git("rev-parse", "--local-env-vars").split()
@@ -108,7 +112,7 @@ def proof_age():
         # one name a line, as git forbids a control character in one, read as the turn's git was
         # given it: a name may hold any other byte
         stamps = (_stamp(os.fsdecode(name)) for name in names.split(b"\n"))
-        return min((stamp.age_at_most() for stamp in stamps if stamp), default=None)
+        return max((stamp.age_at_most() for stamp in stamps if stamp), default=None)
     except Exception:
         return None
 
