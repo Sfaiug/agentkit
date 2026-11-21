@@ -1,5 +1,5 @@
 """On each machine ak knows, the program a box loads answers that machine's six sync calls with
-errno 0 and passes every other call and architecture.  KERNEL holds Linux v6.12's own numbers."""
+errno 0 and passes every other call and architecture, by Linux's numbers (fixtures/kernel.py)."""
 
 import struct
 import sys
@@ -7,14 +7,9 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agentkit import syncs
-
-SHARED = (82, 83, 81, 267, 227, 84)     # scripts/syscall.tbl; each other machine's syscall.tbl
-KERNEL = {"x86_64": (62 | 0xC0000000, (74, 75, 162, 306, 26, 277)),     # audit.h, elf-em.h
-          "aarch64": (183 | 0xC0000000, SHARED), "riscv64": (243 | 0xC0000000, SHARED),
-          "loongarch64": (258 | 0xC0000000, SHARED),
-          "ppc64le": (21 | 0xC0000000, (118, 148, 36, 348, 144, 308)),
-          "s390x": (22 | 0x80000000, (118, 148, 36, 338, 144, 307))}
+from fixtures.kernel import SYNCS
 
 
 def answer(program, arch, call):
@@ -29,7 +24,7 @@ def answer(program, arch, call):
 
 class ASyncInABoxIsAnsweredOnEachMachineAkKnows(unittest.TestCase):
     def test_each_machine_answers_its_six_calls_and_passes_the_rest(self):
-        self.assertEqual(syncs.CALLS, KERNEL)
+        self.assertEqual(syncs.CALLS, SYNCS)
         for machine, (arch, calls) in syncs.CALLS.items():
             for call in range(512):
                 want = 0x00050000 if call in calls else 0x7FFF0000      # errno 0, else allow
