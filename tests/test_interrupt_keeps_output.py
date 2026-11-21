@@ -35,9 +35,15 @@ def buffers(_argv):
     sys.stdout = sys.__stdout__ = io.TextIOWrapper(
         io.BufferedWriter(io.FileIO(1, "w", closefd=False), size + 1))
     sys.stdout.write("x" * (size - 5) + "kept\\n")
+    # A Ctrl-C landing after the interpreter last looked for one but before a wait begins is
+    # only handled once the wait returns: pause() would sleep for good, a read of the pipe the
+    # interpreter writes each signal to returns at once.
+    woken, wake = os.pipe()
+    os.set_blocking(wake, False)
+    signal.set_wakeup_fd(wake)
     os.close(ready)
     while True:
-        signal.pause()
+        os.read(woken, 1)
 
 macbridge.fetch_main = buffers
 sys.argv = [ak, "fetch"]
