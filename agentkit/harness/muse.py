@@ -533,11 +533,11 @@ def launched(name, cwd, conversation):
 
 
 def seat_token_sources(record):
+    """The seat's session logs, no child's: a parent's log attributes each request of its
+    reminder children, the one record every child's request has, and a child keeping a log of
+    its own completes that request there too, which would count it twice."""
     session = conversation(record)
-    if not session:
-        return []
-    return [source for path in session_logs(session)
-            for source in (path, *(path.parent / "subagent").rglob("session.jsonl"))]
+    return session_logs(session) if session else []
 
 
 def seat_token_usage(entry, cursor):

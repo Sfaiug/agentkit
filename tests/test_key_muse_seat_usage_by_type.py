@@ -1,13 +1,15 @@
 """A Muse seat's own model request is one usage row, under its model and its tokens by type.
 
-Muse logs each request a log's own session asks twice, whether it asks as `main` or, in a
-reminder child's own log, as `reminder`: a `goal_usage_attribution` of its counts, which names no
-model, then right after it a `model_completed` naming the model under the same counts.  A tick
-files the completion alone: dated when Muse recorded it, its input less what it says it cached,
-that under cache read, no cache write, and its output, the tokens their sum; a tick read between
-the two lines files the request once all the same.  A parent's log attributes its reminder
-children's requests and completes none: each such attribution is a row by itself, its counts
-split as a completion's are, the tokens their sum, and no model, as it names none.
+Muse logs each request a log's own session asks twice: a `goal_usage_attribution` of its counts,
+which names no model, then right after it a `model_completed` naming the model under the same
+counts.  A tick files the completion alone: dated when Muse recorded it, its input less what it
+says it cached, that under cache read, no cache write, and its output, the tokens their sum; a
+tick read between the two lines files the request once all the same.  A parent's log attributes
+its reminder children's requests and completes none: each such attribution is a row by itself, its
+counts split as a completion's are, the tokens their sum, and no model, as it names none.  A child
+keeping a log of its own, `subagent/<id>/session.jsonl` beside its parent's, completes its request
+there too; a tick reads the seat's session logs alone, so that request is one row all the same,
+its parent's line.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each
 tick in the box `home.tick()` builds, on a seat of tests/fixtures/akseat.py whose session logs
@@ -102,6 +104,7 @@ class MuseSeatUsageByType(unittest.TestCase):
         append(cls.log, attributed(SESSION, 1, SESSION, "main", 33_260, 15, 33_140),
                completed(SESSION, 3, "orbit-2", 33_260, 15, 33_140),
                attributed(SESSION, 5, RUN, "reminder", 19, 4, 7),
+               attributed(SESSION, 6, CHILD, "reminder", 4_313, 715, 0),
                attributed(SESSION, 7, SESSION, "main", 40_000, 500, 30_000))
         append(folder / f"subagent/{CHILD}/session.jsonl",
                attributed(CHILD, 6, CHILD, "reminder", 4_313, 715, 0),
@@ -122,10 +125,10 @@ class MuseSeatUsageByType(unittest.TestCase):
     def test_a_request_a_log_attributes_to_another_session_is_filed_with_its_four_counts(self):
         self.assertIn((5.0, None, 12, 0, 7, 4, 23), self.first)
 
-    def test_a_request_a_log_attributes_to_its_own_session_is_one_row_whatever_asked_it(self):
+    def test_a_request_of_a_child_that_keeps_a_log_is_one_row_its_parent_s_line(self):
         self.assertEqual(self.first, [(3.0, "orbit-2", 120, 0, 33_140, 15, 33_275),
                                       (5.0, None, 12, 0, 7, 4, 23),
-                                      (6.5, "orbit-2-mini", 4_313, 0, 0, 715, 5_028)])
+                                      (6.0, None, 4_313, 0, 0, 715, 5_028)])
 
 
 if __name__ == "__main__":
