@@ -18,6 +18,7 @@ import shlex
 import struct
 import sys
 from pathlib import Path
+import resource
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -25,7 +26,9 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home, boxable
 from fixtures.kernel import SYNCS
 
-FD = 1000   # a descriptor nothing of ak's own syncs
+# The last descriptor the probe may open, which a process handed the lowest free one reaches
+# last, so nothing of ak's own syncs it; at most 1023, as the kernel sizes a table up to it.
+FD = min(resource.getrlimit(resource.RLIMIT_NOFILE)[0], 1024) - 1
 PROBE = f"import os; os.dup2(os.pipe()[1], {FD}); os.fsync({FD}); os.fdatasync({FD})"
 MACHINE = os.uname().machine
 
