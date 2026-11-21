@@ -214,15 +214,17 @@ def dispatch(argv):
         enter(Path(path))
     elif argv[:2] in (["run", "resume"], ["run", "merge"]):
         args = [arg for arg in argv[2:] if arg != "--bg"] if argv[1] == "resume" else argv[2:]
-        state = (record.read_state(config.RUNS / args[0])
-                 if args and Path(args[0]).name == args[0] and args[0] not in (".", "..")
-                 else None) or {}
-        # a record another live process holds, its own run's aside, may end before the version it
-        # names reads it again, as one that version carries on and this one refuses
-        # (`transitions.rescoped`): this one reads it again under its lock and decides
-        held = (argv[1] == "resume" and state.get("state") in record.ACTIVE
-                and os.environ.get(config.RUN_DIR_ENV) != str(config.RUNS / args[0])
-                and record.process_active(state))
+        run_dir = (config.RUNS / args[0]
+                   if args and Path(args[0]).name == args[0] and args[0] not in (".", "..") else None)
+        state = (record.read_state(run_dir) if run_dir else None) or {}
+        held = False
+        if (argv[1] == "resume" and state.get("state") in record.ACTIVE
+                and os.environ.get(config.RUN_DIR_ENV) != str(run_dir)):
+            # in flight in another process: while that one lives it may yet end the run as one the
+            # version the record names carries on and this one refuses (`transitions.rescoped`), so
+            # this one decides; once it is gone, what it last wrote is final, so it is read again
+            held = record.process_active(state)
+            state = state if held else record.read_state(run_dir) or {}
         if code := (state.get("ak_checkout") if argv[1] == "merge" else not held and pinned(state)):
             with checkout(code) as path:
                 enter(path)

@@ -1795,9 +1795,15 @@ def resume_run(argv):
     config.ensure_dirs()
     run_dir = config.RUNS / run_id
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
+    # whatever its --rounds and before anything the host may lack, its worktree cleaned or not:
+    # the task is what changes; asked again below of what a loop ending meanwhile left
+    if state and (why := rescoped(state)):
+        raise config.Error(why)
     refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["review_rounds"])
+    if refusal:
+        raise config.Error(refusal)
     if state is None:
-        raise config.Error(refusal or f"no resumable run: {run_id} (looked in {config.RUNS})")
+        raise config.Error(f"no resumable run: {run_id} (looked in {config.RUNS})")
     try:
         box.check()
     except config.Error as exc:
@@ -1809,12 +1815,6 @@ def resume_run(argv):
     # invocations must never adopt another process's launch, even with an inherited variable.
     with run_record.recovery_lock(run_dir):
         state = run_record.read_state(run_dir)
-    # on the record read under the lock, which a run ending meanwhile has written: whatever its
-    # --rounds, its worktree cleaned or not, the task is what changes
-    if why := rescoped(state):
-        raise config.Error(why)
-    if refusal:
-        raise config.Error(refusal)
     # The lander's verdict authorizes the member to take back its own record.
     if landing_line(state) and not any(key in state["waiting_on"] for key in ("land", "fix")):
         raise config.Error(f"{run_id} is in line to land; only the lander moves it")
@@ -1849,6 +1849,9 @@ def resume_run(argv):
         if run_record.process_active(state):
             raise config.Error(f"{run_id} is still running as pid {state['pid']}")
         state = reap(run_dir, state)
+    # what a loop that ended since the first look left, read again by `reap` once it is gone
+    if why := rescoped(state):
+        raise config.Error(why)
     if state.get("state") == "blocked":
         # The task itself is what failed, so there is nothing here to carry on: another
         # round would spend a model turn to be told the same thing again.
