@@ -204,12 +204,15 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
         refuse_outside_group(cfg, want_review, reviewers, "reviewer")
-    # read once: the executor's pick weighs the very reviewers the reviewer's pick reads
-    review_list = usage.marked(cfg, reviewers if reviewers is not None else workers, "reviewer")
-    both = not want_exec and not want_review and want_review is not False
-    order = ready_order(cfg, providers, workers, None if want_exec and want_review else log,
-                        quiet=quiet, repo=repo, reviewers=reviewers,
-                        reviewed_by=review_list if both else None)
+    exec_list, review_list = workers, reviewers if reviewers is not None else workers
+    reviewed_by = None
+    if not want_exec and not want_review and want_review is not False:
+        # the executor's pick weighs the very reviewers the reviewer's pick reads: both lists
+        # are read once, at once, so a seat's marks changing meanwhile pair no two selections
+        exec_list = usage.marked(cfg, workers, "executor", reviewers)
+        review_list = reviewed_by = usage.marked(cfg, review_list, "reviewer")
+    order = ready_order(cfg, providers, exec_list, None if want_exec and want_review else log,
+                        quiet=quiet, repo=repo, reviewers=reviewers, reviewed_by=reviewed_by)
     session = config.active_session(cfg)
     allowed = workers if workers is not None else (session["workers"] if session else None)
     if want_exec:
@@ -618,7 +621,9 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
                            quiet=True, repo=repo, workers=workers)
     # a resume that needs no executor keeps it, so the reviewer is picked beside its writers
     needs = resume_needs_executor(state)
-    # read once: the executor's pick weighs the very reviewers the reviewer's pick reads
+    # the pick anew weighs the very reviewers the reviewer's pick reads: both lists are read
+    # once, at once, so a seat's marks changing meanwhile pair no two selections
+    exec_list = usage.marked(cfg, workers, "executor", reviewers)
     review_list = usage.marked(cfg, reviewers if reviewers is not None else workers, "reviewer")
     review_order = ready_order(cfg, providers, review_list, role="reviewer", quiet=True, repo=repo,
                                writers=None if needs else review_writers(state))
@@ -628,15 +633,16 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
         if order:
             return executor, reviewer if reviewer in order else order[0]
         raise turns.QuotaDry("no eligible reviewer; waiting for review")
-    # one the config no longer defines (`config.as_launched`) is none to keep: the pick below
-    # staffs the run, waits, or refuses it by that name
+    # one the config no longer defines (`config.as_launched`) is none to keep, and is refused by
+    # that name below unless the run waits
     kept = (known(cfg, executor) and executor not in skip
             and not usage.model_exhausted(cfg, executor, providers)[0]
             and not usage.unready(cfg, executor, providers))
 
     def executors(log=None, reviewed_by=None):
-        return [name for name in ready_order(cfg, providers, workers, log, quiet=True, repo=repo,
-                                             reviewers=reviewers, reviewed_by=reviewed_by)
+        return [name for name in ready_order(cfg, providers, exec_list, log, quiet=True,
+                                             repo=repo, reviewers=reviewers,
+                                             reviewed_by=reviewed_by)
                 if name not in skip]
 
     # a pair picked anew takes its executor as a launch picking both roles does (`pick_models`)
@@ -652,12 +658,16 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
         return pick_models(cfg, providers, executor, reviewer, log, resuming=True, quiet=True,
                            repo=repo, workers=group, reviewers=reviewers)
     pair = best_pair(cfg, order, review_order)
+    # a pair only that pick leaves out is waited for: its executor can run here, so nothing is
+    # asked of the saved one; else, as before that pick, one the config dropped is refused by
+    # name, and one whose harness cannot run where no pair is left
+    if executor and (pair is not None or not best_pair(cfg, executors(), review_order)):
+        if executor not in skip:
+            config.model(cfg, executor)
+        if pair is None:
+            refuse_unready(cfg, providers, executor)
     if pair is not None:
         return pair
-    # a pair only that pick leaves out is waited for: its executor can run here, so the saved
-    # one's harness is not asked
-    if executor and not best_pair(cfg, executors(), review_order):
-        refuse_unready(cfg, providers, executor)
     offered = config.offered(cfg)   # a spare retired since launch has no meter to name
     reasons = [why for name in (workers if workers is not None else config.workers(cfg))
                if name in offered and (why := usage.model_exhausted(cfg, name, providers)[1])]
