@@ -71,7 +71,7 @@ def header(blocks, size, journal, inode=True, total=True, mounted="/", uuid=UUID
 
 
 # the fields a note needs, and no Block count line
-BARE = f"Filesystem UUID: {UUID}\nBlock size: 4096\nJournal inode: 8\nTotal journal blocks: 16384\n"
+BARE = "Block size: 4096\nJournal inode: 8\nTotal journal blocks: 16384\n"
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "a Linux server's install")
@@ -124,8 +124,11 @@ class JournalNote(unittest.TestCase):
         self.device.write_text(header(91750400, 4096, 16384,
                                       mounted="/srv/archive\nBlock size: 1024"))
         self.assertEqual(self.notes(), [note])
-        self.device.write_text("Block count: 91750400\n" + BARE)      # fields from the first line
-        self.assertEqual(self.notes(), [note])
+        # fields from the first line, and no UUID: the note without its commands
+        self.device.write_text("Block count: 91750400\n" + BARE)
+        [plain] = self.notes()
+        self.assertEqual(note[:len(plain)], plain)
+        self.assertNotIn("tune2fs", plain)
 
     def test_b_a_size_of_no_whole_gib_is_in_mib(self):
         self.device.write_text(header(393216, 4096, 1024))
@@ -169,7 +172,9 @@ class JournalNote(unittest.TestCase):
         for name, kw in (("a space", {"uuid": UUID.replace("-", " ", 1)}),
                          ("more behind it", {"uuid": UUID + ":bad"}),
                          ("another in a mount path",
-                          {"mounted": f"/srv\nFilesystem UUID: {other}"})):
+                          {"mounted": f"/srv\nFilesystem UUID: {other}"}),
+                         ("another in a mount path, and an empty one",
+                          {"mounted": f"/srv\nFilesystem UUID: {other}", "uuid": ""})):
             self.device.write_text(header(91750400, 4096, 16384, **kw))
             [note] = self.notes()
             self.assertIn("offline", note, name)
