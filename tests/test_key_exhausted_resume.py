@@ -131,10 +131,10 @@ class WindowRefills(unittest.TestCase):
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class AnotherWorker(unittest.TestCase):
-    """Two runs with opus alone marked to build, both refused; then the owner marks astra
-    too, and astra alone to review, and a later run of the second's task merges: astra reviews
-    its own work, as no reviewer of another lab is marked
-    (tests/test_key_a_review_starts_on_another_provider.py)."""
+    """Two runs with opus alone marked to build, both refused; then the owner marks astra alone,
+    to build and to review, and a later run of the second's task merges: astra reviews its own
+    work.  Were opus still marked to build, astra, which no reviewer of another lab is marked to
+    review, would wait for it (tests/test_key_an_executor_has_another_labs_reviewer.py)."""
 
     @classmethod
     def setUpClass(cls):
@@ -146,7 +146,7 @@ class AnotherWorker(unittest.TestCase):
         cls.idle = tick(home)
         cls.before = [record(run) for run in (cls.handed, cls.replaced)]
         cls.rows = [row(home, title) for title in TITLES]
-        akconfig.write(home, ["opus", "astra"], reviewers=["astra"])
+        akconfig.write(home, ["opus", "astra"], workers=["astra"])
         GitHub(home).grant(cls.rig.slug, "WRITE")
         cls.later = home.ak("run", str(taskfile.write(home, cls.rig.path, TITLES[1])),
                             timeout=300)

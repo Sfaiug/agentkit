@@ -1,4 +1,6 @@
-"""Resume admits the ordinary pick's capacity and preserves an executor's login failure."""
+"""Resume admits the ordinary pick's capacity and preserves an executor's login failure, but
+asks nothing of the saved executor while it waits for one another lab's marked reviewer can
+review."""
 
 from contextlib import nullcontext
 from pathlib import Path
@@ -78,6 +80,28 @@ class ResumeEligibility(unittest.TestCase):
         self.assertEqual(state["state"], "error")
         self.assertFalse(state.get("quota_dry"))
         self.assertFalse(transitions.going(state))
+
+    # alpha alone reviews, so beta, of another lab, builds: a saved executor beside it that
+    # cannot run is no refusal while beta can run here once it refills
+    marks = {"step": "executor", "reviewer": "alpha", "reviewers": ["alpha"]}
+
+    def test_a_login_failure_waits_while_another_labs_reviewer_s_executor_is_spent(self):
+        self.cfg["models"]["gamma"]["harness"] = "codex"
+        self.why["codex"] = "codex is not logged in"
+        state = {**self.marks, "executor": "gamma", "workers": ["alpha", "beta", "gamma"]}
+        spent = usage.readiness(self.cfg, usage.Readings(self.providers(b=100)))
+        with self.assertRaises(run.QuotaDry):
+            run.resume_models(self.cfg, spent, state)
+        refilled = usage.readiness(self.cfg, usage.Readings(self.providers()))
+        self.assertEqual(run.resume_models(self.cfg, refilled, state), ("beta", "alpha"))
+
+    def test_a_dropped_executor_waits_so_and_is_refused_by_name_once_nothing_is_waited_for(self):
+        config.remove_provider(self.cfg, "c")
+        state = {**self.marks, "executor": "delta", "workers": ["alpha", "beta", "delta"]}
+        with self.assertRaises(run.QuotaDry):
+            run.resume_models(self.cfg, self.providers(b=100), state)
+        with self.assertRaisesRegex(config.Error, "unknown model 'delta'"):
+            run.resume_models(self.cfg, self.providers(), state)
 
 
 if __name__ == "__main__":
