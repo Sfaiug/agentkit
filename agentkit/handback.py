@@ -232,6 +232,16 @@ def result_opening(run_dir, state, cfg=None):
     return f"# {heading} — {state.get('title') or run_dir.name}"
 
 
+def findings_sat(state):
+    """The result's lines saying where each round's blocking findings sat, as ak weighed them:
+    what a failed task is split along, the diff stat's files no line names being the rest."""
+    sat = [f"- round {entry['round']}: " + ", ".join(
+               f"{path} {count}" for path, count in sorted(entry["files"].items(),
+                                                           key=lambda item: (-item[1], item[0])))
+           for entry in state.get("round_summaries") or [] if entry.get("files")]
+    return ["## Where the findings sat", "", *sat, ""] if sat else []
+
+
 def write_result(run_dir, state, cmds, log=None, cfg=None):
     """The full result.md.  `log` carries a stop observed while reporting, if any.
 
@@ -291,14 +301,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
             entry["done_when"], "done-when not run")
         parts += [f"## Round {entry['round']} ({entry['verdict']}, {dw})", "",
                   entry["summary"], ""]
-    # what to split a failed task along: each round's blocking findings by file, as ak weighed
-    # them; the diff stat's files no line names are the part to build last
-    sat = [f"- round {entry['round']}: " + ", ".join(
-               f"{path} {count}" for path, count in sorted(entry["files"].items(),
-                                                           key=lambda item: (-item[1], item[0])))
-           for entry in state["round_summaries"] if entry.get("files")]
-    if sat:
-        parts += ["## Where the findings sat", "", *sat, ""]
+    parts += findings_sat(state)
     why = state.get("error") or state.get("interruption_reason") or (state["verdict"] != "PASS" and failed_check(state))
     if why:
         parts += ["## Why this run stopped", "", why, ""]
@@ -2127,11 +2130,11 @@ def record_result(run_dir, state, log=None, cfg=None):
              else f"ak run {run_dir / 'task.md'}")
     try:
         with delivery_lock(run_dir):
-            save_result(run_dir,
-                f"{result_opening(run_dir, state, cfg)}\n\n"
-                f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
-                f"{state.get('error') or 'no reason was recorded'}\n\n"
-                f"relaunch: {again}{suffix}\n\n{followup_report(state)}")
+            save_result(run_dir, "\n".join([
+                result_opening(run_dir, state, cfg), "", f"VERDICT: {state.get('verdict') or 'none'}",
+                "", *findings_sat(state), "## Why this run stopped", "",
+                state.get("error") or "no reason was recorded", "", f"relaunch: {again}{suffix}", "",
+                followup_report(state)]))
     except OSError:
         pass
     else:

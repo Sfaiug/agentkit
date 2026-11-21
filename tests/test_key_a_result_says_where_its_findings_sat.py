@@ -4,10 +4,11 @@ Each recorded round's summary keeps the file of every blocking finding it counte
 and the result has one `## Where the findings sat` section: a line per round that left one,
 the round, then each file with its count, most first.  A run that fails three rounds -- two
 findings at retry.txt and one at other.txt, then one at retry.txt twice -- has those three
-lines; a run whose only review passes has no such section.  Black-box: the program `AK_BIN`
-names runs from outside through tests/fixtures/akbin.py, on a project from gitrig.py with the
-GitHub of fakegh.py, a config from akconfig.py, a task from taskfile.py and scripted harnesses
-from fakeadapter.py.
+lines; a run whose only review passes has no such section; a review of a seat's own PR that
+stops with its fixer run dry, its result the short one, has its round's line too.  Black-box:
+the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a project from
+gitrig.py with the GitHub of fakegh.py, a config from akconfig.py, a task from taskfile.py and
+scripted harnesses from fakeadapter.py.
 """
 
 import sys
@@ -16,6 +17,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_key_one_finding_left_gets_extra_rounds as extra
+import test_key_own_pr_fix_and_land as own_pr
 
 HEADING = "## Where the findings sat"
 
@@ -65,6 +67,20 @@ class PassesItsOnlyReview(unittest.TestCase):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual(extra.rounds(self.state), [(1, "PASS", 0)])
         self.assertNotIn(HEADING, self.result.splitlines())
+
+
+class StopsWithTheShortResult(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        own_pr.reviewed(cls, "dead", [own_pr.FIND, "dead"])
+        cls.result = (cls.run_dir / "result.md").read_text()
+
+    def test_its_result_has_its_round_s_line(self):
+        self.assertEqual(self.state["state"], "exhausted", self.done.out + self.done.err)
+        lines = self.result.splitlines()
+        at = lines.index(HEADING)
+        self.assertEqual(lines[at + 1:at + 4], ["", "- round 1: contrib.txt 1", ""])
+        self.assertEqual(lines[at + 4], "## Why this run stopped")
 
 
 if __name__ == "__main__":
