@@ -217,15 +217,12 @@ def dispatch(argv):
         run_dir = (config.RUNS / args[0]
                    if args and Path(args[0]).name == args[0] and args[0] not in (".", "..") else None)
         state = (record.read_state(run_dir) if run_dir else None) or {}
-        held = False
-        if (argv[1] == "resume" and state.get("state") in record.ACTIVE
-                and os.environ.get(config.RUN_DIR_ENV) != str(run_dir)):
-            # in flight in another process: while that one lives it may yet end the run as one the
-            # version the record names carries on and this one refuses (`transitions.rescoped`), so
-            # this one decides; once it is gone, what it last wrote is final, so it is read again
-            held = record.process_active(state)
-            state = state if held else record.read_state(run_dir) or {}
-        if code := (state.get("ak_checkout") if argv[1] == "merge" else not held and pinned(state)):
+        # one in flight, resumed from outside its run, may end before the version it names reads it
+        # again, as one that version carries on and this one refuses (`transitions.rescoped`): this
+        # one decides, and its slot enters that version for the work (`run.run_slot`)
+        in_flight = (argv[1] == "resume" and state.get("state") in record.ACTIVE
+                     and os.environ.get(config.RUN_DIR_ENV) != str(run_dir))
+        if code := (state.get("ak_checkout") if argv[1] == "merge" else not in_flight and pinned(state)):
             with checkout(code) as path:
                 enter(path)
         elif (argv[1] == "resume" and state
