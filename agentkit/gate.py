@@ -2735,9 +2735,10 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     times, as a resumed round chooses from it again, and the re-run of a `shard` is handed them
     less those its first go named as not there and not as run, as the record keeps a part while
     its file exists and no change fixes one its file lost.  Its `flaky:` record names what the
-    first go lacked, and no lacked part is a flaky test.  A lander's check runs without it: it
-    reads a red go and a green one as a flake that blames nobody, and counts a part not there by
-    its own rule (`passes_what_it_holds`).
+    first go lacked, and no lacked part is a flaky test: a first go that named no other failure
+    and passed all else its tree holds (`passes_what_it_holds`) leaves none, as a follow-up could
+    fix nothing.  A lander's check runs without it: it reads a red go and a green one as a flake
+    that blames nobody, and counts a part not there by that rule.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2746,6 +2747,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     spent, killed, kept = None, False, ""   # the command the limit ran out on, whether it had
                                             # begun, and the output it had produced by then
     reason, running = [], []
+    held = [] if absent is None else absent     # a go's not there, where it passed all else
 
     def stopped(why, pid):
         reason.append(why)
@@ -2778,6 +2780,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             how = "failed"
             handed = only
             lacked = [] if chosen else None
+            flake = True        # a red go then a green one
             raw = {} if exits is not None or timings is not None else None
             while True:
                 run_record.stop_check(run_dir)
@@ -2800,7 +2803,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         only=handed, confirmed=reds, flaky=flakes, named=named,
                         # Whole commands retry here; their named outcomes must wait for that.
                         checked=checked if split(cmd) else None, asked=asked, raw=raw,
-                        absent=absent, lacked=lacked, used=ended, known=known, blamed=blamed)
+                        absent=held, lacked=lacked, used=ended, known=known, blamed=blamed)
                     ended["exit"] = None if killed else code
                     end = progress.tell()
                 go = left - (deadline - time.monotonic())
@@ -2826,6 +2829,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     handed = [test for test in only if test not in lacked]
                     first = [test for test in first if test not in lacked]
                     how += f", lacking {' '.join(lacked)}"
+                    # red by what no change fixes, where it named no other failure and passed
+                    # all else: a file handed whole names a failure as one of its parts
+                    flake = bool(first) or not held
             if exits is not None:
                 exits.extend(raw.values())
             if left <= 0 and first_span is None:
@@ -2850,7 +2856,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                                          log_path.stem)
             chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
                           f"{out}".rstrip())
-            if first_span is not None and code == 0:
+            if first_span is not None and code == 0 and flake:
                 # blank lines dropped: a record is what lies between two, and these are one
                 # both runs read whole from the gate log: the capped `out` starts mid-output
                 # on a chatty suite, which hides a failure above the cap and frames shared

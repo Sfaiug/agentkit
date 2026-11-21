@@ -250,6 +250,30 @@ class FlakyRerun(unittest.TestCase):
             self.gate([cmd])
         self.assertEqual(self.count(), 1)
 
+    def test_a_round_s_go_red_by_what_its_tree_lacks_alone_is_no_flake(self):
+        # A round's check (`chosen`) handed `live` and `gone`, a part its tree lacks: each first
+        # go names `gone` as not there and failed, then ends as its case does; the re-run, handed
+        # `live` alone, passes.  Only one naming no other failure and passing all else its tree
+        # holds is no flake.
+        for end, flakes in (('grep -vx gone "$AK_ONLY" >"$AK_RAN"; exit 1', 0),
+                            ('echo live >"$AK_RAN"; kill -TERM $$', 1),    # dead by a signal
+                            ("exit 0", 1),                                 # `live` never named run
+                            # `live` handed whole and red by a part of it
+                            ('grep -vx gone "$AK_ONLY" >"$AK_RAN"; echo live::case >>"$AK_FAILED"; '
+                             "exit 1", 1)):
+            with self.subTest(end):
+                (self.root / "suite.sh").write_text(
+                    'if grep -qx gone "$AK_ONLY"; then\n'
+                    '  echo gone >"$AK_NOT_THERE"; echo gone >"$AK_FAILED"\n'
+                    f'  {end}\nfi\ncp "$AK_ONLY" "$AK_RAN"\n')
+                ok, text = gate.run_done_when(["exec bash suite.sh"], self.root,
+                                              self.run_dir / "donewhen.log", set(), limit=30,
+                                              shard="1/1", only=["gone", "live"], chosen=True)
+                self.assertTrue(ok, text)
+                state = {}
+                prompts.record_flakes(state, text)
+                self.assertEqual(len(state.get("followups", [])), flakes, text)
+
 
 if __name__ == "__main__":
     unittest.main()

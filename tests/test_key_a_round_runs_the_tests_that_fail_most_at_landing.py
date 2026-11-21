@@ -8,7 +8,8 @@ before then, one the record times not, one whose file is gone and one the target
 its landing line's record; one the target was red on and repaired runs, as that one does once the
 target has moved past its red.  A part the record times and its file no longer holds is handed, as
 the record keeps its time while its file exists: the run names it as not there and exits 1, and its
-re-run, handed the rest, decides, its `flaky:` record naming the part lacked.
+re-run, handed the rest, decides.  Failing by that part alone, it is no flake: a follow-up could fix
+nothing.
 
 Owner, 16 Nov 2026: "Yes, this small set … And make sure this also happens for new repos we work
 on".
@@ -173,10 +174,9 @@ class ThreeRuns(unittest.TestCase):
         self.assertEqual(self.notes["three"][:3],
                          [f"suite ./tests/parts.sh::removed {rest}", f"suite {rest}", "review"])
 
-    def test_a_part_its_file_no_longer_holds_passes_on_the_rest_and_keeps_its_time(self):
-        run_dir, _ = self.states["three"]
-        self.assertIn(f"flaky: {CUT} failed, lacking ./tests/parts.sh::removed, then passed on "
-                      "its re-run", (run_dir / "round-1/donewhen.log").read_text())
+    def test_a_part_its_file_no_longer_holds_is_no_flake_and_keeps_its_time(self):
+        for name in ("two", "three"):
+            self.assertEqual(self.states[name][1].get("followups", []), [], name)
         self.assertIn("./tests/parts.sh::removed", json.loads(
             (self.home.path / ".agentkit/state/test-times-0123456789ab.json").read_text()))
         with sqlite3.connect(self.home.path / ".agentkit/history.db") as connection:
