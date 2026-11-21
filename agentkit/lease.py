@@ -49,6 +49,10 @@ def main(argv):
 
 
 def _turn():
+    # a home's client, a standby among them, takes none: the lease it made would be its own while
+    # its home lives
+    if config.server_alias():
+        return
     checkout = update.agentkit_dir()
     env = gitcall.project_env(checkout)
     git = functools.partial(_git, cwd=checkout, env=env)
