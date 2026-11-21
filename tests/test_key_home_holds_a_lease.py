@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import boxable
 from fixtures.akinstall import _git
 from fixtures.twohomes import Machines
-from test_key_ak_lease_creates_a_lease import REF, STAMPED, kept, lease, made
+from test_key_ak_lease_creates_a_lease import REF, STAMPED, kept, lease, made, objects
 
 
 def now(turn):
@@ -33,15 +33,6 @@ def now(turn):
 def named(turn):
     """The ref under refs/made/ named for the stamp of the `turn`th turn."""
     return "refs/made/" + now(turn).replace(" ", "_")
-
-
-def objects(machine):
-    """Every object `machine`'s lease's repository holds, a ref of it or not; none where there is
-    no repository."""
-    repo = kept(machine)
-    if not repo.exists():
-        return set()
-    return set(_git(repo, "cat-file", "--batch-all-objects", "--batch-check=%(objectname)").split())
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
