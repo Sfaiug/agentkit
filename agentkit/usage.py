@@ -1988,17 +1988,17 @@ def _digits(value):
     return "-" if value is None else f"{Decimal(str(value)).normalize():,f}"
 
 
-def provider_marked(cfg, provider):
-    """Whether `provider` has any model that is on (not in `matrix.off`) and marked for a role:
-    as `[defaults]`'s orchestrator, a worker or a reviewer, or as a seat record's own."""
+def marked_providers(cfg):
+    """The providers that have a model on (not in `matrix.off`) and marked for a role:
+    as `[defaults]`'s orchestrator, a worker or a reviewer, or as a seat record's own.
+    Computed once per report so two logins of one provider never disagree."""
     records = (cfg.get("defaults") or {}, *config.session_records().values())
     used = {name for record in records if isinstance(record, dict) for name in (
         record.get("orchestrator"),
         *(record.get("workers") if isinstance(record.get("workers"), list) else ()),
         *(record.get("reviewers") if isinstance(record.get("reviewers"), list) else ()),
     ) if isinstance(name, str)} - matrix.off(cfg)
-    return any(cfg["models"][name]["provider"] == provider for name in config.offered(cfg)
-               if name in used)
+    return {cfg["models"][name]["provider"] for name in config.offered(cfg) if name in used}
 
 
 def _month(cost, used):
@@ -2007,7 +2007,10 @@ def _month(cost, used):
     if cost is None:
         return "-"
     shown = _digits(cost)
-    return shown if used else f"{shown} · no role marks its models"
+    if used:
+        return shown
+    sep = " · " if terminal.utf8() else ", "
+    return f"{shown}{sep}no role marks its models"
 
 
 def _budget_label(value, reason):
@@ -2145,11 +2148,11 @@ def rows(cfg, providers):
     Every number reads the shared week (`_as_shared`), the one the menu row names; a row with
     no shared week reads the tightest weekly meter.  `holds` is what that week of its plan holds
     at list prices and `a month` that login's price (`price`), with `no role marks its models`
-    where its provider has no model on and marked (`provider_marked`).  A provider with several
+    where its provider has no model on and marked (`marked_providers`).  A provider with several
     accounts is a row per account, `Claude II`, each on its own meters and its own plan.
     """
     now = time.time()
-    weeks = plan_weeks(cfg, providers, now)
+    weeks, used = plan_weeks(cfg, providers, now), marked_providers(cfg)
     out = []
     for label, name, prov, account in _accounts(cfg, providers):
         shared = shared_week(cfg, name, prov, now)
@@ -2160,7 +2163,7 @@ def rows(cfg, providers):
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
                     _held(weeks[name][account][1], shared or {}),
-                    _month(price(cfg, name, account), provider_marked(cfg, name)),
+                    _month(price(cfg, name, account), name in used),
                     reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
@@ -2190,23 +2193,21 @@ def render(cfg, providers, order, *, repo=None):
         table[0] = ("provider", "model(s)", "left", "holds", "month", "resets", "elapsed",
                     "session", "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
-        # a subscription keeps its whole name: `Claude I…` would not say which one it is
-        for i, cap in ((1, 14), (11, 18)):   # model(s), outlook
-            widths[i] = min(widths[i], cap)
     if sum(widths) + len(widths) - 1 <= width:
         lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip()
                  for row in table]
         lines[0] = terminal.styled(lines[0], "dim")
     else:
         # The full headings and all the meters still fit on a phone, as aligned label/value
-        # pairs under each provider. Nothing numeric is silently dropped to squeeze a row.
+        # pairs under each provider. Nothing is silently cut to squeeze a row.
         lines = []
+        sep = " · " if terminal.utf8() else " - "
         label_width = max(len(label) for label in HEADERS[2:])
         for row in table[1:]:
             if lines:
                 lines.append("")
             lines.extend(terminal.styled(line, "bold")
-                         for line in terminal.wrap(f"{row[0]} · {row[1]}", width))
+                         for line in terminal.wrap(f"{row[0]}{sep}{row[1]}", width))
             for label, value in zip(HEADERS[2:], row[2:]):
                 prefix = "  " + label.ljust(label_width) + "  "
                 for n, part in enumerate(terminal.wrap(value, width - len(prefix))):
@@ -2311,12 +2312,13 @@ def main(argv):
     if as_json:
         now = time.time()
         weeks, checks = plan_weeks(cfg, providers, now), plan_checks(cfg, providers, now)
+        used = marked_providers(cfg)
         for _, name, prov, account in _accounts(cfg, providers):
             (prov["plan"], prov["week_listed_usd"], prov["plan_points"],
              prov["plan_listed_usd"]) = weeks[name][account]
             # the plan it shows priced, not the plan read again: a probe meanwhile may change it
             prov["price"] = _monthly(cfg, name, account, lambda: prov["plan"])
-            prov["marked"] = provider_marked(cfg, name)
+            prov["marked"] = name in used
             prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             prov["plan_checks"] = checks[name][account]
         json.dump({"providers": providers, "pick_order": order,
