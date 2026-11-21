@@ -1301,7 +1301,13 @@ for dirty in "dirty_expire_centisecs 1000 changed data is old enough to write ou
              "dirty_writeback_centisecs 200 the kernel looks for old changed data every two seconds"; do
   read -r key ceiling why <<<"$dirty"
   # a client and a sandbox touch no host, one with no value to read (a Mac) has none to set, and
-  # one that reads no number above the ceiling, an empty one included, is left as it is
+  # one that reads no number above the ceiling, an empty one included, is left as it is.  So a
+  # server someone lowered by hand for this boot only gets no entry, and after a restart runs
+  # at the values it boots with, the kernel's or its own.  A later install lowers for good only
+  # a value it reads above its ceiling, and only if the write succeeds.  The owner left it so
+  # on 21 Nov 2026: an entry written here for a later boot misjudged or removed owners' own
+  # entries (two designs), and an install owed after each restart could publish an untested
+  # version of ak.
   if [ "$ROLE" != server ] || [ "$SANDBOX" = 1 ] ||
      ! dirty_now=$(cat -- "$PROC_SYS_VM/$key" 2>/dev/null) ||
      ! [ "$dirty_now" -gt $ceiling ] 2>/dev/null; then
