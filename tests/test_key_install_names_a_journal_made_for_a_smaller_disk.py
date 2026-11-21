@@ -70,6 +70,8 @@ def header(blocks, size, journal, inode=True, total=True, mounted="/", uuid=UUID
     return "".join(line + "\n" for line in lines if line)
 
 
+# the words a note ends with where it names no commands, as the piece before left it
+PLAIN_END = "only an offline filesystem takes a larger one"
 # the fields a note needs, and no Block count line
 BARE = "Block size: 4096\nJournal inode: 8\nTotal journal blocks: 16384\n"
 
@@ -126,9 +128,7 @@ class JournalNote(unittest.TestCase):
         self.assertEqual(self.notes(), [note])
         # fields from the first line, and no UUID: the note without its commands
         self.device.write_text("Block count: 91750400\n" + BARE)
-        [plain] = self.notes()
-        self.assertEqual(note[:len(plain)], plain)
-        self.assertNotIn("tune2fs", plain)
+        self.assertEqual(self.notes(), [note[:note.index(PLAIN_END) + len(PLAIN_END)]])
 
     def test_b_a_size_of_no_whole_gib_is_in_mib(self):
         self.device.write_text(header(393216, 4096, 1024))
@@ -168,6 +168,11 @@ class JournalNote(unittest.TestCase):
         self.assertEqual(self.notes(), [], "no file for the device number")
 
     def test_e_a_uuid_of_other_than_36_hex_digits_and_dashes_names_no_command(self):
+        self.device.write_text(header(91750400, 4096, 16384))
+        [note] = self.notes()
+        plain = note[:note.index(PLAIN_END) + len(PLAIN_END)]
+        self.assertNotIn("e2fsck", plain)
+        self.assertNotIn("tune2fs", plain)
         other = "9e1d7b20-4c3a-4f68-b5e2-a07c6d18f3b9"
         for name, kw in (("a space", {"uuid": UUID.replace("-", " ", 1)}),
                          ("more behind it", {"uuid": UUID + ":bad"}),
@@ -176,10 +181,7 @@ class JournalNote(unittest.TestCase):
                          ("another in a mount path, and an empty one",
                           {"mounted": f"/srv\nFilesystem UUID: {other}", "uuid": ""})):
             self.device.write_text(header(91750400, 4096, 16384, **kw))
-            [note] = self.notes()
-            self.assertIn("offline", note, name)
-            self.assertNotIn("e2fsck", note, name)
-            self.assertNotIn("tune2fs", note, name)
+            self.assertEqual(self.notes(), [plain], name)
 
 
 if __name__ == "__main__":
