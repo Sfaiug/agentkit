@@ -461,16 +461,19 @@ class Screens(Sandbox):
                          [["› Grok"], [], ["› Grok"]])
         self.assertEqual(run(lambda: terminal.choose(choices, around=around), move(5, 5),
                              move(1, 2), b"\r", b"\r")[0], "Grok")
-        # asked over a screen's own rows, the pointer on one of them is on nothing of the list's
+        # asked over a screen's own rows, the pointer on one of them is on nothing of the list's:
+        # a seat, and a meter over it, a cell that is a row of its own
 
         def over(lines, _):
-            terminal.frame("agentkit", ["  1  seat-a", *lines], "esc back",
-                           places={0: ("seat-a", [])})
-            return 4
+            terminal.frame("agentkit", ["  Claude  60% left", "  1  seat-a", *lines], "esc back",
+                           places={0: (None, [(3, 18, ("usage", 1), ("usage", 1))]),
+                                   1: ("seat-a", [])})
+            return 5
 
-        screens = run(lambda: terminal.choose(["Keep", "Stop"], around=over), move(5, 5),
-                      move(5, 3), ESC)[1]
-        self.assertEqual([highlighted(grid) for grid in screens[1:]], [["› Stop"], []])
+        screens = run(lambda: terminal.choose(["Keep", "Stop"], around=over), move(5, 6),
+                      move(5, 4), move(5, 6), move(5, 3), ESC)[1]
+        self.assertEqual([highlighted(grid) for grid in screens[1:]],
+                         [["› Stop"], [], ["› Stop"], []])
         # what the pointer lit is what a click there picks
         self.assertEqual(run(lambda: terminal.choose(choices, around=around),
                              move(5, 4) + b"\x1b[<0;5;4M\x1b[<0;5;4m")[0], "ChatGPT")

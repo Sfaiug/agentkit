@@ -1785,8 +1785,10 @@ def choose(choices, default=None, around=None, wait=None, warn=None, above=list)
                 _PRESSED = False  # a press where a choice was is no click on what is there now
             rows = moved
             # its screen's key line and its own choices are what the pointer lands on; that
-            # screen's rows -- the seats under a question -- are nothing while it is asked
-            relight({**{row: spot for row, spot in _SPOTS.items() if spot[0] is None}, **rows})
+            # screen's rows -- the seats under a question, a meter that is a row of its own --
+            # are nothing while it is asked
+            relight({**{row: (None, [cell for cell in spot[1] if len(cell) == 3])
+                        for row, spot in _SPOTS.items() if spot[0] is None}, **rows})
         else:
             over("", (f"\033[{drawn}A" if drawn else "")
                  + "".join(f"\r{line}\033[K\n" for line in lines))

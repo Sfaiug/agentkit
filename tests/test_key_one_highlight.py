@@ -402,6 +402,19 @@ class OneHighlight(unittest.TestCase):
             sums = [sum(map(int, back.split(";")[2:])) for (back,) in backs[:2]]
             self.assertTrue(sums[0] > sums[1] > 0, sums)
 
+    def test_a_meter_under_a_card_is_nothing_the_pointer_lands_on(self):
+        # `a` asks before every session takes a new window's marks: the pointer on ChatGPT's
+        # meter is off its card's answers, as on a row there, so Enter only lights Apply again
+        self.config()
+        self.term.keys("a")
+        self.term.wait("› ✓ Keep")
+        self.term.keys("Down")
+        shown = self.rest(lambda shown: starts(shown, "› × Apply"))
+        self.term.type(point(*self.row(shown, "ChatGPT")))
+        self.rest(lambda shown: starts(shown, "  × Apply"))
+        self.term.keys("Enter")
+        self.rest(lambda shown: starts(shown, "› × Apply"))
+
     def test_in_sixteen_colours_a_seat_has_its_mark_alone(self):
         self.assertEqual(grounds(self.main(TERM="xterm-16color")), {None})
 
