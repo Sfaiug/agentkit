@@ -149,7 +149,7 @@ sys.exit(1)
                 text = worker.PREAMBLES[role].format(workspace=self.root)
                 for words in ("finding only for what a command can show fails",
                               "a correctness defect in the task's outcome, asked-for work missing among them",
-                              "a safety or data-loss risk",
+                              "a safety, security or data-loss risk",
                               "a check the executor weakened or skipped",
                               "A check line the change removed or weakened is proven like any "
                               "defect, at its changed line: `grep -qF '<the line>' tests/x.py` "
