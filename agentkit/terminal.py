@@ -17,7 +17,7 @@ from functools import lru_cache, wraps
 from itertools import groupby
 
 from . import config, guard, motion, warm
-from .themes import BLACK, GROUNDS, KEPT, ROLES, WHITE, fits
+from .themes import BLACK, KEPT, ROLES, WHITE, fits
 
 # glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
@@ -52,8 +52,8 @@ KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
 # The background that answer said, `rrggbb`, on a terminal that draws every colour: a screen sits
-# on it (`_painted`).  None where it gave none or draws the nearest of 256: no shade is known to
-# read on what it has, nor could a fade reach it, so a screen is painted in the theme's.
+# on it (`_painted`, `colour`).  None where it gave none or draws the nearest of 256: no colour is
+# known to read on what it has, nor could a fade reach it, so a screen is painted in the theme's.
 GROUND = None
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
@@ -113,14 +113,20 @@ def colour(word, tmux=False):
     force; with `tmux`, in a tmux format (a seat's bar, a popup's border), in the kept one
     whichever process writes it: tmux shows it on a terminal ak never asks, and the
     menu's writes and the tick's never disagree.  Where a screen sits on the terminal's own
-    background (`GROUND`) that is the background, and its shades (themes.GROUNDS) are as far
-    from it as from the theme's: a fade nears what shows, and no band or line is lost on it."""
+    background (`GROUND`) the theme is drawn between that and its text: each colour is moved
+    toward the text by the share of the way the terminal's background is from the theme's, a
+    channel at a time.  So the background is the terminal's, which a fade then nears, the text is
+    the theme's, and every other keeps its place between the two, lost on neither nor on another.
+    """
     role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
     shades = kept() if tmux else theme()
-    if tmux or GROUND is None or role not in GROUNDS:
+    if tmux or GROUND is None:
         return ROLES[role][shades]
-    return bytes(min(255, max(0, own + shade - back)) for own, shade, back in zip(*map(
-        bytes.fromhex, (GROUND, ROLES[role][shades], ROLES["background"][shades])))).hex()
+    own, ground, back, text = (bytes.fromhex(rgb) for rgb in (
+        ROLES[role][shades], GROUND, ROLES["background"][shades], ROLES["text"][shades]))
+    # in 0..255 on any terminal: each channel of a theme's text is past half way from its background
+    return bytes(round(c + (g - b) * (t - c) / (t - b))
+                 for c, g, b, t in zip(own, ground, back, text)).hex()
 
 
 def glyph(word):

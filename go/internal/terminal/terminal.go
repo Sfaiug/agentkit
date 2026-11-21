@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -50,21 +49,26 @@ func roleOf(word string) string {
 }
 
 // colour is a word's colour on this screen, its role's in the screen's theme, as Python's
-// terminal.colour says it: where the screen sits on the terminal's own background (ground) that is
-// the background, and its shades (grounds) are as far from it as from the theme's, so a fade nears
-// what shows and no band or line is lost on it.
+// terminal.colour says it: where the screen sits on the terminal's own background (ground) the
+// theme is drawn between that and its text, each colour moved toward the text by the share of the
+// way the terminal's background is from the theme's, a channel at a time.  So the background is the
+// terminal's, which a fade then nears, the text is the theme's, and every other keeps its place
+// between the two, lost on neither nor on another.
 func (s Screen) colour(word string) string {
-	role := roleOf(word)
-	if s.ground == "" || !slices.Contains(grounds, role) {
-		return roles[role][s.theme]
+	rgb := roles[roleOf(word)][s.theme]
+	if s.ground == "" {
+		return rgb
 	}
-	own, _ := hex.DecodeString(s.ground)
-	shade, _ := hex.DecodeString(roles[role][s.theme])
+	own, _ := hex.DecodeString(rgb)
+	ground, _ := hex.DecodeString(s.ground)
 	back, _ := hex.DecodeString(roles["background"][s.theme])
-	for i := range shade {
-		shade[i] = byte(min(255, max(0, int(own[i])+int(shade[i])-int(back[i]))))
+	text, _ := hex.DecodeString(roles["text"][s.theme])
+	for i, c := range own {
+		b, t := int(back[i]), int(text[i])
+		// in 0..255 on any terminal: each channel of a theme's text is past half way from its background
+		own[i] = byte(math.RoundToEven(float64(c) + float64((int(ground[i])-b)*(t-int(c)))/float64(t-b)))
 	}
-	return hex.EncodeToString(shade)
+	return hex.EncodeToString(own)
 }
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
@@ -124,8 +128,8 @@ type Screen struct {
 	ascii                bool
 	theme                theme
 	// The background its terminal said it has, `rrggbb`, where that draws every colour: the screen
-	// sits on it (paint).  "" where it said none or draws the nearest of 256: no shade is known to
-	// read on what it has, nor could a fade reach it, so the screen is painted in the theme's.
+	// sits on it (paint, colour).  "" where it said none or draws the nearest of 256: no colour is
+	// known to read on what it has, nor could a fade reach it, so the screen is painted in the theme's.
 	ground string
 }
 

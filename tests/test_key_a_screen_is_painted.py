@@ -1,10 +1,11 @@
 """A screen is painted in its theme: every cell of it, text or blank, on one background, or a
 row the highlight is on whole on the selection (tests/test_key_one_highlight.py), text of no
 colour in the theme's text, and the terminal its own again once ak leaves.  That background is
-the terminal's own where the terminal says which it is: ak sets none, the selection and a line
-are as far from it as the theme's are from the theme's background, so neither is lost on it, and
-a page comes up out of it.  A terminal that says none is painted in the theme's, to its last
-column: no shade is known to show on what it has.
+the terminal's own where the terminal says which it is: ak sets none, the theme is drawn between
+it and the theme's text, a colour as far toward the text as it is from the theme's background, so
+the selection and a line are not lost on it, and a page comes up out of it.  A terminal that
+says none is painted in the theme's, to its last column: no colour is known to show on what it
+has.
 
 The owner (12 Nov 2026): two themes, white and black, seen through everywhere ak is visual; and
 (20 Nov 2026) the terminal's own background "should be used, and ak just sits on top".
@@ -36,8 +37,8 @@ DARK, LIGHT = "#203040", "#e8e4d8"     # terminals' own backgrounds, neither the
 # a theme's background, text, selection and border
 BLACK, WHITE = ("000000", "e2e8ef", "08305d", "3a3f46"), ("ffffff", "181c22", "dcecff", "b1b8c0")
 # ... and on a terminal's own background, which ak sets none on: the selection and the border as
-# far from DARK as black's are from black, from LIGHT as white's are from white
-ON_DARK, ON_LIGHT = (None, "e2e8ef", "28609d", "5a6f86"), (None, "181c22", "c5d1d8", "9a9d99")
+# far toward black's text as DARK is from black, toward white's as LIGHT is from white
+ON_DARK, ON_LIGHT = (None, "e2e8ef", "275684", "526273"), (None, "181c22", "c8d3d8", "a2a5a4")
 SIZE = (100, 30)
 OPENED = 1000.0     # the moment ak's motion stands at as a screen opens
 # a breath, which takes two seconds, in quarters, long after the screen opened: each a frame

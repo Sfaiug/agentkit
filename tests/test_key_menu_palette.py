@@ -2,7 +2,8 @@
 
 As it opens, the menu asks the terminal for its background colour (OSC 11).  No answer is a
 dark background, and the black theme; an answer whose luma is past half way puts the white theme
-in force, the accent, `needs you` and a seat's muted model each its role's colour of that theme.  The
+in force, the accent, `needs you` and a seat's muted model each its role's colour of that theme:
+on a background that is neither theme's, as far toward the theme's text as that background is.  The
 terminal here is tmux, which answers that question only once a background is set for its panes
 (`window-style`), so it stands for both a terminal that never answers and one that answers.
 Black-box: the menu runs through tests/fixtures/akterm.py, and each cell is judged by how it
@@ -69,10 +70,12 @@ class Palette(unittest.TestCase):
                 self.assertNotIn(DARK_NEEDS, colours(screen))
 
     def test_a_background_is_light_once_its_luma_is_past_half_way(self):
-        for background, *theme in (("#808080", LIGHT_NEEDS), ("#7f7f7f", DARK_NEEDS)):
+        # a grey is half way to its theme's text, so `needs you` is its theme's half way there
+        # too: white's on the lighter, black's on the darker
+        for background, needs in (("#808080", "38;2;77;57;20"), ("#7f7f7f", "38;2;221;193;127")):
             with self.subTest(background=background):
                 screen = self.menu(background, COLORTERM="truecolor")
-                self.assertEqual(look(screen, "! needs you", on="beta"), {"1", *theme})
+                self.assertEqual(look(screen, "! needs you", on="beta"), {"1", needs})
 
     def test_on_256_colours_the_light_needs_you_is_its_nearest_fixed_colour(self):
         self.assertEqual(look(self.menu("#ffffff", TERM="xterm-256color"), "! needs you",

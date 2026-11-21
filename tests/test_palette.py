@@ -141,11 +141,12 @@ class Palette(unittest.TestCase):
         with patch.dict(os.environ, {"COLORTERM": "truecolor"}):
             self.sense(dark, ATTRIBUTES)
             self.assertEqual(terminal._painted("x"), "\033[49;38;2;226;232;239mx\033[0m")
-            # the background is the terminal's, the selection and the border as far from it as
-            # black's are from black, and a fade ends in it; what tmux draws keeps black's
-            roles = "background", "selection", "border", "text"
+            # black between the terminal's background, which a fade ends in, and its own text:
+            # each colour as far toward that text as the terminal's background is from black;
+            # what tmux draws keeps black's
+            roles = "background", "selection", "border", "accent", "text"
             self.assertEqual([terminal.colour(role) for role in roles],
-                             ["203040", "28609d", "5a6f86", "e2e8ef"])
+                             ["203040", "275684", "526273", "62b1fb", "e2e8ef"])
             self.assertEqual(terminal.faded("dim", 1), "#203040")
             self.assertEqual(terminal.colour("selection", tmux=True), "08305d")
             self.sense(ATTRIBUTES)      # and none once it says none

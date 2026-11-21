@@ -69,7 +69,3 @@ var roles = map[string][2]string{
 	"special":    {white: "a23baa", black: "da7de0"},
 	"on-accent":  {white: "ffffff", black: "000000"},
 }
-
-// grounds are the background and the shades drawn just off it, as agentkit/themes.py's GROUNDS: on
-// a terminal's own background each is as far from that as from its theme's (Screen.colour).
-var grounds = []string{"background", "selection", "border"}
