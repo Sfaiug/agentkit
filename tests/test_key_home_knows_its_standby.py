@@ -3,7 +3,8 @@ yes|no`: its own clocks now, set back by SECONDS, and whether that machine takes
 there lists one line for each, how old its copy is by the home's clocks and if it takes over, or
 says that no machine copies it, and exits 0.  A record never goes into a standby's own folder,
 another host name's leaves it byte for byte, a request outside the grammar writes nothing, one
-that cannot be written exits 1 in one line, and a record that cannot be read is listed as such.  On
+that cannot be written exits 1 in one line, and a record that cannot be read is listed as such, one
+of many short words at under 8 MiB more memory than one of a single word.  On
 a client the request is kept and `ak standby` shows what it showed.  Black-box, through
 tests/fixtures/akbin.py, with the home's clocks from AK_NOW (`wall seconds-since-boot boot`).
 """
@@ -21,6 +22,12 @@ OWN = ".agentkit/tmp/standby"       # a standby's own folder, which makes a clie
 TOLD = "1789000000 50000 acme-boot-1"      # the home's clocks at a request
 LATER = "1789000300 50300 acme-boot-1"     # five minutes on
 SET_BACK = "1788996700 50300 acme-boot-1"  # five minutes on since boot, the wall an hour back
+# Run a command and print, last on stderr, the most memory any process of it held, in bytes.
+PEAK = ("import resource, subprocess, sys\n"
+        "code = subprocess.run(sys.argv[1:]).returncode\n"
+        "held = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss\n"
+        "print(held * (1 if sys.platform == 'darwin' else 1024), file=sys.stderr)\n"
+        "sys.exit(code)")
 
 
 def minutes(count):
@@ -101,6 +108,17 @@ class AHomeKnowsItsStandby(unittest.TestCase):
         self.assertIn("cannot be read", self.line(lines, "acme-laptop"))
         self.assertIn("cannot be read", self.line(lines, "acme-mac"))
         self.assertRegex(self.line(lines, "acme-vm"), minutes(5))
+
+    def test_a_record_of_many_short_words_costs_little_more_than_one_of_one_word(self):
+        def peak(words):
+            self.home.write(f"{RECORDS}/acme-mac", words + "\nno\n")
+            self.home.env["AK_NOW"] = LATER
+            said = self.home.run(sys.executable, "-c", PEAK, self.home.program, "standby")
+            self.assertEqual(said.code, 0, said.out + said.err)
+            self.assertIn("cannot be read", said.out)
+            return int(said.err.splitlines()[-1])
+        one = peak("a" * 990000)
+        self.assertLess(peak("ac " * 330000), one + 8 * 2**20)
 
     @unittest.skipIf(os.geteuid() == 0, "root writes a folder whatever its mode")
     def test_a_record_that_cannot_be_written_says_so_in_one_line(self):
