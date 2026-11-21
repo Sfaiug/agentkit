@@ -4,7 +4,7 @@ its client.
 ak's worker box, landing gate and limits exist only on Linux.  So a Mac's server install (no saved
 server elsewhere, or `--server`) sets up a Linux machine once, sized from the Mac with a share left
 to macOS, with the account's name and /home/<name>, none of the Mac's folders named in its file
-but a read-only one of its own, and the Mac's
+but, where Lima's store is named by a full path, a read-only one of its own, and the Mac's
 checkout at the same commit, its origin the Mac's or none where the Mac has none; runs the Linux
 server install in it, with a terminal when it has one; starts it with the Mac; and records it as
 the Mac's server, reached over a local ssh alias.  A second install finds it and changes nothing
@@ -248,14 +248,17 @@ class FreshMac(unittest.TestCase):
         self.assertIn('.user.name = "acme"', user)
         self.assertIn('.user.home = "/home/acme"', user)
 
-    def test_its_file_names_one_read_only_folder_of_its_own_and_lima_gets_its_store_whole(self):
+    def test_its_file_names_one_read_only_folder_of_its_own_where_the_store_has_a_full_path(self):
+        share = ('.mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": '
+                 '"/mnt/ak-free-space", "writable": false}]')
         [create] = self.created()
-        self.assertIn('.mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": '
-                      '"/mnt/ak-free-space", "writable": false}]', create[create.index("--set") + 1])
+        self.assertIn(share, create[create.index("--set") + 1])
         mac = Mac()
         self.addCleanup(mac.close)
         mac.home.env["LIMA_HOME"] = "store"      # the install runs in the account's home
         mac.install()
+        [create] = [call for call in mac.lima() if call[0] == "create"]
+        self.assertNotIn(".mounts", create[create.index("--set") + 1])
         self.assertTrue((mac.home.path / "store/ak/lima.yaml").exists())
 
     def test_it_is_sized_from_the_mac_leaving_macos_its_share(self):

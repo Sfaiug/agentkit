@@ -35,9 +35,6 @@ linux_share() {   # linux_share <total> <floor>
 linux_machine_up() {
   local dir name cpus mem had when disk power shared gib=$((1024 * 1024 * 1024))
   local daemons=${AK_LAUNCH_DAEMONS:-/Library/LaunchDaemons}
-  # Lima takes a shared folder by its full path alone: a store named from the folder the
-  # install runs in is named whole from here on.
-  case ${LIMA_HOME:-/} in /*) ;; *) export LIMA_HOME="$PWD/$LIMA_HOME" ;; esac
   dir=$(linux_dir) name=$(linux_user)
   if ! limactl autostart --help >/dev/null 2>&1; then
     if command -v limactl >/dev/null 2>&1; then brew upgrade lima || return 1
@@ -56,12 +53,14 @@ linux_machine_up() {
     # Debian stable, which boots systemd; --mount-none: the machine's file names none of the
     # Mac's folders but `free-space` in its own, read-only, which Lima makes as the machine
     # starts and fills in as {{.Dir}}.  Through it, where Lima shares it over virtiofs, the
-    # machine reads how full the volume holding its disk is (`host.disk_use`).
+    # machine reads how full the volume holding its disk is (`host.disk_use`).  Lima takes a
+    # shared folder by its full path alone, so a store not named by one has no such folder.
     shared='{"location": "{{.Dir}}/free-space", "mountPoint": "/mnt/ak-free-space", "writable": false}'
+    case $(linux_store) in /*) shared=" | .mounts = [$shared]" ;; *) shared= ;; esac
     limactl create --tty=false --name="$LINUX_INSTANCE" --cpus="$cpus" --memory="$mem" \
       --disk="$disk" --mount-none \
-      --set ".user.name = \"$name\" | .user.home = \"/home/$name\" | .mounts = [$shared]" \
-      template:debian || return 1
+      --set ".user.name = \"$name\" | .user.home = \"/home/$name\"$shared" template:debian ||
+      return 1
     echo "linux: this Mac's Linux machine has $cpus cores, ${mem} GiB of memory and ${disk} GiB of disk"
   elif had=$(limactl list --format '{{.Memory}}' "$LINUX_INSTANCE") &&
     [ "$had" -gt $((mem * gib)) ]; then

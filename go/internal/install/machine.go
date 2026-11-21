@@ -81,17 +81,6 @@ func machineUp(name string, out, errOut io.Writer) error {
 	limaHome := os.Getenv("LIMA_HOME")
 	if limaHome == "" {
 		limaHome = filepath.Join(config.UserHome(), ".lima")
-	} else if !filepath.IsAbs(limaHome) {
-		// Lima takes a shared folder by its full path alone: a store named from the folder the
-		// install runs in is named whole from here on.
-		wd, err := os.Getwd()
-		if err != nil {
-			return err
-		}
-		limaHome = wd + "/" + limaHome
-		if err := os.Setenv("LIMA_HOME", limaHome); err != nil {
-			return err
-		}
 	}
 	dir := filepath.Join(limaHome, machineName)
 	if !lima() {
@@ -123,12 +112,15 @@ func machineUp(name string, out, errOut io.Writer) error {
 		// Debian stable, which boots systemd; --mount-none: the machine's file names none of the
 		// Mac's folders but `free-space` in its own, read-only, which Lima makes as the machine
 		// starts and fills in as {{.Dir}}.  Through it, where Lima shares it over virtiofs, the
-		// machine reads how full the volume holding its disk is.
+		// machine reads how full the volume holding its disk is.  Lima takes a shared folder by
+		// its full path alone, so a store not named by one has no such folder.
+		set := fmt.Sprintf(".user.name = %q | .user.home = %q", name, "/home/"+name)
+		if filepath.IsAbs(limaHome) {
+			set += ` | .mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": "/mnt/ak-free-space", "writable": false}]`
+		}
 		if err := tool(out, errOut, "limactl", "create", "--tty=false", "--name="+machineName,
 			fmt.Sprintf("--cpus=%d", cpus), fmt.Sprintf("--memory=%d", mem), fmt.Sprintf("--disk=%d", disk),
-			"--mount-none", "--set", fmt.Sprintf(".user.name = %q | .user.home = %q | "+
-				`.mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": "/mnt/ak-free-space", "writable": false}]`,
-				name, "/home/"+name), "template:debian"); err != nil {
+			"--mount-none", "--set", set, "template:debian"); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "linux: this Mac's Linux machine has %d cores, %d GiB of memory and %d GiB of disk\n", cpus, mem, disk)
