@@ -7,7 +7,8 @@ whatever the remote does: unreachable, silent or losing a push's answer, the nex
 mend creates the lease from the one value made.  The address is the push address of
 ~/agentkit's `origin`, a relative one read from that checkout; with two, or one that reads as an
 option, nothing is made.  ~/agentkit/.git is left byte for byte as it was.  A stamp that is no
-time makes nothing.  With any word it is a usage error, as `ak back acme` is, and takes no turn.
+time makes nothing.  With any word it is a usage error, as `ak back acme` is, and takes no turn;
+nor does one on a home's client, which keeps no lease folder.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, and each case builds its own machines.  What came back is the refs
@@ -168,6 +169,15 @@ class AkLeaseCreatesALease(unittest.TestCase):
         self.turn(mini, now="acme")
         self.assertEqual((mini.install.refs(), made(mini)), ({}, {}))
         self.assertEqual(objects(mini), set())
+
+    def test_a_homes_client_takes_no_turn_and_its_home_then_creates_the_lease(self):
+        mini, vm = self.machines("acme-mini", "acme-vm")
+        vm.client_of(mini)
+        self.turn(vm)
+        self.assertNotIn(REF, vm.install.refs())
+        self.assertFalse((vm.path / LEASE).exists())
+        self.turn(mini)
+        self.created(mini)
 
     def test_a_word_is_a_usage_error_that_takes_no_turn(self):
         mini, = self.machines("acme-mini")
