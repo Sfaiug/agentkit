@@ -258,7 +258,7 @@ class CardsHighlight(test_breathing.MainScreen):
         for case, (run, size, name, said) in {
                 "past sessions": (self.past, (30, 15), "fix-api-1", ()),
                 "the ak screen": (self.ak, (40, 16), "fix-api", ()),
-                "its lines alike": (self.past, (30, 17), "fix-api-1", ("Run checks.",) * 2)}.items():
+                "lines alike": (self.past, (30, 17), "fix-api-1", ("Run checks.",) * 2)}.items():
             with self.subTest(case), patch.object(terminal, "width", return_value=size[0]), \
                     patch.object(terminal, "height", return_value=size[1]), \
                     patch.object(menu, "past_said", lambda seat: said or ("", "")), \
@@ -313,8 +313,9 @@ class CardsHighlight(test_breathing.MainScreen):
         _, read = self.asks(shown, menu.APPLY_ANSWER, True)
         asked = [grid for _, grid, _ in shown[read + 1:] if grid.find("✓ Keep")]
         self.assertGreater(len(asked), 6)
-        self.assertEqual([[at for at in grid.rows if grid.backs(at)
-                           and at not in grid.find("✓ Keep")] for grid in asked], [[]] * len(asked))
+        lit = [[at for at in grid.rows if grid.backs(at) and at not in grid.find("✓ Keep")]
+               for grid in asked]
+        self.assertEqual(lit, [[]] * len(asked))
 
     def test_what_a_past_row_opened_stays_open_unlit_over_its_card(self):
         with patch.object(menu, "past_said", lambda seat: ("Shipped the login page.", "")):
