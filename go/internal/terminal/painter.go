@@ -80,6 +80,16 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	p.up, p.over, p.of, p.known = slices.Clone(lines), slices.Clone(over), screen, !tall
 }
 
+// Scrolled is how many rows Write scrolls the screen by to put up a frame of `lines` rows: one
+// taller than the screen goes out whole, each row ended by a newline, so its first rows go off the
+// top and the screen's last row is left blank.  None is known on a screen no Keyboard measured.
+func (s Screen) Scrolled(lines int) int {
+	if s.height == 0 || lines <= s.height {
+		return 0
+	}
+	return lines - s.height + 1
+}
+
 // paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the theme's
 // background, in its text wherever it sets no colour, each reset putting both back, and the terminal
 // its own colours again after it, for whatever has it next.  At eight colours, whose tones read on any
