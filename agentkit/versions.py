@@ -195,8 +195,10 @@ def unpinned(env):
 
 def pinned(state):
     """The `ak_checkout` `state` keeps, if any: a run that ended in `error` has no process left
-    that depends on its version, so resuming it runs the installed ak."""
-    if not state or state.get("state") == "error" or (
+    that depends on its version, so resuming it runs the installed ak, as does one ended for
+    rescoping, so that the installed ak's refusal holds for it whichever version ended it."""
+    from . import transitions     # here, not at the top: every command starts in this module
+    if not state or state.get("state") == "error" or transitions.rescoped(state) or (
             state.get("state") == "queued" and state.get("resume_from") == "error"):
         return None
     return state.get("ak_checkout")

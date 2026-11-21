@@ -3,7 +3,8 @@
 With ak's six, a run whose first review leaves six ends FAIL after that round, as a run that
 spent its rounds ends: its budget is the one round it recorded, its result says why in one
 sentence -- the count, the number, and that the task is to be rescoped --, its next step is to
-split the task, and its resume, with more rounds or without, is refused in that sentence.  One left five goes on to its second round, as does one left six
+split the task, and its resume is refused in that sentence, whatever its `--rounds`, its worktree
+cleaned or not, and whichever version ended it.  One left five goes on to its second round, as does one left six
 under `rescope_findings = 0`; a project's front matter of four ends a run its review left four.
 Under two, two left at the third round end the run there, with no extra round
 (tests/test_key_one_finding_left_gets_extra_rounds.py) after it.  Black-box: the program
@@ -103,13 +104,23 @@ class SixLeft(Ends, unittest.TestCase):
         run(cls, 6)
 
     def test_its_resume_is_refused_for_rescoping(self):
-        for more in ((), ("--rounds", "3")):
+        # its record names an older ak, which would carry it on and must never run
+        older = self.home.root / "older-ak"
+        ran = older / "ran"
+        self.home.write(older / "bin/ak", f"from pathlib import Path\nPath({str(ran)!r}).touch()\n")
+        record = {**self.state, "ak_checkout": str(older)}
+        self.home.write(self.run_dir / "run.json", record)
+        for more in ((), ("--rounds", "3"), ("--rounds", "4"), ("cleaned", "--rounds", "3")):
             with self.subTest(more=more):
+                if more[:1] == ("cleaned",):
+                    self.assertEqual(self.home.ak("run", "clean", self.run_dir.name).code, 0)
+                    more = more[1:]
                 resumed = self.home.ak("run", "resume", self.run_dir.name, *more, timeout=300)
                 self.assertEqual(resumed.code, 2, resumed.out + resumed.err)
                 self.assertIn("The review left 6 blocking findings, at or past rescope_findings = 6: "
                               "rescope the task.", resumed.err)
-                self.assertEqual(json.loads((self.run_dir / "run.json").read_text()), self.state)
+                self.assertFalse(ran.exists())
+                self.assertEqual(json.loads((self.run_dir / "run.json").read_text()), record)
                 self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (1, 1))
 
 

@@ -1521,12 +1521,12 @@ def rescope(state, count):
 
 
 def rescoped(state):
-    """`rescope` of the last round a run recorded, read off its record alone: why no further
-    round carries it on, the loop's answer as the round ends (`round_allowed`) and a resume's
-    after (`continue_line`, `run.resume_run`), else None.  A run an older ak resumed past it
-    recorded a later round, which is what counts."""
+    """Why a run that ended failed is carried on by nothing, else None: its last recorded round
+    left its `rescope_findings` (`rescope`), so neither its result (`continue_line`) nor a
+    resume (`run.resume_run`) hands it more rounds, whichever version ended it
+    (`versions.pinned`).  A run an older ak resumed past that round counts its later one."""
     rows = state.get("round_summaries") or [{}]
-    return rescope(state, rows[-1].get("finding_count") or 0)
+    return state.get("state") == "fail" and rescope(state, rows[-1].get("finding_count") or 0) or None
 
 
 def round_allowed(lp):
@@ -1541,7 +1541,8 @@ def round_allowed(lp):
     if extra_round(lp.state, lp.rnd + 1):
         return True
     if lp.rnd >= lp.rounds:
-        why = rescoped(lp.state)
+        rows = lp.state.get("round_summaries") or [{}]
+        why = rescope(lp.state, rows[-1].get("finding_count") or 0)
         if why:
             lp.state["error"] = why
             lp.log(why)

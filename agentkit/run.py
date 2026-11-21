@@ -1795,6 +1795,9 @@ def resume_run(argv):
     config.ensure_dirs()
     run_dir = config.RUNS / run_id
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
+    # whatever its --rounds, its worktree cleaned or not: the task is what changes
+    if state and (why := rescoped(state)):
+        raise config.Error(why)
     refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["review_rounds"])
     if refusal:
         raise config.Error(refusal)
@@ -1880,11 +1883,9 @@ def resume_run(argv):
     # FAIL at the same cap must be refused exactly like the first rather than repeat itself.
     at_budget = failed_at_budget(state)
     if at_budget:
-        # its last round at its `rescope_findings`, or the change's budget with the rounds this
-        # run recorded counted, the extra ones too, spent: no --rounds carries it on and the task
-        # is what changes; else the way on names the bound `over_lineage` holds a --rounds to
-        if why := rescoped(state):
-            raise config.Error(why)
+        # the change's budget with the rounds this run recorded counted, the extra ones too:
+        # spent, no --rounds carries it on and the task is what changes; else the way on names
+        # the bound `over_lineage` holds a --rounds to
         spent = len(state["round_summaries"])
         left, why = change_budget(state, run_dir, run_record.policy_of(state)["review_rounds"], own=spent)
         if why:
