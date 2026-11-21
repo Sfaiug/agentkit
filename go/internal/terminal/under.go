@@ -10,19 +10,20 @@ import (
 // keyItem is an item of a key line: words parted by one blank, as two or more part the items.
 var keyItem = regexp.MustCompile(`\S+(?: \S+)*`)
 
-// A KeyItem is an item of a drawn key line (terminal.key_spans): its text, and its first and last
-// column, from 1.
+// A KeyItem is an item of a drawn key line (terminal.key_spans): its text, and the first and last
+// column, from 1, that the pointer lights and a click presses.
 type KeyItem struct {
 	Text        string
 	First, Last int
 }
 
-// KeyItems is each item of a drawn key line.
-func KeyItems(line string) []KeyItem {
+// KeyItems is each item of a drawn key line, its text with one cell before and after, the one
+// after never past the layout's last column, where lighting it would wrap onto the row under it.
+func KeyItems(line string, layout int) []KeyItem {
 	text := ansi.ReplaceAllString(line, "")
 	var items []KeyItem
 	for _, at := range keyItem.FindAllStringIndex(text, -1) {
-		items = append(items, KeyItem{text[at[0]:at[1]], Cells(text[:at[0]]) + 1, Cells(text[:at[1]])})
+		items = append(items, KeyItem{text[at[0]:at[1]], Cells(text[:at[0]]), min(Cells(text[:at[1]])+1, layout)})
 	}
 	return items
 }

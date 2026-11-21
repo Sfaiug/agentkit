@@ -90,5 +90,5 @@ func AddablesPage(s terminal.Screen, title string, choices []Addable, at, top in
 	top = pageTop(lines, pageEntry{at, -1}, top, page)
 	drawn := Panel(s, title, time.Now().Format("15:04"), body[top:min(top+page, len(body))], keys)
 	return PageFrame{Lines: drawn, Top: top, at: pageEntry{at, -1}, page: page, lines: lines, width: room,
-		keySpots: spotted(keyLines, len(drawn)-len(keyLines)+1)}
+		keySpots: spotted(keyLines, len(drawn)-len(keyLines)+1, s.LayoutWidth())}
 }

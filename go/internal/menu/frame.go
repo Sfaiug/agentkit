@@ -286,7 +286,7 @@ func Draw(view View, width, height int) Frame {
 	for bounded && len(out) < height-2-len(keys) {
 		out = append(out, "")
 	}
-	frame.keySpots = spotted(keys, len(out)+1)
+	frame.keySpots = spotted(keys, len(out)+1, layout)
 	// the item the pointer is on, on the selection: the pointer lights what a click there acts on
 	if at := frame.keyAt(view.Highlight.Pointer); at >= 0 {
 		spot := frame.keySpots[at]
