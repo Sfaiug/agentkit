@@ -120,6 +120,12 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on one before the one
 # forward, extra rounds with exactly one left merge 56% of runs at 31.3 M tokens per merged
 # change, with one or two 63% at 30.1 M; on the 2,639 runs of the reviewer before (30 Oct-17
 # Nov), 89.7% at 17.1 M against 92.5% at 16.6 M.  Three left gains too little to tell.
+# Owner, 20 Nov 2026: yes to ending a run its review left many blocking findings
+# (`transitions.rescope`), "the user can choose how many findings should force a rescope".  On
+# those 339 runs, after a review that left six or more, 0 of 69 next rounds merged and 5 got
+# down to two or fewer; of 40 builds with six or more at their first review, 2 merged in the
+# end, each spending about 10 M tokens on two more rounds first.  Build size adds nothing once
+# the count is known.
 POLICY = {
     "review_rounds": (3, 0, "the review rounds a change has before it goes back to its orchestrator "
                      "to split or re-scope"),
@@ -127,6 +133,8 @@ POLICY = {
     "orchestrator_lines": (50, 0, "the most added lines an orchestrator builds"),
     "extra_rounds": (2, 0, "the further review rounds a change has while its last review left "
                     "one or two blocking findings"),
+    "rescope_findings": (6, 0, "the blocking findings a task's review leaves that end its run "
+                         "for rescoping, 0 never"),
 }
 POLICY_RENAMES = {"rounds": "review_rounds", "review_lines": "executor_lines",
                   "seat_lines": "orchestrator_lines"}
@@ -393,11 +401,14 @@ def _read_toml(path):
         raise Error(f"{path}: {exc}")
 
 
-def host_policy(table=None):
+def host_policy(table=None, keys=POLICY):
     """The POLICY numbers in force on this host: config.toml's own, or `table`'s as it would
-    be saved, else ak's defaults."""
+    be saved, else ak's defaults.  Only `keys` are read off it, ak's defaults the rest: a
+    number nobody asks for never refuses one that is asked."""
     path = HOME / CONFIG_NAME
-    return _policy_in(path, (_read_toml(path) or {}) if table is None else table)
+    data = (_read_toml(path) or {}) if table is None else table
+    return _policy_in(path, {key: value for key, value in data.items()
+                             if key in keys or key in POLICY_RENAMES})
 
 
 def rename_policy(data):

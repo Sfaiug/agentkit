@@ -3075,8 +3075,9 @@ AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (con
 DONE_CHECK = ("row", "Done check")   # on or off, and the model that makes it (done_check.setting)
 MACHINES = ("row", "Machines")
 LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
-# Each of config.POLICY's numbers on `Limits`: its name there, how `Limits`' value on `c` says
-# it, before the number and its unit after, and the steps ← and → move it through (limit_step).
+# The config.POLICY numbers on `Limits`, rescope_findings not yet (a task of its own): each
+# one's name there, how `Limits`' value on `c` says it, before the number and its unit after,
+# and the steps ← and → move it through (limit_step).
 # Owner, 3 Nov 2026: the keys' own names were unclear to users; 5 Nov 2026: "The executor cap
 # moves in steps of 100, the orchestrator's in steps of 25."
 LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6)),
@@ -6398,8 +6399,8 @@ def lines_said(key, runs, held):
 
 
 def config_limits(cfg):
-    """`Limits`: each of config.POLICY's numbers a row (config_page) under its name
-    (LIMIT_NAMES), its value and `default N` where that is not ak's default, then under each
+    """`Limits`: each of LIMIT_NAMES' numbers a row (config_page) under its name there,
+    its value and `default N` where that is not ak's default, then under each
     what it means and, where it has them, how its runs did (rounds_chart, size_chart) and what
     they would have done at its value (rounds_said, lines_said), read as the page opens and
     said again as the value moves: each explanation before its evidence.  ← and → move the
@@ -6442,7 +6443,7 @@ def config_limits(cfg):
                  ("step", lambda step, key=key: limit_step(key, numbers[key], step),
                   lambda value, key=key: take(key, value)),
                  "", under(key, numbers[key]))
-                for key, (default, *_) in config.POLICY.items()], ""
+                for key, (default, *_) in config.POLICY.items() if key in LIMIT_NAMES], ""
     config_page("limits", page, move=("limit", "value"))
 
 

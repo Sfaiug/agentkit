@@ -85,8 +85,7 @@ def policy_of(state):
     its record because they do not change while it runs; a record from before that keeps none,
     and stays on the host's it was launched under for FIRST_KEPT.  A number a record is from
     before holds ak's default."""
-    kept = state.get("policy") or {key: value for key, value in config.policy().items()
-                                   if key in FIRST_KEPT}
+    kept = state.get("policy") or config.host_policy(keys=FIRST_KEPT)
     return {**{key: default for key, (default, *_) in config.POLICY.items()}, **kept}
 
 
