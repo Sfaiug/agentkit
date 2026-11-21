@@ -1146,9 +1146,12 @@ def replenish(cfg, provider, account=None, kind=None):
     # follows the spend here: one refused would put back the reading the credit replaced.
     # Where the provider lists accounts the credit went to one of them, the one a turn runs on
     # next whose reading the provider's own fields are (`_gate_flags`), and that account's
-    # record is the one refilled.
+    # record is the one refilled.  The meters it answers are a probe's reading, kept as one
+    # (`_keep`) as given, at the spend: the next probe may be a quarter of an hour off, and what
+    # the login used until then would be in no fit.  The week alone names no meter: the cache's.
     account = prov.get("account")
     back, _ = _reported(result.get("meters"), now)
+    _keep(provider, account, back, spent_at, "probe")
     weekly, used, until = _weekly(prov), result.get("weekly_used"), result.get("resets_at")
     if not back and weekly and _number(used) is not None and _number(until) is not None:
         back = [_normalized({**weekly, "used": used, "resets_at": until}, now)]
