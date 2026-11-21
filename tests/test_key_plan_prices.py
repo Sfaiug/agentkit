@@ -1,6 +1,6 @@
 """Each login's `a month` on `ak usage` is its own price: the `price` on its provider's table
-where the config sets one, else the list price of the plan state/logins.json says the login is on
-now, else none, `-`.  Claude's Pro is $20 a month, Max 20x $200 and Max 5x $100, ChatGPT's Pro
+where the config sets one, or the one a `price` table by login gives it, else the list price of
+the plan state/logins.json says the login is on now, else none, `-`.  Claude's Pro is $20 a month, Max 20x $200 and Max 5x $100, ChatGPT's Pro
 $200, Google AI Pro $19.99 and Grok's X Premium $8.  `ak usage --json` gives each login its
 `price`.
 
@@ -79,6 +79,11 @@ class PlanPrices(unittest.TestCase):
         self.assertEqual(got[("anthropic", "default")], (150, "150"))
         self.assertEqual(got[("anthropic", "second")], (150, "150"))
         self.assertEqual(got[("openai", "default")], (200, "200"))
+
+    def test_a_price_by_login_prices_the_logins_it_names_and_leaves_the_others_their_plans(self):
+        got = self.usage(anthropic={"price": {"second": 100}})
+        self.assertEqual(got[("anthropic", "second")], (100, "100"))
+        self.assertEqual(got[("anthropic", "default")], (200, "200"))
 
     def test_a_grok_login_on_x_premium_costs_its_list_price(self):
         self.assertEqual(self.usage()[("xai", "default")], (8, "8"))

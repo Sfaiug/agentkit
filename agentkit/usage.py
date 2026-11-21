@@ -1961,15 +1961,19 @@ def plan(provider, account=None):
 def price(cfg, provider, account=None):
     """What `provider`'s login `account` (None, its usual one) costs a month, on its `plan`
     (`_monthly`)."""
-    return _monthly(cfg, provider, lambda: plan(provider, account))
+    return _monthly(cfg, provider, account, lambda: plan(provider, account))
 
 
-def _monthly(cfg, provider, plan):
-    """What a login of `provider` costs a month: the `price` on the provider's table, in
-    whatever its owner pays in, else the list price of the plan `plan()` gives on the `[plans]`
-    of the harness that asks it; or None.  The plan is asked only where the table names no
-    price: a login's files decide nothing there, so none that cannot be read stops it."""
-    own = _number(((cfg.get("providers") or {}).get(provider) or {}).get("price"))
+def _monthly(cfg, provider, account, plan):
+    """What `provider`'s login `account` (None, its usual one) costs a month: the `price` on the
+    provider's table, in whatever its owner pays in, or, where that is a table by login, the
+    one it gives `account`; else the list price of the plan `plan()` gives on the `[plans]` of
+    the harness that asks it; or None.  The plan is asked only where the table names no price:
+    a login's files decide nothing there, so none that cannot be read stops it."""
+    own = ((cfg.get("providers") or {}).get(provider) or {}).get("price")
+    if isinstance(own, dict):
+        own = own.get(account or config.DEFAULT_ACCOUNT)
+    own = _number(own)
     if own is not None:
         return own
     return _number(harness_plugin(logins.harness(cfg, provider)).plans.get(plan()))
@@ -2284,7 +2288,7 @@ def main(argv):
             (prov["plan"], prov["week_listed_usd"], prov["plan_points"],
              prov["plan_listed_usd"]) = weeks[name][account]
             # the plan it shows priced, not the plan read again: a probe meanwhile may change it
-            prov["price"] = _monthly(cfg, name, lambda: prov["plan"])
+            prov["price"] = _monthly(cfg, name, account, lambda: prov["plan"])
             prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             prov["plan_checks"] = checks[name][account]
         json.dump({"providers": providers, "pick_order": order,

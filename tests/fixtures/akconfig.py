@@ -68,5 +68,13 @@ def read(home):
 
 
 def _keys(table):
-    # A JSON string, number, boolean or list of them is the same value written in TOML.
-    return "".join(f"{key} = {json.dumps(value)}\n" for key, value in table.items())
+    return "".join(f"{key} = {_value(value)}\n" for key, value in table.items())
+
+
+def _value(value):
+    # A JSON string, number, boolean or list of them is the same value written in TOML; a dict
+    # is an inline table.
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{json.dumps(key)} = {_value(item)}"
+                               for key, item in value.items()) + "}"
+    return json.dumps(value)
