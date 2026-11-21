@@ -6255,7 +6255,8 @@ def limit_shown(value):
 
 def limits_value(cfg):
     """`Limits`' value on `c`: each of config.POLICY's numbers in force (config.host_policy) with
-    a short name (LIMIT_NAMES) under it, `review 3 rounds · executor 300 lines · orchestrator off`."""
+    a short name (LIMIT_NAMES) under it, `review 3 rounds · executor 300 lines · orchestrator
+    off`."""
     numbers = config.host_policy(cfg)
     return " · ".join(f"{short} {limit_shown(numbers[key])}" + (
         f" {unit[:-1] if numbers[key] == 1 else unit}" if type(numbers[key]) is int and numbers[key] else "")
