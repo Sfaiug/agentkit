@@ -19,6 +19,8 @@ changes as often as turns are taken; a swap the remote refused or never answered
 again, as the next turn makes another.
 """
 
+import functools
+import os
 import re
 import secrets
 import subprocess
@@ -49,19 +51,7 @@ def main(argv):
 def _turn():
     checkout = update.agentkit_dir()
     env = gitcall.project_env(checkout)
-
-    def git(*args, timeout=None, check=True, own=None):
-        """git's output, as bytes, since text would lose a carriage return or a byte no UTF-8
-        holds; one that does not exit 0 raises, unless `check` is off."""
-        done = gitcall.run_capped(
-            ["git", *args], timeout or gitcall.local_cap(), cwd=checkout,
-            stdin=subprocess.DEVNULL,
-            env={name: value for name, value in {**gitcall.tool_env(), **env, **(own or {})}.items()
-                 if value is not None})
-        if check:
-            done.check_returncode()
-        return done.stdout
-
+    git = functools.partial(_git, cwd=checkout, env=env)
     # every push address, so that more than one ends the turn: git would print the first alone
     told = git("remote", "get-url", "--push", "--all", "origin")
     if not ADDRESS.fullmatch(told):
@@ -108,22 +98,31 @@ def proof_age():
     """Seconds since this machine last knew it was the home, by `age_at_most`: a turn makes a value,
     named for its stamp, only right after the remote said the lease is this machine's or that there
     is none, so those stamps are its proofs and the youngest is the one that counts.  None for no
-    proof: none made, a git that does not exit 0, or a read that raises, as a clock that cannot be
-    read does; a name holding no stamp is none.  It asks no remote."""
+    proof: none made, or a read that raises, as a git that does not exit 0 and a clock that cannot
+    be read do; a name holding no stamp is none.  It asks no remote."""
     try:
         # the variables git keeps for one repository dropped, as `gitcall.project_env` drops them
-        code, local, _ = gitcall.tool_run(["git", "rev-parse", "--local-env-vars"])
-        if code == 0:
-            code, names, _ = gitcall.tool_run(
-                ["git", "for-each-ref", "--format=%(refname)", MADE],
-                env={**dict.fromkeys(local.split()), "GIT_DIR": str(_repo())})
-        if code != 0:
-            return None
-        # one name a line, as git forbids a control character in one: a name may hold any other
-        stamps = map(_stamp, names.split("\n"))
+        local = _git("rev-parse", "--local-env-vars").split()
+        names = _git("for-each-ref", "--format=%(refname)", MADE,
+                     env={**dict.fromkeys(map(os.fsdecode, local)), "GIT_DIR": str(_repo())})
+        # one name a line, as git forbids a control character in one, read as the turn's git was
+        # given it: a name may hold any other byte
+        stamps = (_stamp(os.fsdecode(name)) for name in names.split(b"\n"))
         return min((stamp.age_at_most() for stamp in stamps if stamp), default=None)
     except Exception:
         return None
+
+
+def _git(*args, cwd=None, env=None, timeout=None, check=True, own=None):
+    """git's output, as bytes, since text would lose a carriage return or a byte no UTF-8 holds;
+    one that does not exit 0 raises, unless `check` is off."""
+    given = {**gitcall.tool_env(), **(env or {}), **(own or {})}
+    done = gitcall.run_capped(
+        ["git", *args], timeout or gitcall.local_cap(), cwd=cwd, stdin=subprocess.DEVNULL,
+        env={name: value for name, value in given.items() if value is not None})
+    if check:
+        done.check_returncode()
+    return done.stdout
 
 
 def _named(stamp):

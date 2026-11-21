@@ -9,8 +9,6 @@ else of ak freezes the slice, so a home that is not paused thaws it whoever froz
 is kept.
 """
 
-import os
-
 from . import host, lease, orch, standby
 
 # A home's tick fires every three minutes, so three more turns were tried before it pauses; a
@@ -26,13 +24,14 @@ def paused():
     age = lease.proof_age() if standby.takes_over() else None
     stale = age is not None and age >= STALE
     try:
-        # opened to read and to write, never waiting, so that one that cannot be either is left:
-        # never made, never emptied, as a write refused leaves what it read, never waited on
-        with open(host.freezer(orch.slice_cgroup()), "r+",
-                  opener=lambda path, flags: os.open(path, flags | os.O_NONBLOCK)) as freezer:
-            if (freezer.read().strip() == "1") != stale:
+        # opened to read and to write, so that one that cannot be either, or a pipe, is left, and
+        # none is made; cut to what was written only once that is written, so a write refused
+        # leaves what was there
+        with open(host.freezer(orch.slice_cgroup()), "r+b") as freezer:
+            if stale or freezer.read().strip() == b"1":
                 freezer.seek(0)
-                freezer.write("1" if stale else "0")
-    except (OSError, ValueError):
+                freezer.write(b"1" if stale else b"0")
+                freezer.truncate()
+    except OSError:
         pass
     return stale
