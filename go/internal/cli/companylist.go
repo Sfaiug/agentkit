@@ -106,7 +106,7 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 		if key.Name == "add" {
 			var added string
 			var carried bool
-			clicks = terminal.Clicks{} // a press held into the page was that page's
+			clicks, view.Pointer = terminal.Clicks{}, terminal.Mouse{} // a press held into the page, and the pointer, were that page's
 			if view.Note, added, carried = companyAdded(view, keyboard, painter); !carried {
 				return "", false
 			}
