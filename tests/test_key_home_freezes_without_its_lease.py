@@ -183,8 +183,9 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         self.runs(home, now(63))
 
     def test_a_home_with_no_record_thaws_the_slice(self):
-        machines = self.machines()
+        machines = self.machines(freezer="1")
         home, = machines
+        self.runs(home, now(0))
         self.home(home)
         machines.break_remote("unreachable")
         self.paused(home, now(10))
@@ -203,6 +204,10 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         self.assertEqual(self.fire(home, now(10), dry=True), (0, "1", False))
         home.client_of(vm)      # the values it made as home kept, 10 minutes old
         self.assertEqual(self.fire(home, now(10)), (0, "1", False))
+        server, client = self.machines("acme-mini", "acme-vm", freezer="1")
+        client.client_of(server)
+        self.assertEqual(self.fire(server, now(0), dry=True), (0, "1", False))
+        self.assertEqual(self.fire(client, now(0)), (0, "1", False))
 
 
 if __name__ == "__main__":
