@@ -887,8 +887,9 @@ def away():
 def off_rows():
     """Whether the pointer moved off every row of the screen up -- onto a key-line item, a header
     or blank space -- which lost the keys' highlight when it left: a key brings it back where it
-    was, the keys going on from there."""
-    return _AWAY
+    was, the keys going on from there.  Never while a card asks (`confirm`): the pointer leaving
+    its answers moves nothing of the screen under it, so they stay where they were."""
+    return _AWAY and not _CARD
 
 
 def unseen():
