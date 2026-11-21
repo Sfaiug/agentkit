@@ -4,16 +4,18 @@ The owner (10 Nov 2026): "See amount of resets and spend one inside the ak menu"
 provider.  A Claude login's kinds refill different things -- a weekly reset the week, a Fable
 reset only Fable's own cap -- so its line offers one act for each kind it can spend now, named
 after it, and the one pressed is the kind its adapter is asked to spend (`reset Fable`); what
-that spend read back, every meter and the count by kind, is the reading after it.  A kind held
-but not spendable now is offered no act, and a spend refused leaves the reading as it was.
-Black-box: `AK_BIN`'s ak screen in a terminal (tests/fixtures/akterm.py) over a Claude
+that spend read back, every meter and the count by kind, is the reading after it, and each of
+those meters is kept in history.db as a probe's reading, at the spend (the owner, 20 Nov 2026).
+A kind held but not spendable now is offered no act, and a spend refused leaves the reading as
+it was.  Black-box: `AK_BIN`'s ak screen in a terminal (tests/fixtures/akterm.py) over a Claude
 subscription under the real adapters/claude.toml, its adapter a fake that logs every verb
-(tests/fixtures/fakeadapter.py), NO_COLOR, so the act lit is bracketed.  This test fails
-against `/bin/false`.
+(tests/fixtures/fakeadapter.py), NO_COLOR, so the act lit is bracketed, and history.db read
+with sqlite3.  This test fails against `/bin/false`.
 """
 
 import json
 import re
+import sqlite3
 import sys
 from pathlib import Path
 import time
@@ -59,6 +61,26 @@ def answer(fable, left=3, fable_used=17):
             "error": None}
 
 
+def fable_spent():
+    """What `reset` reads back once a Fable reset has gone: Fable's cap refilled, two left."""
+    after = answer(True, left=2, fable_used=0)
+    return {"code": "reset", "available": after["resets"], "reset_kinds": after["reset_kinds"],
+            "meters": after["meters"]}
+
+
+def kept(home, since):
+    """The Claude login's meter readings history.db keeps measured at `since` or later, each
+    (meter, used, resets_at, window_secs, source, scope)."""
+    connection = sqlite3.connect(home.path / ".agentkit" / "history.db")
+    try:
+        return connection.execute(
+            "SELECT meter, used, resets_at, window_secs, source, scope FROM meter_readings "
+            "WHERE provider = 'anthropic' AND account = 'default' AND at >= ?",
+            (since,)).fetchall()
+    finally:
+        connection.close()
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ClaudeResetInTheMenu(unittest.TestCase):
     def open(self, fable=True):
@@ -97,12 +119,15 @@ class ClaudeResetInTheMenu(unittest.TestCase):
         return self.term.wait(lambda screen: offered(screen) and UNLIT in lines(screen))
 
     def spend_fable(self):
-        """`spend a Fable reset` pressed on Claude's line: moved onto, then Enter."""
+        """`spend a Fable reset` pressed on Claude's line: moved onto, then Enter, and the
+        moment just before the key went."""
         self.listed()
         self.term.keys("Right", "Right")
         self.term.wait(lambda screen: "[→ spend a Fable reset]" in offered(screen)
                        and LIT.format("spend a Fable reset") in lines(screen))
+        pressed = time.time()
         self.term.keys("Enter")
+        return pressed
 
     def noted(self, said):
         """What the press says under Subscriptions, `said`, then Esc back to the ak screen."""
@@ -121,11 +146,7 @@ class ClaudeResetInTheMenu(unittest.TestCase):
 
     def test_a_fable_reset_spent_shows_what_its_spend_read_back(self):
         self.open()
-        # what `reset` reads back once a Fable reset has gone: Fable's cap refilled, two left
-        after = answer(True, left=2, fable_used=0)
-        self.fake.answer("reset", json.dumps({"code": "reset", "available": after["resets"],
-                                              "reset_kinds": after["reset_kinds"],
-                                              "meters": after["meters"]}), given=("Fable",))
+        self.fake.answer("reset", json.dumps(fable_spent()), given=("Fable",))
         self.spend_fable()
         # the notice says what the spend changed: a Fable reset leaves the week's cell as it was
         self.noted("  Claude · 60% left · Fable 100% left · 1 weekly, 2 Fable resets in hand")
@@ -133,6 +154,16 @@ class ClaudeResetInTheMenu(unittest.TestCase):
         self.assertIn(" · Fable 100% left", line)
         self.assertTrue(line.endswith(" · 1 weekly, 2 Fable resets in hand"), line)
         self.assertEqual([call["argv"] for call in self.fake.calls("reset")], [["Fable"]])
+
+    def test_the_meters_a_spent_reset_reads_back_are_kept_as_readings_once(self):
+        self.open()
+        spent = fable_spent()
+        self.fake.answer("reset", json.dumps(spent), given=("Fable",))
+        pressed = self.spend_fable()
+        self.noted("  Claude · 60% left · Fable 100% left · 1 weekly, 2 Fable resets in hand")
+        self.assertCountEqual(kept(self.home, pressed), [
+            (meter["name"], meter["used"], meter["resets_at"], meter["window_secs"], "probe",
+             meter.get("scope")) for meter in spent["meters"]])
 
     def test_a_kind_it_cannot_spend_now_is_offered_no_act(self):
         self.assertTrue(self.open(fable=False).endswith(" · 1 weekly, 3 Fable resets in hand"))
