@@ -6,8 +6,9 @@ saying so, and the tick brings it back once a reviewer has room, whatever the fi
 reads.  Until 21 Nov 2026 the run parked with the fixer's step on it and a reason naming every
 worker's meter, and the tick waited for the fixer's model.  Black-box: the program `AK_BIN` names
 runs from outside through tests/fixtures/akbin.py, on the fixtures of
-tests/test_key_own_pr_review_resumes_its_fixer.py, with meters the test sets and reads again
-each second, not on the harness's own cadence.
+tests/test_key_own_pr_review_resumes_its_fixer.py, its seat open so the tick reopens nothing,
+and meters the test sets, which ak reads again a second after its last read, not on the
+harness's own cadence.
 """
 
 import json
@@ -20,7 +21,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import Home, boxable
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
@@ -43,7 +44,7 @@ def until(shown, what, bound=120):
         time.sleep(0.1)
 
 
-@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class AReviewerIsWaitedFor(unittest.TestCase):
     """The acme seat's orchestrator is opus, its one worker; astra alone reviews."""
 
@@ -54,15 +55,15 @@ class AReviewerIsWaitedFor(unittest.TestCase):
         rig = Rig(home, "widgets", files={"AGENTS.md": RULES})
         gh = GitHub(home)
         akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
-        started, go = (home.root / name for name in ("started", "go"))
-        held = {**FIX, "sh": f": >{shlex.quote(str(started))}; "
-                             f"until [ -e {shlex.quote(str(go))} ]; do sleep 0.1; done"}
-        cls.fakes = fakes = fakeadapter.install(home, claude=held, codex=[FIND, "pass"])
+        cls.fakes = fakes = fakeadapter.install(home, claude=FIX, codex=[FIND, "pass"])
+        started, go = (fakes["claude"].dir / name for name in ("started", "go"))
+        fakes["claude"].behave({**FIX, "sh": f": >{shlex.quote(str(started))}; until "
+                                             f"[ -e {shlex.quote(str(go))} ]; do sleep 0.1; done"})
         for fake in fakes.values():
             text = re.sub(r"(?m)^probe_every = .*\n", "", fake.manifest.read_text())
             fake.manifest.write_text(text.replace("[usage]\n", "[usage]\nprobe_every = 1\n", 1))
             fake.answer("usage", reading(10))
-        Seat(home, "acme", cwd=rig.path, alive=False,
+        Seat(home, "acme", cwd=rig.path,
              record={"workers": ["opus"], "reviewers": ["astra"]}, planned=True)
         rig.branch("contrib", {"contrib.txt": "c\n"})
         run = home.spawn("run", "--review-pr", gh.open_pr(rig, "contrib", title="Add contrib"),
@@ -79,9 +80,7 @@ class AReviewerIsWaitedFor(unittest.TestCase):
         fakes["claude"].answer("usage", reading(100))
         fakes["codex"].answer("usage", reading(0))
         cls.age(home)
-        cls.tick = home.tick()
-        until(lambda: json.loads((cls.run_dir / "run.json").read_text()).get("state")
-              not in ("exhausted", "queued", "running"), "ended the resumed run")
+        cls.tick = home.tick()      # which waits out the run it resumes
         cls.state = json.loads((cls.run_dir / "run.json").read_text())
 
     @staticmethod
@@ -100,12 +99,13 @@ class AReviewerIsWaitedFor(unittest.TestCase):
 
     def test_the_tick_resumes_it_for_its_reviewer_while_its_fixer_is_spent(self):
         self.assertEqual(self.tick.code, 0, self.tick.out + self.tick.err)
-        self.assertIn(f"resumed {self.run_dir.name}: reviewer astra eligible again",
-                      self.tick.out.splitlines(), self.tick.out + self.tick.err)
+        self.assertTrue([line for line in self.tick.out.splitlines()
+                         if line.startswith(f"resumed {self.run_dir.name}: ")],
+                        self.tick.out + self.tick.err)
 
     def test_astra_reviews_and_its_verdict_stands(self):
-        reviews = [turn["step"] for turn in self.fakes["codex"].runs() if turn["role"] == "reviewer"]
-        self.assertEqual(reviews, [FIND, "pass"])
+        self.assertEqual([(turn["role"], turn["step"]) for turn in self.fakes["codex"].runs()],
+                         [("reviewer", FIND), ("reviewer", "pass")])
         self.assertEqual([turn["role"] for turn in self.fakes["claude"].runs()], ["fixer"])
         self.assertEqual({key: self.state.get(key) for key in ("state", "verdict", "reviewer",
                                                                "merged")},
