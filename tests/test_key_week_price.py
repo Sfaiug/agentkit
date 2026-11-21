@@ -197,19 +197,22 @@ class WeekPrice(unittest.TestCase):
         self.read("default", 30, 30 * HOUR, WEEK, plan="Max")
         self.assertWeek(self.weeks()["default"], "Max", math.inf, 20, 2e306)
 
-    def test_the_holds_cell_says_about_in_what_stdout_can_print(self):
+    def test_the_holds_cell_says_about_as_the_locale_can_and_an_ascii_stdout_takes_it(self):
         self.plans(default="Max")
         self.read("default", 10, 40 * HOUR, WEEK, plan="Max")
         self.spent("default", 3, 35 * HOUR)
         self.read("default", 40, 30 * HOUR, WEEK, plan="Max")
         self.assertWeek(self.weeks()["default"], "Max", 10, 30, 3)
-        for encoding, about in (("utf-8", "≈"), ("ascii", "~")):
-            with self.subTest(encoding):
-                done = self.home.ak("usage", env={"COLUMNS": "200", "LC_ALL": "C.UTF-8",
-                                                  "PYTHONIOENCODING": encoding})
+        for locale, about in (("C.UTF-8", "≈"), ("C", "~")):
+            with self.subTest(locale):
+                done = self.home.ak("usage", env={"COLUMNS": "200", "LC_ALL": locale})
                 self.assertEqual(done.code, 0, done.err)
                 self.assertEqual(meters.cell(done.out, "Acme I", "holds"),
                                  f"week {about} $10 at list prices")
+        # a stream that takes ASCII alone, whatever the locale says: only Python's has an encoding
+        done = self.home.ak("usage", env={"COLUMNS": "200", "LC_ALL": "C.UTF-8",
+                                          "PYTHONIOENCODING": "ascii"})
+        self.assertEqual(done.code, 0, done.err)
 
 
 if __name__ == "__main__":
