@@ -1031,11 +1031,12 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             reviewers = staffing.run_reviewers(cfg, run_state)
             workers, review_list = config.pair_marks(cfg, workers, reviewers)
             try:
+                # a reviewer mark the config holds no whole model for reviews nobody (`known`)
                 _, skip = staffing.takers(cfg, None, workers, reviewers=reviewers,
-                                          reviewed_by=review_list)
+                                          reviewed_by=staffing.known(cfg, review_list))
             except config.Error:
-                # a model entry the config cannot read leaves nobody out: the fresh launch
-                # judges it from its own moment
+                # an adapter manifest ak cannot read refuses every reviewer pick, the rerun's
+                # launch too: the rotation goes on as before it
                 skip = {}
             workers = [name for name in workers if name not in skip]
         nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"), workers)
