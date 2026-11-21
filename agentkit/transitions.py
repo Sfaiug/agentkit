@@ -698,11 +698,11 @@ def continue_line(state, run_dir=None):
             and "gave no verdict twice" in (state.get("error") or "")):
         return f"continue: ak run resume {state['run_id']}"
     if failed_at_budget(state):
-        # up to the change's budget across its runs and no further: past it the task is
-        # split or redesigned instead
+        # up to the change's budget across its runs and no further: past it, or with its last
+        # round at its `rescope_findings` (`rescoped`), the task is split or redesigned instead
         cap = lineage_cap(state, run_dir or config.RUNS / state["run_id"])
         return (f"continue: ak run resume {state['run_id']} --rounds {cap}"
-                if state["rounds"] < cap else "")
+                if state["rounds"] < cap and not rescoped(state) else "")
     if failed_in_integration(state, run_dir):
         return f"continue: ak run resume {state['run_id']}"
     if judged_in_integration(state, run_dir):
@@ -1520,6 +1520,15 @@ def rescope(state, count):
             f"rescope_findings = {number}: rescope the task.")
 
 
+def rescoped(state):
+    """`rescope` of the last round a run recorded, read off its record alone: why no further
+    round carries it on, the loop's answer as the round ends (`round_allowed`) and a resume's
+    after (`continue_line`, `run.resume_run`), else None.  A run an older ak resumed past it
+    recorded a later round, which is what counts."""
+    rows = state.get("round_summaries") or [{}]
+    return rescope(state, rows[-1].get("finding_count") or 0)
+
+
 def round_allowed(lp):
     """Whether this run may spend another round: an extra one its own record opens
     (`extra_round`), else one of its own left and one left on its change across its runs
@@ -1532,8 +1541,7 @@ def round_allowed(lp):
     if extra_round(lp.state, lp.rnd + 1):
         return True
     if lp.rnd >= lp.rounds:
-        rows = lp.state.get("round_summaries") or [{}]
-        why = rescope(lp.state, rows[-1].get("finding_count") or 0)
+        why = rescoped(lp.state)
         if why:
             lp.state["error"] = why
             lp.log(why)

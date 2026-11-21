@@ -46,7 +46,7 @@ from .transitions import (change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, drop_error_retry, extra_round, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, leaves_line, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
+    queued, report_config, rescoped, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
     stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
@@ -1880,9 +1880,11 @@ def resume_run(argv):
     # FAIL at the same cap must be refused exactly like the first rather than repeat itself.
     at_budget = failed_at_budget(state)
     if at_budget:
-        # the change's budget with the rounds this run recorded counted, the extra ones too:
-        # spent, no --rounds carries it on and the task is what changes; else the way on names
-        # the bound `over_lineage` holds a --rounds to
+        # its last round at its `rescope_findings`, or the change's budget with the rounds this
+        # run recorded counted, the extra ones too, spent: no --rounds carries it on and the task
+        # is what changes; else the way on names the bound `over_lineage` holds a --rounds to
+        if why := rescoped(state):
+            raise config.Error(why)
         spent = len(state["round_summaries"])
         left, why = change_budget(state, run_dir, run_record.policy_of(state)["review_rounds"], own=spent)
         if why:

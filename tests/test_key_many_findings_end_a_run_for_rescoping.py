@@ -2,8 +2,8 @@
 
 With ak's six, a run whose first review leaves six ends FAIL after that round, as a run that
 spent its rounds ends: its budget is the one round it recorded, its result says why in one
-sentence -- the count, the number, and that the task is to be rescoped -- and its resume is
-refused as at its round budget.  One left five goes on to its second round, as does one left six
+sentence -- the count, the number, and that the task is to be rescoped --, its next step is to
+split the task, and its resume, with more rounds or without, is refused in that sentence.  One left five goes on to its second round, as does one left six
 under `rescope_findings = 0`; a project's front matter of four ends a run its review left four.
 Under two, two left at the third round end the run there, with no extra round
 (tests/test_key_one_finding_left_gets_extra_rounds.py) after it.  Black-box: the program
@@ -79,6 +79,10 @@ class Ends:
         self.assertEqual(lines[at + 2], f"The review left {self.count} blocking findings, at or past "
                                         f"rescope_findings = {self.number}: rescope the task.")
 
+    def test_its_result_offers_no_more_rounds(self):
+        self.assertEqual(self.result.splitlines()[2], "Next: split the task")
+        self.assertNotIn("ak run resume", self.result)
+
 
 class GoesOn:
     """The run goes on to its second round, which passes."""
@@ -98,13 +102,15 @@ class SixLeft(Ends, unittest.TestCase):
     def setUpClass(cls):
         run(cls, 6)
 
-    def test_its_resume_is_refused_as_at_its_round_budget(self):
-        resumed = self.home.ak("run", "resume", self.run_dir.name, timeout=300)
-        self.assertEqual(resumed.code, 2, resumed.out + resumed.err)
-        self.assertIn(f"{self.run_dir.name} FAILed at its round budget (1); give --rounds N above "
-                      "it, at most 3, to continue", resumed.err)
-        self.assertEqual(json.loads((self.run_dir / "run.json").read_text()), self.state)
-        self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (1, 1))
+    def test_its_resume_is_refused_for_rescoping(self):
+        for more in ((), ("--rounds", "3")):
+            with self.subTest(more=more):
+                resumed = self.home.ak("run", "resume", self.run_dir.name, *more, timeout=300)
+                self.assertEqual(resumed.code, 2, resumed.out + resumed.err)
+                self.assertIn("The review left 6 blocking findings, at or past rescope_findings = 6: "
+                              "rescope the task.", resumed.err)
+                self.assertEqual(json.loads((self.run_dir / "run.json").read_text()), self.state)
+                self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (1, 1))
 
 
 class FiveLeft(GoesOn, unittest.TestCase):
