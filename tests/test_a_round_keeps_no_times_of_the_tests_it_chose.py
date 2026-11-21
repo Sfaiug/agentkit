@@ -1,5 +1,5 @@
-"""A round's check of the tests it chose from the time record keeps none of their times, so a
-resumed round chooses the same tests from the same record.  Its re-run, handed the tests less a part
+"""The check of the tests a round chose from the time record, run once its reviewer passed it,
+keeps none of their times, so a resumed round chooses the same tests from the same record.  Its re-run, handed the tests less a part
 its tree lacks, measures the rest anew: kept, those times would change what fits in the piece.
 
 In-process on a sandbox HOME (tests/fixtures/sandbox.py), with real Git and a suite of its own;
@@ -48,12 +48,12 @@ class ARound(Sandbox):
         lp = SimpleNamespace(wt=repo, run_dir=self.root, round_dir=self.root, done_when_limit=60,
                              turn_limit=30, rnd=1, state={"repo": str(repo), "target_sha": head},
                              scratch=False, upstream="HEAD", base_sha=head, artifacts=set(),
-                             step=lambda _: None, log=lambda _: None)
+                             log=lambda _: None)
         with patch.object(history, "test_audit", return_value=(REDS, 3, 1)), \
-                patch.object(worker, "kill_marked"), patch.object(roundloop, "rebase_for_review"):
+                patch.object(worker, "kill_marked"):
             chosen = round_tests.chosen(lp)
             self.assertEqual(chosen[1], ["parts::gone", "slow"])
-            ok, text = roundloop.verify_work(lp, [])
+            ok, text = roundloop.chosen_tests(lp, chosen, head)
             self.assertTrue(ok, text)
             self.assertEqual(suite_times.read(suite_times.handed(repo)),
                              {"parts::gone": 1.0, "slow": 1.0, "next": 2.0})

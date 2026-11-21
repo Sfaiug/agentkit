@@ -112,10 +112,10 @@ class ThreeRuns(unittest.TestCase):
 
     def test_the_red_tests_fit_one_piece_of_the_latest_whole_run(self):
         self.assertEqual(self.notes["two"][:2],
-                         ["suite ./tests/first.sh ./tests/second.sh", "review"])
+                         ["review", "suite ./tests/first.sh ./tests/second.sh"])
 
     def test_a_later_whole_run_cut_finer_fits_fewer(self):
-        self.assertEqual(self.notes["three"][:2], ["suite ./tests/first.sh", "review"])
+        self.assertEqual(self.notes["three"][:2], ["review", "suite ./tests/first.sh"])
 
 
 if __name__ == "__main__":
