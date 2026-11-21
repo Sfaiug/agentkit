@@ -55,7 +55,7 @@ for arg in args:
 if args[:2] == ["autostart", "--help"]:
     sys.exit(0)
 if args[0] == "create":
-    lima = Path(os.environ.get("LIMA_HOME", os.environ["HOME"] + "/.lima"), "ak")
+    lima = Path(os.environ.get("LIMA_HOME") or os.environ["HOME"] + "/.lima", "ak")
     if "{{{{.Dir}}}}" in args[args.index("--set") + 1] and not lima.is_absolute():
         sys.exit("field `mounts[0].location` must be an absolute path")
     lima.mkdir(parents=True)
