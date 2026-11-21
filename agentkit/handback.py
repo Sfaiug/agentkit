@@ -291,6 +291,14 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
             entry["done_when"], "done-when not run")
         parts += [f"## Round {entry['round']} ({entry['verdict']}, {dw})", "",
                   entry["summary"], ""]
+    # what to split a failed task along: each round's blocking findings by file, as ak weighed
+    # them; the diff stat's files no line names are the part to build last
+    sat = [f"- round {entry['round']}: " + ", ".join(
+               f"{path} {count}" for path, count in sorted(entry["files"].items(),
+                                                           key=lambda item: (-item[1], item[0])))
+           for entry in state["round_summaries"] if entry.get("files")]
+    if sat:
+        parts += ["## Where the findings sat", "", *sat, ""]
     why = state.get("error") or state.get("interruption_reason") or (state["verdict"] != "PASS" and failed_check(state))
     if why:
         parts += ["## Why this run stopped", "", why, ""]
