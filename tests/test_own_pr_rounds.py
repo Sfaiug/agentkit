@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import BRANCH, OwnPr, URL
-from agentkit import config, deliver, gitcall, run, worker, worktrees
+from agentkit import config, deliver, gitcall, round_tests, roundloop, run, worker, worktrees
 from agentkit import record
 
 
@@ -385,6 +385,29 @@ class OwnPrRounds(OwnPr):
         state = self.review(["PASS"])
         self.assertEqual(state["verdict"], "PASS")
         self.assertEqual(len(self.prompts), 1)
+
+    def test_chosen_tests_changing_tracked_files_are_saved_and_restored(self):
+        def dirty(lp, named, head):
+            (lp.wt / "fence.txt").write_text("dirty from tests\n")
+            return True, "$ suite\n[exit 0]"
+
+        with patch.object(round_tests, "chosen", return_value=("true", ["tests/often.sh"])), \
+                patch.object(roundloop, "chosen_tests", side_effect=dirty):
+            state = self.review(["PASS"])
+        self.assertEqual((state["state"], state["verdict"], state["merged"]), ("pass", "PASS", True))
+        self.assertIn("dirty from tests", (self.run_dir / "tests-changes.patch").read_text())
+        self.assertEqual(run.git(state["worktree"], "status", "--porcelain"), "")
+
+    def test_chosen_tests_moving_head_end_the_run_with_restore_error(self):
+        def move_head(lp, named, head):
+            run.git(lp.wt, "commit", "--allow-empty", "-qm", "moved")
+            return True, "$ suite\n[exit 0]"
+
+        with patch.object(round_tests, "chosen", return_value=("true", ["tests/often.sh"])), \
+                patch.object(roundloop, "chosen_tests", side_effect=move_head):
+            with self.assertRaisesRegex(config.Error, "review checkout HEAD changed during tests"):
+                self.review(["PASS"])
+        self.assertEqual(self.merges, [])
 
 
 if __name__ == "__main__":

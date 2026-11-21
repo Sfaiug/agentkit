@@ -2530,7 +2530,8 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
                 f"{lp.executor} (findings on PR #{number})")
             lp.context = (fix_body(state, current.get("body"), lp.cmds, number)
                           + repo_rules(lp.wt, state["base_sha"]))
-            fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
+            fix = (f"{lp.context}\n\n{overridden_section(lp.state)}## Reviewer findings to fix\n"
+                   f"{without_followups(lp.findings)}")
             try:
                 # what the fixer says stays in its turn's directory, where the next round's
                 # record reads it (`fixer_words`), resumed after a cut or not
