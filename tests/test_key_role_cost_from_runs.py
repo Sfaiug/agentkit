@@ -199,7 +199,8 @@ class RoleCostFromRuns(unittest.TestCase):
         review = [("second", "bloom-1", (100_000, 0, 0, 0))]
         self.history.run(("anvil", "high"), "bloom", ["high"], built=[bloom, anvil],
                          reviewed=[review])
-        # each turn names Anvil beside a subagent's Bloom
+        # each turn names Anvil beside a subagent's Bloom: counted whole, as its owner left a
+        # role then handed on to that subagent's model (spend.roles)
         beside = anvil + [("default", "bloom-1", (300_000, 0, 0, 0))]
         self.history.run(("anvil", "high"), built=[beside, beside])
         weeks, answer = self.answer()

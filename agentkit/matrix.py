@@ -207,7 +207,9 @@ def _costs(rated, lineup, cfg, logins, shares):
                        provider=None)
     if not measured:
         return "board_dollars"
-    def price(provider):    # a share is of its logins' weeks, any of which pays the next task
+    # a share is of its logins' weeks, any of which pays the next task: so their mean, never
+    # the price of the login a past task ran on, the owner's choice of 21 Nov 2026
+    def price(provider):
         held = [one for one, _ in logins.get(provider, ()) if one is not None]
         return sum(held) / len(held) if held else usage.price(cfg, provider)
     # every provider your runs measured, though no row the boards rate is its measured model

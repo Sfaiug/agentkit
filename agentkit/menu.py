@@ -3926,7 +3926,8 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
     best choice it is, else, with no choice, the best on the boards, and, where `runs`, the
     effort a step to it writes (None for a row no step is), is another than one it was rated at,
-    both, the owner's choice of 20 Nov 2026, its bars keeping the one rated; its cost in `unit`,
+    both, the owner's choice of 20 Nov 2026, its bars and the role lines keeping the one rated
+    (left so 21 Nov 2026); its cost in `unit`,
     said as UNITS says it, where that comes from (SOURCES) and how far off each of `weeks`
     foretold (week_checked); the rule that makes the choices; and why each model is none (WHYS):
     under `shaded` each the bars of `kept` draw shaded at this width (models_standing), in their

@@ -535,7 +535,9 @@ def launched(name, cwd, conversation):
 def seat_token_sources(record):
     """The seat's session logs, no child's: a parent's log attributes each request of its
     reminder children, the one record every child's request has, and a child keeping a log of
-    its own completes that request there too, which would count it twice."""
+    its own completes that request there too, which would count it twice.  The model a child's
+    completion names is given up for it, as its parent's line names none: left so by the owner,
+    21 Nov 2026."""
     session = conversation(record)
     return session_logs(session) if session else []
 
