@@ -206,9 +206,9 @@ class SeatTokensByType(unittest.TestCase):
         # after the move.
         home = self.home
         update(home, "beta", orchestrator="sol")
-        update(home, "acme", efforts={"opus": {"effort": "low"}})
         append(self.rollout, step(T0 + 40, 26_000, 18_000, 1_100, written=2_400))
         append(self.conversation, said("msg_01acme", T0 + 5.25, 3, 1200, 5000, 90))
+        update(home, "acme", efforts={"opus": {"effort": "low"}})
         tick(home)
         # Each record then holds a list where ak writes a name or a word.
         update(home, "beta", orchestrator=["sol"])
