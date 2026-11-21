@@ -1,7 +1,9 @@
 """While a card asks (terminal.confirm), the screen around it draws no highlight of its own, as it
 draws none once the pointer leaves its rows (terminal.away): from the card's first frame the one
 `›` is the card's answer's, and no cell but that answer's has a background, wherever the card
-moved the row it asks about, and what that row opened stays open; Keep gives the row all its
+moved the row it asks about -- but what the row had lit and the card left where it was, which
+fades as the highlight does where it leaves (motion.LEAVES: past sessions and the models screen;
+"Build the fade", the owner, 20 Nov 2026) -- and what that row opened stays open; Keep gives the row all its
 highlight back, glowing as it comes (motion.LANDS).  The owner, 10 Nov 2026: "I want absolute
 consistency!!!"
 
@@ -186,17 +188,25 @@ class CardsHighlight(test_breathing.MainScreen):
             return self.answered([Key("right"), *script], lambda: menu.models_screen(
                 self.cfg, "fix-api", {}, {}))
 
-    def asks(self, shown, answer):
+    def asks(self, shown, answer, fades=False):
         """From the first frame with the card to the one its answer is read on, the one `›` is
-        Keep's and the one cells with a background are Keep's lit ones: the wait the card is up
-        at, and the one its answer is read at."""
+        Keep's and the one cells with a background are Keep's lit ones -- and, where the screen's
+        clock `fades` what it had lit, those cells, each frame on the colour a highlight that
+        left has by then (motion.LEAVES), then on none: the wait the card is up at, and the one
+        its answer is read at."""
         up = next(n for n, (_, grid, _) in enumerate(shown) if grid.find("✓ Keep"))
         read = next(n for n in range(up, len(shown)) if shown[n][2] is not None)
-        for _, grid, _ in shown[up:read + 1]:
+        since, before = shown[up][0], shown[up - 1][1]
+        lit = {row: before.backs(row) for row in before.rows if before.backs(row) and fades}
+        self.assertEqual(bool(lit), fades)
+        for when, grid, _ in shown[up:read + 1]:
             (keep,), (act,) = grid.find("✓ Keep"), grid.find(f"× {answer}")
             self.assertEqual(grid.marks(), [(keep, 1)], [grid.text(row) for row in grid.rows])
+            glow = motion.painted(motion.lighting(
+                (since, motion.LEAVES, motion.SELECTED, motion.BACKGROUND, ()), when))
+            left = {row: dict.fromkeys(cells, glow) for row, cells in lit.items()}
             self.assertEqual({row: grid.backs(row) for row in grid.rows if grid.backs(row)},
-                             {keep: KEEP})
+                             {**(left if (when - since) / motion.LEAVES < 1 else {}), keep: KEEP})
         return up, read
 
     def kept(self, shown, read, words):
@@ -229,7 +239,8 @@ class CardsHighlight(test_breathing.MainScreen):
                 "the models screen": (self.restart, "Restart", ["orchestrator", "Alpha"])}.items():
             with self.subTest(case):
                 shown = run(*frames, Key("enter"), *frames * 2)
-                up, read = self.asks(shown, answer)
+                # the ak screen and config forget their clock as they ask: no fade there yet
+                up, read = self.asks(shown, answer, case in ("past sessions", "the models screen"))
                 self.assertEqual(bool(up), bool(row))
                 if row:             # asked over a screen, which Keep keeps
                     self.kept(shown, read, row)
@@ -254,14 +265,14 @@ class CardsHighlight(test_breathing.MainScreen):
 
     def test_what_a_past_row_opened_stays_open_unlit_over_its_card(self):
         with patch.object(menu, "past_said", lambda seat: ("Shipped the login page.", "")):
-            shown = self.past()
-        up, _ = self.asks(shown, "Remove")
+            shown = self.past(*[None] * 6)
+        up, _ = self.asks(shown, "Remove", True)
         before, grid = shown[up - 1][1], shown[up][1]
         (opened,) = before.find("Shipped the login page.")
         self.assertEqual(set(before.backs(opened).values()), {SELECTION})
         # where it was, so the card under it and its answers are where they were
         self.assertEqual(grid.find("Shipped the login page."), [opened])
-        self.assertEqual(grid.text(opened), before.text(opened).rstrip())
+        self.assertEqual(grid.text(opened).rstrip(), before.text(opened).rstrip())  # its band fades
         self.assertGreater(grid.find("✓ Keep")[0], opened)
 
     def test_under_no_color_the_one_mark_is_keeps(self):
