@@ -80,9 +80,11 @@ class AReviewerIsWaitedFor(unittest.TestCase):
         cls.code = run.wait(timeout=300)
         cls.run_dir = taskfile.only_run(home)
         cls.parked = json.loads((cls.run_dir / "run.json").read_text())
-        # then opus's window is spent too, and astra's is past its reset
+        # then opus's window is spent too, and astra's is past its reset, its adapter reporting
+        # the week after it
         fakes["claude"].answer("usage", reading(100))
         time.sleep(max(0, back + 1 - time.time()))
+        fakes["codex"].answer("usage", reading(0))
         cls.age(home)
         cls.tick = home.tick()      # which waits out the run it resumes
         cls.state = json.loads((cls.run_dir / "run.json").read_text())
