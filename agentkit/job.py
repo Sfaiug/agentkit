@@ -287,7 +287,8 @@ def job_next_executor(cfg, current, workers=None):
     A rerun is still that run's executor pick: the rotation goes around the list its
     session bound it to, never wider.
     """
-    order = list(workers) if workers else config.workers(cfg)
+    # a list given is the list, empty too: reading the seat again could find other marks
+    order = list(workers) if workers is not None else config.workers(cfg)
     if current in order:
         rest = order[order.index(current) + 1:] + order[:order.index(current)]
     else:
@@ -1022,8 +1023,23 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     if not task.get("rerun_attempted") and job_classify(run_state, cfg) == "failed" \
             and (transitions.failed_at_budget(run_state) or job_round_shortfall(run_state)) \
             and not handback.review_failed(run_state):
-        nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"),
-                                staffing.run_workers(cfg, run_state))
+        workers = staffing.run_workers(cfg, run_state)
+        if not record.review_off(run_state):
+            # only an executor another lab's marked reviewer can review, as a handover's is;
+            # asked of marks and config alone, so one spent or logged out now is rotated to,
+            # as before
+            reviewers = staffing.run_reviewers(cfg, run_state)
+            workers, review_list = config.pair_marks(cfg, workers, reviewers)
+            try:
+                # a reviewer mark the config holds no whole model for reviews nobody (`known`)
+                _, skip = staffing.takers(cfg, None, workers, reviewers=reviewers,
+                                          reviewed_by=staffing.known(cfg, review_list))
+            except config.Error:
+                # an adapter manifest ak cannot read refuses every reviewer pick, the rerun's
+                # launch too: the rotation goes on as before it
+                skip = {}
+            workers = [name for name in workers if name not in skip]
+        nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"), workers)
         if nxt:
             # The rerun keeps the job's reviewer unless it is the rerun executor's own
             # model; then the fresh run picks another reviewer (`job_start_task`).
