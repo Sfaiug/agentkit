@@ -1149,7 +1149,8 @@ def replenish(cfg, provider, account=None, kind=None):
     # record is the one refilled.  The meters it answers are a probe's reading, kept as one
     # (`_keep`) as given, at the spend: the next probe may be a quarter of an hour off, and what
     # the login used until then would be in no fit.  The week alone names no meter: the cache's,
-    # and kept by the next probe; the owner, 21 Nov 2026, left that so.
+    # and `_keep` keeps no reading for the spend -- that reset-time sample is not kept in
+    # history, and the owner, 21 Nov 2026, left that so.
     account = prov.get("account")
     back, _ = _reported(result.get("meters"), now)
     _keep(provider, account, back, spent_at, "probe")
