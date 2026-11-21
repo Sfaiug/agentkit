@@ -1857,7 +1857,7 @@ def marked(cfg, workers=None, role="executor", reviewers=None):
 
 
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
-               repo=None, reviewers=None):
+               repo=None, skip=(), reviewers=None):
     """The workers for a role, the one the matrix ranks first for it first.
 
     The rank is `matrix.rank`'s for the role (`execute` for an executor, `review` for a
@@ -1867,10 +1867,10 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     the fraction unspent over the fraction of the window still to go, unknown readings after
     every known one; a model on credits (`on_credits`) after every one with a window left;
     equal on all of it keeps list order.  The exclusions are a model off in the model list
-    (`matrix.off`) and a gate meter at 100% used with no credits left; a name the config no
-    longer offers (`config.offered`) is left out before any of this reads the list: a run's
-    saved lists outlive the config, and a mark retired since leaves the run the others it
-    allowed.  payg providers are the exception:
+    (`matrix.off`) and a gate meter at 100% used with no credits left; `skip` names models a
+    caller leaves out before any of this reads the list, as is a name the config no longer
+    offers (`config.offered`): a run's saved lists outlive the config, and a mark retired
+    since leaves the run the others it allowed.  payg providers are the exception:
     they cost money, so they stay out while any subscription model is still below pace, and a
     subscription model whose meters report nothing counts as below it.  Where the harness's
     own config says what a model is paid from, that outranks the model's own `mode`, which
@@ -1881,7 +1881,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     structured fields.
     """
     offered = config.offered(cfg)
-    tier_b = [n for n in marked(cfg, workers, role, reviewers) if n in offered]
+    tier_b = [n for n in marked(cfg, workers, role, reviewers) if n in offered and n not in skip]
     limit = margin(cfg)
 
     def mode(name):

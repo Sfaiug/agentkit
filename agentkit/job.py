@@ -287,7 +287,8 @@ def job_next_executor(cfg, current, workers=None):
     A rerun is still that run's executor pick: the rotation goes around the list its
     session bound it to, never wider.
     """
-    order = list(workers) if workers else config.workers(cfg)
+    # a list given is the list, empty too: reading the seat again could find other marks
+    order = list(workers) if workers is not None else config.workers(cfg)
     if current in order:
         rest = order[order.index(current) + 1:] + order[:order.index(current)]
     else:
@@ -1029,8 +1030,14 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             # as before
             reviewers = staffing.run_reviewers(cfg, run_state)
             workers, review_list = config.pair_marks(cfg, workers, reviewers)
-            workers, _ = staffing.takers(cfg, None, workers, reviewers=reviewers,
-                                         reviewed_by=review_list)
+            try:
+                _, skip = staffing.takers(cfg, None, workers, reviewers=reviewers,
+                                          reviewed_by=review_list)
+            except config.Error:
+                # a model entry the config cannot read leaves nobody out: the fresh launch
+                # judges it from its own moment
+                skip = {}
+            workers = [name for name in workers if name not in skip]
         nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"), workers)
         if nxt:
             # The rerun keeps the job's reviewer unless it is the rerun executor's own

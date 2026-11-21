@@ -99,25 +99,28 @@ def replace_reviewer(state, reviewer):
 
 def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_by=None,
                 **kwargs):
-    """`usage.pick_order` over the names `takers` leaves the pick.
+    """`usage.pick_order` over `takers`' list, less the names it leaves out.
 
     Every pick a run makes -- executor, reviewer, spare, handover, the fixer's -- comes
     through here; `log`, on the one call of a pick that gives a role, says in one line why
-    each other marked one is left out.
+    each marked one is left out.
     """
     from . import usage  # here, not at the top: usage imports staffing
-    names, skip = takers(cfg, providers, workers, kwargs.get("role", "executor"),
-                         kwargs.get("reviewers"), writers, reviewed_by)
-    if log:
-        for name, why in skip.items():
-            log(f"skipped {name}: {why}")
-    return usage.pick_order(cfg, providers, names, **kwargs)
+    role = kwargs.get("role", "executor")
+    workers, skip = takers(cfg, providers, workers, role, kwargs.get("reviewers"), writers,
+                           reviewed_by)
+    if log and skip:
+        for name in usage.marked(cfg, workers, role, kwargs.get("reviewers")):
+            if name in skip:
+                log(f"skipped {name}: {skip[name]}")
+    return usage.pick_order(cfg, providers, workers, skip=skip, **kwargs)
 
 
 def takers(cfg, providers, workers=None, role="executor", reviewers=None, writers=None,
            reviewed_by=None):
-    """The names a pick for `role` may take of the list it reads (`usage.marked`), in that
-    list's order, and why each other one of it is left out, before any budget rule reads it.
+    """The list a pick for `role` reads, `workers` as given unless a rule below reads it
+    (`usage.marked`), and why each name a pick may not take is left out, before any budget rule
+    reads the list.
 
     A worker whose harness is not installed or not logged in, as `providers` say, is left out,
     so a subscription nobody can run keeps no payg provider out; with no `providers` no harness
@@ -134,7 +137,6 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
     one: the pick is the one a run marking only those executors gets.
     """
     from . import usage  # here, not at the top: usage imports staffing
-    workers = usage.marked(cfg, workers, role, reviewers)
     offered = config.offered(cfg)
     skip = {}
     if getattr(providers, "harnesses", None):
@@ -144,6 +146,8 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
         skip.update((name, why) for name in offered if (why := barred_reviewer(cfg, name)))
     writers = known(cfg, writers) if role == "reviewer" else []
     if writers or (role == "executor" and reviewed_by is not None):
+        # read here, once: `pick_order` then reads only what the other role leaves of it
+        workers = usage.marked(cfg, workers, role, reviewers)
         off, (lineup, _) = matrix.off(cfg), matrix.listed()
 
         def ready(names):
@@ -161,8 +165,7 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
             why = f"a marked reviewer of another lab can review {', '.join(far)}"
         if far:
             skip.update((name, why) for name in ready(workers) if name not in far)
-    return ([name for name in workers if name not in skip],
-            {name: skip[name] for name in workers if name in skip})
+    return workers, skip
 
 
 def barred_reviewer(cfg, name):
