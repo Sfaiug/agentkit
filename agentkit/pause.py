@@ -24,14 +24,14 @@ def paused():
     age = lease.proof_age() if standby.takes_over() else None
     stale = age is not None and age >= STALE
     try:
-        # opened to read and to write, so that one that cannot be either, or a pipe, is left, and
-        # none is made; cut to what was written only once that is written, so a write refused
-        # leaves what was there
+        # opened to read and to write, and read before any write, so that one that cannot be
+        # either, or a pipe, is left, and none is made; cut to what was written only once that is
+        # written, so a write refused leaves what was there
         with open(host.freezer(orch.slice_cgroup()), "r+b") as freezer:
-            if stale or freezer.read().strip() == b"1":
+            if freezer.read().strip() == b"1" or stale:
                 freezer.seek(0)
                 freezer.write(b"1" if stale else b"0")
                 freezer.truncate()
-    except OSError:
+    except (OSError, ValueError):     # ValueError: a path no file can have, as one holding a NUL
         pass
     return stale
