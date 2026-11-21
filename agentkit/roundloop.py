@@ -1574,6 +1574,8 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
             passed, more = chosen_tests(lp, named, validation["head_sha"])
             dw_log = f"{dw_log}\n\n{more}"    # the round's log, its flakes recorded with a PASS
             (lp.round_dir / "donewhen.log").write_text(dw_log)
+            if lp.state.get("review_pr"):
+                restore_review_checkout(lp, "tests")
             if not passed:
                 verdict = "FAIL"
                 overridden = ("the reviewer said PASS but the project's tests failed: "

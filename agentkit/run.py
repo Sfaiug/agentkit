@@ -2530,7 +2530,8 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
                 f"{lp.executor} (findings on PR #{number})")
             lp.context = (fix_body(state, current.get("body"), lp.cmds, number)
                           + repo_rules(lp.wt, state["base_sha"]))
-            fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
+            fix = (f"{lp.context}\n\n{overridden_section(lp.state)}## Reviewer findings to fix\n"
+                   f"{without_followups(lp.findings)}")
             try:
                 # what the fixer says stays in its turn's directory, where the next round's
                 # record reads it (`fixer_words`), resumed after a cut or not
@@ -2835,7 +2836,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         log(f"tests ({tests}): {'passed' if ok else 'FAILED'}")
     else:
         ok = None
-        dw_log = ("(the repository suite runs once at landing; nothing was run in this review round)"
+        dw_log = ("(the repository suite runs once at landing; nothing was run before this review)"
                   if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
         log(dw_log)
         # no suite stands in for it, and a PASS on this head is what merges

@@ -46,7 +46,9 @@ class ARound(Sandbox):
         suite_times.keep(repo, measured)
         head = gitcall.git(repo, "rev-parse", "HEAD")
         lp = SimpleNamespace(wt=repo, run_dir=self.root, round_dir=self.root, done_when_limit=60,
-                             turn_limit=30, rnd=1, state={"repo": str(repo), "target_sha": head},
+                             turn_limit=30, rnd=1,
+                             state={"repo": str(self.root / "origin/acme"), "worktree": str(repo),
+                                    "target_sha": head},
                              scratch=False, upstream="HEAD", base_sha=head, artifacts=set(),
                              log=lambda _: None)
         with patch.object(history, "test_audit", return_value=(REDS, 3, 1)), \
