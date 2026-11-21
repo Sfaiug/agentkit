@@ -38,7 +38,7 @@ from .roundloop import (Loop, check_fix_on_tip, note, pin_checkout, pinned_head,
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
     start_followups, task_project, write_result)
-from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
+from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, known,
     note_handover, pick_models, ready_order, refuse_outside_group,
     refuse_unready, replace_reviewer, resume_models, reviewer_order, run_refusal, run_workers,
     same_model, started_round)
@@ -370,8 +370,11 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             saved = executor
             executor, reviewer = resume_models(cfg, providers, state, log, repo=repo)
             if executor != saved:
-                spent, why = usage.model_exhausted(cfg, saved, providers)
-                gone = usage.unready(cfg, saved, providers) or "is no longer eligible"
+                # one the config no longer defines (`config.as_launched`) has no meter to read
+                spent, why, gone = False, None, "is no longer eligible"
+                if known(cfg, saved):
+                    spent, why = usage.model_exhausted(cfg, saved, providers)
+                    gone = usage.unready(cfg, saved, providers) or gone
                 log(f"saved executor {saved} cannot run: {why or gone}")
                 handed = saved
                 note_handover(state, handed, "ran dry" if spent else gone,

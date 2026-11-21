@@ -204,11 +204,12 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
         refuse_outside_group(cfg, want_review, reviewers, "reviewer")
-    review_list = reviewers if reviewers is not None else workers
+    # read once: the executor's pick weighs the very reviewers the reviewer's pick reads
+    review_list = usage.marked(cfg, reviewers if reviewers is not None else workers, "reviewer")
+    both = not want_exec and not want_review and want_review is not False
     order = ready_order(cfg, providers, workers, None if want_exec and want_review else log,
                         quiet=quiet, repo=repo, reviewers=reviewers,
-                        reviewed_by=None if want_exec or want_review is not None
-                        else usage.marked(cfg, review_list, "reviewer"))
+                        reviewed_by=review_list if both else None)
     session = config.active_session(cfg)
     allowed = workers if workers is not None else (session["workers"] if session else None)
     if want_exec:
@@ -617,7 +618,8 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
                            quiet=True, repo=repo, workers=workers)
     # a resume that needs no executor keeps it, so the reviewer is picked beside its writers
     needs = resume_needs_executor(state)
-    review_list = reviewers if reviewers is not None else workers
+    # read once: the executor's pick weighs the very reviewers the reviewer's pick reads
+    review_list = usage.marked(cfg, reviewers if reviewers is not None else workers, "reviewer")
     review_order = ready_order(cfg, providers, review_list, role="reviewer", quiet=True, repo=repo,
                                writers=None if needs else review_writers(state))
     executor, reviewer = state.get("executor"), state.get("reviewer")
@@ -626,7 +628,9 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
         if order:
             return executor, reviewer if reviewer in order else order[0]
         raise turns.QuotaDry("no eligible reviewer; waiting for review")
-    kept = (executor and executor not in skip
+    # one the config no longer defines (`config.as_launched`) is none to keep: the pick below
+    # staffs the run, waits, or refuses it by that name
+    kept = (known(cfg, executor) and executor not in skip
             and not usage.model_exhausted(cfg, executor, providers)[0]
             and not usage.unready(cfg, executor, providers))
 
@@ -636,7 +640,7 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
                 if name not in skip]
 
     # a pair picked anew takes its executor as a launch picking both roles does (`pick_models`)
-    order = executors(log, None if kept else usage.marked(cfg, review_list, "reviewer"))
+    order = executors(log, None if kept else review_list)
     if kept:
         if reviewer not in reviewer_order(cfg, executor, review_order):
             reviewer = None
