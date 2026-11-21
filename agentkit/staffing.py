@@ -200,17 +200,15 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
     """Pick each role within its launch list; want_review=False switches review off.  Asked for
     neither by name, with review on, the executor's pick reads the reviewer's list too
     (`ready_order`'s `reviewed_by`)."""
-    from . import usage  # here, not at the top: usage imports staffing
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
         refuse_outside_group(cfg, want_review, reviewers, "reviewer")
     exec_list, review_list = workers, reviewers if reviewers is not None else workers
     reviewed_by = None
     if not want_exec and not want_review and want_review is not False:
-        # the executor's pick weighs the very reviewers the reviewer's pick reads: both lists
-        # are read once, at once, so a seat's marks changing meanwhile pair no two selections
-        exec_list = usage.marked(cfg, workers, "executor", reviewers)
-        review_list = reviewed_by = usage.marked(cfg, review_list, "reviewer")
+        # the executor's pick weighs the very reviewers the reviewer's pick reads
+        exec_list, review_list = config.pair_marks(cfg, workers, reviewers)
+        reviewed_by = review_list
     order = ready_order(cfg, providers, exec_list, None if want_exec and want_review else log,
                         quiet=quiet, repo=repo, reviewers=reviewers, reviewed_by=reviewed_by)
     session = config.active_session(cfg)
@@ -621,10 +619,8 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
                            quiet=True, repo=repo, workers=workers)
     # a resume that needs no executor keeps it, so the reviewer is picked beside its writers
     needs = resume_needs_executor(state)
-    # the pick anew weighs the very reviewers the reviewer's pick reads: both lists are read
-    # once, at once, so a seat's marks changing meanwhile pair no two selections
-    exec_list = usage.marked(cfg, workers, "executor", reviewers)
-    review_list = usage.marked(cfg, reviewers if reviewers is not None else workers, "reviewer")
+    # the pick anew weighs the very reviewers the reviewer's pick reads
+    exec_list, review_list = config.pair_marks(cfg, workers, reviewers)
     review_order = ready_order(cfg, providers, review_list, role="reviewer", quiet=True, repo=repo,
                                writers=None if needs else review_writers(state))
     executor, reviewer = state.get("executor"), state.get("reviewer")

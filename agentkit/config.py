@@ -2138,6 +2138,17 @@ def role_groups(cfg, workers=None, reviewers=None):
     return workers, reviewers
 
 
+def pair_marks(cfg, workers=None, reviewers=None):
+    """The builders and the reviewers a pick of both roles reads: those given, the rest from one
+    read of the seat's selection, else [defaults]'s, so a seat's marks changing meanwhile pair
+    no two selections.  Reviewers none gives are the builders, as `reviewers` reads them."""
+    if workers is None:
+        selection = active_session(cfg) or cfg["defaults"]
+        workers = selection["workers"]
+        reviewers = selection.get("reviewers") if reviewers is None else reviewers
+    return list(workers), list(workers if reviewers is None else reviewers)
+
+
 def adapter(harness, code=None):
     """adapters/<harness>.sh, the script that runs one harness: the adapter contract.
 
