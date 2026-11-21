@@ -1,6 +1,6 @@
-"""Before its review a round runs, as one more of its checks, the `tests:` line handed the tests its
-change edits: each that the project's time record holds a time for, named as the record spells it,
-in the file AK_ONLY names.  Its failing exit sends the round back, as any check's does.  A change
+"""Once its reviewer passed it a round runs the `tests:` line handed the tests its change edits:
+each that the project's time record holds a time for, named as the record spells it, in the file
+AK_ONLY names.  Its failing exit fails the round, as a failing check does.  A change
 that edits no timed test runs none of the project's tests, nor does a project with no record, and
 no round starts the whole suite: that runs at landing alone.
 
@@ -29,10 +29,10 @@ from fixtures.notes import Notes
 
 # A runner that reports to ak: each test in tests/ is a shell script it names `./tests/<name>`,
 # timing each that passes as ak reads a time, running just those AK_ONLY lists where it is set
-# and naming them as run in AK_RAN.  A failing one is named in upper case, so that no prompt reads
-# it off the command.  A handed part ending `::removed` its file no longer holds: as
-# tests/every_file.py names one, not there (AK_NOT_THERE) and failed (AK_FAILED), not run, and the
-# run exits 1.
+# and naming them as run in AK_RAN.  A failing one is named after FAIL, as ak's runner names one,
+# and in upper case, so that no prompt reads it off the command.  A handed part ending `::removed`
+# its file no longer holds: as tests/every_file.py names one, not there (AK_NOT_THERE) and failed
+# (AK_FAILED), not run, and the run exits 1.
 SUITE = """import os, socket, subprocess, sys
 only = os.environ.get("AK_ONLY")
 tests = (open(only).read().split() if only else
@@ -43,7 +43,7 @@ gone = [test for test in tests if test.endswith("::removed")]
 tests = [test for test in tests if test not in gone]
 failed = [test for test in tests if subprocess.run(["sh", test]).returncode]
 for test in tests:
-    print(test.upper() + " IS BROKEN" if test in failed else "PASS  " + test + " (0.1s)")
+    print("FAIL  " + test.upper() + " IS BROKEN" if test in failed else "PASS  " + test + " (0.1s)")
 for name, named in (("AK_RAN", tests), ("AK_NOT_THERE", gone), ("AK_FAILED", gone)):
     if os.environ.get(name):
         open(os.environ[name], "w").write("".join(test + "\\n" for test in named))
@@ -107,20 +107,21 @@ class ThreeRuns(unittest.TestCase):
     def test_a_change_that_edits_no_timed_test_runs_none_of_its_tests(self):
         self.assertEqual(self.notes["two"], ["review", "suite whole"])
 
-    def test_an_edited_timed_test_runs_before_review_and_its_failing_exit_sends_the_round_back(self):
-        # failing, its re-run failing, then passing after the fixer's turn
-        self.assertEqual(self.notes["three"], ["suite ./tests/gadget.sh"] * 3
-                         + ["review", "suite whole"])
+    def test_an_edited_timed_test_runs_after_review_and_its_failing_exit_fails_the_round(self):
+        # after the review, failing, its re-run failing, then passing after the next turn's review
+        ran = "suite ./tests/gadget.sh"
+        self.assertEqual(self.notes["three"], ["review", ran, ran, "review", ran, "suite whole"])
         self.assertEqual([run["role"] for run in self.fakes["claude"].runs()],
                          ["executor", "executor", "executor", "fixer"])
         run_dir, state = self.states["three"]
-        self.assertIn(SAID, (run_dir / "round-1/fixer/prompt.md").read_text())
-        self.assertEqual([summary["verdict"] for summary in state["round_summaries"]], ["PASS"])
+        self.assertIn(SAID, (run_dir / "round-2/executor/prompt.md").read_text())
+        self.assertEqual([summary["verdict"] for summary in state["round_summaries"]],
+                         ["FAIL", "PASS"])
 
     def test_no_round_starts_the_whole_suite(self):
         for name in TASKS:
-            notes = self.notes[name]
-            self.assertNotIn("suite whole", notes[:notes.index("review")], name)
+            # landing's, the last
+            self.assertNotIn("suite whole", self.notes[name][:-1], name)
 
 
 if __name__ == "__main__":

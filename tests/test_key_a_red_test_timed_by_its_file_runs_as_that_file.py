@@ -1,7 +1,7 @@
-"""A test a landing was red on runs before a round's review as the name the time record times it
-by: its own, else its file, for a runner that reports a file's seconds while its landings name the
-test that failed (`./tests/often.sh::stays_v1`).  A name runs once, at its time, placed by the
-most runs one red of it stopped, and its failing exit sends the round back.  A file holding a test
+"""A test a landing was red on runs once a reviewer passed a round, as the name the time record
+times it by: its own, else its file, for a runner that reports a file's seconds while its landings
+name the test that failed (`./tests/often.sh::stays_v1`).  A name runs once, at its time, placed by
+the most runs one red of it stopped, and its failing exit fails the round.  A file holding a test
 the target is red on now is left out.  A file and a test of it the record times both are judged
 apart: a file too long for the piece leaves its test running by its own name, and a test taken by
 its own name is not handed beside its file.
@@ -147,22 +147,22 @@ class ThreeRuns(unittest.TestCase):
             self.assertEqual((state["state"], state["merged"]), ("pass", True), name)
 
     def test_runs_as_its_file_once_and_its_failing_exit_sends_the_round_back(self):
-        # failing, its re-run failing, then passing after the fixer's turn
-        self.assertEqual(self.notes["two"],
-                         ["suite ./tests/often.sh ./tests/quick.sh ./tests/other.sh"] * 3
-                         + ["review", "suite whole"])
+        # after the review, failing, its re-run failing, then passing after the next turn's review
+        ran = "suite ./tests/often.sh ./tests/quick.sh ./tests/other.sh"
+        self.assertEqual(self.notes["two"], ["review", ran, ran, "review", ran, "suite whole"])
         self.assertEqual([run["role"] for run in self.fakes["claude"].runs()],
                          ["executor", "executor", "fixer", "executor"])
         run_dir, state = self.states["two"]
-        self.assertIn(SAID, (run_dir / "round-1/fixer/prompt.md").read_text())
-        self.assertEqual([summary["verdict"] for summary in state["round_summaries"]], ["PASS"])
+        self.assertIn(SAID, (run_dir / "round-2/executor/prompt.md").read_text())
+        self.assertEqual([summary["verdict"] for summary in state["round_summaries"]],
+                         ["FAIL", "PASS"])
 
     def test_a_file_and_a_test_of_it_are_judged_apart(self):
         # held.sh too, the target moved past its red; often.sh::stays_v1 by its own name, its
         # file too long; quick.sh::passes taken and run by its file alone; landing then runs the
         # suite's pieces
         self.assertEqual(self.notes["three"][:2], [
-            "suite ./tests/held.sh ./tests/often.sh::stays_v1 ./tests/quick.sh", "review"])
+            "review", "suite ./tests/held.sh ./tests/often.sh::stays_v1 ./tests/quick.sh"])
 
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ func CompanyListFrame(s terminal.Screen, view CompanyListView) MatrixFrame {
 		lines = append(lines, row.line)
 		spots = append(spots, row)
 	}
-	return MatrixFrame{Panel(s, view.Title, time.Now().Format("15:04"), append(lines, under...), keys), top, spots}
+	return matrixPanel(s, view.Title, time.Now().Format("15:04"), append(lines, under...), keys, top, spots)
 }
 
 // counted is count before its noun, one or many.

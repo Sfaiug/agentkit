@@ -165,7 +165,7 @@ class SizeCharts(unittest.TestCase):
 
     def test_on_a_short_terminal_down_and_up_turn_the_chart_pages_before_leaving_the_row(self):
         term = opened(self, self.home, "Max lines per executor task")
-        term.resize(100, 14)          # the rows and the heading, the bars a page on
+        term.resize(100, 15)          # the rows and the heading, the bars a page on
         first = lambda screen: ("› Max lines per executor task" in screen and EXECUTOR in screen
                                 and not bars(screen))
         term.wait(first)

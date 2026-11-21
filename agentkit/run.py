@@ -46,7 +46,7 @@ from .transitions import (change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, drop_error_retry, extra_round, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, leaves_line, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
+    queued, report_config, rescoped, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
     stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
@@ -1258,41 +1258,32 @@ def preset_models(cfg, opts, log, run_dir):
     return executor, reviewer
 
 
-def preset_review_model(cfg, opts, workers=None, *, reviewers=None):
+def preset_review_model(cfg, opts, workers=None, *, reviewers=None, writer=None):
     """The reviewer for a --review-pr launch, picked in the parent, or None.
 
     Same shape as the pick inside review_pr, minus the checkout the parent has not
     done: an explicit --review, else the first reviewer in the order.  A bare None
     means the child picks exactly as it always did; an explicit one that cannot run is
-    refused here. The seat's own PR already picks against its orchestrator here, so
-    the launch line names the reviewer the child will keep.
+    refused here.  `writer`, the seat's own PR's orchestrator as preflight recorded it,
+    is picked beside as the child picks beside it, so the launch line names the
+    reviewer the child will keep.
     """
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
         refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
     try:
         providers = collect_usage(cfg)
-        exec_for_rule = None
-        try:
-            session = config.current_session()
-            if session and (opts or {}).get("--review-pr"):
-                author = pr_view(opts["--review-pr"]).get("author")
-                is_own, orch = own_pr_orchestrator(cfg, session, author)
-                if is_own and orch:
-                    exec_for_rule = orch
-        except Exception:  # noqa: BLE001 - unknown PR or login picks as before
-            exec_for_rule = None
-        order = reviewer_order(cfg, exec_for_rule, ready_order(
+        order = reviewer_order(cfg, writer, ready_order(
             cfg, providers, reviewers if reviewers is not None else workers,
-            role="reviewer", quiet=True))
+            role="reviewer", quiet=True, writers=writer))
         if not opts["--review"]:
             return order[0] if order else None
         config.model(cfg, opts["--review"])
     except Exception:  # noqa: BLE001 - the child reproduces any real failure itself
         return None
     refuse_unready(cfg, providers, opts["--review"], "reviewer")
-    if exec_for_rule:
-        review_providers(cfg, exec_for_rule, opts["--review"])
+    if writer:
+        review_providers(cfg, writer, opts["--review"])
     return opts["--review"]
 
 
@@ -1795,6 +1786,10 @@ def resume_run(argv):
     config.ensure_dirs()
     run_dir = config.RUNS / run_id
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
+    # whatever its --rounds and before anything the host may lack, its worktree cleaned or not:
+    # the task is what changes; asked again below of what a loop ending meanwhile left
+    if state and (why := rescoped(state)):
+        raise config.Error(why)
     refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["review_rounds"])
     if refusal:
         raise config.Error(refusal)
@@ -1845,6 +1840,9 @@ def resume_run(argv):
         if run_record.process_active(state):
             raise config.Error(f"{run_id} is still running as pid {state['pid']}")
         state = reap(run_dir, state)
+    # what a loop that ended since the first look left, read again by `reap` once it is gone
+    if why := rescoped(state):
+        raise config.Error(why)
     if state.get("state") == "blocked":
         # The task itself is what failed, so there is nothing here to carry on: another
         # round would spend a model turn to be told the same thing again.
@@ -2778,11 +2776,11 @@ def review_pr_round(cfg, run_dir, url, opts, log):
 
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
-    # orchestrator, and every model a fixer turn ran on or was handed to; none comes first
+    # orchestrator, and every model a fixer turn ran on or was handed to; none comes first,
+    # and none of their lab while one of another is marked (`ready_order`)
     writers = head_writers({**prior, "own_orchestrator": orchestrator, "own_pr": True}) if is_own else []
-    order = reviewer_order(cfg, writers, ready_order(cfg, providers,
-                                                           reviewers, log,
-                                                           role="reviewer"))
+    order = reviewer_order(cfg, writers, ready_order(cfg, providers, reviewers, log,
+                                                     role="reviewer", writers=writers))
     # a --bg parent's reviewer, adopted when it is still in the live order
     preset_rev = (run_record.read_state(run_dir) or {}).get("launch_reviewer")
     try:
@@ -2803,7 +2801,13 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     elif barred := barred_refusal(cfg, reviewers or config.reviewers(cfg)):
         raise config.Error(barred)
     else:
-        raise QuotaDry("every worker has a gate meter at 100% used")
+        # only the review is left, whatever step a fixer turn wrote down before it: the run
+        # waits for a reviewer, not for its fixer's window (`staffing.resume_needs_executor`)
+        with run_record.record(run_dir) as current:
+            if current.stopped:     # a stop during the pick is the run's end, as it left it
+                raise run_record.StopRequested(f"{run_dir.name} was stopped")
+            current.update(step="reviewer", step_at=time.time(), step_round=rnd)
+        raise QuotaDry("no marked reviewer has room to review")
     # a pick other than the saved reviewer takes the review over, as a task's is: the saved
     # one's conversation is not its own; the saved one picked again goes on in it
     replace_reviewer(state, reviewer)
@@ -3141,7 +3145,8 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
                 receipt = run_record.read_state(run_dir) or {}
                 reviewer = (None if run_record.review_off(receipt) else
                             preset_review_model(cfg, opts, run_workers(cfg, receipt),
-                                                reviewers=receipt.get("reviewers")))
+                                                reviewers=receipt.get("reviewers"),
+                                                writer=receipt.get("own_orchestrator")))
             except config.Error as exc:
                 refused(run_dir, exc, logger(run_dir), cfg, printed=True)
                 raise

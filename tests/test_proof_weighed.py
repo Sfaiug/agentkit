@@ -14,7 +14,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, deliver, handback, roundloop, run, stop, transitions, turns, worker
+from agentkit import (config, deliver, handback, round_tests, roundloop, run, stop, transitions,
+                      turns, worker)
 from fixtures.hand_in import findings_section, scripted, stateful
 
 
@@ -243,6 +244,16 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.lp.state["review"]["overridden"], "the checkout changed after verification")
         self.assertIn("proof on branch", self.lp.findings)
         self.assertNotIn("proof on unchecked edit", self.lp.findings)
+
+    def test_a_checkout_changed_while_a_pass_chooses_its_tests_fails_it_though_none_is_chosen(self):
+        def chosen(lp):
+            (self.wt / "api.py").write_text('mode = "unchecked edit"\n')
+
+        self.plan.write_text(json.dumps([{"commands": [], "edits": {}}]))
+        with patch.object(round_tests, "chosen", side_effect=chosen):
+            self.assertEqual(run.review(self.lp, "## Summary\nFixture", True, "$ true\n[exit 0]"),
+                             "FAIL")
+        self.assertEqual(self.lp.state["review"]["overridden"], "the checkout changed after verification")
 
     def test_scratch_has_no_base_and_every_proven_finding_blocks(self):
         self.lp.scratch = self.lp.state["scratch"] = True

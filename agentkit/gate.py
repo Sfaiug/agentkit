@@ -2730,9 +2730,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     ({file: seconds}, piece count) from this pass alone, before that cap, and `took` its last
     go's seconds, charged to the ceiling as they are: its waits for a turn aside.  `absent` is
     `run_suite`'s, for one command, and `known` its for every one.
-    With `chosen`, a round's (`roundloop.verify_work`), `only` lists the tests it chose from the
-    time record (`round_tests.chosen`), which holds while the round goes: the check keeps no
-    times, as a resumed round chooses from it again, and the re-run of a `shard` is handed them
+    With `chosen`, a passed review's (`roundloop.chosen_tests`), `only` lists the tests it chose
+    from the time record (`round_tests.chosen`), which holds while the round goes: the check keeps
+    no times, as a resumed round chooses from it again, and the re-run of a `shard` is handed them
     less those its first go named as not there and not as run, as the record keeps a part while
     its file exists and no change fixes one its file lost.  Its `flaky:` record names what the
     first go lacked, and no lacked part is a flaky test: a first go that named no other failure

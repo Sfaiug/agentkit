@@ -1,5 +1,5 @@
-"""The project's own tests a round runs before its review: those its change edits, and those that
-stopped the most landings.
+"""The project's own tests a round runs once its reviewer passed it (`roundloop.chosen_tests`):
+those its change edits, and those that stopped the most landings.
 
 It hides which they are.  First each file the change adds or edits (`suite_times.origins`) that
 the project's time record (`suite_times`) times, whole or in parts, handed whole as the record

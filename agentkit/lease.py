@@ -8,9 +8,15 @@ replaces only the value its turn read.  The checkout is asked that address and n
 repository of the lease's own, with no setting but git's defaults and the user's, reads and writes
 there, so no setting of the checkout makes the read and the write differ or writes into it.  Each
 value made is a ref under `MADE` there, named for its stamp (`pair_clock`).  git writes a ref
-whole or not at all, and a value is kept before it is sent, so there is no lock and no file of the
-lease's own, and a create the remote refused or never answered sends that same value on the next
-turn.
+whole or not at all, and a value is kept before it is sent, so a create the remote refused or never
+answered sends that same value on the next turn.
+
+One turn at a time makes, reads and writes that repository, so what a turn read is still what is
+kept when it writes: two at once would read one lease, and the one whose swap lost would delete the
+ref of the value that won, leaving a proof (`proof_age`) young while the lease stood still.  The
+lock is on the folder the repository is in, which mkdir makes whole or finds there before anything
+of git's; a turn that finds it taken ends.  The kernel lets it go when the process ends, however it
+ends, and the folder is the lock, so there is no file of the lease's own.
 
 A lease is this machine's own where its repository holds the lease's commit: git keeps a commit
 past its ref, and a turn fetches nothing into it.  Another's ends the turn.  Every turn that finds
@@ -19,6 +25,7 @@ changes as often as turns are taken; a swap the remote refused or never answered
 again, as the next turn makes another.
 """
 
+import fcntl
 import functools
 import os
 import re
@@ -49,6 +56,10 @@ def main(argv):
 
 
 def _turn():
+    # a home's client, a standby among them, takes none: the lease it made would be its own while
+    # its home lives
+    if config.server_alias():
+        return
     checkout = update.agentkit_dir()
     env = gitcall.project_env(checkout)
     git = functools.partial(_git, cwd=checkout, env=env)
@@ -58,6 +69,20 @@ def _turn():
         return
     address = told[:-1].decode()
     repo = _repo()
+    repo.parent.mkdir(parents=True, exist_ok=True)
+    folder = os.open(repo.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(folder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:     # another turn is under way, and the next firing takes its own
+        pass
+    else:
+        _alone(git, env, address, repo)
+    finally:
+        os.close(folder)
+
+
+def _alone(git, env, address, repo):
+    """The turn at the lease at `address`, through `repo`, with no other under way."""
     env["GIT_DIR"] = str(repo)      # the checkout is the working folder alone from here on
     git("init", "-q", "--bare", "--template=", str(repo))
     held = git("ls-remote", address, REF, timeout=REMOTE)
@@ -87,7 +112,7 @@ def _turn():
         # its own message, as every other part of it is any machine's
         value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
                     own=gitcall.STAMP).strip()
-        # only as a name no ref holds: two turns at once each keep their own
+        # only as a name no ref holds, so no value kept is replaced
         git("update-ref", _named(stamp), value, "")
     value = git(*made)
     if re.fullmatch(VALUE + b"\n", value):

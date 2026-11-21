@@ -3075,9 +3075,9 @@ AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (con
 DONE_CHECK = ("row", "Done check")   # on or off, and the model that makes it (done_check.setting)
 MACHINES = ("row", "Machines")
 LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
-# The config.POLICY numbers on `Limits`, rescope_findings not yet (a task of its own): each
-# one's name there, how `Limits`' value on `c` says it, before the number and its unit after,
-# and the steps ← and → move it through (limit_step).
+# The config.POLICY numbers on `Limits`: each one's name there, how `Limits`' value on `c` says
+# it, before the number and its unit after, None where `c` leaves it out, and the steps ← and →
+# move it through (limit_step).  `c`'s line holds the first four, a fifth passing 100 cells.
 # Owner, 3 Nov 2026: the keys' own names were unclear to users; 5 Nov 2026: "The executor cap
 # moves in steps of 100, the orchestrator's in steps of 25."
 LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6)),
@@ -3086,7 +3086,9 @@ LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
                                       (*range(0, 201, 25), "no limit")),
                "extra_rounds": ("Extra rounds with one or two findings left", "extra", "rounds",
-                                range(0, 4))}
+                                range(0, 4)),
+               "rescope_findings": ("Findings that end a run for rescoping", None, None,
+                                    range(0, 13))}
 # What a subscription offers on its row of `Subscriptions`, each where it applies
 # (subscription_acts), and without UTF-8.
 # The second is one act for each kind of reset it can spend now, named after it (`spend a
@@ -3216,7 +3218,8 @@ def next_choice(cfg, found, row, step, kept):
     (matrix.answer), the owner's design of 5 Nov 2026: (model, effort) of its next step down or
     up (role_steps, step_take), in order of cost and on a tie of quality; None past either end.
     A `row` that is no step stands at its cost and quality, one with no cost as its best
-    choice."""
+    choice.  A choice a take takes no model of is passed by: a harness changed since `found`
+    was answered may leave one so."""
     steps = [(one, *step_take(cfg, found, kept, one)) for one in role_steps(found, kept)]
     here = row if row and row["cost"] is not None else next(reversed(found["choices"]), None)
     if here is None:
@@ -3224,7 +3227,7 @@ def next_choice(cfg, found, row, step, kept):
     steps += [] if any(one is here for one, *_ in steps) else [(here, None, None)]
     steps = sorted(steps, key=lambda one: (one[0]["cost"], one[0]["quality"]))[::step]
     at = next(n for n, (one, *_) in enumerate(steps) if one is here)
-    return next(((model, level) for _, model, level in steps[at + 1:]), None)
+    return next(((model, level) for _, model, level in steps[at + 1:] if model), None)
 
 
 def take_choice(cfg, name, selected, providers, role, model, effort, ask):
@@ -6251,12 +6254,13 @@ def limit_shown(value):
 
 
 def limits_value(cfg):
-    """`Limits`' value on `c`: each of config.POLICY's numbers in force (config.host_policy) under
-    its short name, `review 3 rounds · executor 300 lines · orchestrator off`."""
+    """`Limits`' value on `c`: each of config.POLICY's numbers in force (config.host_policy) with
+    a short name (LIMIT_NAMES) under it, `review 3 rounds · executor 300 lines · orchestrator
+    off`."""
     numbers = config.host_policy(cfg)
     return " · ".join(f"{short} {limit_shown(numbers[key])}" + (
         f" {unit[:-1] if numbers[key] == 1 else unit}" if type(numbers[key]) is int and numbers[key] else "")
-        for key, (_, short, unit, _) in LIMIT_NAMES.items())
+        for key, (_, short, unit, _) in LIMIT_NAMES.items() if short)
 
 
 def bar_chart(heading, bars):
@@ -6443,7 +6447,7 @@ def config_limits(cfg):
                  ("step", lambda step, key=key: limit_step(key, numbers[key], step),
                   lambda value, key=key: take(key, value)),
                  "", under(key, numbers[key]))
-                for key, (default, *_) in config.POLICY.items() if key in LIMIT_NAMES], ""
+                for key, (default, *_) in config.POLICY.items()], ""
     config_page("limits", page, move=("limit", "value"))
 
 

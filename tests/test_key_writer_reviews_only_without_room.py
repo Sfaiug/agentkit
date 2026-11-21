@@ -40,13 +40,14 @@ def meter(used, resets_at, window=WEEK):
             "resets_at": int(resets_at), "window_secs": window}
 
 
-def staged(case, models, reviewers, meters, files=None, **turns):
-    """A Home where opus alone builds and `reviewers` review, each harness's meters as given."""
+def staged(case, models, reviewers, meters, files=None, workers=("opus",), **turns):
+    """A Home where `workers`, opus alone unless given, build and `reviewers` review, each
+    harness's meters as given."""
     case.home = home = Home()
     case.addClassCleanup(home.close)
     home.env.update(OFFLINE)
     case.rig = Rig(home, "widgets", **({"files": files} if files else {}))
-    akconfig.write(home, models, workers=["opus"], reviewers=reviewers)
+    akconfig.write(home, models, workers=list(workers), reviewers=reviewers)
     case.fakes = fakeadapter.install(home, **turns)
     for harness, readings in meters.items():
         case.fakes[harness].answer("usage", json.dumps({"meters": readings, "error": None}))

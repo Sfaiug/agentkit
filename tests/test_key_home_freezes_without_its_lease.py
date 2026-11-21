@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import SOCKET, boxable
 from fixtures.twohomes import Machines
 from test_key_ak_lease_creates_a_lease import REF, made
-from test_key_home_creates_a_lease import LOCK
+from test_key_home_creates_a_lease import LOCK, RECORDS
 
 SERVICE = f"user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service"
 SLICE = Path(SERVICE, "agentkit.slice", f"{SOCKET}.slice")     # in a machine's cgroup tree
@@ -183,16 +183,27 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         self.runs(home, now(63))
 
     def test_a_home_with_no_record_thaws_the_slice(self):
-        home, = self.machines(freezer="1")
+        machines = self.machines(freezer="1")
+        home, = machines
         self.runs(home, now(0))
+        self.home(home)
+        machines.break_remote("unreachable")
+        self.paused(home, now(10))
+        (home.path / RECORDS / "acme-vm").unlink()      # the values it keeps stay 10 minutes old
+        self.runs(home, now(10))
 
     def test_a_dry_run_and_a_clients_firing_leave_the_freezer_as_it_was(self):
-        machines = self.machines()
-        home, = machines
+        machines = self.machines("acme-mini", "acme-vm")
+        home, vm = machines
         self.home(home)
         machines.break_remote("unreachable")
         self.assertEqual(self.fire(home, now(10), dry=True), (0, "0", False))
         self.paused(home, now(10))
+        # without it a firing here thaws, as the case above shows
+        (home.path / RECORDS / "acme-vm").unlink()
+        self.assertEqual(self.fire(home, now(10), dry=True), (0, "1", False))
+        home.client_of(vm)      # the values it made as home kept, 10 minutes old
+        self.assertEqual(self.fire(home, now(10)), (0, "1", False))
         server, client = self.machines("acme-mini", "acme-vm", freezer="1")
         client.client_of(server)
         self.assertEqual(self.fire(server, now(0), dry=True), (0, "1", False))

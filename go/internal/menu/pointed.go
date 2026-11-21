@@ -25,15 +25,19 @@ type keySpot struct {
 	key              terminal.Key
 }
 
-// keySpots is each item of a screen's key line.
+// keySpots is each item of a screen's key line that presses a key.
 type keySpots []keySpot
 
-// spotted is where each item of the key line `keys` is, its first line the screen's row `row`.
-func spotted(keys []string, row int) keySpots {
+// spotted is where each item of the key line `keys`, drawn to `layout`, is, its first line the
+// screen's row `row`: an item that presses nothing is none, so the pointer lights it no more than
+// a click acts on it (terminal.key_spans).
+func spotted(keys []string, row, layout int) keySpots {
 	var spots keySpots
 	for at, line := range keys {
-		for _, item := range terminal.KeyItems(line) {
-			spots = append(spots, keySpot{row + at, item.First, item.Last, pressing(item.Text)})
+		for _, item := range terminal.KeyItems(line, layout) {
+			if key := pressing(item.Text); key.Name != "" {
+				spots = append(spots, keySpot{row + at, item.First, item.Last, key})
+			}
 		}
 	}
 	return spots

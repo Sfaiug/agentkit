@@ -369,5 +369,5 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	title := "config · " + view.Name
 	drawn := comeUp(s, Panel(s, title, view.Clock, append(slices.Clone(body[top:shown]), under...), keys), title, clock.Risen())
 	return PageFrame{Lines: drawn, Top: top, at: at, page: page, lines: lines, width: s.LayoutWidth(), arrows: arrows,
-		keySpots: spotted(keyLines, len(drawn)-len(keyLines)+1)}
+		keySpots: spotted(keyLines, len(drawn)-len(keyLines)+1, s.LayoutWidth())}
 }

@@ -17,6 +17,7 @@ import shlex
 import subprocess
 import tempfile
 import time
+from collections import Counter
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
@@ -194,7 +195,7 @@ def settled_gate(lp):
         return None
     if "[killed at the limit]" in text or "[not run:" in text:
         return None
-    cmds = round_checks(lp, lp.every)
+    cmds = lp.every
     passed, total = prompts.done_when_counts(text, cmds)
     if cmds and total != len(cmds):
         return None
@@ -323,13 +324,6 @@ def needs_base_proof(lp):
     (`regression_fails_before`), a repair's that it is proven at landing, and a scratch run's
     record that it has no base."""
     return lp.state.get("base_proof") == "owed"
-
-
-def round_checks(lp, cmds):
-    """The commands a round's checks run, as their log records them: the task's `cmds`, then the
-    target's `tests:` line where `round_tests` chooses tests of it."""
-    named = round_tests.chosen(lp)
-    return [*cmds, named[0]] if named else cmds
 
 
 def own_checks(lp):
@@ -473,9 +467,9 @@ def regression_fails_before(lp):
 def verify_work(lp, cmds=None):
     """Pin done-when to a commit before running commands, including leftover executor edits.
 
-    Runs `cmds`, or the run's per-round commands when none are given, then the target's `tests:`
-    line on the tests `round_tests` chooses. Checks deferred to landing run through
-    `final_check`.
+    Runs `cmds`, or the run's per-round commands when none are given. Checks deferred to landing
+    run through `final_check`, the tests `round_tests` chooses once a reviewer passed
+    (`chosen_tests`).
     """
     from . import gate  # here, not at the top: it reaches run
     if cmds is None:
@@ -499,17 +493,6 @@ def verify_work(lp, cmds=None):
     ok, text = check(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
                      lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
                      checked=(lp.run_dir, lp.rnd, "done-when", head))
-    if named := round_tests.chosen(lp):
-        # One more check, on no suite turn: the line given just those tests (`AK_ONLY`), red by
-        # its exit, a pass that does not name each one as run among them (`gate.unnamed`), chosen
-        # from the time record (`chosen`): it keeps no times, and its re-run asks for no part its
-        # tree lacks, as on 18 Nov 2026 one removed on 7 Nov, still timed, failed six runs'
-        # rounds in a quarter of an hour.
-        passed, more = gate.run_done_when(
-            [named[0]], lp.wt, lp.round_dir / "donewhen.log", lp.artifacts, lp.done_when_limit,
-            lp.log, silence=lp.turn_limit, run_dir=lp.run_dir, shard="1/1", only=named[1],
-            checked=(lp.run_dir, lp.rnd, "done-when", head), chosen=True)
-        ok, text = ok and passed, f"{text}\n\n{more}"
     if not lp.scratch and not lp.state.get("review_pr") and (
             not clean or gitcall.commit_identity(lp.wt) != lp.validation or
             gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
@@ -529,6 +512,25 @@ def verify_work(lp, cmds=None):
                 + text)
         (lp.round_dir / "donewhen.log").write_text(text)
     return ok, text
+
+
+def chosen_tests(lp, named, head):
+    """`(ok, log)` of the target's `tests:` line on the tests `round_tests` chose (`named`), run on
+    `head` once its reviewer passed it (`_review`).
+
+    A PASS alone runs them: run before each review, on 18-20 Nov 2026 about half their time fell
+    in runs that failed review (owner, 20 Nov 2026: "Once, after review passes").  On no suite
+    turn, the line given just those tests (`AK_ONLY`), red by its exit, a pass that does not name
+    each one as run among them (`gate.unnamed`), chosen from the time record (`chosen`): it keeps
+    no times, and its re-run asks for no part its tree lacks, as on 18 Nov 2026 one removed on
+    7 Nov, still timed, failed six runs' rounds in a quarter of an hour.  A stop in it leaves the
+    review to ask again.
+    """
+    from . import gate  # here, not at the top: it reaches run
+    return gate.run_done_when(
+        [named[0]], lp.wt, lp.round_dir / "donewhen.log", lp.artifacts, lp.done_when_limit,
+        lp.log, silence=lp.turn_limit, run_dir=lp.run_dir, shard="1/1", only=named[1],
+        checked=(lp.run_dir, lp.rnd, "done-when", head), chosen=True)
 
 
 def passed_review_head(state):
@@ -1299,8 +1301,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     # A hand-built stand-in for the loop (as in test_v4c) carries no commands; the real
     # Loop always does, and only then are markers attributed to their commands.
     cmds = getattr(lp, "cmds", None)
-    passed, total = prompts.done_when_counts(
-        dw_log, None if cmds is None else round_checks(lp, cmds))
+    passed, total = prompts.done_when_counts(dw_log, cmds)
     if lp.scratch:
         heading = f"## Done-when output (run by the loop; {passed} of {total} commands exited 0)"
     else:
@@ -1536,9 +1537,12 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
             lp.state["base_proof"] = "proven"
         lp.save()
 
-    checkout_changed = not lp.scratch and (
-        identity != validation or gitcall.commit_identity(lp.wt) != identity
-        or (not lp.state.get("review_pr") and gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
+    def moved():
+        """Whether the checkout no longer holds the commit verified and reviewed, clean."""
+        return not lp.scratch and (
+            identity != validation or gitcall.commit_identity(lp.wt) != identity
+            or (not lp.state.get("review_pr") and gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
+    checkout_changed = moved()
     # Weighing may turn an explicit uphold into a note, never into a concession.
     answers = hand_in.dispute_answers(handed_disputes, submitted.records)
     submitted = prompts.weigh_review(lp, submitted, identity.get("head_sha"), since=delta, replayed=replayed)
@@ -1564,9 +1568,19 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         checks = [line for line in (dw_log or "").splitlines() if prompts.LOOP_NOTE.match(line)]
         overridden = "; ".join(["the reviewer said PASS while done-when is failing", *checks])
         lp.log(f"WARN {overridden}; overriding to FAIL")
-    if checkout_changed or (not lp.scratch and (
-            gitcall.commit_identity(lp.wt) != identity or (not lp.state.get("review_pr") and
-                                                   gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))):
+    checkout_changed = checkout_changed or moved()
+    if verdict == "PASS" and not checkout_changed:
+        if named := round_tests.chosen(lp):
+            passed, more = chosen_tests(lp, named, validation["head_sha"])
+            dw_log = f"{dw_log}\n\n{more}"    # the round's log, its flakes recorded with a PASS
+            (lp.round_dir / "donewhen.log").write_text(dw_log)
+            if not passed:
+                verdict = "FAIL"
+                overridden = ("the reviewer said PASS but the project's tests failed: "
+                              + prompts.first_failure(more))
+                lp.log(f"WARN {overridden}; overriding to FAIL")
+        checkout_changed = moved()      # weighed again once they are chosen, and once they end
+    if checkout_changed:
         verdict = "FAIL"
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
@@ -1593,6 +1607,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
              "finding_count": len(submitted.findings),
+             "files": dict(Counter(row["path"] for row in submitted.findings)),
              "summary": summary.strip(), **validation, **passed})
         if transitions.rescope(lp.state, len(submitted.findings)):
             # its budget ends at the rounds it recorded, so whatever asks whether a run's
@@ -1788,7 +1803,8 @@ def rounds(lp):
                     # A change past the ceiling is refused now, before its checks and their fixer.
                     first_review_ceiling(lp, record=False)
                 else:
-                    fixer_body = (f"{lp.context}\n\n## Reviewer findings to fix\n"
+                    fixer_body = (f"{lp.context}\n\n{prompts.overridden_section(lp.state)}"
+                                  f"## Reviewer findings to fix\n"
                                   f"{prompts.without_followups(lp.findings)}")
                     summary = execute(lp, "fixer", fixer_body, "executor")
             ok, dw_log = verify_work(lp)
@@ -1853,7 +1869,8 @@ def fix_after_failed_review(lp, upstream, how):
         return False
     what = f"the {how} of {upstream}"
     while transitions.round_allowed(lp):
-        fix = f"{lp.context}\n\n## Reviewer findings to fix\n{prompts.without_followups(lp.findings)}"
+        fix = (f"{lp.context}\n\n{prompts.overridden_section(lp.state)}## Reviewer findings to fix\n"
+               f"{prompts.without_followups(lp.findings)}")
         if (lp.state.get("review") or {}).get("done_when") is False:
             # the output the review was given, still in the round directory it ran in
             log_path = lp.round_dir / "donewhen.log"
