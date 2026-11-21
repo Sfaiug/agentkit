@@ -26,7 +26,9 @@ class AHomeOpensOnlyRegularRecords(unittest.TestCase):
         self.home = Home()
         self.addCleanup(self.home.close)
         self.home.env["AK_NOW"] = TOLD
-        done = self.home.ak("standby", "--copied", "acme-vm", "0", "yes")
+        began = self.home.ak("standby", "--began")
+        self.assertEqual(began.code, 0, began.out + began.err)
+        done = self.home.ak("standby", "--copied", "acme-vm", *began.out.split(), "yes")
         self.assertEqual(done.code, 0, done.out + done.err)
         self.damaged = self.home.path / RECORDS / "acme-mac"
 

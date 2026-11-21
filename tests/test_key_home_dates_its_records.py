@@ -6,7 +6,8 @@ HOST WALL SINCE BOOT yes|no` keeps HOST's record as those three words, written a
 last: dated by the stamp whatever the home's clocks say when the request arrives, so `ak standby`
 there tells the copy's age from it.  Another host's record is left byte for byte, nothing else
 lands among the records nor in a standby's own folder, and words outside the grammar write
-nothing.  Black-box, through tests/fixtures/akbin.py, with the home's clocks from AK_NOW.
+nothing, seconds in the place of a stamp among them.  Black-box, through tests/fixtures/akbin.py,
+with the home's clocks from AK_NOW.
 """
 
 from pathlib import Path
@@ -80,7 +81,7 @@ class AHomeDatesItsRecords(unittest.TestCase):
 
     def test_a_record_handed_a_stamp_leaves_the_rest(self):
         with Home() as home:
-            self.ended(home, "--copied", "acme-mac", "0", "yes")
+            self.ended(home, "--copied", "acme-mac", *self.ended(home, "--began").split(), "yes")
             records = home.path / RECORDS
             record = (records / "acme-mac").read_bytes()
             self.ended(home, "--copied", "acme-vm", *STAMP.split(" "), "no", now=LATER)
@@ -90,7 +91,8 @@ class AHomeDatesItsRecords(unittest.TestCase):
             self.assertNotIn(OWN, home.tree())
 
     def test_words_outside_the_grammar_write_no_record(self):
-        for words in (("1789000000.0", "50000.0", "-acme-boot-1", "no"),
+        for words in (("0", "no"), ("0", "yes"),
+                      ("1789000000.0", "50000.0", "-acme-boot-1", "no"),
                       ("17890000a0.0", "50000.0", "acme-boot-1", "no"),
                       ("1789000000.0", "5" * 13, "acme-boot-1", "no"),
                       (*STAMP.split(" "), "no", "acme")):

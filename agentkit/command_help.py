@@ -233,7 +233,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
              "tick or fails, or one of those kept is a link or under one on either machine.",
              "ak move acme-mini"),
     "standby": ("usage: ak standby [ALIAS]\n"
-                "       ak standby --copied HOST SECONDS yes|no",
+                "       ak standby --copied HOST WALL SINCE BOOT yes|no",
                 "On a client of ALIAS, keep this machine's crontab job that does this every three minutes,\n"
                 "then copy from that home to the same paths here each harness's logins, every account's,\n"
                 "and the folders its conversations are in, then ~/code file by file, its .git folders and\n"
@@ -257,9 +257,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                 "the last pass that ended well began, and why ak here does not follow that home yet: exit\n"
                 "1 if none from that home has.  On no home's client, show each machine that said it\n"
                 "copied this one, how old its copy is and whether it takes over as home when this one\n"
-                "stops.  --copied keeps HOST's record, the last one's replaced: its copy taken SECONDS ago,\n"
-                "1 to 9 digits, by this machine's clocks, and yes if it takes over.  HOST is 1 to 64\n"
-                "letters, digits, - and . beginning with a letter or digit.",
+                "stops.  --copied keeps HOST's record, the last one's replaced: its copy taken at WALL\n"
+                "SINCE BOOT, the stamp of this machine's clocks HOST's pass was handed when it began, and\n"
+                "yes if it takes over.  HOST is 1 to 64 letters, digits, - and . beginning with a letter\n"
+                "or digit.",
                 "ak standby acme-mini"),
 }
 
