@@ -1,0 +1,117 @@
+"""A review of a seat's own PR that finds no reviewer with room waits for a reviewer, not its fixer.
+
+A FAIL on a seat's own PR is fixed by a turn on the orchestrator's model, and the next round's
+review is all that is left.  When no marked reviewer has room for it, the run parks `exhausted`
+saying so, and the tick brings it back once a reviewer has room, whatever the fixer's window
+reads.  Until 21 Nov 2026 the run parked with the fixer's step on it and a reason naming every
+worker's meter, and the tick waited for the fixer's model.  Black-box: the program `AK_BIN` names
+runs from outside through tests/fixtures/akbin.py, on the fixtures of
+tests/test_key_own_pr_review_resumes_its_fixer.py, with meters the test sets and reads again
+each second, not on the harness's own cadence.
+"""
+
+import json
+from pathlib import Path
+import re
+import shlex
+import sys
+import time
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import akconfig, fakeadapter, taskfile
+from fixtures.akbin import Home, boxable
+from fixtures.akseat import Seat
+from fixtures.fakegh import GitHub
+from fixtures.gitrig import Rig
+from test_key_own_pr_fix_and_land import FIND, FIX, RULES
+
+WEEK = 604800
+
+
+def reading(used):
+    """A usage answer: the week at `used`%, a day from rolling over."""
+    return json.dumps({"meters": [{"name": "weekly", "used": used, "window_secs": WEEK,
+                                   "resets_at": int(time.time()) + 86400}], "error": None})
+
+
+def until(shown, what, bound=120):
+    deadline = time.monotonic() + bound
+    while not shown():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"not {what} after {bound} s")
+        time.sleep(0.1)
+
+
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
+class AReviewerIsWaitedFor(unittest.TestCase):
+    """The acme seat's orchestrator is opus, its one worker; astra alone reviews."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.home = home = Home()
+        cls.addClassCleanup(home.close)
+        rig = Rig(home, "widgets", files={"AGENTS.md": RULES})
+        gh = GitHub(home)
+        akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
+        started, go = (home.root / name for name in ("started", "go"))
+        held = {**FIX, "sh": f": >{shlex.quote(str(started))}; "
+                             f"until [ -e {shlex.quote(str(go))} ]; do sleep 0.1; done"}
+        cls.fakes = fakes = fakeadapter.install(home, claude=held, codex=[FIND, "pass"])
+        for fake in fakes.values():
+            text = re.sub(r"(?m)^probe_every = .*\n", "", fake.manifest.read_text())
+            fake.manifest.write_text(text.replace("[usage]\n", "[usage]\nprobe_every = 1\n", 1))
+            fake.answer("usage", reading(10))
+        Seat(home, "acme", cwd=rig.path, alive=False,
+             record={"workers": ["opus"], "reviewers": ["astra"]}, planned=True)
+        rig.branch("contrib", {"contrib.txt": "c\n"})
+        run = home.spawn("run", "--review-pr", gh.open_pr(rig, "contrib", title="Add contrib"),
+                         env={"AGENTKIT_SESSION": "acme"}, cwd=rig.path)
+        until(lambda: started.exists() or run.poll() is not None, "fixing")
+        # astra's window is spent while opus fixes, and read again at the next pick
+        fakes["codex"].answer("usage", reading(100))
+        cls.age(home)
+        go.touch()
+        cls.code = run.wait(timeout=300)
+        cls.run_dir = taskfile.only_run(home)
+        cls.parked = json.loads((cls.run_dir / "run.json").read_text())
+        # then opus's window is spent too, and astra's has reset
+        fakes["claude"].answer("usage", reading(100))
+        fakes["codex"].answer("usage", reading(0))
+        cls.age(home)
+        cls.tick = home.tick()
+        until(lambda: json.loads((cls.run_dir / "run.json").read_text()).get("state")
+              not in ("exhausted", "queued", "running"), "ended the resumed run")
+        cls.state = json.loads((cls.run_dir / "run.json").read_text())
+
+    @staticmethod
+    def age(home):
+        """The usage snapshot past its five minutes, a second after the last read."""
+        cache = home.path / ".agentkit" / "state" / "usage.json"
+        blob = json.loads(cache.read_text())
+        cache.write_text(json.dumps({**blob, "fetched_at": blob["fetched_at"] - 600}))
+        time.sleep(1.5)
+
+    def test_the_run_parks_waiting_for_a_reviewer(self):
+        self.assertEqual(self.code, 1, self.home.log("spawn-1.err").read_text())
+        self.assertEqual((self.parked["state"], self.parked["verdict"]), ("exhausted", None))
+        self.assertIn("reviewer", self.parked["error"])
+        self.assertNotRegex(self.parked["error"], r"worker|meter")
+
+    def test_the_tick_resumes_it_for_its_reviewer_while_its_fixer_is_spent(self):
+        self.assertEqual(self.tick.code, 0, self.tick.out + self.tick.err)
+        self.assertIn(f"resumed {self.run_dir.name}: reviewer astra eligible again",
+                      self.tick.out.splitlines(), self.tick.out + self.tick.err)
+
+    def test_astra_reviews_and_its_verdict_stands(self):
+        reviews = [turn["step"] for turn in self.fakes["codex"].runs() if turn["role"] == "reviewer"]
+        self.assertEqual(reviews, [FIND, "pass"])
+        self.assertEqual([turn["role"] for turn in self.fakes["claude"].runs()], ["fixer"])
+        self.assertEqual({key: self.state.get(key) for key in ("state", "verdict", "reviewer",
+                                                               "merged")},
+                         {"state": "pass", "verdict": "PASS", "reviewer": "astra",
+                          "merged": True})
+
+
+if __name__ == "__main__":
+    unittest.main()
