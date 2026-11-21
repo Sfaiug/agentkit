@@ -2725,7 +2725,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
              "own_orchestrator_effort": writer_effort if is_own else None,
              "base": f"origin/{base}", "target": base, "base_sha": base_sha,
              "target_sha": target_sha, "branch": branch,
-             "worktree": str(wt), "executor": prior.get("executor"), "reviewer": None, "rounds": n_rounds,
+             "worktree": str(wt), "executor": prior.get("executor"),
+             # the saved one until the pick below: a resume parked before it still names whose
+             # conversation `review_session` is
+             "reviewer": prior.get("reviewer"), "rounds": n_rounds,
              "state": "running", "verdict": None, **run_record.process_owner(), "started_at": receipt["started_at"],
              "finished_at": None, "round_summaries": summaries, "findings": previous, "merge_method": "squash",
              "no_merge": (not is_own and not off) or bool(opts.get("--no-merge")), "merged": False,
@@ -2801,7 +2804,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         raise config.Error(barred)
     else:
         raise QuotaDry("every worker has a gate meter at 100% used")
-    state["reviewer"] = reviewer
+    # a pick other than the saved reviewer takes the review over, as a task's is: the saved
+    # one's conversation is not its own; the saved one picked again goes on in it
+    replace_reviewer(state, reviewer)
     state.pop("launch_reviewer", None)   # consumed: a resume re-picks, as before
     run_record.save_state(run_dir, state)
     if is_own:
