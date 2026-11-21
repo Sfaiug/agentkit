@@ -9,6 +9,7 @@ then shows its new word.  Black-box: the program `AK_BIN` names runs in a person
 (tests/fixtures/akterm.py) beside a seat of tests/fixtures/akseat.py.
 """
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -37,7 +38,9 @@ class AnOpenMenuShowsASeatsChangeAfterARecordItCouldNotRead(unittest.TestCase):
         self.menu.wait(row("acme", "○ idle"), bound=120)
         self.record = self.home.path / ".agentkit/state/seat-acme.json"
         deadline = time.monotonic() + 120
-        while not self.record.exists():     # the first look's, whose word would land over ours
+        # The first look's word, which would land over ours: the look writes what it read first,
+        # then its word, each through the `.tmp` ours goes through.
+        while not self.record.exists() or "word" not in json.loads(self.record.read_text()):
             self.assertLess(time.monotonic(), deadline, "the screen never looked at acme")
             time.sleep(0.05)
 
