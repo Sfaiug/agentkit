@@ -51,8 +51,7 @@ func menuAddSubscription(cells []menu.Cell, keyboard *terminal.Keyboard, painter
 		drawn := menu.AddablesPage(screen, addTitle, choices, at, top, away)
 		top = drawn.Top
 		painter.Write(drawn.Lines, screen)
-		key := keyboard.ReadKey()
-		clicked := key.Name == "pointer" && clicks.Click(key.Mouse)
+		key, clicked := clicks.Key(keyboard.ReadKey())
 		if clicked {
 			key = drawn.Pressed(key) // a key-line item does what its key does
 		}
@@ -60,8 +59,8 @@ func menuAddSubscription(cells []menu.Cell, keyboard *terminal.Keyboard, painter
 		case key.Name == "again":
 			painter.Forget()
 			continue
-		case key.Name == "pointer" && !key.Mouse.Released && key.Mouse.Button&(32|64) == 0:
-			continue // the button going down lights nothing: the click is when it comes up (read_key)
+		case key.Name == "": // the left button going down lights nothing: the click is when it comes up (read_key)
+			continue
 		case away && (key.Name == "space" || key.Name == "enter"):
 			away = false // pressed with no highlight drawn: it only comes back where the keys left it
 			continue

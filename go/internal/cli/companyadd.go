@@ -42,8 +42,7 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 		frame := menu.CompanyAddFrame(screen, title, others, at, top, away, pointer)
 		top = frame.Top
 		painter.Write(frame.Lines, screen)
-		key := keyboard.ReadKey()
-		clicked := key.Name == "pointer" && clicks.Click(key.Mouse)
+		key, clicked := clicks.Key(keyboard.ReadKey())
 		if clicked {
 			key = frame.Pressed(key) // a key-line item does what its key does
 		}
@@ -52,14 +51,13 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 			painter.Forget()
 			keyboard.Unread(pointer.Resting()...) // what the new draw puts under the pointer has it
 			continue
-		case key.Name == "wake": // the boards landed, which only the company list reads
+		case key.Name == "wake", key.Name == "": // the boards landed, or the left button going down (read_key)
 			continue
-		case key.Name == "pointer" && !key.Mouse.Released && key.Mouse.Button&(32|64) == 0:
-			continue // the button going down lights nothing: the click is when it comes up (read_key)
 		case away && (key.Name == "space" || key.Name == "enter"):
 			away, pointer = false, terminal.Mouse{} // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
 		}
+		hadPointer := pointer != (terminal.Mouse{})
 		away, pointer = false, terminal.Mouse{} // a key has the highlight
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
@@ -73,13 +71,13 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			at = max(0, min(len(others)-1, at+key.Mouse.Notches))
 		case key.Name == "pointer":
-			pointer = key.Mouse
-			row, _, hit := frame.Hit(key.Mouse)
-			if away = !hit; hit {
-				at = row
-			}
-			if hit && clicked {
-				return at
+			if row, _, hit := frame.Hit(key.Mouse); hit {
+				pointer, at = key.Mouse, row
+				if clicked {
+					return at
+				}
+			} else if !clicked || hadPointer {
+				away, pointer = true, key.Mouse
 			}
 		}
 	}
