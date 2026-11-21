@@ -964,6 +964,12 @@ def _scope_readings(scope_dir):
         return None
 
 
+def freezer(group):
+    """The file of the cgroup at the directory `group` that reads `1` where it is frozen, and that
+    writing `1` freezes and `0` thaws."""
+    return Path(group) / "cgroup.freeze"
+
+
 def frozen_cgroup(pid):
     """The cgroup freezing that process, or None: its own, or any one above it.
 
@@ -974,7 +980,7 @@ def frozen_cgroup(pid):
         return None
     parts = [part for part in relative.split("/") if part]
     for depth in range(len(parts), -1, -1):
-        held = cgroup_path().joinpath(*parts[:depth]) / "cgroup.freeze"
+        held = freezer(cgroup_path().joinpath(*parts[:depth]))
         try:
             if held.read_text().strip() == "1":
                 return str(held.parent)
