@@ -4909,6 +4909,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             elif act == "space" and column < 3:
                 # a pick applies what the page holds first, as closing does, what that could not
                 # do refusing it; it flips the marks as drawn, and the orchestrator's own picks none
+                # A mark is made at once and never held for the close: holding one failed review
+                # four times over a config, login or record changing under the page, and the
+                # owner, 21 Nov 2026, asked whether to drop it: "Keep marks instant".
                 note = (held and (column or here[1] != selected["orchestrator"])
                         and apply_held(cfg, seat, held, ask, providers)) or (
                     session_mark(cfg, session, as_drawn, here[1], column, providers, ask)
