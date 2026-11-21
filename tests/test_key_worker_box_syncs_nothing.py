@@ -1,12 +1,11 @@
 """Inside an `ak worker` turn's box a sync to disk returns at once, the kernel never asked.
 
 Nothing a box writes has to survive a crash of the machine, and every sync asked there makes the
-host's filesystem commit its journal, holding up every writer on the host.  PROBE syncs a pipe's
-writing end, by `os.fsync` and `os.fdatasync` on FD, and exits 0 only where something answered
-both before the kernel, which refuses to sync a pipe.  The test runs ak under REFUSED, a filter
-that refuses those two calls on FD as the kernel would.  Of filters answering a call by errno,
-the newest one's answer counts, so only a filter ak loads can answer PROBE: one of a box the test
-itself runs in is older.  ak answers those calls on the machines of fixtures/kernel.py alone;
+host's filesystem commit its journal, holding up every writer on the host.  PROBE syncs FD by
+`os.fsync` and `os.fdatasync`.  The test runs ak under REFUSED, a filter that answers those two
+calls on FD with EINVAL.  Of filters answering a call by errno, the newest one's answer counts,
+so PROBE exits 0 only where a filter ak loads answered both: one of a box the test itself runs
+in is older.  ak answers those calls on the machines of fixtures/kernel.py alone;
 elsewhere the class skips.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, with a scripted harness from fakeadapter.py whose `sh` step runs PROBE
 inside the turn; the class skips where bubblewrap cannot box one.
@@ -18,7 +17,6 @@ import shlex
 import struct
 import sys
 from pathlib import Path
-import resource
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -26,10 +24,11 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home, boxable
 from fixtures.kernel import SYNCS
 
-# The last descriptor the probe may open, which a process handed the lowest free one reaches
-# last, so nothing of ak's own syncs it; at most 1023, as the kernel sizes a table up to it.
-FD = min(resource.getrlimit(resource.RLIMIT_NOFILE)[0], 1024) - 1
-PROBE = f"import os; os.dup2(os.pipe()[1], {FD}); os.fsync({FD}); os.fdatasync({FD})"
+# Standard input: no descriptor limit takes it away, and a filter answers before the kernel
+# reads it, so PROBE need not open it.  Where it is a pipe, a terminal or /dev/null, as a
+# process's own stdin is, the kernel refuses to sync it as REFUSED does.
+FD = 0
+PROBE = f"import os; os.fsync({FD}); os.fdatasync({FD})"
 MACHINE = os.uname().machine
 
 
