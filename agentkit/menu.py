@@ -2089,8 +2089,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     if not owned:
         print("\n".join(out))
         return page, (len(pages) if ordered else 1)
+    heads = {}      # each row's first line: its others say which of them they are from it
     spots = {top + number: ((None, [(1, layout, name)]) if isinstance(name, tuple)
-                            else (name, explains.get(top + number, [])))
+                            else (name, explains.get(top + number, []),
+                                  number - heads.setdefault(name, number)))
              for number, (_, name) in enumerate(body, 1) if name}
     spots.update(usage_spots)
     spots.update(terminal.key_spots(key_lines, keys_top + 1))
@@ -4665,12 +4667,16 @@ def matrix_page(body, places, here, top, under, keys, over=(), lead=None, keyed=
 
 def page_places(places, top, room, over=0):
     """A matrix screen's `places` on the `room` lines of its page from `top`, `over` lines above
-    them, as terminal.frame takes them.  A line of a row whose cells are on its others -- a
-    model's name folded over its marks -- is on nothing, though they be off the page: a cell of
-    the row over no column, so it is no band (terminal.under) and still the row's, the pointer's
-    light going out as it comes under a still pointer (terminal.lit)."""
+    them, as terminal.frame takes them: each with which of its row's lines it is, counted from
+    the row's first though the page starts past it, so a row taller than its page is known
+    line by line wherever it is turned to (terminal.held).  A line of a row whose cells are on
+    its others -- a model's name folded over its marks -- is on nothing, though they be off the
+    page: a cell of the row over no column, so it is no band (terminal.under) and still the
+    row's, the pointer's light going out as it comes under a still pointer (terminal.lit)."""
     celled = {row for row, cells in places.values() if cells}
-    return {over + line - top: (row, cells if cells or row not in celled else [(1, 0, None)])
+    first = {places[line][0]: line for line in sorted(places, reverse=True)}
+    return {over + line - top: (row, cells if cells or row not in celled else [(1, 0, None)],
+                                0 if row is None else line - first[row])
             for line, (row, cells) in places.items() if top <= line < top + room}
 
 

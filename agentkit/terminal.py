@@ -1387,7 +1387,8 @@ def under(key, spots):
     """The `Spot` a click or the pointer at `key` is on, of a screen's `spots`: {screen row:
     (what, [(first, last, cell)])}, rows and columns counted from 1 as the terminal counts; a
     cell that is a row of its own, one of several on its line (a meter on `c`), is (first, last,
-    cell, its row).
+    cell, its row), and a row drawn on more lines than one says after its cells which of them
+    the line is, from 0 (`held`).
 
     The one place a position is read back to what a screen drew there, for a click and for the
     pointer alike, so what is lit is what a click there acts on, all of it and nothing else: a
@@ -1396,7 +1397,7 @@ def under(key, spots):
     with such cells -- a model's marks on `c` -- the rest is on nothing; a cell of None is that
     row itself, over its columns.
     """
-    what, places = spots.get(key.row, (None, ()))
+    what, places, *_ = spots.get(key.row, (None, ()))
     for first, last, cell, *own in places:
         if first <= key.col <= last:
             return Spot(own[0] if own else what, cell, first, last)
@@ -1469,11 +1470,11 @@ def lights():
 def held(row, column):
     """What is at `column` of `row` on the screen up, as a click there reads it (`under`): its
     spot's row and cell, or that place where it is on none; then which of that row's lines
-    `row` is, from 0 down the screen, so none of them is taken for another that was there."""
-    spot, line = under(Key("point", col=column, row=row), _SPOTS), 0
-    while spot.what is not None and _SPOTS.get(row - line - 1, (None,))[0] == spot.what:
-        line += 1
-    return (spot[:2] if spot[:2] != (None, None) else (None, (row, column))), line
+    `row` is, from 0, as its screen says (`under`), the first where it says none: so none of
+    them is taken for another that was there, wherever its page starts in them."""
+    spot = under(Key("point", col=column, row=row), _SPOTS)
+    return ((spot[:2] if spot[:2] != (None, None) else (None, (row, column))),
+            sum(_SPOTS.get(row, ())[2:]))
 
 
 def columns(line, first, last):

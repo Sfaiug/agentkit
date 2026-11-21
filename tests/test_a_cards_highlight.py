@@ -139,10 +139,11 @@ class CardsHighlight(test_breathing.MainScreen):
             run()
         return shown
 
-    def past(self, *script):
-        """`x` on past sessions, fix-api-1 highlighted, then `script` on its card."""
+    def past(self, *script, first=()):
+        """`x` on past sessions, fix-api-1 highlighted, after the keys `first`, then `script` on
+        its card."""
         found = [dict(name=f"fix-api-{n}", repo="/x/acme", closed=1000.0 - n) for n in (1, 2, 3)]
-        return self.answered([Key("char", "x"), *script], lambda: menu.show_past(
+        return self.answered([*first, Key("char", "x"), *script], lambda: menu.show_past(
             self.cfg, found, keyboard=Mock()))
 
     def ak(self, *script):
@@ -277,6 +278,22 @@ class CardsHighlight(test_breathing.MainScreen):
                                   for screen, rows in ((before, lit), (grid, moved))],
                                  [list(said)] * 2)
                 self.assertEqual([grid.backs(row) for row in moved], [{}] * len(lit))
+
+    def test_lines_of_a_row_past_its_page_the_card_brings_up_are_lit_on_none(self):
+        # what fix-api-1 opened runs past its page, Down on to its next lines: the card under
+        # its last brings those up, lit lower on that page, to where others of it were lit
+        said = " ".join(f"Part-{n:02}" for n in range(50))
+        with patch.object(terminal, "width", return_value=30), \
+                patch.object(terminal, "height", return_value=18), \
+                patch.object(menu, "past_said", lambda seat: (said, "")):
+            shown = self.past(*[None] * 6, first=[Key("down")])
+        up, _ = self.asks(shown, "Remove")
+        before, grid = shown[up - 1][1], shown[up][1]
+        over = [row for row in sorted(grid.rows) if "Part-" in grid.text(row)]
+        was = [before.find(grid.text(row).strip())[0] for row in over]
+        self.assertTrue(over and all(old > new for old, new in zip(was, over)), (was, over))
+        self.assertTrue(all(SELECTION in before.backs(row).values() for row in was + over),
+                        [before.text(row) for row in before.rows])
 
     def test_the_pointer_moved_onto_an_answer_leaves_the_fade_as_it_goes(self):
         for case, (run, answer) in {"past sessions": (self.past, "Remove"),
