@@ -118,8 +118,10 @@ class QuotaWordsBounded(unittest.TestCase):
                 provider = config.model(self.cfg, model)["provider"]
                 other = "astra" if provider == "anthropic" else "opus"
                 run_dir = config.RUNS / name
+                # another lab reviews each builder: with `other` alone, the refused model would
+                # be the one builder another lab reviews, and nobody would take its round
                 state = {"executor": model, "reviewer": other, "workers": [model, other],
-                         "reviewers": [other], "round_summaries": []}
+                         "reviewers": ["opus", "astra"], "round_summaries": []}
                 lp = SimpleNamespace(cfg=self.cfg, state=state, run_dir=run_dir, wt=self.work,
                                      every=[], done_when_limit=120,
                                      executor=model, reviewer=other, exec_sid=None, rnd=1,

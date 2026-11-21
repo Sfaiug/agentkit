@@ -188,6 +188,25 @@ class WorkerList(unittest.TestCase):
         self.assertEqual((state["reviewer"], state["review_session"]), ("beta", None))
         run.review_providers(self.cfg, state["executor"], state["reviewer"])
 
+    def test_a_stall_handover_reads_a_renamed_mark_as_the_run_recorded_it(self):
+        # old, alpha's lab, can review beta: renamed since launch, it still does, so beta may
+        # take the stalled build over
+        self.cfg["models"]["old"] = {**self.cfg["models"]["alpha"], "model": "old"}
+        state = {"executor": "alpha", "reviewer": "beta", "workers": ["alpha", "beta"],
+                 "reviewers": ["beta", "old"], "models": dict(self.cfg["models"])}
+        self.cfg["models"]["renamed"] = self.cfg["models"].pop("old")
+        with patch.object(staffing, "collect_usage", return_value=self.providers()), \
+                redirect_stderr(io.StringIO()):
+            self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "beta")
+
+    def test_a_review_off_stall_handover_reads_the_config_of_now(self):
+        # with no review to pair, the handover is main's: beta, renamed since, is no worker
+        state = {"executor": "alpha", "reviewer": None, "policy": {"review_rounds": 0},
+                 "workers": ["alpha", "beta", "delta"], "models": dict(self.cfg["models"])}
+        self.cfg["models"]["renamed"] = self.cfg["models"].pop("beta")
+        with patch.object(staffing, "collect_usage", return_value=self.providers(b=10, c=80)):
+            self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "delta")
+
     def test_a_fixer_never_leaves_the_workers_list(self):
         # the fixer's turn refuses and hands over mid-fix: the model that finishes the
         # fix is the cheapest in the list, never delta from outside it

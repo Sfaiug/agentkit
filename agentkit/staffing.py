@@ -44,7 +44,14 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     records nothing, since the same worker carries on. `dry` is every provider that
     already refused this piece of work.
     Later re-picks follow the normal order; this preference applies only at handover.
+    With review on, the executor is one the run's reviewers of another lab can review while
+    one of its builders is (`ready_order`'s `reviewed_by`), as at launch.
     """
+    off = record.review_off(state)
+    if not off:
+        # who may review whom reads the run's marks as its own loop does: one the config renamed
+        # since launch still builds, reviews and refuses as the model its record holds
+        cfg = config.as_launched(cfg, state)
     current = state.get("executor")
     try:
         current_provider = config.model(cfg, current)["provider"] if current else None
@@ -56,12 +63,13 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     new = reviewer = None
     try:
         providers = collect_usage(cfg)
-        workers = run_workers(cfg, state)
         reviewers = run_reviewers(cfg, state)
-        order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers)
+        workers, review_list = config.pair_marks(cfg, run_workers(cfg, state), reviewers)
+        order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers,
+                                        reviewed_by=None if off else review_list)
                  if n != current and config.model(cfg, n)["provider"] not in refused]
-        review_order = [] if record.review_off(state) else ready_order(cfg, providers, reviewers, role="reviewer")
-        pair = ((order[0], None) if record.review_off(state) and order else
+        review_order = [] if off else ready_order(cfg, providers, review_list, role="reviewer")
+        pair = ((order[0], None) if off and order else
                 best_pair(cfg, order, [n for n in review_order
                                       if config.model(cfg, n)["provider"] not in refused]))
         if pair is None:
@@ -497,16 +505,19 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
     that has just turned it down is how a handover becomes a circle.  `workers`, when given,
     is the run's bound list: nothing outside it is ever picked.  `allow_self` False keeps a
     flaky provider's handover off a self-review pair: the flake usually answers after a wait,
-    so only a provider that cannot run the work settles for one.
+    so only a provider that cannot run the work settles for one.  With review on, the
+    executor is one the run's reviewers of another lab can review while one of its builders is
+    (`ready_order`'s `reviewed_by`), as at launch: a refusal of the only such builder hands the
+    work to nobody, and the run waits for its window.
     """
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
-    order = [n for n in ready_order(cfg, providers, workers, log, repo=repo, reviewers=reviewers)
+    workers, review_list = config.pair_marks(cfg, workers, reviewers)
+    order = [n for n in ready_order(cfg, providers, workers, log, repo=repo, reviewers=reviewers,
+                                    reviewed_by=None if reviewer is False else review_list)
              if config.model(cfg, n)["provider"] not in dry]
     if reviewer is False and order:
         return order[0], None
-    review_order = [n for n in ready_order(cfg, providers,
-                                          reviewers if reviewers is not None else workers,
-                                          role="reviewer", repo=repo)
+    review_order = [n for n in ready_order(cfg, providers, review_list, role="reviewer", repo=repo)
                     if config.model(cfg, n)["provider"] not in dry]
     pair = best_pair(cfg, order, review_order, allow_self=allow_self)
     if pair is not None:
