@@ -5,8 +5,9 @@ by `ak standby --began` and `--copied HOST WALL SINCE BOOT yes`.  So the lease i
 lock, beside a record that says `no` or a named pipe at a record's path.  A home with no record,
 or only one that says `no` or whose stamp does not read, makes none and keeps no lease folder; a
 dry run takes no turn, nor does a client, whose tick ends first.  An unreachable origin holds up
-no tick: it exits as a home's without a record does, and takes its lock; mended, the next firing
-creates the lease.  No output of a firing is compared: what a tick prints varies with the clock.
+no tick: a home's with a record, which then has no proof that it is the home, exits 0 before the
+lock, and one without takes it; mended, the home's next firing creates the lease and takes its
+lock.  No output of a firing is compared: what a tick prints varies with the clock.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, and each case builds its own.
@@ -108,12 +109,13 @@ class AHomeCreatesALease(unittest.TestCase):
         self.record(home, "acme-laptop", "yes")
         machines.break_remote("unreachable")
         ours, theirs = home.tick(), other.tick()
-        self.assertEqual(ours.code, theirs.code, ours.err)
-        for machine in machines:
-            self.assertTrue((machine.path / LOCK).exists(), machine.name)
+        self.assertEqual((ours.code, theirs.code), (0, 0), ours.err + theirs.err)
+        self.assertFalse((home.path / LOCK).exists())
+        self.assertTrue((other.path / LOCK).exists())
         machines.mend_remote()
         home.tick()
         self.created(home)
+        self.assertTrue((home.path / LOCK).exists())
 
 
 if __name__ == "__main__":

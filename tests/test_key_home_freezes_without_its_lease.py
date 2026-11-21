@@ -1,13 +1,14 @@
 """A firing of the tick, `ak watch`, on a home whose record says a machine takes over from it, and
-whose oldest value kept, the proof that it is the home, is 10 minutes old by either clock, writes
-`1` to the `cgroup.freeze` of ak's slice and exits 0 before the tick's lock: a standby that takes
-a lease standing still finds the home doing nothing.  A turn that reads the home's own lease keeps
-only that value and the one it makes, so an unreachable origin, another machine's lease, or an
-origin that answers reads and refuses pushes pauses it.  Any other firing that is no dry run and
-no client's writes `0` there where it reads `1`, whoever froze it: a mended origin's second
-firing, its first having swapped, one with no record or one saying `no`, one that never made a
-value.  A freezer's file that is not there is not made.  No output of a firing is compared: what a
-tick prints varies with the clock.
+whose oldest value kept, the proof that it is the home, is 10 minutes old by either clock or that
+keeps none, writes `1` to the `cgroup.freeze` of ak's slice and exits 0 before the tick's lock: a
+standby that takes a lease standing still finds the home doing nothing.  A turn that reads the
+home's own lease keeps only that value and the one it makes, so an unreachable origin, another
+machine's lease, or an origin that answers reads and refuses pushes pauses it; one that never made
+a value, or lost its lease's folder and so reads its own lease as another's, keeps none.  Any other
+firing that is no dry run and no client's writes `0` there where it reads `1`, whoever froze it: a
+mended origin's second firing, its first having swapped, the firing that makes a home's first
+value, one with no record or one saying `no`.  A freezer's file that is not there is not made.  No
+output of a firing is compared: what a tick prints varies with the clock.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, a later firing at a later clock, and
@@ -18,13 +19,14 @@ whether the tick's lock file, removed before each firing, is there after.
 
 import os
 from pathlib import Path
+import shutil
 import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import SOCKET, boxable
 from fixtures.twohomes import Machines
-from test_key_ak_lease_creates_a_lease import REF, made
+from test_key_ak_lease_creates_a_lease import LEASE, REF, made
 from test_key_home_creates_a_lease import LOCK, RECORDS
 
 SERVICE = f"user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service"
@@ -157,6 +159,14 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         self.assertNotIn(home.install.refs().get(REF), (None, *made(home).values()))
         self.paused(home, now(10))
 
+    def test_a_home_that_lost_its_lease_folder_pauses(self):
+        home, = self.machines()
+        _, anew = self.home(home)
+        shutil.rmtree(home.path / LEASE)
+        self.paused(home, now(6))
+        self.paused(home, now(9))
+        self.assertEqual(home.install.refs(), {REF: anew})
+
     def test_a_paused_firing_makes_no_slice(self):
         machines = self.machines(freezer=None)
         home, = machines
@@ -167,14 +177,17 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         self.assertEqual(self.fire(home, now(10)), (0, None, False))
         self.assertEqual(sorted(tree.rglob("*")), before)
 
-    def test_a_home_that_never_made_a_value_runs(self):
+    def test_a_home_that_never_made_a_value_pauses_till_a_firing_makes_one(self):
         machines = self.machines()
         home, = machines
         self.record(home, "yes")
         machines.break_remote("unreachable")
-        self.runs(home, now(0))
-        self.runs(home, now(60))
+        self.paused(home, now(0))
+        self.paused(home, now(60))
         self.assertEqual(made(home), {})
+        machines.mend_remote()
+        self.runs(home, now(63))
+        self.assertEqual(made(home), {named(63): home.install.refs().get(REF)})
 
     def test_a_home_whose_record_turned_to_no_runs(self):
         home, = self.machines()
