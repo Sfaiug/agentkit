@@ -35,10 +35,11 @@ func companyAdded(view menu.CompanyListView, keyboard *terminal.Keyboard, painte
 // picks the row the keys are on, or Esc goes back: that row, or -1.
 func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Keyboard, painter *terminal.Painter) int {
 	at, top, away := 0, 0, false
+	var pointer terminal.Mouse // where the pointer was read last, the zero Mouse once a key was pressed
 	var clicks terminal.Clicks
 	for {
 		screen := keyboard.Screen()
-		frame := menu.CompanyAddFrame(screen, title, others, at, top, away)
+		frame := menu.CompanyAddFrame(screen, title, others, at, top, away, pointer)
 		top = frame.Top
 		painter.Write(frame.Lines, screen)
 		key := keyboard.ReadKey()
@@ -55,10 +56,10 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 		case key.Name == "pointer" && !key.Mouse.Released && key.Mouse.Button&(32|64) == 0:
 			continue // the button going down lights nothing: the click is when it comes up (read_key)
 		case away && (key.Name == "space" || key.Name == "enter"):
-			away = false // pressed with no highlight drawn: it only comes back where the keys left it
+			away, pointer = false, terminal.Mouse{} // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
 		}
-		away = false
+		away, pointer = false, terminal.Mouse{} // a key has the highlight
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return -1
@@ -71,6 +72,7 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			at = max(0, min(len(others)-1, at+key.Mouse.Notches))
 		case key.Name == "pointer":
+			pointer = key.Mouse
 			row, _, hit := frame.Hit(key.Mouse)
 			if away = !hit; hit {
 				at = row

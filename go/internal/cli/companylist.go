@@ -62,13 +62,13 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 		case key.Name == "pointer" && !key.Mouse.Released && key.Mouse.Button&(32|64) == 0:
 			continue // the button going down lights nothing: the click is when it comes up (read_key)
 		case view.Away && (key.Name == "space" || key.Name == "enter"):
-			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it
+			view.Away, view.Pointer = false, terminal.Mouse{} // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
 		}
 		if key.Name != "pointer" || key.Mouse.Released || key.Mouse.Button&64 != 0 {
 			view.Note = "" // the pointer passing over keeps what was said
 		}
-		view.Away = false
+		view.Away, view.Pointer = false, terminal.Mouse{} // a key has the highlight
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return dropped(rows, view)
@@ -85,6 +85,7 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			view.Row = max(0, min(len(shown), view.Row+key.Mouse.Notches))
 		case key.Name == "pointer":
+			view.Pointer = key.Mouse
 			row, column, hit := frame.Hit(key.Mouse)
 			if !hit {
 				view.Away = true

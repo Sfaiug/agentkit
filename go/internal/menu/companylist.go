@@ -13,8 +13,9 @@ import (
 // A CompanyListView is what the company list (menu.company_list) is drawn from: each company
 // with a listed model and yours (matrix.Companies), the releases on (matrix.Compared), the row of
 // Shown the keys are on, `+ add a company` after the last, and its cell, 0 the name; the first
-// line of the page; whether the pointer left every row, which draws none lit; and what to say
-// under the count, why a change was not saved.
+// line of the page; whether the pointer left every row, which draws none lit; where the pointer
+// was read last, the zero Mouse once a key was pressed (menu.Highlight); and what to say under
+// the count, why a change was not saved.
 type CompanyListView struct {
 	Title, Note      string
 	Listed           []matrix.Company
@@ -22,6 +23,7 @@ type CompanyListView struct {
 	On               map[string]bool
 	Row, Column, Top int
 	Away             bool
+	Pointer          terminal.Mouse
 }
 
 // Shown is each of yours with a listed model, in your order: a row each.
@@ -103,7 +105,9 @@ func CompanyListFrame(s terminal.Screen, view CompanyListView) MatrixFrame {
 		lines = append(lines, row.line)
 		spots = append(spots, row)
 	}
-	return matrixPanel(s, view.Title, time.Now().Format("15:04"), append(lines, under...), keys, top, spots)
+	frame := matrixPanel(s, view.Title, time.Now().Format("15:04"), append(lines, under...), keys, top, spots)
+	frame.light(s, frame.Lines, view.Pointer)
+	return frame
 }
 
 // counted is count before its noun, one or many.
