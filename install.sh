@@ -1291,14 +1291,19 @@ fi
 # An ext4 filesystem keeps the journal it was made with, and a cloud image is made a few GiB
 # large and grown at first boot: on 10 Nov 2026 a host of 350 GiB ran on the 64 MiB journal of a
 # 3 GiB disk, which stood full under ak's runs while every writer on the host waited.  Only an
-# offline filesystem takes a larger one, so each server install says so while it holds, and
-# changes nothing.  The filesystem is the one the kernel numbers for ak's home: a mount's device
-# name came escaped, cut or twice.  Against what mke2fs gives its block count today, a journal
-# mke2fs made at this size has exactly that, one with fast commits more, one made for a smaller
-# disk less; a ratio to the filesystem's size cannot say when a journal was made.
+# offline filesystem takes a larger one, so each server install says so, and how, while it
+# holds, and changes nothing.  The filesystem is the one the kernel numbers for ak's home: a
+# mount's device name came escaped, cut or twice.  The commands name it by its UUID, which
+# e2fsck and tune2fs take for a device and which names it from a rescue system too, where
+# device names differ.  They name no amount of room: free space read now is out of date when
+# they run, and a fast-commit area takes more than mke2fs's table.  Against what mke2fs gives
+# its block count today, a journal mke2fs made at this size has exactly that, one with fast
+# commits more, one made for a smaller disk less; a ratio to the filesystem's size cannot say
+# when a journal was made.
 DEV_BLOCK="${AK_DEV_BLOCK:-/dev/block}"
-# a field of the header: everything after its first colon and the blanks behind it
-fs_field() { sed -n "s/^$1:[[:blank:]]*//p" <<<"$fs_header"; }
+# a field of the header: everything after its first colon and the blanks behind it, where one
+# line holds it; none where more do, as a line like it in a mount path makes, empty ones too
+fs_field() { sed -n "/^$1:/{s/^$1:[[:blank:]]*//;H;}; \${x;s/^\n//;/\n/!p;}" <<<"$fs_header"; }
 whole() { case $1 in ''|0?*|*[!0-9]*) return 1 ;; esac; }   # as %u prints one, never octal
 fs_size() {   # $1 blocks of $2 bytes: whole GiB where they make whole GiB, else whole MiB
   local bytes=$(($1 * $2))
@@ -1311,6 +1316,8 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ] &&
    fs_minor=$((fs_dev & 0xff | fs_dev >> 12 & 0xffffff00)) &&
    # believed only where it exits 0: whatever is not ext2, 3 or 4 fails
    fs_header=$(sudo -n LC_ALL=C dumpe2fs -h "$DEV_BLOCK/$fs_major:$fs_minor" 2>/dev/null) &&
+   # dumpe2fs prints it before Block count, so it is read before the header is cut there
+   fs_uuid=$(fs_field "Filesystem UUID") &&
    # a volume name, mount path or mount options may hold a newline, and so a line like any
    # field's; dumpe2fs prints each before Block count, so the lines from its last one on are read
    fs_header=$(sed -n '/^Block count:/h; /^Block count:/!H; ${x; /^Block count:/p;}' <<<"$fs_header") &&
@@ -1324,8 +1331,12 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ] &&
                 num_blocks < 256*1024 ? 4096 : num_blocks < 512*1024 ? 8192 :
                 num_blocks < 4096*1024 ? 16384 : num_blocks < 8192*1024 ? 32768 :
                 num_blocks < 16384*1024 ? 65536 : num_blocks < 32768*1024 ? 131072 : 262144))
+  fs_how=""
+  # dumpe2fs prints a UUID as 36 hex digits and dashes, and "<none>" where the filesystem has none
+  [[ $fs_uuid =~ ^[[:xdigit:]-]{36}$ ]] &&
+    fs_how=": with it unmounted and room on it for that journal, run \`e2fsck -f UUID=$fs_uuid\`, then \`tune2fs -O ^has_journal UUID=$fs_uuid\`, then \`tune2fs -j UUID=$fs_uuid\`, which sizes the new journal for the filesystem by itself"
   [ "$fs_journal" -ge "$fs_default" ] ||
-    note "journal: the filesystem holding $AK is $(fs_size "$num_blocks" "$fs_block") and its journal $(fs_size "$fs_journal" "$fs_block"), smaller than the $(fs_size "$fs_default" "$fs_block") mke2fs makes for that size; a full journal stalls every writer on the host, and only an offline filesystem takes a larger one"
+    note "journal: the filesystem holding $AK is $(fs_size "$num_blocks" "$fs_block") and its journal $(fs_size "$fs_journal" "$fs_block"), smaller than the $(fs_size "$fs_default" "$fs_block") mke2fs makes for that size; a full journal stalls every writer on the host, and only an offline filesystem takes a larger one$fs_how"
 fi
 
 # --- the kernel writes changed data out sooner --------------------------------
