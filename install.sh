@@ -1303,7 +1303,8 @@ for dirty in "dirty_expire_centisecs 1000 changed data is old enough to write ou
   # a client and a sandbox touch no host, one with no value to read (a Mac) has none to set, and
   # one that reads no number above the ceiling, an empty one included, is left as it is.  So a
   # server someone lowered by hand for this boot only gets no entry, and after a restart runs
-  # at the kernel's values until the next install lowers them for good.  The owner left it so
+  # at the values it boots with, the kernel's or its own.  A later install lowers for good only
+  # a value it reads above its ceiling, and only if the write succeeds.  The owner left it so
   # on 21 Nov 2026: an entry written here for a later boot misjudged or removed owners' own
   # entries (two designs), and an install owed after each restart could publish an untested
   # version of ak.
