@@ -1,14 +1,19 @@
 package terminal
 
 import (
-	"slices"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"agentkit/internal/config"
 )
 
-// A theme is the owner's white or black (12 Nov 2026): every colour ak draws is a role of one.
-// The one in force is the one config.toml names (inForce), else white where the terminal's
-// background is light (Keyboard.Sense), black everywhere else, the zero Screen's.
+// A theme is the shades of ak's one look a terminal's background fits, a column of roles: white's
+// for a light one, black's for any other, the zero Screen's.  The owner (20 Nov 2026): "the
+// background of the terminal ... should be used, and ak just sits on top of that", so nothing
+// chooses one.  A menu whose terminal says its background draws in the shades it fits and keeps
+// them (Keyboard.Sense); whatever cannot ask, and a menu whose terminal does not answer, draws in
+// the ones kept (kept).
 type theme int
 
 const (
@@ -16,24 +21,38 @@ const (
 	white
 )
 
-// Themes is each theme's name, as config.toml and `c` say it (Python's themes.NAMES), in its place.
-var Themes = []string{black: "black", white: "white"}
+// keptAt is where a menu keeps the shades its terminal's background fits, as Python's
+// config.STATE / themes.KEPT: `light`, else `dark`.
+func keptAt() string { return filepath.Join(config.Home(), "state", "background") }
 
-// inForce is the theme a screen draws in as it draws: the one config.toml names (config.Theme),
-// else `fits`, the one its terminal fits.
-func inForce(fits theme) theme {
-	if named := slices.Index(Themes, config.Theme()); named >= 0 {
-		return theme(named)
+// kept is the shades the answer a menu kept last fits, as its file is now (Python's themes.fits):
+// white's where it says `light`, else black's, as on a machine no menu has asked yet.  Every draw
+// asks, so nothing that draws for hours, a seat's bar among them, keeps an answer kept before.
+func kept() theme {
+	if said, err := os.ReadFile(keptAt()); err == nil && strings.TrimSpace(string(said)) == "light" {
+		return white
 	}
-	return fits
+	return black
 }
 
-// Theme is the name of the theme the screen draws in.
-func (s Screen) Theme() string { return Themes[s.theme] }
+// keep keeps the shades a terminal's answer fits for what cannot ask (kept): moved in whole from
+// a file of its own, so menus keeping theirs at once each leave a whole one.  Where it cannot,
+// what cannot ask stays in the shades kept before.
+func keep(fits theme) {
+	at := keptAt()
+	os.MkdirAll(filepath.Dir(at), 0o700) // owner-only, as Python's config.ensure_dirs makes them
+	part, err := os.CreateTemp(filepath.Dir(at), ".background-")
+	if err != nil {
+		return
+	}
+	_, err = part.WriteString([]string{black: "dark\n", white: "light\n"}[fits])
+	if closed := part.Close(); err != nil || closed != nil || os.Rename(part.Name(), at) != nil {
+		os.Remove(part.Name())
+	}
+}
 
-// roles is each role's colour in each theme, as agentkit/themes.py's ROLES.  A screen asks for a
-// role (styles), and tests/test_boundaries.py counts an RGB written anywhere but here, so the next
-// theme is a column of this table.
+// roles is each role's colour in each theme, as agentkit/themes.py's ROLES: a screen asks for a
+// role (styles), and tests/test_boundaries.py counts an RGB written anywhere but here.
 var roles = map[string][2]string{
 	"background": {white: "ffffff", black: "000000"},
 	"surface":    {white: "f4f6fa", black: "111519"},

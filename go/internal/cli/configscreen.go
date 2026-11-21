@@ -12,7 +12,6 @@ import (
 	"agentkit/internal/machines"
 	"agentkit/internal/matrix"
 	"agentkit/internal/menu"
-	"agentkit/internal/motion"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
@@ -68,14 +67,9 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		}
 	}()
 	nextKey := followSeat(session, keyboard)
-	drawn := -1 // the row the last draw highlighted
-	clock := &motion.Clock{}
-	frames := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame
-	defer frames.Stop()
 	for {
 		var known bool
-		screen := keyboard.Screen()
-		if view.Options, known = configOptions(c, screen); !known {
+		if view.Options, known = configOptions(c); !known {
 			return false
 		}
 		if view.Row >= 0 && view.Row < len(c.Names) {
@@ -84,33 +78,21 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 				view.Column = max(0, view.Column-3)
 			}
 		}
-		if view.Marks() && view.Row != drawn { // come to `Theme`: onto the theme in force
-			view.Column = view.Options[view.Row-len(c.Names)].Marked
-		}
-		drawn = view.Row
 		view.Clock = time.Now().Format("15:04")
+		screen := keyboard.Screen()
 		frame := menu.ConfigFrame(screen, view)
 		if view.Row < frame.First { // its meter's grid gone at this width: onto the first model
 			view.Row = 0
 			frame = menu.ConfigFrame(screen, view)
 		}
 		view.Top = frame.Top
-		clock.Draw(motion.Now())
-		painter.Write(frame.Lines, screen, clock.Turned(screen, painter)...)
-		if next, due := clock.Next(); due {
-			frames.Reset(next)
-		} else {
-			frames.Stop()
-		}
+		painter.Write(frame.Lines, screen)
 		key := nextKey(c)
-		if key.Name != "wake" && key.Name != "pointer" {
-			clock.Finish() // a key or a resize, not the pointer, ends what moves on its last frame
-		}
 		switch {
 		case key.Name == "again": // a resize: drawn whole again, what was said and the pointer's place kept
 			painter.Forget()
 			continue
-		case key.Name == "wake": // the seat's record changed, or a frame is due: drawn again, what was said kept
+		case key.Name == "wake": // the seat's record changed, or a read landed: drawn again, what was said kept
 			continue
 		case view.Away && (key.Name == "space" || key.Name == "enter"):
 			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it
@@ -134,11 +116,6 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			view.Row = max(frame.First, view.Row-1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
 			view.Row = min(len(c.Names)+len(view.Options)-1, view.Row+1)
-		case (key.Name == "left" || key.Name == "right") && view.Marks():
-			view.Column = 0
-			if key.Name == "right" {
-				view.Column = len(view.Options[view.Row-len(c.Names)].Marks) - 1
-			}
 		case key.Name == "left" || key.Name == "right":
 			if view.Row >= 0 && view.Row < len(c.Names) {
 				columns := c.Columns(c.Names[view.Row])
@@ -154,12 +131,8 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			if mouse.Button&64 != 0 {
 				view.Row = max(frame.First, min(len(c.Names)+len(view.Options)-1, view.Row+mouse.Notches))
 			} else if row, column, hit := frame.Hit(mouse); hit {
-				switch view.Row = row; {
-				case row < 0: // a meter keeps the column the keys left
-				case column >= 0 || !view.Marks():
+				if view.Row = row; row >= 0 { // a meter keeps the column the keys left
 					view.Column = max(0, column)
-				case row != drawn: // onto `Theme` off its marks: the keys on the theme in force
-					view.Column = view.Options[row-len(c.Names)].Marked
 				}
 				if mouse.Released && mouse.Button&3 == 0 {
 					if row < 0 || row >= len(c.Names) {
@@ -185,12 +158,6 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			if !applyDefaults(&view, main, keyboard, painter) {
 				return false
 			}
-		}
-		if (key.Name == "enter" || key.Name == "space") && view.Marks() {
-			if err := config.SaveTheme(terminal.Themes[view.Column], seat.KeepConfigEfforts); err != nil {
-				view.Note = err.Error()
-			}
-			continue
 		}
 		if key.Name == "enter" && view.Row < 0 {
 			// what a meter offers is Python's (menu.meter_acts): one that offers nothing opens no list
@@ -297,7 +264,7 @@ var configPages = map[string]func(*terminal.Keyboard, *terminal.Painter) bool{
 // configOptions are the rows under the models, as menu.CONFIG_ROWS. Owner, 10 Nov 2026: "Remove
 // the weekly audit feature for now. Dont delete it, but remove it." `Weekly audit`, its value
 // menu.audit_value's, stood between Discord and Done check.
-func configOptions(c *matrix.Configuration, screen terminal.Screen) ([]menu.ConfigOption, bool) {
+func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	discord, cloud := menu.ConfigServices()
 	checker, on, err := config.DoneCheck()
 	check := ""
@@ -318,8 +285,7 @@ func configOptions(c *matrix.Configuration, screen terminal.Screen) ([]menu.Conf
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
 		{Name: "Done check", Value: check},
 		{Name: "Machines", Value: fmt.Sprintf("%d %s · Google Cloud %s", known, noun, cloud)},
-		{Name: "Limits", Value: limits},
-		{Name: "Theme", Marks: terminal.Themes, Marked: slices.Index(terminal.Themes, screen.Theme())}}, true
+		{Name: "Limits", Value: limits}}, true
 }
 
 // onOff is how a row says a setting's `on`, as `Weekly audit` and `Done check` do.

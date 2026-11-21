@@ -210,7 +210,7 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		head += "   " + barPaint(model, "muted")
 	}
 	target := "=" + seat.Name + ":"
-	// on the theme in force, and tmux's own styles in the seat too (statusbar.layout); the pane, where the
+	// in the shades kept, and tmux's own styles in the seat too (statusbar.layout); the pane, where the
 	// harness draws, stays the terminal's
 	text, surface := "fg=#"+terminal.RGB("text"), ",bg=#"+terminal.RGB("surface")
 	own := [][3]string{{target, "set-titles", "on"}, {target, "status", "2"}, {target, "status-style", text + surface},

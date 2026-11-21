@@ -255,10 +255,9 @@ RULES = [
      "pattern": r"\b(WITNESS|marked_pid|stop_placed)\b",
      "home": ("agentkit/orch.py",),
      "max": 0},
-    # ak draws only in the owner's two themes (12 Nov 2026), one table in each build, a file of
-    # its own, so the next theme is a column of that table, and no name is drawn in a colour of
-    # its own.  A git file mode and the zeros padding a fraction of a second are six digits in
-    # quotes, no colour.
+    # ak draws only in its one look's two shades (12, 20 Nov 2026), one table in each build, a
+    # file of its own, and no name is drawn in a colour of its own.  A git file mode and the
+    # zeros padding a fraction of a second are six digits in quotes, no colour.
     {"name": "colours",
      "flags": (),
      "pattern": r"#[0-9a-fA-F]{6}\b|[\"'`][0-9a-fA-F]{6}[\"'`]",

@@ -23,8 +23,7 @@ func TestConfigRolesFoldAndThePageKeepsItsSelectedCell(t *testing.T) {
 	for _, width := range []int{18, 24, 35, 42, 60, 100, 120} {
 		s := screenAt(t, strconv.Itoa(width))
 		view := ConfigView{Matrix: c, Row: 1, Column: 2, Scope: "acme", Version: "?", Clock: "12:34",
-			// Theme's marks beside its label, folded after it and under it, past a value's label
-			Options: []ConfigOption{{Name: "Done check", Value: "on"}, {Name: "Theme", Marks: terminal.Themes}}}
+			Options: []ConfigOption{{Name: "Done check", Value: "on"}}}
 		body := configBody(s, view)
 		for _, row := range body {
 			if terminal.Cells(row.line) > width {

@@ -23,9 +23,9 @@ var release = regexp.MustCompile(`(\d+)\.(\d+)`)
 // either ak over one pane keep and put back its styles together: p the pane it opens over, c its
 // client, w and h its size; the popup is bordered in the theme's border, and the pane draws in its
 // dim while the popup is up, then has exactly its own styles back once the last popup over it is
-// down.  Both colours are asked as the key is pressed (ColoursVerb), so they are the theme's
-// config.toml names then, whichever ak chose it.  Its words: tmux itself (real), the command that
-// says the colours, and the popup's command.
+// down.  Both colours are asked as the key is pressed (ColoursVerb), so they are in the shades kept
+// then, whichever ak's menu kept them.  Its words: tmux itself (real), the command that says the
+// colours, and the popup's command.
 const float = `tmux() { command %s "$@"; }; set -- $(%s); b="fg=#$1" m="fg=#$2"; ` +
 	`o() { tmux show-options -pqv -t "$p" "$1"; }; ` +
 	`h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; ` +
@@ -43,7 +43,7 @@ const float = `tmux() { command %s "$@"; }; set -- $(%s); b="fg=#$1" m="fg=#$2";
 	`tmux set-option -pu -t "$p" @ak_floats; fi; l -U; true`
 
 // ColoursVerb is the unlisted command float asks its colours of, `ak colours <role>...`: each role's
-// colour in the theme in force, as Python's themes.py run bare says it.  A word outside every
+// colour in the shades kept, as Python's themes.py run bare says it.  A word outside every
 // command's own, it is never a seat's name.
 const ColoursVerb = "colours"
 

@@ -14,9 +14,9 @@ a failed move (`whys`); its question is the chat's last message or card.  The on
 right end, `Ctrl-b m  menu`, whatever the seat's word: the bar is in the seat, where
 `x` is a letter typed.  It never moves: the seat is where the owner reads and types.
 
-The bar is in the theme in force as it is drawn (`layout`), as a screen is, never tmux's green:
-its text on the theme's surface, a state's chip on its colour, so each write after `c` chooses
-another theme draws it in that one.  The pane, where the harness draws, stays the terminal's.
+The bar is in the theme a menu kept last as it is drawn (`layout`, terminal.kept), never tmux's
+green: its text on the theme's surface, a state's chip on its colour, so each write after a menu
+kept another draws it in that one.  The pane, where the harness draws, stays the terminal's.
 
 The text is data: each write puts it in the session's own options (`@ak_top` at each bar
 width, `@ak_need` and `@ak_fold`, `@ak_why` and its folded versions, `@ak_key`), and

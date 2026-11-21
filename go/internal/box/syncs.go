@@ -9,14 +9,22 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// shared is the kernel's one table, which newer machines take.
+var shared = []uint32{82, 83, 81, 267, 227, 84}
+
 // calls are, for each machine ak answers syncs on, its audit architecture and the numbers there
-// of fsync, fdatasync, sync, syncfs, msync and sync_file_range: Python's syncs.CALLS.
+// of fsync, fdatasync, sync, syncfs, msync and sync_file_range (on ppc64le, which has none, its
+// second): Python's syncs.CALLS.
 var calls = map[string]struct {
 	arch    uint32
 	numbers []uint32
 }{
-	"amd64": {unix.AUDIT_ARCH_X86_64, []uint32{74, 75, 162, 306, 26, 277}},
-	"arm64": {unix.AUDIT_ARCH_AARCH64, []uint32{82, 83, 81, 267, 227, 84}},
+	"amd64":   {unix.AUDIT_ARCH_X86_64, []uint32{74, 75, 162, 306, 26, 277}},
+	"arm64":   {unix.AUDIT_ARCH_AARCH64, shared},
+	"riscv64": {unix.AUDIT_ARCH_RISCV64, shared},
+	"loong64": {unix.AUDIT_ARCH_LOONGARCH64, shared},
+	"ppc64le": {unix.AUDIT_ARCH_PPC64LE, []uint32{118, 148, 36, 348, 144, 308}},
+	"s390x":   {unix.AUDIT_ARCH_S390X, []uint32{118, 148, 36, 338, 144, 307}},
 }
 
 // ignoreSyncs makes a sync to disk asked by this process or anything it starts return 0 at once,

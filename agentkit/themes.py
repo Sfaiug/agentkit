@@ -1,19 +1,21 @@
-"""The owner's two themes (12 Nov 2026), white and black: every colour ak draws is a role of one.
+"""The owner (20 Nov 2026): "I dont like that the user can switch and choose. First off I dont want
+2 themes, I just want one, and the background of the terminal which the user has in its setting
+should be used, and ak just sits on top of that."  On a light terminal: "Adapt by itself".
 
-A screen asks for a role, and the theme in force (`terminal.theme`) says its colour: the one
-config.toml names (`named`), else the one the terminal's background fits.
-tests/test_boundaries.py counts an RGB written anywhere but here, so the next theme is a column
-of this table.  Run bare, `themes.py <config.toml> <role>...`, it says each role's colour as tmux
-draws it (`terminal.colour`'s `tmux`), on one line: `Ctrl-b m`'s job asks them as the key is
-pressed (orch.FLOAT), and one start of Python that imports no more than this holds the popup up
-least.
+So nothing chooses: a screen asks for a role, and the theme in force (`terminal.theme`) says its
+colour, white's or black's: the one the terminal's background fits, else the one a menu's answer
+last kept fits (`fits`), black where none is.  tests/test_boundaries.py counts an RGB written
+anywhere but here.  Run bare, `themes.py <config.toml> <role>...`, it says each role's colour as
+tmux draws it (`terminal.colour`'s `tmux`), in the theme kept in the state beside it, on one
+line: `Ctrl-b m`'s job asks them as the key is pressed (orch.FLOAT), and one start of Python that
+imports no more than this holds the popup up least.
 """
 
+import os
 import sys
-import tomllib
 
 WHITE, BLACK = 0, 1     # each theme's column
-NAMES = {"black": BLACK, "white": WHITE}    # ... by its name, as config.toml and `c` say it
+KEPT = "background"     # the file in ak's state the last answer is kept in: `light`, else dark
 ROLES = {
     "background": ("ffffff", "000000"),
     "surface": ("f4f6fa", "111519"),
@@ -35,17 +37,15 @@ ROLES = {
 RAINBOW = ("error", "warning", "success", "info", "accent", "special")
 
 
-def named(path):
-    """The theme config.toml at `path` names, `theme = "white"` or `"black"`, else None: another
-    word, or a file that is not there or does not read."""
+def fits(path):
+    """The theme the answer kept at `path` fits: white where it says `light`, else black."""
     try:
-        with open(path, "rb") as file:
-            word = tomllib.load(file).get("theme")
-    except (OSError, ValueError, RecursionError):     # what config._read_toml refuses
-        return None
-    return NAMES.get(word) if isinstance(word, str) else None
+        with open(path, encoding="utf-8") as file:
+            return WHITE if file.read().strip() == "light" else BLACK
+    except (OSError, ValueError):       # ValueError: bytes that are no UTF-8
+        return BLACK
 
 
 if __name__ == "__main__":
-    chosen = named(sys.argv[1])
-    print(*(ROLES[role][BLACK if chosen is None else chosen] for role in sys.argv[2:]))
+    kept = fits(os.path.join(os.path.dirname(sys.argv[1]), "state", KEPT))     # config.STATE
+    print(*(ROLES[role][kept] for role in sys.argv[2:]))

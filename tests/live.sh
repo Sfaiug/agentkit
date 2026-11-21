@@ -30,5 +30,5 @@ if [ -n "${AK_LIVE_FAILED:-}" ]; then
   : >"$AK_LIVE_FAILED"
   : >"$AK_LIVE_FAILED.spent"
 fi
-unset AK_SHARD   # host certification always exercises the whole live suite
+unset AK_SHARD AK_ONLY   # host certification always exercises the whole live suite
 exec bash "$(dirname -- "${BASH_SOURCE[0]}")/smoke.sh"

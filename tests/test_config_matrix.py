@@ -288,7 +288,7 @@ class Matrix(unittest.TestCase):
                             for line in tail), tail)
         # the build under the last row, nothing said of the highlighted model
         version = tail.index("Version 2816 · 2026-09-29")
-        self.assertEqual(tail[version - 2].split()[0], "Theme", tail)
+        self.assertEqual(tail[version - 2].split()[0], "Limits", tail)
         self.assertEqual(tail[version - 1:], ["", "Version 2816 · 2026-09-29", "",
                                               KEYS.strip()])
         self.assertEqual(lines[-1], KEYS)
@@ -326,8 +326,7 @@ class Matrix(unittest.TestCase):
 
     def test_there_is_always_exactly_one_orchestrator(self):
         screen = Screen(self)
-        # the marks on the models' rows: `Theme` marks a theme
-        marks = lambda lines: "\n".join(line for line in lines if "Theme" not in line).count("●")
+        marks = lambda lines: "\n".join(lines).count("●")
         lines = screen.frame()
         self.assertEqual(marks(lines), 1)
         # another model's mark moves the seat (the switch, its question with it, faked)
@@ -475,7 +474,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.record()["efforts"]["opus"]["exec_effort"], "max")
 
     def test_a_click_on_a_folded_role_acts_on_that_role(self):
-        screen = Screen(self, rows=100, cols=32)      # every row, `Theme`'s folded marks too
+        screen = Screen(self, rows=100, cols=32)      # every row
         lines = screen.frame()
         self.assertTrue(all(terminal.cells(line) <= 32 for line in lines), lines)
         number, _ = row(lines, "opus")
@@ -488,24 +487,6 @@ class Matrix(unittest.TestCase):
         self.assertIn("Opus 5.5", highlighted(lines))
         screen.leave()
         self.assertEqual(screen.record()["efforts"]["opus"]["exec_effort"], "max")
-
-    def test_the_keys_come_onto_the_theme_in_force_and_theme_s_label_takes_no_click(self):
-        screen = Screen(self)
-        screen.frame()
-        screen.press(DOWN, lambda lines: lit(lines, "opus") == "●")
-        screen.press(RIGHT, lambda lines: on_effort(lines, "opus"))     # a cell Theme lacks
-        lines = screen.press(DOWN * 20, lambda lines: any(line.startswith("› Theme")
-                                                          for line in lines))
-        self.assertIn("● black   ○ white", highlighted(lines))
-        self.assertEqual(lines.lit[1], "black")
-        # its label, as a model's name, takes no click: it marks nothing, and the next key goes
-        # on from the cell the keys were on
-        number, line = next((number, line) for number, line in enumerate(lines, 1)
-                            if "Theme" in line)
-        screen.click(line.index("Theme") + 1, number)
-        screen.press(RIGHT, lambda lines: lines.lit and lines.lit[1] == "white")
-        self.assertNotIn("theme", screen.saved())
-        screen.leave()
 
     def test_a_models_name_at_a_pages_foot_its_marks_under_the_page_takes_no_click(self):
         screen = Screen(self, rows=18, cols=20)
@@ -528,17 +509,6 @@ class Matrix(unittest.TestCase):
         # its name comes under the pointer, which is as on blank space: nothing lit, no `›`
         screen.frame(lambda lines: lines[2] == "  Fable 5.1" and lines.lit is None
                      and not any(line.startswith("›") for line in lines), after=mark)
-        screen.leave()
-
-    def test_theme_s_marks_fold_under_its_label_where_the_values_column_is_too_narrow(self):
-        screen = Screen(self, rows=200, cols=20)
-        lines = screen.frame()
-        self.assertTrue(all(terminal.cells(line) <= 20 for line in lines), lines)
-        number = next(number for number, line in enumerate(lines, 1) if line == "  Theme")
-        self.assertEqual(lines[number:number + 2], ["    ● black", "    ○ white"])
-        screen.click(lines[number + 1].index("white") + 1, number + 2,
-                     lambda lines: "    ● white" in lines)
-        self.assertEqual(screen.saved()["theme"], "white")
         screen.leave()
 
     def test_enter_on_discord_runs_its_step_and_version_is_no_stop(self):
@@ -576,12 +546,12 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(len(lines), 23)
         self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
         lines = screen.press(DOWN * 14,
-                             lambda lines: highlighted(lines).startswith("› Theme"))
+                             lambda lines: highlighted(lines).startswith("› Limits"))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 6, lambda lines: highlighted(lines) == "› Models")
+        lines = screen.press(UP * 5, lambda lines: highlighted(lines) == "› Models")
         self.assertEqual(highlighted(lines), "› Models")
         self.assertLessEqual(len(lines), 23)
         screen.leave()
