@@ -89,7 +89,8 @@ def replace_reviewer(state, reviewer):
             state["review_pending"]["handed"] = True
 
 
-def ready_order(cfg, providers, workers=None, log=None, writers=None, **kwargs):
+def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_by=None,
+                **kwargs):
     """`usage.pick_order` over the workers whose harness can run a turn here.
 
     Every pick a run makes -- executor, reviewer, spare, handover, the fixer's -- comes
@@ -102,29 +103,41 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, **kwargs):
     off, unready or barred shares none (`pair_tier` 0).  The owner, 18 Nov 2026: "same
     provider or model for both roles should still be allowed if only picked, but if multiple
     picked then from different."  So that one is waited for while spent, and a subscription
-    of a writer's lab keeps no payg reviewer of another out.
+    of a writer's lab keeps no payg reviewer of another out.  An executor's pick given
+    `reviewed_by`, the reviewer marks of its run, leaves out the same way every executor with
+    no reviewer of them at `pair_tier` 0 that is not off, unready or barred, while another has
+    one: the pick is the one a run marking only those executors gets.
     """
     from . import usage  # here, not at the top: usage imports staffing
     role = kwargs.get("role", "executor")
+    offered = config.offered(cfg)
     skip = {}
     if getattr(providers, "harnesses", None):
-        skip = {name: usage.unready(cfg, name, providers) for name in config.offered(cfg)}
+        skip = {name: usage.unready(cfg, name, providers) for name in offered}
         skip = {name: why for name, why in skip.items() if why}
     if role == "reviewer":
-        offered = config.offered(cfg)
         skip.update((name, why) for name in offered if (why := barred_reviewer(cfg, name)))
-        if writers := known(cfg, writers):
-            # read here, once: `pick_order` then reads only what the writers leave of it
-            workers = usage.marked(cfg, workers, role, kwargs.get("reviewers"))
-            off, (lineup, _) = matrix.off(cfg), matrix.listed()
-            ready = [name for name in workers
-                     if name in offered and name not in skip and name not in off]
-            far = [name for name in ready
+    writers = known(cfg, writers) if role == "reviewer" else []
+    if writers or (role == "executor" and reviewed_by is not None):
+        # read here, once: `pick_order` then reads only what the other role leaves of it
+        workers = usage.marked(cfg, workers, role, kwargs.get("reviewers"))
+        off, (lineup, _) = matrix.off(cfg), matrix.listed()
+
+        def ready(names):
+            return [name for name in names
+                    if name in offered and name not in skip and name not in off]
+
+        if writers:
+            far = [name for name in ready(workers)
                    if all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)]
-            if far:
-                why = (f"a reviewer of another lab than {', '.join(writers)} is marked: "
-                       f"{', '.join(far)}")
-                skip.update((name, why) for name in ready if name not in far)
+            why = f"a reviewer of another lab than {', '.join(writers)} is marked: {', '.join(far)}"
+        else:
+            reviews = [name for name in ready(reviewed_by) if not barred_reviewer(cfg, name)]
+            far = [name for name in ready(workers)
+                   if any(pair_tier(cfg, name, reviewer, lineup) == 0 for reviewer in reviews)]
+            why = f"a marked reviewer of another lab can review {', '.join(far)}"
+        if far:
+            skip.update((name, why) for name in ready(workers) if name not in far)
     if log and skip:
         for name in usage.marked(cfg, workers, role, kwargs.get("reviewers")):
             if name in skip:
@@ -184,12 +197,18 @@ def refuse_outside_group(cfg, name, group, role):
 
 def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, quiet=False,
                 repo=None, workers=None, reviewers=None):
-    """Pick each role within its launch list; want_review=False switches review off."""
+    """Pick each role within its launch list; want_review=False switches review off.  Asked for
+    neither by name, with review on, the executor's pick reads the reviewer's list too
+    (`ready_order`'s `reviewed_by`)."""
+    from . import usage  # here, not at the top: usage imports staffing
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
         refuse_outside_group(cfg, want_review, reviewers, "reviewer")
+    review_list = reviewers if reviewers is not None else workers
     order = ready_order(cfg, providers, workers, None if want_exec and want_review else log,
-                        quiet=quiet, repo=repo, reviewers=reviewers)
+                        quiet=quiet, repo=repo, reviewers=reviewers,
+                        reviewed_by=None if want_exec or want_review is not None
+                        else usage.marked(cfg, review_list, "reviewer"))
     session = config.active_session(cfg)
     allowed = workers if workers is not None else (session["workers"] if session else None)
     if want_exec:
@@ -221,8 +240,8 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
             if pair is not None:
                 executor = pair[0]
     else:
-        review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
-                                   role="reviewer", quiet=quiet, repo=repo)
+        review_order = ready_order(cfg, providers, review_list, role="reviewer", quiet=quiet,
+                                   repo=repo)
         pair = best_pair(cfg, [want_exec] if want_exec else order, review_order)
         if pair is None:
             where = f" for executor {want_exec}" if want_exec else ""
@@ -598,8 +617,8 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
                            quiet=True, repo=repo, workers=workers)
     # a resume that needs no executor keeps it, so the reviewer is picked beside its writers
     needs = resume_needs_executor(state)
-    review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
-                               role="reviewer", quiet=True, repo=repo,
+    review_list = reviewers if reviewers is not None else workers
+    review_order = ready_order(cfg, providers, review_list, role="reviewer", quiet=True, repo=repo,
                                writers=None if needs else review_writers(state))
     executor, reviewer = state.get("executor"), state.get("reviewer")
     if not needs:
@@ -607,11 +626,18 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
         if order:
             return executor, reviewer if reviewer in order else order[0]
         raise turns.QuotaDry("no eligible reviewer; waiting for review")
-    order = [name for name in ready_order(cfg, providers, workers, log, quiet=True,
-                                         repo=repo, reviewers=reviewers) if name not in skip]
-    if (executor and executor not in skip
+    kept = (executor and executor not in skip
             and not usage.model_exhausted(cfg, executor, providers)[0]
-            and not usage.unready(cfg, executor, providers)):
+            and not usage.unready(cfg, executor, providers))
+
+    def executors(log=None, reviewed_by=None):
+        return [name for name in ready_order(cfg, providers, workers, log, quiet=True, repo=repo,
+                                             reviewers=reviewers, reviewed_by=reviewed_by)
+                if name not in skip]
+
+    # a pair picked anew takes its executor as a launch picking both roles does (`pick_models`)
+    order = executors(log, None if kept else usage.marked(cfg, review_list, "reviewer"))
+    if kept:
         if reviewer not in reviewer_order(cfg, executor, review_order):
             reviewer = None
         group, writer = workers, state.get("own_orchestrator") if state.get("own_pr") else None
@@ -624,7 +650,9 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
     pair = best_pair(cfg, order, review_order)
     if pair is not None:
         return pair
-    if executor:
+    # a pair only that pick leaves out is waited for: its executor can run here, so the saved
+    # one's harness is not asked
+    if executor and not best_pair(cfg, executors(), review_order):
         refuse_unready(cfg, providers, executor)
     offered = config.offered(cfg)   # a spare retired since launch has no meter to name
     reasons = [why for name in (workers if workers is not None else config.workers(cfg))
