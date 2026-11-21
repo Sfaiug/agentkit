@@ -1988,6 +1988,28 @@ def _digits(value):
     return "-" if value is None else f"{Decimal(str(value)).normalize():,f}"
 
 
+def provider_marked(cfg, provider):
+    """Whether `provider` has any model that is on (not in `matrix.off`) and marked for a role:
+    as `[defaults]`'s orchestrator, a worker or a reviewer, or as a seat record's own."""
+    records = (cfg.get("defaults") or {}, *config.session_records().values())
+    used = {name for record in records if isinstance(record, dict) for name in (
+        record.get("orchestrator"),
+        *(record.get("workers") if isinstance(record.get("workers"), list) else ()),
+        *(record.get("reviewers") if isinstance(record.get("reviewers"), list) else ()),
+    ) if isinstance(name, str)} - matrix.off(cfg)
+    return any(cfg["models"][name]["provider"] == provider for name in config.offered(cfg)
+               if name in used)
+
+
+def _month(cost, used):
+    """`a month`'s cell: the price in grouped digits, with `no role marks its models` where a
+    priced login's provider has no model on and marked; `-` for no price."""
+    if cost is None:
+        return "-"
+    shown = _digits(cost)
+    return shown if used else f"{shown} · no role marks its models"
+
+
 def _budget_label(value, reason):
     if reason is not None:
         return "unknown"
@@ -2122,8 +2144,9 @@ def rows(cfg, providers):
 
     Every number reads the shared week (`_as_shared`), the one the menu row names; a row with
     no shared week reads the tightest weekly meter.  `holds` is what that week of its plan holds
-    at list prices and `a month` that login's price (`price`).  A provider with several accounts
-    is a row per account, `Claude II`, each on its own meters and its own plan.
+    at list prices and `a month` that login's price (`price`), with `no role marks its models`
+    where its provider has no model on and marked (`provider_marked`).  A provider with several
+    accounts is a row per account, `Claude II`, each on its own meters and its own plan.
     """
     now = time.time()
     weeks = plan_weeks(cfg, providers, now)
@@ -2137,7 +2160,8 @@ def rows(cfg, providers):
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
                     _held(weeks[name][account][1], shared or {}),
-                    _digits(price(cfg, name, account)), reset_when(shared, now) or "-",
+                    _month(price(cfg, name, account), provider_marked(cfg, name)),
+                    reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
                     _num(_number(prov.get("resets")), 0),
@@ -2292,6 +2316,7 @@ def main(argv):
              prov["plan_listed_usd"]) = weeks[name][account]
             # the plan it shows priced, not the plan read again: a probe meanwhile may change it
             prov["price"] = _monthly(cfg, name, account, lambda: prov["plan"])
+            prov["marked"] = provider_marked(cfg, name)
             prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             prov["plan_checks"] = checks[name][account]
         json.dump({"providers": providers, "pick_order": order,
