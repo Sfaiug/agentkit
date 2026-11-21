@@ -24,10 +24,10 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home, boxable
 from fixtures.kernel import SYNCS
 
-# Standard input: no descriptor limit takes it away, and a filter answers before the kernel
-# reads it, so PROBE need not open it.  Where it is a pipe, a terminal or /dev/null, as a
-# process's own stdin is, the kernel refuses to sync it as REFUSED does.
-FD = 0
+# One no process can hold, as the kernel opens none at or above fs.nr_open, at most 2**31 - 64:
+# a filter answers before the kernel reads it, and REFUSED turns only a sync failing anyway, by
+# EBADF, into one failing by EINVAL.
+FD = 2**31 - 1
 PROBE = f"import os; os.fsync({FD}); os.fdatasync({FD})"
 MACHINE = os.uname().machine
 
