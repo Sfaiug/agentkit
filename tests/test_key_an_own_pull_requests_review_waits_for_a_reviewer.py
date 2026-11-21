@@ -8,7 +8,7 @@ worker's meter, and the tick waited for the fixer's model.  Black-box: the progr
 runs from outside through tests/fixtures/akbin.py, on the fixtures of
 tests/test_key_own_pr_review_resumes_its_fixer.py, its seat open so the tick reopens nothing,
 and meters the test sets, which ak reads again a second after its last read, not on the
-harness's own cadence.
+harness's own cadence.  The day astra's spent week has left passes where ak keeps its reading.
 """
 
 import json
@@ -28,15 +28,32 @@ from fixtures.gitrig import Rig
 from test_key_own_pr_fix_and_land import FIND, FIX, RULES
 
 WEEK = 604800
-# how long astra's spent week has left when it is spent: the pick after the fix reads it well
-# inside that, and the tick comes after it, on the real clock ak reads
-SPENT_FOR = 20
 
 
-def reading(used, left=86400):
-    """A usage answer: the week at `used`%, `left` seconds from rolling over."""
+def reading(used):
+    """A usage answer: the week at `used`%, a day from rolling over."""
     return json.dumps({"meters": [{"name": "weekly", "used": used, "window_secs": WEEK,
-                                   "resets_at": int(time.time()) + left}], "error": None})
+                                   "resets_at": int(time.time()) + 86400}], "error": None})
+
+
+def snapshot(home, change):
+    """ak's usage snapshot as `change` leaves it, a second past ak's last read (`probe_every`)."""
+    cache = home.path / ".agentkit" / "state" / "usage.json"
+    blob = json.loads(cache.read_text())
+    change(blob)
+    cache.write_text(json.dumps(blob))
+    time.sleep(1.5)
+
+
+def stale(blob):
+    """Every reading past the snapshot's five minutes, so the next pick reads them again."""
+    blob["fetched_at"] -= 600
+
+
+def astra_reset(blob):
+    """Astra's week past its reset, as the day it had left would leave it."""
+    for meter in blob["providers"]["openai"]["meters"]:
+        meter["resets_at"] = int(time.time()) - 1
 
 
 def until(shown, what, bound=120):
@@ -73,9 +90,8 @@ class AReviewerIsWaitedFor(unittest.TestCase):
                          env={"AGENTKIT_SESSION": "acme"}, cwd=rig.path)
         until(lambda: started.exists() or run.poll() is not None, "fixing")
         # astra's window is spent while opus fixes, and read again at the next pick
-        back = time.time() + SPENT_FOR
-        fakes["codex"].answer("usage", reading(100, SPENT_FOR))
-        cls.age(home)
+        fakes["codex"].answer("usage", reading(100))
+        snapshot(home, stale)
         go.touch()
         cls.code = run.wait(timeout=300)
         cls.run_dir = taskfile.only_run(home)
@@ -83,19 +99,10 @@ class AReviewerIsWaitedFor(unittest.TestCase):
         # then opus's window is spent too, and astra's is past its reset, its adapter reporting
         # the week after it
         fakes["claude"].answer("usage", reading(100))
-        time.sleep(max(0, back + 1 - time.time()))
         fakes["codex"].answer("usage", reading(0))
-        cls.age(home)
+        snapshot(home, astra_reset)
         cls.tick = home.tick()      # which waits out the run it resumes
         cls.state = json.loads((cls.run_dir / "run.json").read_text())
-
-    @staticmethod
-    def age(home):
-        """The usage snapshot past its five minutes, a second after the last read."""
-        cache = home.path / ".agentkit" / "state" / "usage.json"
-        blob = json.loads(cache.read_text())
-        cache.write_text(json.dumps({**blob, "fetched_at": blob["fetched_at"] - 600}))
-        time.sleep(1.5)
 
     def test_the_run_parks_waiting_for_a_reviewer(self):
         self.assertEqual(self.code, 1, self.home.log("spawn-1.err").read_text())
