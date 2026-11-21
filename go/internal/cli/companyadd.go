@@ -57,7 +57,6 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 			away, pointer = false, terminal.Mouse{} // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
 		}
-		hadPointer := pointer != (terminal.Mouse{})
 		away, pointer = false, terminal.Mouse{} // a key has the highlight
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
@@ -71,13 +70,13 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			at = max(0, min(len(others)-1, at+key.Mouse.Notches))
 		case key.Name == "pointer":
-			if row, _, hit := frame.Hit(key.Mouse); hit {
-				pointer, at = key.Mouse, row
-				if clicked {
-					return at
-				}
-			} else if !clicked || hadPointer {
-				away, pointer = true, key.Mouse
+			pointer = key.Mouse
+			row, _, hit := frame.Hit(key.Mouse)
+			if away = !hit; hit {
+				at = row
+			}
+			if hit && clicked {
+				return at
 			}
 		}
 	}

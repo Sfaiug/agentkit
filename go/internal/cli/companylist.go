@@ -68,7 +68,6 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 		if key.Name != "pointer" || key.Mouse.Released || key.Mouse.Button&64 != 0 {
 			view.Note = "" // the pointer passing over keeps what was said
 		}
-		hadPointer := view.Pointer != (terminal.Mouse{})
 		view.Away, view.Pointer = false, terminal.Mouse{} // a key has the highlight
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
@@ -86,14 +85,13 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			view.Row = max(0, min(len(shown), view.Row+key.Mouse.Notches))
 		case key.Name == "pointer":
+			view.Pointer = key.Mouse
 			row, column, hit := frame.Hit(key.Mouse)
 			if !hit {
-				if !clicked || hadPointer {
-					view.Away, view.Pointer = true, key.Mouse
-				}
+				view.Away = true
 				continue
 			}
-			view.Pointer, view.Row = key.Mouse, row
+			view.Row = row
 			if column >= 0 { // off its cells the column stays
 				view.Column = column
 			}
