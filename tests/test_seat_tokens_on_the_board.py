@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, history, scoreboard
-from agentkit.harness import claude
+from agentkit.harness import claude, muse
 
 NOW, WEEK = 1_800_000_000, 7 * 86400
 
@@ -94,9 +94,9 @@ class SeatTokens(unittest.TestCase):
             return {"stream": {"kind": "session", "id": session}, "payload": {"kind": "metadata",
                     "record": {"model_id": "fixture", "provider_id": "p"}}}
         retained = {"retained_frame": "x", "frame_schema_version": 1, "children": []}
-        self.muse = self.write(store / "cedar/session.jsonl", retained, metadata("cedar"), muse_usage("u1", 70))
-        self.muse_child = self.write(store / "cedar/subagent/child/session.jsonl", retained, metadata("child"),
-                                     muse_usage("u2", 30), muse_usage("tool", 999, "tool"))
+        self.muse = self.write(store / "cedar/session.jsonl", retained, metadata("cedar"), muse_usage("u1", 70),
+                               muse_usage("u2", 30), muse_usage("tool", 999, "tool"))
+        self.muse_child = self.write(store / "cedar/subagent/child/session.jsonl", retained, metadata("child"))
         self.write(store / "unrelated/session.jsonl", metadata("unrelated"), muse_usage("other", 999))
         for name, merged in (("merged", True), ("failed", False)):
             history.start_run(name, repo="acme", started_at=NOW - 10)
@@ -119,7 +119,10 @@ class SeatTokens(unittest.TestCase):
 
     def test_only_appended_complete_lines_are_read_and_replacements_do_not_recount(self):
         self.fixtures()
-        scoreboard.compute(NOW)
+        # A tick from before Muse seats were read by their session logs alone registered a
+        # child's log too, which every tick after reads on.
+        with patch.object(muse, "seat_token_sources", return_value=[self.muse, self.muse_child]):
+            scoreboard.compute(NOW)
         with patch.object(claude, "seat_token_usage", wraps=claude.seat_token_usage) as parsed:
             scoreboard.compute(NOW)
             parsed.assert_not_called()
