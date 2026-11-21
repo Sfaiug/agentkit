@@ -41,6 +41,15 @@ class LiveCheckWithoutModelCalls(unittest.TestCase):
     def test_every_check_left_out_is_a_live_check(self):
         self.assertLessEqual(suite.MODEL_CALLS, suite.LIVE_CHECKS)
 
+    def test_what_runs_probes_no_provider_meters(self):
+        # A usage read queries provider meters, and some harnesses read their meter with a turn,
+        # so no check kept under AK_LIVE_NO_MODEL_CALLS=1 may call `ak usage` or probe meters.
+        for name, body in BLOCKS:
+            if name in suite.LIVE_CHECKS - suite.MODEL_CALLS:
+                lines = code(body)
+                self.assertNotIn("ak usage", lines, name)
+                self.assertNotIn("_probe_gently", lines, name)
+
     def test_what_runs_reads_nothing_a_check_left_out_makes(self):
         # A group (DEPENDENCIES) may hold a check left out beside those that run: these read no
         # variable or function only one left out makes, which under smoke.sh's `set -u` would end
