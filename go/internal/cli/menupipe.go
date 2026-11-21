@@ -18,9 +18,10 @@ func pipeMenu(dry, overlay bool, out, errOut io.Writer) int {
 	if !known {
 		return notImplemented(errOut, "attach")
 	}
-	screen, own, in := terminal.For(out), popupSeat(overlay), bufio.NewReader(os.Stdin)
-	out = screen.Painted(out)
+	own, in := popupSeat(overlay), bufio.NewReader(os.Stdin)
 	for {
+		screen := terminal.For(out) // each frame in the shades kept as they are now
+		out := screen.Painted(out)
 		fmt.Fprint(out, screen.Clears())
 		for _, line := range noticeLines(append(said, menuNotices()...), screen.LayoutWidth(), " ") {
 			fmt.Fprintln(out, line)
