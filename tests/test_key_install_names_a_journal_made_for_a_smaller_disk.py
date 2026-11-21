@@ -9,11 +9,12 @@ default, a client, or a filesystem that cannot be read gets none.  Black-box: in
 checkout `AK_BIN` names runs as a server install in a Home that is the account's own
 (tests/fixtures/installer.py), with `AK_DEV_BLOCK` a folder holding one file, named
 `MAJOR:MINOR` for the device number of the Home's ak home, which a stand-in `dumpe2fs` prints as
-that filesystem's header, run by a passwordless stand-in `sudo`, on a PATH reaching no real
-dumpe2fs, under LC_ALL=de_DE.UTF-8 where the host has that locale.
+that filesystem's header, run by a passwordless stand-in `sudo` that finds dumpe2fs in the Home's
+bin alone, so no real one is reached, under LC_ALL=de_DE.UTF-8 where the host has that locale.
 """
 
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -23,14 +24,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import installer
 from fixtures.akbin import Home
 
-# Passwordless: it runs `true` and dumpe2fs, after the VAR=value words sudo takes, and refuses
-# the rest of what an install asks of root.
+# Passwordless, with the Home's bin, first on PATH, its secure_path: it runs `true`, and dumpe2fs
+# where that bin holds one, after the VAR=value words sudo takes, and refuses the rest of what an
+# install asks of root.
 SUDO = """#!/bin/sh
 [ "$1" = -n ] && shift
 for word; do
   case $word in
     *=*) ;;
-    true|dumpe2fs) exec env "$@" ;;
+    true) exit 0 ;;
+    dumpe2fs) [ -x {bin}/dumpe2fs ] && exec env "$@"
+              echo "sudo: dumpe2fs: command not found" >&2; exit 1 ;;
     *) break ;;
   esac
 done
@@ -49,12 +53,13 @@ HAS_GERMAN = subprocess.run(
     capture_output=True).returncode == 0
 
 
-def header(blocks, size, journal, inode=True, total=True):
+def header(blocks, size, journal, inode=True, total=True, mounted="/"):
     """dumpe2fs -h's header of a filesystem of `blocks` blocks of `size` bytes with a journal of
     `journal` blocks: in an inode unless not `inode`, on another device then; that count printed
-    unless not `total`."""
-    lines = ["Filesystem volume name:   acme-root", f"Block count:              {blocks}",
-             "Reserved block count:     0", f"Block size:               {size}",
+    unless not `total`; last mounted on `mounted`, printed as it is, as dumpe2fs prints it."""
+    lines = ["Filesystem volume name:   acme-root", f"Last mounted on:          {mounted}",
+             f"Block count:              {blocks}", "Reserved block count:     0",
+             f"Block size:               {size}",
              "Journal inode:            8" if inode else "Journal device:           0x0803",
              "Journal backup:           inode blocks", "Journal features:         journal_incompat_revoke",
              f"Total journal size:       {journal * size >> 20}M",
@@ -63,23 +68,21 @@ def header(blocks, size, journal, inode=True, total=True):
     return "".join(line + "\n" for line in lines if line)
 
 
+@unittest.skipUnless(sys.platform.startswith("linux"), "a Linux server's install")
 class JournalNote(unittest.TestCase):
     def setUp(self):
         self.home = home = Home()
         self.addCleanup(home.close)
         installer.prepare(home)
         installer.own_home(home)
-        home.fake("sudo", SUDO)
+        self.sudo = SUDO.format(bin=shlex.quote(str(home.bin)))
+        home.fake("sudo", self.sudo)
         self.dumpe2fs(0)
         devices = home.root / "dev/block"
         devices.mkdir(parents=True)
         dev = os.stat(home.path / ".agentkit").st_dev
         self.device = devices / f"{os.major(dev)}:{os.minor(dev)}"
-        # no real dumpe2fs for the stand-in sudo to find
-        path = [folder for folder in home.env["PATH"].split(os.pathsep)
-                if folder == str(home.bin) or not Path(folder, "dumpe2fs").exists()]
-        home.env.update(AK_DEV_BLOCK=str(devices), PATH=os.pathsep.join(path),
-                        **({"LC_ALL": GERMAN} if HAS_GERMAN else {}))
+        home.env.update(AK_DEV_BLOCK=str(devices), **({"LC_ALL": GERMAN} if HAS_GERMAN else {}))
 
     def dumpe2fs(self, code):
         self.home.fake("dumpe2fs", DUMPE2FS.format(code=code))
@@ -97,6 +100,10 @@ class JournalNote(unittest.TestCase):
         for words in ("350 GiB", "64 MiB", "1 GiB", "offline"):
             self.assertIn(words, note)
         self.assertEqual(self.notes(), [note])      # each install, again while it holds
+        # a mount path holding a line like a field's changes no field
+        self.device.write_text(header(91750400, 4096, 16384,
+                                      mounted="/srv/archive\nBlock size: 1024"))
+        self.assertEqual(self.notes(), [note])
 
     def test_b_a_size_of_no_whole_gib_is_in_mib(self):
         self.device.write_text(header(393216, 4096, 1024))
@@ -117,14 +124,17 @@ class JournalNote(unittest.TestCase):
         self.assertEqual(self.notes(), [], "a dumpe2fs that failed")
         self.dumpe2fs(0)
         for name, text in (("no Total journal blocks", header(91750400, 4096, 16384, total=False)),
-                           ("no Journal inode", header(91750400, 4096, 16384, inode=False))):
+                           ("no Journal inode", header(91750400, 4096, 16384, inode=False)),
+                           ("a journal in a mount path alone", header(
+                               91750400, 4096, 16384, inode=False, total=False,
+                               mounted="/srv\nJournal inode: 8\nTotal journal blocks: 1"))):
             self.device.write_text(text)
             self.assertEqual(self.notes(), [], name)
         self.device.write_text(small)
         self.assertEqual(self.notes("--client", "acme-box"), [], "a client")
         self.home.fake("sudo", "#!/bin/sh\necho 'sudo: a password is required' >&2\nexit 1\n")
         self.assertEqual(self.notes(), [], "no passwordless sudo")
-        self.home.fake("sudo", SUDO)
+        self.home.fake("sudo", self.sudo)
         (self.home.bin / "dumpe2fs").unlink()
         self.assertEqual(self.notes(), [], "no dumpe2fs")
         self.dumpe2fs(0)

@@ -1311,6 +1311,9 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ] &&
    fs_minor=$((fs_dev & 0xff | fs_dev >> 12 & 0xffffff00)) &&
    # believed only where it exits 0: whatever is not ext2, 3 or 4 fails
    fs_header=$(sudo -n LC_ALL=C dumpe2fs -h "$DEV_BLOCK/$fs_major:$fs_minor" 2>/dev/null) &&
+   # a volume name, mount path or mount options may hold a newline, and so a line like any
+   # field's; dumpe2fs prints each before Block count, so the header is read from its last one on
+   fs_header="Block count:${fs_header##*$'\n'Block count:}" &&
    grep -q '^Journal inode:' <<<"$fs_header" &&
    num_blocks=$(fs_field "Block count") && whole "$num_blocks" &&
    fs_block=$(fs_field "Block size") && whole "$fs_block" &&
