@@ -203,16 +203,15 @@ class WeekPrice(unittest.TestCase):
         self.spent("default", 3, 35 * HOUR)
         self.read("default", 40, 30 * HOUR, WEEK, plan="Max")
         self.assertWeek(self.weeks()["default"], "Max", 10, 30, 3)
-        for locale, about in (("C.UTF-8", "≈"), ("C", "~")):
-            with self.subTest(locale):
-                done = self.home.ak("usage", env={"COLUMNS": "200", "LC_ALL": locale})
+        # the last, a stream that takes ASCII alone whatever the locale says: only Python's
+        # stdout has an encoding to refuse `≈`, so Go may still print it there
+        for env, abouts in (({"LC_ALL": "C.UTF-8"}, "≈"), ({"LC_ALL": "C"}, "~"),
+                            ({"LC_ALL": "C.UTF-8", "PYTHONIOENCODING": "ascii"}, "~≈")):
+            with self.subTest(env):
+                done = self.home.ak("usage", env={"COLUMNS": "200", **env})
                 self.assertEqual(done.code, 0, done.err)
-                self.assertEqual(meters.cell(done.out, "Acme I", "holds"),
-                                 f"week {about} $10 at list prices")
-        # a stream that takes ASCII alone, whatever the locale says: only Python's has an encoding
-        done = self.home.ak("usage", env={"COLUMNS": "200", "LC_ALL": "C.UTF-8",
-                                          "PYTHONIOENCODING": "ascii"})
-        self.assertEqual(done.code, 0, done.err)
+                self.assertIn(meters.cell(done.out, "Acme I", "holds"),
+                              {f"week {about} $10 at list prices" for about in abouts})
 
 
 if __name__ == "__main__":
