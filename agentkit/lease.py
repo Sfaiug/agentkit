@@ -13,16 +13,18 @@ answered sends that same value on the next turn.
 
 One turn at a time makes, reads and writes that repository, so what a turn read is still what is
 kept when it writes: two at once would read one lease, and the one whose swap lost would delete the
-ref of the value that won, leaving a proof (`proof_age`) young while the lease stood still.  The
+ref of the value that won, so the next turn would read this machine's own lease as another's.  The
 lock is on the folder the repository is in, which mkdir makes whole or finds there before anything
 of git's; a turn that finds it taken ends.  The kernel lets it go when the process ends, however it
 ends, and the folder is the lock, so there is no file of the lease's own.
 
-A lease is this machine's own where its repository holds the lease's commit: git keeps a commit
-past its ref, and a turn fetches nothing into it.  Another's ends the turn.  Every turn that finds
-its own keeps of what it made only that value, then makes a new one and swaps it in, so the lease
-changes as often as turns are taken; a swap the remote refused or never answered is not sent
-again, as the next turn makes another.
+A lease is this machine's own where a ref git lists under `MADE` names its value: those refs are
+the one record of what this machine made, so one that lost the ref of its lease reads it as
+another's.  Another's ends the claim: the turn keeps none of the values made, makes and writes
+nothing, so this machine has no proof (`proof_age`) till a turn makes a value again, where the
+remote holds no lease.  Every turn that finds its own keeps of what it made only that value, then
+makes a new one and swaps it in, so the lease changes as often as turns are taken; a swap the
+remote refused or never answered is not sent again, as the next turn makes another.
 """
 
 import fcntl
@@ -90,14 +92,18 @@ def _alone(git, env, address, repo):
     read = next((line.partition(b"\t")[0] for line in held.split(b"\n")
                  if re.fullmatch(VALUE + b"\t" + REF.encode(), line)), None)
     if read:
-        # this machine's own where its commit is here; another's ends the turn
-        git("cat-file", "-e", read + b"^{commit}")
-        # what is kept shrinks to the value read and the one made next, or would grow a ref a
-        # turn; the value read stays, as it is the proof (`proof_age`) till a turn reads the next
-        kept = git("for-each-ref", "--format=%(objectname) %(refname)", MADE)
-        for value, name in (line.split(b" ", 1) for line in kept.splitlines()):
+        kept = [line.split(b" ", 1) for line in
+                git("for-each-ref", "--format=%(objectname) %(refname)", MADE).splitlines()]
+        # this machine's own where a ref names it.  What is kept shrinks to the value read and the
+        # one made next, or would grow a ref a turn; the value read stays, as it is the proof
+        # (`proof_age`) till a turn reads the next.  Of another's, none is kept: the remote has
+        # said this machine is not the home.
+        own = any(value == read for value, _ in kept)
+        for value, name in kept:
             if value != read:
                 git("update-ref", "-d", name, value, check=False)
+        if not own:
+            return
         # made and kept as the create's below
         stamp = pair_clock.now()
         value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
@@ -127,7 +133,7 @@ def proof_age():
     than the oldest kept, and a standby has seen it stand still for no longer than that value's age.
     The youngest is no proof: a turn makes a value right after its read, so on a remote that answers
     reads and refuses pushes it stays young while the lease stands still.  None for no proof: none
-    made, or a read that raises, as a git that does not exit 0 and a clock that cannot be read do;
+    kept, or a read that raises, as a git that does not exit 0 and a clock that cannot be read do;
     a name holding no stamp is none.  It asks no remote."""
     try:
         # the variables git keeps for one repository dropped, as `gitcall.project_env` drops them
