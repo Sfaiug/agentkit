@@ -16,3 +16,21 @@ func (c *Clicks) Click(mouse Mouse) bool {
 	c.pressed = !mouse.Released
 	return was && mouse.Released
 }
+
+// Key reads key for this screen (Python's terminal.read_key): the left button going down is
+// remembered and returned as the zero Key so it lights nothing; its release is returned with
+// clicked true only where it went down on this screen, and any other button press or release
+// becomes "other", taking neither a click nor the highlight.
+func (c *Clicks) Key(key Key) (Key, bool) {
+	if key.Name != "pointer" || key.Mouse.Button&(32|64) != 0 {
+		return key, false
+	}
+	if key.Mouse.Button&3 == 0 && !key.Mouse.Released {
+		c.Click(key.Mouse)
+		return Key{}, false
+	}
+	if c.Click(key.Mouse) {
+		return key, true
+	}
+	return Key{Name: "other"}, false
+}

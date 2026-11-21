@@ -48,8 +48,7 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 		frame := menu.CompanyListFrame(screen, view)
 		view.Top = frame.Top
 		painter.Write(frame.Lines, screen)
-		key := keyboard.ReadKey()
-		clicked := key.Name == "pointer" && clicks.Click(key.Mouse)
+		key, clicked := clicks.Key(keyboard.ReadKey())
 		if clicked {
 			key = frame.Pressed(key) // a key-line item does what its key does
 		}
@@ -60,8 +59,8 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 			}
 			keyboard.Unread(view.Pointer.Resting()...) // what that draw puts under the pointer has it
 			continue
-		case key.Name == "pointer" && !key.Mouse.Released && key.Mouse.Button&(32|64) == 0:
-			continue // the button going down lights nothing: the click is when it comes up (read_key)
+		case key.Name == "": // the left button going down lights nothing: the click is when it comes up (read_key)
+			continue
 		case view.Away && (key.Name == "space" || key.Name == "enter"):
 			view.Away, view.Pointer = false, terminal.Mouse{} // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
