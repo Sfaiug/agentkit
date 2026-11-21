@@ -40,7 +40,7 @@ def review(count):
            f"sed -n {n}p contrib.txt | grep -qx ready"] for n in range(1, count + 1)), ["done"]]}
 
 
-def reviewed(cls, claude, codex, *, own=True, settings=None, rules=extra.RULES):
+def reviewed(cls, claude, codex, *, own=True, settings=None, rules=extra.RULES, fail_first_post=False):
     """Review a PR adding contrib.txt (the acme seat's own when `own`, else another author's),
     astra reviewing and opus fixing."""
     cls.home = Home()
@@ -56,6 +56,9 @@ def reviewed(cls, claude, codex, *, own=True, settings=None, rules=extra.RULES):
     cls.head = cls.rig.branch("contrib", {"contrib.txt": "wrong\n" * LINES})
     url = cls.gh.open_pr(cls.rig, "contrib", title="Add contrib",
                          author="acme" if own else "other-dev")
+    if fail_first_post:
+        cls.gh.reply(f"api repos/{cls.rig.slug}/pulls/1/reviews --method POST",
+                     err="HTTP 502", code=1, times=1)
     env = {"AGENTKIT_SESSION": "acme"} if own else None
     cls.done = cls.home.ak("run", "--review-pr", url, env=env, cwd=cls.rig.path, timeout=600)
     cls.run_dir = taskfile.only_run(cls.home)
@@ -171,6 +174,33 @@ class SomebodyElsesPullRequestWithSixLeft(unittest.TestCase):
                          [("CHANGES_REQUESTED", self.head)])
         self.assertNotIn("## Why this run stopped", self.result)
         self.assertNotIn("rescope_findings", self.result)
+
+
+class PostRetryAfterSixLeft(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        reviewed(cls, [FIX], [review(6), "pass"], fail_first_post=True)
+        cls.recovered = cls.home.ak("run", "resume", cls.run_dir.name, "--rounds", "3", timeout=600)
+        cls.after = json.loads((cls.run_dir / "run.json").read_text())
+        cls.after_result = (cls.run_dir / "result.md").read_text()
+
+    def test_a_post_retry_with_more_rounds_keeps_the_cut_budget_and_offers_no_recovery(self):
+        self.assertEqual((self.done.code, self.state["state"], self.state["rounds"]), (2, "error", 1))
+        self.assertEqual(self.recovered.code, 1, self.recovered.out + self.recovered.err)
+        self.assertEqual(extra.rounds(self.after), [(1, "FAIL", 6)])
+        self.assertEqual((self.after["state"], self.after["merged"], self.after["rounds"],
+                          self.after["review_posted"]), ("fail", False, 1, True))
+        self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (0, 1))
+        self.assertEqual((self.gh.pr(1)["state"], self.gh.pr(1)["merge"]), ("OPEN", None))
+        self.assertIn("rounds: 1 of 1", self.after_result.splitlines())
+        self.assertIn("The review left 6 blocking findings, at or past rescope_findings = 6: "
+                      "rescope the task.", self.after_result)
+        for args in (("run", "status", self.run_dir.name), ("run", "status", "--plain")):
+            with self.subTest(args=args):
+                shown = self.home.ak(*args)
+                self.assertEqual(shown.code, 0, shown.err)
+                self.assertNotIn(f"ak run resume {self.run_dir.name} offers recovery", shown.out)
+        rescope_key.refused(self, self.home, self.run_dir)
 
 
 if __name__ == "__main__":

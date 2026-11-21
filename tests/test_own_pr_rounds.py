@@ -379,6 +379,23 @@ class OwnPrRounds(OwnPr):
         state = record.read_state(self.run_dir)
         self.assertEqual((state["state"], state["launched_session"]), ("blocked", "fix-api-renamed"))
 
+    def test_a_head_change_before_posting_a_rescoped_round_keeps_the_rescope_reason(self):
+        with record.record(self.run_dir) as saved:
+            saved["policy"] = {**config.policy(), "rescope_findings": 1}
+        post = run.post_review
+
+        def moved(lp, url, verdict):
+            if lp.rnd == 1:
+                self.hand_push(1)
+            return post(lp, url, verdict)
+
+        with patch.object(run, "post_review", moved):
+            state = self.review(["FAIL", "PASS"])
+        why = "The review left 1 blocking finding, at or past rescope_findings = 1: rescope the task."
+        self.assertEqual((state["state"], state["rounds"], state["error"]), ("fail", 1, why))
+        self.assertEqual((len(self.prompts), self.fixes), (1, []))
+        self.assertIn(why, (self.run_dir / "result.md").read_text())
+
     def test_somebody_elses_pr_is_reviewed_whatever_its_size(self):
         self.pr.update(author="stranger")
         self.hand_push(1)
