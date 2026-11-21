@@ -27,7 +27,11 @@ def orchestrating(cfg, seat):
     """The model and effort seat record `seat` orchestrates with, as a run it launched now would
     keep them as its `orchestrator` and `orchestrator_effort`: neither where that run would keep
     no effort, as for a model `cfg` does not hold.  Read from the record as each line is, so
-    nothing stored needs repair when the seat, its models or its conversations change."""
+    nothing stored needs repair when the seat, its models or its conversations change: a line
+    the seat wrote before a move that a tick reads after it is filed under what it moved to.
+    The owner, 21 Nov 2026, left it so ("Drop it"): two designs keeping what the seat left
+    failed seven reviews on a record edited beside a tick, for a seat's lines of the stretch
+    between two ticks, each move."""
     model = seat.get("orchestrator")
     try:
         effort = config.launched_effort(config.run_marks(cfg, seat), model, "orchestrator")
