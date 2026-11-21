@@ -157,6 +157,15 @@ class ModelsOn(unittest.TestCase):
             self.assertIn("model list", done.err)
         self.assertEqual(self.fakes["codex"].n, 0)
 
+    def test_a_model_off_by_its_company_alone_is_picked_once_its_release_is_unrated(self):
+        # bolt runs Bolt 3, off as Bolt is no company of yours, in no `models_off`: its scores
+        # gone, the list governs it no more, which its owner left so (matrix.off)
+        picked = []
+        for _ in self.retire_bolt():
+            self.configure(workers=["mid", "bolt"], companies=["Acme"])
+            picked.append(sorted(json.loads(self.ak("usage", "--json").out)["pick_order"]))
+        self.assertEqual(picked, [["mid"], ["bolt", "mid"], ["bolt", "mid"]])
+
 
 if __name__ == "__main__":
     unittest.main()
