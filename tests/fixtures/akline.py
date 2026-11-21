@@ -81,8 +81,12 @@ class Line:
 
     @property
     def cost(self):
-        """Where ak keeps the suite's cost: `suite-<key>.json` in the Home's state."""
-        key = hashlib.sha256(f"{self.rig.path}\n{SUITE}".encode()).hexdigest()
+        """The suite's `cost_of`."""
+        return self.cost_of(SUITE)
+
+    def cost_of(self, command):
+        """Where ak keeps `command`'s cost: `suite-<key>.json` in the Home's state."""
+        key = hashlib.sha256(f"{self.rig.path}\n{command}".encode()).hexdigest()
         return self.home.path / ".agentkit" / "state" / f"suite-{key}.json"
 
     def measured(self, seconds):
