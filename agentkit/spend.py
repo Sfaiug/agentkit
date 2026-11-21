@@ -73,7 +73,9 @@ def weeks(cfg, meters, windows):
     A plan's points over its dollars are the points of a week a listed dollar takes, summed
     over every login's readings on it between `since` and `until`: those its probes kept, as a
     turn's trail them (on 6 Nov one read 75 eight seconds after a probe read 76), one kept with
-    no plan its login's plan now's.  A login's readings of one plan and one week, by DRIFT, are
+    no plan its login's plan now's; logins on plans of one name share that fit, whatever
+    `price` each holds, left so by the owner, 21 Nov 2026.  A login's readings of one plan and
+    one week, by DRIFT, are
     cut in time order between any two between which a turn of its provider ran whose tokens ak
     does not know (`_unknown`), as what that turn spent counts nowhere.  Each stretch rose from
     its earliest reading to its highest, as a probe may read lower than one before it; what the
@@ -142,7 +144,9 @@ def roles(cfg):
     role a counted turn of which kept no row, or rows counting a token none of which names the
     model its entry runs (`model`), a row of which has no listed price or a login of which has no
     week: the run names the role's last model alone, and a turn of another's would be priced as
-    its.  The orchestrator's rows are every `seat_usage` row naming the model and
+    its.  A turn naming it beside another's (a subagent's) counts whole, though the role was
+    then handed on to that other: left so by the owner, 21 Nov 2026, no run of theirs being
+    one.  The orchestrator's rows are every `seat_usage` row naming the model and
     effort, its subagents' and its talk with its owner too, as orchestrating takes them all,
     that counts a token, over the task runs naming them, ended or not, as its seat has written
     and launched one that still runs, that started no earlier than the first, as one before has
