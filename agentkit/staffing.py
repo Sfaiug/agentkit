@@ -371,9 +371,9 @@ def head_writers(state):
 
 def review_writers(state):
     """The writers a review's reviewer is picked beside (`ready_order`) where the review begins
-    its round, resumes or falls back: a task run's `head_writers`; none for a pull request's
-    review, whose reviewer `run.review_pr` picks again by its own rules."""
-    return [] if state.get("review_pr") else head_writers(state)
+    its round, resumes or falls back: its `head_writers`, a seat's own pull request's
+    orchestrator among them; none for somebody else's, whose writers ak does not know."""
+    return [] if state.get("review_pr") and not state.get("own_pr") else head_writers(state)
 
 
 def lab(cfg, name, lineup=None):
