@@ -53,11 +53,13 @@ type matrixRow struct {
 	cells []matrixCell
 }
 
-// MatrixFrame keeps the visible page and its cells together for keyboard and pointer input.
+// MatrixFrame keeps the visible page, its cells and its key line together for keyboard and pointer
+// input.
 type MatrixFrame struct {
 	Lines []string
 	Top   int
 	spots []matrixRow
+	keySpots
 }
 
 // Hit is the row and cell the pointer is on where they are drawn (terminal.Under), column -1 on the
@@ -189,7 +191,7 @@ func ConfigFrame(s terminal.Screen, view ConfigView) ConfigMatrix {
 		spots = append(spots, row)
 	}
 	lines = append(lines, under...)
-	frame := ConfigMatrix{MatrixFrame: MatrixFrame{Panel(s, "config", view.Clock, lines, keys), top, spots}}
+	frame := ConfigMatrix{MatrixFrame: matrixPanel(s, "config", view.Clock, lines, keys, top, spots)}
 	if len(grid) > 0 {
 		frame.First = -len(view.Cells)
 		row := 3 // the screen row of the grid's first line, under Panel's two

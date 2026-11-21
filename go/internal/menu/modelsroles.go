@@ -73,7 +73,7 @@ func ModelsFrame(s terminal.Screen, view ModelsView) MatrixFrame {
 	for _, row := range body[top:min(top+room, len(body))] {
 		lines, spots = append(lines, row.line), append(spots, row)
 	}
-	return MatrixFrame{Panel(s, view.Title, time.Now().Format("15:04"), append(lines, under...), keys), top, spots}
+	return matrixPanel(s, view.Title, time.Now().Format("15:04"), append(lines, under...), keys, top, spots)
 }
 
 // RoleStep is the role ↑/↓ and the wheel move the highlight to, by roles on from at, held at the first and

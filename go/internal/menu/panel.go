@@ -21,6 +21,13 @@ func Panel(s terminal.Screen, title, clock string, body []string, keys string) [
 	return append(lines, keyLine(s, keys, s.Width(), "")...)
 }
 
+// matrixPanel is a matrix screen drawn as Panel draws it: its page from top, each line's row and
+// cells (spots), and where its key line's items are, for a click to press their keys (Pressed).
+func matrixPanel(s terminal.Screen, title, clock string, body []string, keys string, top int, spots []matrixRow) MatrixFrame {
+	lines, keyed := Panel(s, title, clock, body, keys), keyLine(s, keys, s.Width(), "")
+	return MatrixFrame{lines, top, spots, spotted(keyed, len(lines)-len(keyed)+1, s.LayoutWidth())}
+}
+
 // panelHeader is `agentkit`, the screen name after it and the clock at the right.  The title gives
 // way, never the clock: a name too wide sheds its first parts, where you came from, then what is
 // left is cut, to leave the clock and one space whole.

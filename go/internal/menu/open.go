@@ -22,20 +22,22 @@ func (f Frame) Open(key terminal.Key) string {
 // Pressed is key, but for a click on an item of the key line that names a key: that key, as a click
 // does what the key would do.
 func (spots keySpots) Pressed(key terminal.Key) terminal.Key {
-	if at := spots.keyAt(key.Mouse); at >= 0 && clicked(key) && spots[at].key.Name != "" {
+	if at := spots.keyAt(key.Mouse); at >= 0 && clicked(key) {
 		return spots[at].key
 	}
 	return key
 }
 
-// pressing is the key a key-line item names (menu.pressed): `⏎ open` Enter, `esc leave` Esc, an
-// arrow in front of the keys its page turn, any other key of one character itself; the page's place
-// between the arrows, and `↑↓←→ move`, none.
+// pressing is the key a key-line item names (menu.pressed, menu.matrix_key): `⏎ open` Enter,
+// `␣ mark` Space, `esc leave` Esc, an arrow in front of the keys its page turn, any other key of
+// one character itself; the page's place between the arrows, and `↑↓←→ move`, none.
 func pressing(item string) terminal.Key {
 	key, _, _ := strings.Cut(item, " ")
 	switch key {
 	case "⏎", "enter":
 		return terminal.Key{Name: "enter"}
+	case "␣", "space":
+		return terminal.Key{Name: "space"}
 	case "esc":
 		return terminal.Key{Name: "esc"}
 	case "←", "<":
