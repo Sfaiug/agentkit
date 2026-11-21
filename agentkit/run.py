@@ -2836,7 +2836,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         log(f"tests ({tests}): {'passed' if ok else 'FAILED'}")
     else:
         ok = None
-        dw_log = ("(the repository suite runs once at landing; nothing was run in this review round)"
+        dw_log = ("(the repository suite runs once at landing; nothing was run before this review)"
                   if tests else "(AGENTS.md declares no `tests:` command; nothing was run)")
         log(dw_log)
         # no suite stands in for it, and a PASS on this head is what merges

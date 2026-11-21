@@ -87,7 +87,7 @@ class SeatOwnPrQuickSet(unittest.TestCase):
                                          env={"AGENTKIT_SESSION": "acme"},
                                          cwd=cls.rig.path, timeout=300)
             cls.notes[name] = said.since()
-            run_dir = (set(taskfile.runs(cls.home)) - before).pop()
+            (run_dir,) = set(taskfile.runs(cls.home)) - before
             cls.states[name] = (run_dir, json.loads((run_dir / "run.json").read_text()))
             cls.prs[name] = (number, head)
 
@@ -119,7 +119,7 @@ class SeatOwnPrQuickSet(unittest.TestCase):
                                         env={"AGENTKIT_SESSION": "acme"},
                                         cwd=cls.rig.path, timeout=300)
         cls.notes["local"] = said.since()
-        run_dir = (set(taskfile.runs(cls.home)) - before).pop()
+        (run_dir,) = set(taskfile.runs(cls.home)) - before
         cls.states["local"] = (run_dir, json.loads((run_dir / "run.json").read_text()))
 
     def verdicts(self, name):
