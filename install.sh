@@ -1287,6 +1287,44 @@ install_launch_agent(load=sys.argv[2] == "0")
 PYMACBRIDGE
 fi
 
+# --- a journal smaller than mke2fs makes for its filesystem now ---------------
+# An ext4 filesystem keeps the journal it was made with, and a cloud image is made a few GiB
+# large and grown at first boot: on 10 Nov 2026 a host of 350 GiB ran on the 64 MiB journal of a
+# 3 GiB disk, which stood full under ak's runs while every writer on the host waited.  Only an
+# offline filesystem takes a larger one, so each server install says so while it holds, and
+# changes nothing.  The filesystem is the one the kernel numbers for ak's home: a mount's device
+# name came escaped, cut or twice.  Against what mke2fs gives its block count today, a journal
+# mke2fs made at this size has exactly that, one with fast commits more, one made for a smaller
+# disk less; a ratio to the filesystem's size cannot say when a journal was made.
+DEV_BLOCK="${AK_DEV_BLOCK:-/dev/block}"
+# a field of the header: everything after its first colon and the blanks behind it
+fs_field() { sed -n "s/^$1:[[:blank:]]*//p" <<<"$fs_header"; }
+whole() { case $1 in ''|0?*|*[!0-9]*) return 1 ;; esac; }   # as %u prints one, never octal
+fs_size() {   # $1 blocks of $2 bytes: whole GiB where they make whole GiB, else whole MiB
+  local bytes=$(($1 * $2))
+  if ((bytes % (1 << 30))); then echo "$((bytes >> 20)) MiB"; else echo "$((bytes >> 30)) GiB"; fi
+}
+if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ] &&
+   fs_dev=$(stat -L -c %d -- "$AK" 2>/dev/null) && whole "$fs_dev" &&
+   # the device's major and minor, as glibc's major() and minor() split its number
+   fs_major=$((fs_dev >> 8 & 0xfff | fs_dev >> 32 & 0xfffff000)) &&
+   fs_minor=$((fs_dev & 0xff | fs_dev >> 12 & 0xffffff00)) &&
+   # believed only where it exits 0: whatever is not ext2, 3 or 4 fails
+   fs_header=$(sudo -n LC_ALL=C dumpe2fs -h "$DEV_BLOCK/$fs_major:$fs_minor" 2>/dev/null) &&
+   grep -q '^Journal inode:' <<<"$fs_header" &&
+   num_blocks=$(fs_field "Block count") && whole "$num_blocks" &&
+   fs_block=$(fs_field "Block size") && whole "$fs_block" &&
+   fs_journal=$(fs_field "Total journal blocks") && whole "$fs_journal"; then
+  # ext2fs_default_journal_size, lib/ext2fs/mkjournal.c of e2fsprogs v1.47.4: the journal blocks
+  # mke2fs gives a filesystem of num_blocks blocks, of any size; -1 is none
+  fs_default=$((num_blocks < 2048 ? -1 : num_blocks < 32768 ? 1024 :
+                num_blocks < 256*1024 ? 4096 : num_blocks < 512*1024 ? 8192 :
+                num_blocks < 4096*1024 ? 16384 : num_blocks < 8192*1024 ? 32768 :
+                num_blocks < 16384*1024 ? 65536 : num_blocks < 32768*1024 ? 131072 : 262144))
+  [ "$fs_journal" -ge "$fs_default" ] ||
+    note "journal: the filesystem holding $AK is $(fs_size "$num_blocks" "$fs_block") and its journal $(fs_size "$fs_journal" "$fs_block"), smaller than the $(fs_size "$fs_default" "$fs_block") mke2fs makes for that size; a full journal stalls every writer on the host, and only an offline filesystem takes a larger one"
+fi
+
 # --- the kernel writes changed data out sooner --------------------------------
 # The kernel keeps changed file data in memory for 30 seconds, looked at every 5, before it
 # writes it to its place, and a filesystem's journal frees room only once what it holds is
