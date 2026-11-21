@@ -66,7 +66,9 @@ def read(line):
 
 
 def _stamp(line):
-    wall, since, boot = line.split()
+    # A fourth word is enough to refuse a line: split whole, a damaged one of many short words
+    # costs many times its size.
+    wall, since, boot = line.split(maxsplit=3)
     clocks = float(wall), float(since)
     # A nan or infinite clock makes every age nan or infinite, which no limit can be measured by.
     if not all(map(math.isfinite, clocks)):
