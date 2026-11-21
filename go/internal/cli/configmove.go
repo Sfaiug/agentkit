@@ -11,7 +11,7 @@ func moveConfigSeat(name string, view *menu.ConfigView, keyboard *terminal.Keybo
 	model := view.Matrix.Names[view.Row]
 	card := cardOn(name, view, keyboard, painter)
 	known, err := seat.Move(name, model, "", func(kept bool) (bool, bool) {
-		return card("Restart "+name+" on "+config.ModelName(model, view.Matrix.Models)+"?", "Move", kept)
+		return card("Restart "+name+" on "+config.ModelName(model, view.Matrix.Models)+"?", "Restart", kept)
 	})
 	if err != nil {
 		view.Note = config.Fold(err.Error())

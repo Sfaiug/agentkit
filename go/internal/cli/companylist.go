@@ -12,7 +12,7 @@ import (
 // menuCompanyList is `p` on the models screen, `<title> · models` (menu.company_list), until Esc:
 // ↑/↓ move between your companies and `+ add a company`, ←/→ between a company's name and its
 // models, ⏎ on a company does nothing, and Space or a click on a cell marks it on or off
-// (turned).  `a`, or Space, ⏎ or a click on `+ add a company`, adds one all on (companyAdded), the
+// (turned).  `a`, or ⏎ or a click on `+ add a company`, adds one all on (companyAdded), the
 // keys landing on its name.  Esc drops each company left with none on (dropped).  What to say back
 // on the models screen, or ""; false where Python ak takes it over, having written nothing: a
 // change Go cannot save (seat.SaveWhole).
@@ -74,8 +74,7 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 			view.Column = max(0, view.Column-1)
 		case key.Name == "right":
 			view.Column = min(models, view.Column+1)
-		case key.Name == "char" && key.Char == "a",
-			(key.Name == "space" || key.Name == "enter") && view.Row == len(shown):
+		case key.Name == "char" && key.Char == "a", key.Name == "enter" && view.Row == len(shown):
 			key.Name = "add"
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			view.Row = max(0, min(len(shown), view.Row+key.Mouse.Notches))
@@ -108,7 +107,7 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 				was, view.Row, view.Column = append(was, matrix.Company{Maker: added}), len(was), 0
 			}
 		}
-		if key.Name == "space" {
+		if key.Name == "space" && view.Row < len(shown) {
 			var carried bool
 			if view.Note, carried = turned(shown[view.Row].Models, view.Column, view.Yours); !carried {
 				return "", false

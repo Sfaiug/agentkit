@@ -1,8 +1,9 @@
 """`p` on the models screen lists your companies, a line each of its listed models, `■` on and `□`
 off: at first the `[defaults]` models' companies, all on.  Space turns a model, or on a name its
 company's, on or off, saved at once; Esc drops a company left with none on, its releases without
-a score too, and those releases from `models_off`, and the answer compares only what is on.  `a`
-lists the other companies with scores, strongest first, and ⏎ adds one all on.  On 40 cells a
+a score too, and those releases from `models_off`, and the answer compares only what is on.  `a`,
+or ⏎ on `+ add a company`, where Space does nothing, lists the other companies with scores,
+strongest first, and ⏎ adds one all on.  On 40 cells a
 company's models go on under the column where they began, and a count too long for its line goes
 on at its words.
 
@@ -28,6 +29,7 @@ SAID = ("ak uses only the models that are on. Space marks one on or off, or, on 
         "name, all of them. A company with none on leaves the list.")
 TITLE = "agentkit · config · recommended · new seats · models"
 KEYS = "  ↑↓←→ move   ␣ mark   a add a company   esc back"
+ADDING = "  ↑↓←→ move   ⏎ add   a add a company   esc back"     # on `+ add a company`
 ADD_KEYS = "  ↑↓ company   ⏎ add   esc back"     # `a`'s list of the other companies
 
 
@@ -67,13 +69,13 @@ class Opened(unittest.TestCase):
                         server=SERVER)
         return term
 
-    def open(self, width=100, **settings):
-        """`p` on the models screen (`menu`); the terminal and its screen."""
+    def open(self, width=100, last=KEYS, **settings):
+        """`p` on the models screen (`menu`); the terminal and its screen, its key line `last`."""
         term = self.menu(width, **settings)
         for wait, key in (("esc leave", "c"), ("r recommended", "r"), ("boards read", "p")):
             term.wait(wait)
             term.keys(key)
-        return term, self.whole(term)
+        return term, self.whole(term, last=last)
 
     @staticmethod
     def whole(term, *shown, last=KEYS):
@@ -138,6 +140,19 @@ class CompanyList(Opened):
                                       "›[Dyne] ■ Dyne Ultra 4  ■ Dyne Lite 4 Mini",
                                       "  + add a company"])
         self.assertEqual(self.saved(), (["Acme", "Crux", "Dyne"], None))
+
+    def test_on_add_a_company_enter_opens_the_add_page_and_space_does_nothing(self):
+        term, shown = self.open()
+        self.assertEqual(shown[11], KEYS)
+        term.keys("Down", "Down")
+        shown = self.whole(term, "› + add a company", last=ADDING)
+        self.assertEqual(shown[11], ADDING)
+        term.keys("Space", "Up")      # the list still up: Up goes to Crux
+        self.whole(term, "›[Crux] ■ Crux 2")
+        self.assertEqual(self.saved(), (None, None))
+        term.keys("Down", "Enter")
+        shown = self.whole(term, last=ADD_KEYS)
+        self.assertTrue(shown[0].startswith(TITLE + " · add a company"), shown[0])
 
     def test_a_company_written_twice_is_one_row_and_down_goes_on_past_it(self):
         term, shown = self.open(companies=["Acme", "Acme", "Crux"])
