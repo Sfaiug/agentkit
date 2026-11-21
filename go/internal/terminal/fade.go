@@ -51,15 +51,21 @@ func (s Screen) Fade(text string, amount float64) string {
 			switch first := number(i); {
 			case first == 0 || first == 39:
 				rgb = nil
-			case first == 38 && i+4 < len(parts) && parts[i+1] == "2":
-				rgb, i = []int{number(i + 2), number(i + 3), number(i + 4)}, i+4
-			case first == 38 && i+2 < len(parts) && parts[i+1] == "5" && number(i+2) >= 16:
-				n := number(i+2) - 16
-				rgb, i = []int{cube[n/36%6], cube[n/6%6], cube[n%6]}, i+2
-				if n >= 216 {
-					grey := 8 + 10*(n-216)
-					rgb = []int{grey, grey, grey}
+			case (first == 38 || first == 48) && i+4 < len(parts) && parts[i+1] == "2":
+				if first == 38 {
+					rgb = []int{number(i + 2), number(i + 3), number(i + 4)}
 				}
+				i += 4
+			case (first == 38 || first == 48) && i+2 < len(parts) && parts[i+1] == "5":
+				if first == 38 && number(i+2) >= 16 {
+					n := number(i+2) - 16
+					rgb = []int{cube[n/36%6], cube[n/6%6], cube[n%6]}
+					if n >= 216 {
+						grey := 8 + 10*(n-216)
+						rgb = []int{grey, grey, grey}
+					}
+				}
+				i += 2
 			}
 		}
 		out.WriteString(text[at:code[1]] + tone(rgb))

@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -72,6 +73,26 @@ func TestAScreenLeftAloneWritesNothing(t *testing.T) {
 	painter.Write([]string{"ab", "abcd"}, Screen{width: 5, height: 5})
 	if len(out) != 3 {
 		t.Fatalf("a forgotten or resized frame is written whole: %q", out)
+	}
+}
+
+func TestScreenPaintAndFadeKeepTerminalBackground(t *testing.T) {
+	for _, s := range []Screen{{depth: 24}, {depth: 256, ground: "5f5f87"}, {depth: 256}} {
+		if got := s.paint("x"); !strings.HasPrefix(got, "\x1b[49;38;") {
+			t.Errorf("%+v painted %q", s, got)
+		}
+	}
+	// On a saturated light background dim and info stay distinct.
+	light := Screen{depth: 24, theme: white, ground: "18c05c"}
+	if light.colour("dim") == light.colour("info") {
+		t.Fatalf("dim and info collided on #18c05c: %s", light.colour("dim"))
+	}
+	// A channel value of 39 or 0 inside SGR 48 is never read as a foreground reset during a fade.
+	fadeScreen := Screen{depth: 24, theme: white, ground: "c5dc27"}
+	got := fadeScreen.Fade("\x1b[38;2;89;103;36;48;2;171;195;39midle\x1b[0m", 0.01)
+	want := strings.ReplaceAll(fadeScreen.Fade("\x1b[38;2;89;103;36;48;2;171;195;40midle\x1b[0m", 0.01), ";40m", ";39m")
+	if got != want {
+		t.Fatalf("fade misread SGR 48 channel 39:\n got: %q\nwant: %q", got, want)
 	}
 }
 

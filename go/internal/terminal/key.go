@@ -63,13 +63,19 @@ func sequence(next nextByte) (Key, []byte, bool) {
 		return Key{Name: "esc"}, nil, true
 	}
 	if kind == ']' { // read to its end, BEL or ST, so none of it is a key
-		var last byte
+		var body []byte
 		for {
 			each, got := next(50 * time.Millisecond)
-			if !got || each == 0x07 || last == 0x1b && each == '\\' {
+			if !got {
 				return Key{}, nil, false
 			}
-			last = each
+			if each == 0x07 {
+				return Key{Name: "answer", Char: string(body)}, nil, false
+			}
+			if len(body) > 0 && body[len(body)-1] == 0x1b && each == '\\' {
+				return Key{Name: "answer", Char: string(body[:len(body)-1])}, nil, false
+			}
+			body = append(body, each)
 		}
 	}
 	if kind != '[' && kind != 'O' {

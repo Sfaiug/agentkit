@@ -50,15 +50,15 @@ STATE_STYLES = {
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
-THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
-# The background that answer said, `rrggbb`, on a terminal that draws every colour: a screen sits
-# on it (`_painted`, `colour`).  None where it gave none or draws the nearest of 256: no colour is
-# known to read on what it has, nor could a fade reach it, so a screen is painted in the theme's.
-GROUND = None
+THEME = None       # the theme the terminal's answer fits (`_heard`), None where it gave none
+GROUND = None      # ... and the background it said, `rrggbb`, which a screen sits on (`_drawn`)
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
 LEVELS = (0, 95, 135, 175, 215, 255)   # each channel's steps in xterm's 6x6x6 colour cube
+# ... and its fixed colours, from 16 up: the cube, then 24 greys
+XTERM = (*(bytes((LEVELS[n // 36], LEVELS[n // 6 % 6], LEVELS[n % 6])) for n in range(216)),
+         *(bytes([8 + 10 * n] * 3) for n in range(24)))
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
 _ATTRIBUTES = re.compile(rb"\x1b\[\?[0-9;]*c")   # ... and to DA1, which follows it
@@ -112,21 +112,46 @@ def colour(word, tmux=False):
     """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
     force; with `tmux`, in a tmux format (a seat's bar, a popup's border), in the kept one
     whichever process writes it: tmux shows it on a terminal ak never asks, and the
-    menu's writes and the tick's never disagree.  Where a screen sits on the terminal's own
-    background (`GROUND`) the theme is drawn between that and its text: each colour is moved
-    toward the text by the share of the way the terminal's background is from the theme's, a
-    channel at a time.  So the background is the terminal's, which a fade then nears, the text is
-    the theme's, and every other keeps its place between the two, lost on neither nor on another.
-    """
+    menu's writes and the tick's never disagree.  A screen's is the one it has on the terminal's
+    own background (`_drawn`)."""
     role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
-    shades = kept() if tmux else theme()
-    if tmux or GROUND is None:
-        return ROLES[role][shades]
-    own, ground, back, text = (bytes.fromhex(rgb) for rgb in (
-        ROLES[role][shades], GROUND, ROLES["background"][shades], ROLES["text"][shades]))
-    # in 0..255 on any terminal: each channel of a theme's text is past half way from its background
-    return bytes(round(c + (g - b) * (t - c) / (t - b))
-                 for c, g, b, t in zip(own, ground, back, text)).hex()
+    return ROLES[role][kept()] if tmux else _drawn(theme(), GROUND, colour_depth() == 256)[role]
+
+
+def _luma(rgb):
+    """How light `rgb`, its three channels, reads, 2 550 000 for white (Rec. 709's weights)."""
+    return 2126 * rgb[0] + 7152 * rgb[1] + 722 * rgb[2]
+
+
+@lru_cache(maxsize=4)
+def _drawn(shades, ground, nearest):
+    """{role: its colour} as a screen in the theme `shades` draws it on a terminal whose own
+    background, `ground`, it sits on (`GROUND`): the theme's own where the terminal said none.
+
+    The theme is drawn between that background and its own text.  Each colour moves as the
+    theme's background does to reach the terminal's, by the share of the way from the text to
+    that background its lightness is: the background is the terminal's, which a fade then nears,
+    the text is the theme's, and two colours as light as each other stay as far apart as the
+    theme has them.  No two are ever one, nor any the terminal's background: a theme fits only a
+    background on its own background's side of half way (`_heard`), never as light as its text.
+
+    With `nearest`, where the terminal draws only the nearest of 256 colours, each is the
+    nearest of those that no role before it has: the terminal's background first, then the text
+    and what reads nearest it, so there too no two are one.
+    """
+    back, text = (bytes.fromhex(ROLES[role][shades]) for role in ("background", "text"))
+    to, whole, drawn = bytes.fromhex(ground or back.hex()), _luma(text) - _luma(back), {}
+
+    def share(role):
+        return _luma(text) - _luma(bytes.fromhex(ROLES[role][shades]))
+
+    for role in sorted(ROLES, key=lambda role: (role != "background", abs(share(role)), role)):
+        rgb = bytes(min(255, max(0, own + round((end - start) * share(role) / whole)))
+                    for own, end, start in zip(bytes.fromhex(ROLES[role][shades]), to, back))
+        drawn[role] = min((entry for entry in XTERM if entry not in drawn.values()),
+                          key=lambda entry: sum((a - b) ** 2 for a, b in zip(rgb, entry))
+                          ) if nearest else rgb
+    return {role: rgb.hex() for role, rgb in drawn.items()}
 
 
 def glyph(word):
@@ -220,12 +245,14 @@ def fade(text, amount):
             first = parts.pop(0)
             if first in (0, 39):
                 rgb = None
-            elif first == 38 and parts[:1] == [2]:
-                rgb, parts = parts[1:4], parts[4:]
-            elif first == 38 and parts[:1] == [5]:
-                n, parts = parts[1] - 16, parts[2:]
-                rgb = ((8 + 10 * (n - 216),) * 3 if n >= 216 else
-                       (LEVELS[n // 36], LEVELS[n // 6 % 6], LEVELS[n % 6]))
+            elif first in (38, 48) and parts[:1] in ([2], [5]):
+                size = 4 if parts[0] == 2 else 2    # its colour's own numbers, which are no code
+                if first == 38 and len(parts) >= size:
+                    if size == 4:
+                        rgb = parts[1:4]
+                    elif 16 <= parts[1] < 256:
+                        rgb = XTERM[parts[1] - 16]
+                parts = parts[size:]
         out += text[at:code.end()] + tone(rgb)
         at = code.end()
     return out + text[at:] + "\033[0m"
@@ -243,10 +270,9 @@ class _Screen:
     """stdout as a screen leaves for the terminal (`screens`): painted in the theme in force, and
     `_PAD` cells in from every edge.
 
-    Each write starts in the theme's text, on the terminal's own background where it is known
-    (`GROUND`) and on the theme's where not, puts them back after every reset and ends in the
-    terminal's own colours: every cell a draw, a frame or a clear touches is on that background
-    and text of no colour is the theme's, whichever helper drew it, and the terminal is
+    Each write starts on no background in the theme's text, puts them back after every reset and
+    ends in the terminal's own colours: every cell a draw, a frame or a clear touches is on the
+    terminal's own, text of no colour is the theme's, whichever helper drew it, and the terminal is
     its own again between writes, for whatever has it next -- a program ak starts, a signal, the
     shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at
     eight colours, whose tones read on any background.
@@ -277,11 +303,10 @@ class _Screen:
 
 
 def _painted(text):
-    """`text` in the text of the theme in force where it sets no colour, and where it sets no
-    background on the terminal's own, or where that is not known on the theme's (`_Screen`)."""
-    back = "49" if GROUND else ink(colour("background"), "48")
+    """`text` in the text of the theme in force where it sets no colour, on the terminal's own
+    background where it sets none (`_Screen`)."""
     fore = ink(colour("text"), "38")
-    again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
+    again = {"": f"0;{fore}", "0": f"0;{fore}", "39": fore}
 
     def put_back(code):
         parts, out = code[1].split(";"), []
@@ -292,7 +317,7 @@ def _painted(text):
                 size = 4 if parts[:1] == ["2"] else 2
                 out, parts = out + parts[:size], parts[size:]
         return f"\033[{';'.join(out)}m"
-    return f"\033[{back};{fore}m{_SGR.sub(put_back, text)}\033[0m"
+    return f"\033[49;{fore}m{_SGR.sub(put_back, text)}\033[0m"
 
 
 def screens(popup=False):
@@ -883,7 +908,8 @@ _POINTED = Spot()  # ... the `Spot` the pointer was on when it was drawn
 TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
                    # one written over since (`over`); empty, nothing on it is known
-_UP_OF, _WHOLE = None, 0.0     # ... the screen and theme they are of, and when all went last
+_UP_OF, _WHOLE = None, 0.0     # ... the screen, theme and ground they are of, and when all went last
+_SENSED = 0.0      # when the terminal was last asked its background (`written`, `sense`)
 _MOVED = 0.0       # when a move of the pointer was last answered
 _HELD = None       # a move read and not answered yet, and when the first of them was
 _NEXT = None       # a key read past a move, answered after it
@@ -1075,6 +1101,22 @@ def _last_frame():
         pass                 # nothing here stops a start: the first frame ends the hold
 
 
+def _heard(answer):
+    """The theme and background (`rrggbb`) an OSC 11 `answer` says, kept where it names one;
+    whether either moved."""
+    global THEME, GROUND
+    found = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)", answer)
+    if not found:
+        return False
+    red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in found.groups()]
+    theme_ = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK  # luma
+    ground = bytes(round(255 * part) for part in (red, green, blue)).hex()
+    changed = (THEME, GROUND) != (theme_, ground)
+    THEME, GROUND = theme_, ground
+    _keep(THEME)
+    return changed
+
+
 def sense():
     """What the terminal is, asked once per menu start on a keyboard `Keyboard.take` has taken.
 
@@ -1090,7 +1132,7 @@ def sense():
     `_sequence`'s.  Then the frame a restart left up goes back up in what it found
     (`_last_frame`), the hold it was given back under hiding the wait.
     """
-    global _RGB, THEME, GROUND, _KEYED
+    global _RGB, THEME, GROUND, _KEYED, _SENSED
     features = os.environ.get(FEATURES_ENV)
     if features is None and os.environ.get("TMUX"):
         try:
@@ -1102,6 +1144,7 @@ def sense():
             pass
     _RGB = bool({"RGB", "Tc"} & set((features or "").strip().split(",")))
     fd = sys.stdin.fileno()
+    _SENSED = time.monotonic()
     os.write(sys.stdout.fileno(), b"\033]11;?\033\\\033[c")
     heard, until = b"", time.monotonic() + 1     # a busy host takes most of one to pass it on
     while not _ATTRIBUTES.search(heard):
@@ -1115,15 +1158,9 @@ def sense():
     found = _ANSWER.search(heard)
     rest = heard[:found.start()] + heard[found.end():] if found else heard
     _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
-    colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
-                      found.group(1)) if found else None
     THEME = GROUND = None
-    if colour:
-        red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
-        THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK  # luma
-        if colour_depth() == 24:
-            GROUND = bytes(round(255 * part) for part in (red, green, blue)).hex()
-        _keep(THEME)
+    if found:
+        _heard(found.group(1))
     _last_frame()
 
 
@@ -1211,7 +1248,10 @@ def read_key(timeout=None, wake=None):
             _PRESSED = True
         elif key.name.startswith("wheel"):
             key = _notches(key, fd)
-        elif key.name == "answer":     # the terminal's, to `sense`, and no key at all
+        elif key.name == "answer":     # the terminal's, to `sense` or an ask, and no key at all
+            if key.char and _heard(key.char) and _TAKEN is not None:
+                _ASKED, _UP = True, _UP and []
+                return None
             key = None
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
@@ -1291,7 +1331,8 @@ def _sequence(fd):
             if not byte:
                 break
             body += byte
-        return Key("answer")
+        found = _ANSWER.match(b"\x1b]" + body)
+        return Key("answer", found.group(1) if found else b"")
     if kind not in (b"[", b"O"):
         _KEYED = kind + _KEYED     # the next key's own byte, typed right after the Esc
         return Key("esc")
@@ -1658,11 +1699,15 @@ def written(lines, frame="", rising=False, screen=None):
     reads the same in another theme is painted anew.  The cursor ends under them, where a
     prompt goes.  `frame` goes in the same update (`over`); lines `rising` are its to write, never
     first as they are, on a cleared screen."""
-    global _UP, _UP_OF, _WHOLE
-    starts, screen = _starts(lines), (screen, theme())
-    if (rising or not _UP or screen != _UP_OF or len(lines) >= height()
-            or time.monotonic() >= _WHOLE + TICK):
-        _WHOLE, text = time.monotonic(), "\033[H" + "".join(
+    global _UP, _UP_OF, _WHOLE, _SENSED
+    starts, screen = _starts(lines), (screen, theme(), GROUND)
+    now = time.monotonic()
+    due = now >= _WHOLE + TICK
+    ask = (_TAKEN is not None and colour_depth() > 8
+           and (screen != _UP_OF
+                or not rising and (not _UP or due or now >= _SENSED + 1 or now < _SENSED)))
+    if rising or not _UP or screen != _UP_OF or len(lines) >= height() or due:
+        _WHOLE, text = now, "\033[H" + "".join(
             _cleared(line) + "\n" for line in (() if rising else starts.values())) + "\033[J"
     else:
         text = _differing(starts.items())
@@ -1671,6 +1716,9 @@ def written(lines, frame="", rising=False, screen=None):
     _UP = None if _UP is None else [starts.get(row) for row in range(1, len(lines) + 1)]
     _UP_OF = screen
     over(frame, text)
+    if ask:
+        _SENSED = now
+        _TAKEN._send("\033]11;?\033\\")
 
 
 def show(lines, spots, drawn=None, screen=None):

@@ -1,11 +1,10 @@
-"""A screen is painted in its theme: every cell of it, text or blank, on one background, or a
-row the highlight is on whole on the selection (tests/test_key_one_highlight.py), text of no
-colour in the theme's text, and the terminal its own again once ak leaves.  That background is
-the terminal's own where the terminal says which it is: ak sets none, the theme is drawn between
-it and the theme's text, a colour as far toward the text as it is from the theme's background, so
-the selection and a line are not lost on it, and a page comes up out of it.  A terminal that
-says none is painted in the theme's, to its last column: no colour is known to show on what it
-has.
+"""A screen is painted in its theme on the terminal's own background: no cell of it, text or
+blank, on a background but those the highlight is on, on the theme's selection
+(tests/test_key_one_highlight.py), text of no colour in the theme's text, and the terminal its
+own again once ak leaves.  Where the terminal says its background, the theme is drawn between it
+and the theme's text, each colour moved as far as its lightness is from the text, so the selection
+and a line are not lost on it, and a page comes up out of it; where it says none, the theme's own
+colours are drawn on the terminal's own background.
 
 The owner (12 Nov 2026): two themes, white and black, seen through everywhere ak is visual; and
 (20 Nov 2026) the terminal's own background "should be used, and ak just sits on top".
@@ -22,7 +21,6 @@ import shlex
 import sys
 from pathlib import Path
 import time
-import unicodedata
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -36,9 +34,8 @@ from test_key_one_highlight import ground
 DARK, LIGHT = "#203040", "#e8e4d8"     # terminals' own backgrounds, neither theme's
 # a theme's background, text, selection and border
 BLACK, WHITE = ("000000", "e2e8ef", "08305d", "3a3f46"), ("ffffff", "181c22", "dcecff", "b1b8c0")
-# ... and on a terminal's own background, which ak sets none on: the selection and the border as
-# far toward black's text as DARK is from black, toward white's as LIGHT is from white
-ON_DARK, ON_LIGHT = (None, "e2e8ef", "275684", "526273"), (None, "181c22", "c8d3d8", "a2a5a4")
+# ... and on a terminal's own background: the selection and border moved by their share of lightness
+ON_DARK, ON_LIGHT = (None, "e2e8ef", "225791", "516275"), (None, "181c22", "c7d3dc", "a1a6a5")
 SIZE = (100, 30)
 OPENED = 1000.0     # the moment ak's motion stands at as a screen opens
 # a breath, which takes two seconds, in quarters, long after the screen opened: each a frame
@@ -88,23 +85,20 @@ class AScreenIsPainted(unittest.TestCase):
         return settled(term, shown, bound=60)
 
     def assert_painted(self, term, theme, rows=None):
-        """Every cell of the terminal, to its last column and row, on the theme's background or
-        its selection, one never written, which tmux keeps none for, on the terminal's own:
+        """No cell of the terminal, to its last row, on a background but the theme's selection:
         `rows`, a capture's looks, else the terminal's now."""
         rows = rows or looks(term.screen(colours=True, blank=True))
-        grounds = {sgr(theme[0], "48"), sgr(theme[2], "48")}
+        grounds = {None, sgr(theme[2], "48")}
         self.assertGreaterEqual(len(rows), SIZE[1])
         for number, line in enumerate(rows[:SIZE[1]], 1):
-            wide = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char, _ in line)
-            on = {*(ground(shown) for _, shown in line), *[None] * (SIZE[0] - wide)}
+            on = {ground(shown) for _, shown in line}
             self.assertEqual(on - grounds, set(), f"row {number}: {plain(line)!r}")
 
     def assert_named(self, rows, theme):
-        """A seat's name in the theme's text and the header's rule in its border, on its
+        """A seat's name in the theme's text and the header's rule in its border, on no
         background."""
-        back = {sgr(theme[0], "48")} - {None}
-        self.assertEqual(set(look(rows, "delta", on="idle")) - ATTRIBUTES, {sgr(theme[1])} | back)
-        self.assertEqual(set(look(rows, "─" * 40)) - ATTRIBUTES, {sgr(theme[3])} | back)
+        self.assertEqual(set(look(rows, "delta", on="idle")) - ATTRIBUTES, {sgr(theme[1])})
+        self.assertEqual(set(look(rows, "─" * 40)) - ATTRIBUTES, {sgr(theme[3])})
 
     def test_the_ak_screen_and_its_breath_set_no_background(self):
         menu = self.open()
@@ -149,7 +143,7 @@ class AScreenIsPainted(unittest.TestCase):
         self.rest(menu, "+ add a subscription", OPENED + 30)
         self.assert_painted(menu, ON_DARK)
 
-    def test_the_popup_over_a_seat_is_on_black_its_padding_too(self):
+    def test_the_popup_over_a_seat_sets_no_background_nor_its_padding(self):
         forget(self.home)       # tmux says no background in a popup: black where none is kept
         popup = self.open("attach", "--overlay", background=None,
                           env={"AGENTKIT_SESSION": "acme", "AGENTKIT_PADDING": "1"})
@@ -164,7 +158,7 @@ class AScreenIsPainted(unittest.TestCase):
         self.assert_painted(menu, ON_LIGHT, rows)
         self.assert_named(rows, ON_LIGHT)
 
-    def test_a_screen_read_a_line_at_a_time_is_on_black(self):
+    def test_a_screen_read_a_line_at_a_time_sets_no_background(self):
         forget(self.home)       # it cannot ask: in the theme kept, black where none is
         menu = self.open("-c", 'printf "\\033\\n" | "$0" --dry-run; exec sleep 86400', AK,
                          program="sh")

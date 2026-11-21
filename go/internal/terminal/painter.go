@@ -18,6 +18,7 @@ type Painter struct {
 	of    Screen
 	known bool
 	whole time.Time // when every row last went out
+	asked time.Time // when the terminal was last asked its background
 }
 
 // A Span is text written over a frame from one cell, row and column from 1: what moves between its
@@ -73,28 +74,30 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	if frame.Len() == 0 {
 		return
 	}
-	io.WriteString(p.out, "\x1b[?2026h"+screen.paint(frame.String())+"\x1b[?2026l")
+	now := time.Now()
+	ask := ""
+	if screen.Moves() && (!p.known || now.Sub(p.asked) >= time.Second || len(lines) > 0 && len(p.up) > 0 && lines[0] != p.up[0]) {
+		ask = "\x1b]11;?\x1b\\"
+		p.asked = now
+	}
+	io.WriteString(p.out, "\x1b[?2026h"+screen.paint(frame.String())+"\x1b[?2026l"+ask)
 	if whole {
-		p.whole = time.Now()
+		p.whole = now
 	}
 	p.up, p.over, p.of, p.known = slices.Clone(lines), slices.Clone(over), screen, !tall
 }
 
 // paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the
-// terminal's own background where it is known (ground) and on the theme's where not, in the theme's
-// text wherever it sets no colour, each reset putting both back, and the terminal its own colours
-// again after it, for whatever has it next.  At eight colours, whose tones read on any background,
-// it is as it is.
+// terminal's own background where it sets none, in the theme's text wherever it sets no colour,
+// each reset putting the text back, and the terminal its own colours again after it, for whatever
+// has it next.  At eight colours, whose tones read on any background, it is as it is.
 func (s Screen) paint(text string) string {
 	if !s.Moves() || text == "" {
 		return text
 	}
-	back, fore := "49", s.ink(s.colour("text"), "38")
-	if s.ground == "" {
-		back = s.ink(s.colour("background"), "48")
-	}
-	again := map[string]string{"": "0;" + back + ";" + fore, "0": "0;" + back + ";" + fore, "39": fore, "49": back}
-	return "\x1b[" + back + ";" + fore + "m" + sgr.ReplaceAllStringFunc(text, func(code string) string {
+	fore := s.ink(s.colour("text"), "38")
+	again := map[string]string{"": "0;" + fore, "0": "0;" + fore, "39": fore}
+	return "\x1b[49;" + fore + "m" + sgr.ReplaceAllStringFunc(text, func(code string) string {
 		parts, out := strings.Split(code[2:len(code)-1], ";"), []string{}
 		for i := 0; i < len(parts); i++ {
 			if put, ok := again[parts[i]]; ok {

@@ -127,30 +127,40 @@ class Palette(unittest.TestCase):
         self.assertTrue(self.sense())
         self.assertEqual((terminal.THEME, terminal.theme()), (None, terminal.WHITE))
         # a dark answer, BEL-ended: black's, kept in place of white's
-        self.sense(b"\033]11;rgb:1e1e/1e1e/2e2e\007", ATTRIBUTES)
+        self.sense(b"\033]11;rgb:0000/0000/0000\007", ATTRIBUTES)
         self.assertEqual((terminal.THEME, terminal.kept()), (terminal.BLACK, terminal.BLACK))
         with patch.object(terminal, "colour_depth", return_value=24):
             self.assertIn("38;2;215;146;0m", terminal.styled("x", "needs you"))
 
-    def test_a_screen_sits_on_the_background_a_terminal_of_every_colour_says(self):
+    def test_a_screen_sits_on_the_background_a_terminal_says(self):
         dark = b"\033]11;rgb:20/30/40\033\\"
-        # the nearest of 256 colours is not the terminal's own: painted in black's
+        # in 256 colours too, the screen sets no background and keeps every role distinct
         self.sense(dark, ATTRIBUTES)
-        self.assertIsNone(terminal.GROUND)
-        self.assertEqual(terminal._painted("x"), "\033[48;5;16;38;5;254mx\033[0m")
+        self.assertEqual(terminal.GROUND, "203040")
+        self.assertEqual(terminal._painted("x"), "\033[49;38;5;254mx\033[0m")
+        self.assertNotEqual(terminal.ink(terminal.colour("selection"), "48"),
+                            terminal.ink(terminal.colour("background"), "48"))
         with patch.dict(os.environ, {"COLORTERM": "truecolor"}):
             self.sense(dark, ATTRIBUTES)
             self.assertEqual(terminal._painted("x"), "\033[49;38;2;226;232;239mx\033[0m")
-            # black between the terminal's background, which a fade ends in, and its own text:
-            # each colour as far toward that text as the terminal's background is from black;
+            # black between the terminal's background, which a fade ends in, and its own text;
             # what tmux draws keeps black's
             roles = "background", "selection", "border", "accent", "text"
             self.assertEqual([terminal.colour(role) for role in roles],
-                             ["203040", "275684", "526273", "62b1fb", "e2e8ef"])
+                             ["203040", "225791", "516275", "58b4ff", "e2e8ef"])
             self.assertEqual(terminal.faded("dim", 1), "#203040")
             self.assertEqual(terminal.colour("selection", tmux=True), "08305d")
-            self.sense(ATTRIBUTES)      # and none once it says none
+            # on a saturated light background, dim and info remain distinct
+            self.sense(b"\033]11;rgb:18/c0/5c\033\\", ATTRIBUTES)
+            self.assertNotEqual(terminal.colour("dim"), terminal.colour("info"))
+            # a selection channel of 39 or 0 inside SGR 48 is not read as a foreground reset
+            lit = "\033[38;2;89;103;36;48;2;171;195;39midle\033[0m"
+            self.assertEqual(terminal.fade(lit, 0.01),
+                             terminal.fade("\033[38;2;89;103;36;48;2;171;195;40midle\033[0m",
+                                           0.01).replace(";40m", ";39m"))
+            self.sense(ATTRIBUTES)      # none once it says none, still setting no background
             self.assertIsNone(terminal.GROUND)
+            self.assertEqual(terminal._painted("x"), "\033[49;38;2;24;28;34mx\033[0m")
 
     def test_attributes_alone_end_the_wait_at_once_and_read_as_dark_with_none_kept(self):
         # tmux, in a popup: no answer to OSC 11, its own to DA1 at once

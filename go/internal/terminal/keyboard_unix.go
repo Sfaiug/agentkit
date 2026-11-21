@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -88,6 +89,27 @@ func (k *Keyboard) give(modes string) {
 	signal.Stop(k.heard)
 }
 
+// tookBackground takes an OSC 11 answer (`11;rgb:...`), updates the sensed theme and ground and
+// keeps the theme; true when either moved.
+func (k *Keyboard) tookBackground(answer string) bool {
+	rgb, ok := strings.CutPrefix(answer, "11;")
+	if !ok {
+		return false
+	}
+	ground, light := background(rgb)
+	if ground == "" {
+		return false
+	}
+	in := black
+	if light {
+		in = white
+	}
+	changed := !k.fits || k.sensed.theme != in || k.sensed.ground != ground
+	k.fits, k.sensed.theme, k.sensed.ground = true, in, ground
+	keep(in)
+	return changed
+}
+
 // Sense asks what the terminal is, once a start, on a taken keyboard: whether it takes true colour
 // though COLORTERM does not say (what AGENTKIT_TERMFEATURES says, else inside tmux what tmux says,
 // which takes a process), and whether its background is light, by its answer to OSC 11 within a
@@ -113,25 +135,18 @@ func (k *Keyboard) Sense() {
 		heard = append(heard, each)
 	}
 	said := backgroundSaid.FindSubmatchIndex(heard)
-	in, ground := black, ""
+	var answer string
 	if said != nil {
-		var light bool
-		if ground, light = background(string(heard[said[2]:said[3]])); light {
-			in = white
-		}
+		answer = "11;" + string(heard[said[2]:said[3]])
 		heard = append(heard[:said[0]:said[0]], heard[said[1]:]...)
-	}
-	if k.fits = ground != ""; k.fits {
-		keep(in)
 	}
 	if at := attributesSaid.FindIndex(heard); at != nil {
 		heard = append(heard[:at[0]:at[0]], heard[at[1]:]...)
 	}
 	k.keyed = append(heard, k.keyed...)
-	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in}
-	if k.sensed.depth == 24 {
-		k.sensed.ground = ground
-	}
+	k.fits = false
+	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: black}
+	k.tookBackground(answer)
 }
 
 // Screen is what Sense found, at the size the terminal is now, in the theme its background fits,
@@ -207,6 +222,9 @@ func (k *Keyboard) readKey() Key {
 		}
 		key, kept, ok := spell(first, k.next)
 		k.keyed = append(kept, k.keyed...)
+		if !ok && key.Name == "answer" && k.tookBackground(key.Char) {
+			return Key{Name: "again"}
+		}
 		if ok && wheel(key) {
 			key, ok = k.notches(key)
 		}

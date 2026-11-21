@@ -4,13 +4,16 @@
 package terminal
 
 import (
+	"cmp"
 	"encoding/hex"
 	"io"
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // A style is a word's glyph, its ASCII stand-in, its role of the theme, its eight-colour tone and
@@ -48,27 +51,118 @@ func roleOf(word string) string {
 	return styles[word].colour
 }
 
+// xtermPalette is xterm's 240 fixed colours, from 16 up: the 6x6x6 cube, then 24 greys.
+var xtermPalette = func() [240][3]byte {
+	var all [240][3]byte
+	for n := range 216 {
+		all[n] = [3]byte{byte(cube[n/36]), byte(cube[n/6%6]), byte(cube[n%6])}
+	}
+	for n := range 24 {
+		grey := byte(8 + 10*n)
+		all[216+n] = [3]byte{grey, grey, grey}
+	}
+	return all
+}()
+
+type drawnKey struct {
+	shades  theme
+	ground  string
+	nearest bool
+}
+
+var (
+	drawnMu    sync.RWMutex
+	drawnCache = map[drawnKey]map[string]string{}
+)
+
+func luma(rgb [3]byte) int {
+	return 2126*int(rgb[0]) + 7152*int(rgb[1]) + 722*int(rgb[2])
+}
+
+func rgbBytes(hexRGB string) [3]byte {
+	raw, _ := hex.DecodeString(hexRGB)
+	return [3]byte{raw[0], raw[1], raw[2]}
+}
+
+// drawn is {role: its colour} as a screen in shades draws it on a terminal whose own background is
+// ground (the theme's where none was said), matching Python's terminal._drawn: each colour moves as
+// the theme's background does to reach the terminal's, by the share of the way from the text to
+// that background its lightness is; with nearest, each takes the nearest unused xterm-256 entry.
+func drawn(shades theme, ground string, nearest bool) map[string]string {
+	key := drawnKey{shades, ground, nearest}
+	drawnMu.RLock()
+	if cached, ok := drawnCache[key]; ok {
+		drawnMu.RUnlock()
+		return cached
+	}
+	drawnMu.RUnlock()
+
+	back, text := rgbBytes(roles["background"][shades]), rgbBytes(roles["text"][shades])
+	to := back
+	if ground != "" {
+		to = rgbBytes(ground)
+	}
+	whole := luma(text) - luma(back)
+	share := func(role string) int { return luma(text) - luma(rgbBytes(roles[role][shades])) }
+	order := make([]string, 0, len(roles))
+	for role := range roles {
+		order = append(order, role)
+	}
+	slices.SortFunc(order, func(a, b string) int {
+		if (a != "background") != (b != "background") {
+			if a == "background" {
+				return -1
+			}
+			return 1
+		}
+		if c := cmp.Compare(abs(share(a)), abs(share(b))); c != 0 {
+			return c
+		}
+		return cmp.Compare(a, b)
+	})
+	used := make(map[[3]byte]bool, len(roles))
+	out := make(map[string]string, len(roles))
+	for _, role := range order {
+		own, s := rgbBytes(roles[role][shades]), share(role)
+		var rgb [3]byte
+		for i := range 3 {
+			v := int(own[i]) + int(math.RoundToEven(float64(int(to[i])-int(back[i]))*float64(s)/float64(whole)))
+			rgb[i] = byte(min(255, max(0, v)))
+		}
+		if nearest {
+			best, bestDist := xtermPalette[0], math.MaxInt
+			for _, entry := range xtermPalette {
+				if used[entry] {
+					continue
+				}
+				d := 0
+				for i := range 3 {
+					diff := int(rgb[i]) - int(entry[i])
+					d += diff * diff
+				}
+				if d < bestDist {
+					best, bestDist = entry, d
+				}
+			}
+			rgb = best
+		}
+		used[rgb] = true
+		out[role] = hex.EncodeToString(rgb[:])
+	}
+
+	drawnMu.Lock()
+	if len(drawnCache) >= 8 {
+		clear(drawnCache)
+	}
+	drawnCache[key] = out
+	drawnMu.Unlock()
+	return out
+}
+
 // colour is a word's colour on this screen, its role's in the screen's theme, as Python's
-// terminal.colour says it: where the screen sits on the terminal's own background (ground) the
-// theme is drawn between that and its text, each colour moved toward the text by the share of the
-// way the terminal's background is from the theme's, a channel at a time.  So the background is the
-// terminal's, which a fade then nears, the text is the theme's, and every other keeps its place
-// between the two, lost on neither nor on another.
+// terminal.colour says it: the colour it has on the terminal's own background (drawn).
 func (s Screen) colour(word string) string {
-	rgb := roles[roleOf(word)][s.theme]
-	if s.ground == "" {
-		return rgb
-	}
-	own, _ := hex.DecodeString(rgb)
-	ground, _ := hex.DecodeString(s.ground)
-	back, _ := hex.DecodeString(roles["background"][s.theme])
-	text, _ := hex.DecodeString(roles["text"][s.theme])
-	for i, c := range own {
-		b, t := int(back[i]), int(text[i])
-		// in 0..255 on any terminal: each channel of a theme's text is past half way from its background
-		own[i] = byte(math.RoundToEven(float64(c) + float64((int(ground[i])-b)*(t-int(c)))/float64(t-b)))
-	}
-	return hex.EncodeToString(own)
+	return drawn(s.theme, s.ground, s.depth == 256)[roleOf(word)]
 }
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
@@ -127,9 +221,8 @@ type Screen struct {
 	depth, width, height int
 	ascii                bool
 	theme                theme
-	// The background its terminal said it has, `rrggbb`, where that draws every colour: the screen
-	// sits on it (paint, colour).  "" where it said none or draws the nearest of 256: no colour is
-	// known to read on what it has, nor could a fade reach it, so the screen is painted in the theme's.
+	// The background its terminal said it has, `rrggbb`, which the screen sits on (colour); ""
+	// where the terminal gave no answer.
 	ground string
 }
 
