@@ -2803,7 +2803,13 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     elif barred := barred_refusal(cfg, reviewers or config.reviewers(cfg)):
         raise config.Error(barred)
     else:
-        raise QuotaDry("every worker has a gate meter at 100% used")
+        # only the review is left, whatever step a fixer turn wrote down before it: the run
+        # waits for a reviewer, not for its fixer's window (`staffing.resume_needs_executor`)
+        with run_record.record(run_dir) as current:
+            if current.stopped:     # a stop during the pick is the run's end, as it left it
+                raise run_record.StopRequested(f"{run_dir.name} was stopped")
+            current.update(step="reviewer", step_at=time.time(), step_round=rnd)
+        raise QuotaDry("no marked reviewer has room to review")
     # a pick other than the saved reviewer takes the review over, as a task's is: the saved
     # one's conversation is not its own; the saved one picked again goes on in it
     replace_reviewer(state, reviewer)
