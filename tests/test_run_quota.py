@@ -471,11 +471,9 @@ class QuotaDry(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "collect", side_effect=self.collect))
         self.stack.enter_context(patch.object(usage, "replenish", side_effect=self.replenish))
         self.stack.enter_context(patch.object(usage, "mark_exhausted", side_effect=self.mark))
-        self.stack.enter_context(patch.object(config, "workers",
-                                              side_effect=lambda cfg: list(self.eligible)))
-        # Without explicit reviewers, both roles use the same selection; mock both readers.
-        self.stack.enter_context(patch.object(config, "reviewers",
-                                              side_effect=lambda cfg: list(self.eligible)))
+        # Without explicit reviewers, both roles use the same selection.
+        self.stack.enter_context(patch.object(config, "selection",
+                                              side_effect=lambda cfg, seat=None: {"workers": self.eligible}))
         self.eligible = [*self.cfg["defaults"]["workers"], "fable"]
 
         # --- the fake harnesses -------------------------------------------------------------

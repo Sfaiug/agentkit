@@ -2079,18 +2079,23 @@ def suite_helper():
     return alias if isinstance(alias, str) and alias else None
 
 
+def selection(cfg, seat=None):
+    """The record a pick's marks come from: `seat`'s, else the seat this runs in, else
+    [defaults]."""
+    return ((load_session(cfg, seat, required=False) if seat else active_session(cfg))
+            or cfg["defaults"])
+
+
 def workers(cfg):
     """The session's selection, else the default workers."""
-    session = active_session(cfg)
-    return session["workers"] if session else list(cfg["defaults"]["workers"])
+    return list(selection(cfg)["workers"])
 
 
 def reviewers(cfg, seat=None):
     """The reviewers `seat` marks, else the seat this runs in, else [defaults]'s.  An omitted
     reviewer selection uses that same record's workers, never another seat's."""
-    selection = ((load_session(cfg, seat, required=False) if seat else active_session(cfg))
-                 or cfg["defaults"])
-    return list(selection.get("reviewers", selection["workers"]))
+    marks = selection(cfg, seat)
+    return list(marks.get("reviewers", marks["workers"]))
 
 
 def audit(cfg):
@@ -2130,11 +2135,11 @@ def audit(cfg):
 def role_groups(cfg, workers=None, reviewers=None):
     """Bind unbound picks only for explicit reviewers; preserve absence for legacy overrides."""
     if workers is None:
-        selection = active_session(cfg) or cfg["defaults"]
-        if "reviewers" in selection:
-            workers = selection["workers"]
+        marks = selection(cfg)
+        if "reviewers" in marks:
+            workers = marks["workers"]
             if reviewers is None:
-                reviewers = selection["reviewers"]
+                reviewers = marks["reviewers"]
     return workers, reviewers
 
 
@@ -2143,9 +2148,9 @@ def pair_marks(cfg, workers=None, reviewers=None):
     read of the seat's selection, else [defaults]'s, so a seat's marks changing meanwhile pair
     no two selections.  Reviewers none gives are the builders, as `reviewers` reads them."""
     if workers is None:
-        selection = active_session(cfg) or cfg["defaults"]
-        workers = selection["workers"]
-        reviewers = selection.get("reviewers") if reviewers is None else reviewers
+        marks = selection(cfg)
+        workers = marks["workers"]
+        reviewers = marks.get("reviewers") if reviewers is None else reviewers
     return list(workers), list(workers if reviewers is None else reviewers)
 
 
