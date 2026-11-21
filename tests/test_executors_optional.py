@@ -20,7 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, gitcall, menu, orch, plan, run, terminal, usage
+from agentkit import config, gitcall, menu, orch, plan, run, staffing, terminal, usage
 from agentkit import record
 
 
@@ -89,8 +89,8 @@ class ExecutorsOptional(Sandbox):
             self.assertEqual(cfg["defaults"]["workers"], [])
             with self.assertRaises(run.QuotaDry):
                 run.pick_models(cfg, {}, None, None, lambda _: None, quiet=True)
-            self.assertTrue(run.pair_refusal(cfg, {}, None))
-            self.assertTrue(run.pair_refusal(cfg, {}, []))
+            self.assertTrue(staffing.pair_refusal(cfg, {}, None))
+            self.assertTrue(staffing.pair_refusal(cfg, {}, []))
 
     def test_own_pr_review_still_launches_without_executors(self):
         url = "https://github.com/acme/api/pull/7"

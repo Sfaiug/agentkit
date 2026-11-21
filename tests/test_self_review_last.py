@@ -172,12 +172,12 @@ class SelfReviewLast(unittest.TestCase):
                          ["beta-one", "acme-one"])
 
     def test_a_launch_with_one_worker_is_not_refused(self):
-        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["acme-one"]))
-        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["acme-one"],
+        self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, ["acme-one"]))
+        self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, ["acme-one"],
                                            "acme-one", "acme-one"))
         # only a launch with no runnable worker is refused, in one sentence
         self.assertEqual(
-            run.pair_refusal(self.cfg, self.cannot_run("acme-one", "beta-one"),
+            staffing.pair_refusal(self.cfg, self.cannot_run("acme-one", "beta-one"),
                              ["acme-one", "beta-one"]),
             "none of the workers acme-one, beta-one and reviewers acme-one, beta-one "
             "can run here (acme-one: test is not logged in; "

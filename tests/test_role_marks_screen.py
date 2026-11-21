@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, terminal, usage
+from agentkit import config, menu, orch, staffing, terminal, usage
 from fixtures.sandbox import Sandbox
 from test_config_matrix import Screen as ConfigScreen, row
 from test_new_session_screen import Screen, RIGHT, LEFT, DOWN, ENTER, SPACE, highlighted, marks
@@ -60,7 +60,7 @@ class RoleMarks(Sandbox):
             # Any of these could start -- the executor's own review is the last choice,
             # never a refusal -- so the screens allow what the launch allows.
             self.assertEqual(orch.role_refusal(self.cfg, selected, {}), "")
-            self.assertIsNone(run.pair_refusal(self.cfg, {}, ["opus"], reviewers=[reviewer]))
+            self.assertIsNone(staffing.pair_refusal(self.cfg, {}, ["opus"], reviewers=[reviewer]))
         self.cfg["models"]["fable"]["reviews_own_provider"] = True
         selected["reviewers"] = ["fable"]
         self.assertEqual(orch.role_refusal(self.cfg, selected, {}), "")
@@ -72,7 +72,7 @@ class RoleMarks(Sandbox):
             selected["reviewers"] = [reviewer]
             self.assertEqual(orch.role_refusal(self.cfg, selected, down),
                              "no allowed executor/reviewer pair")
-            self.assertTrue(run.pair_refusal(self.cfg, down, ["opus"], reviewers=[reviewer]))
+            self.assertTrue(staffing.pair_refusal(self.cfg, down, ["opus"], reviewers=[reviewer]))
 
     def test_create_records_the_screen_reviewers_and_they_are_what_n_starts_from(self):
         self.cfg["defaults"]["reviewers"] = ["astra"]

@@ -136,15 +136,15 @@ class RoleGroups(unittest.TestCase):
 
     def test_empty_group_names_its_side_but_spent_groups_wait(self):
         self.groups(workers=("beta",), reviewers=("gamma",))
-        self.assertIsNone(run.pair_refusal(self.cfg, self.providers(b=100), None))
+        self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers(b=100), None))
         self.cfg["models"]["gamma"]["reviews_own_provider"] = False
-        self.assertIsNone(run.pair_refusal(self.cfg, self.providers(), None))
+        self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers(), None))
         self.cfg["models"]["gamma"]["reviews_own_provider"] = True
         readings = usage.Readings(self.providers())
         self.cfg["models"]["gamma"]["harness"] = "codex"
         self.why["codex"] = "codex is not logged in"
         readings = usage.readiness(self.cfg, readings)
-        self.assertEqual(run.pair_refusal(self.cfg, readings, None),
+        self.assertEqual(staffing.pair_refusal(self.cfg, readings, None),
                          "none of the reviewers gamma can run here "
                          "(gamma: codex is not logged in); log in to another harness "
                          "or add another model to the groups")
@@ -188,7 +188,7 @@ class RoleGroups(unittest.TestCase):
                 patched_on_both(run, staffing, "collect_usage", return_value=self.providers()), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(self.pick("gamma", "delta"), ("gamma", "delta"))
-            self.assertIsNone(run.pair_refusal(self.cfg, self.providers(), None, "gamma", "delta"))
+            self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers(), None, "gamma", "delta"))
             run_record.save_state(lp.run_dir, lp.state)
             self.assertEqual(run.preset_models(
                 self.cfg, {**opts, "--exec": "gamma", "--review": "delta"},
