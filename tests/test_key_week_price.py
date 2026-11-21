@@ -197,6 +197,22 @@ class WeekPrice(unittest.TestCase):
         self.read("default", 30, 30 * HOUR, WEEK, plan="Max")
         self.assertWeek(self.weeks()["default"], "Max", math.inf, 20, 2e306)
 
+    def test_the_holds_cell_says_about_as_the_locale_can_and_an_ascii_stdout_takes_it(self):
+        self.plans(default="Max")
+        self.read("default", 10, 40 * HOUR, WEEK, plan="Max")
+        self.spent("default", 3, 35 * HOUR)
+        self.read("default", 40, 30 * HOUR, WEEK, plan="Max")
+        self.assertWeek(self.weeks()["default"], "Max", 10, 30, 3)
+        # the last, a stream that takes ASCII alone whatever the locale says: only Python's
+        # stdout has an encoding to refuse `≈`, so Go may still print it there
+        for env, abouts in (({"LC_ALL": "C.UTF-8"}, "≈"), ({"LC_ALL": "C"}, "~"),
+                            ({"LC_ALL": "C.UTF-8", "PYTHONIOENCODING": "ascii"}, "~≈")):
+            with self.subTest(env):
+                done = self.home.ak("usage", env={"COLUMNS": "200", **env})
+                self.assertEqual(done.code, 0, done.err)
+                self.assertIn(meters.cell(done.out, "Acme I", "holds"),
+                              {f"week {about} $10 at list prices" for about in abouts})
+
 
 if __name__ == "__main__":
     unittest.main()

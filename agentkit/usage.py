@@ -1952,7 +1952,7 @@ def _held(dollars, meter):
         return "-"
     window = _number(meter.get("window_secs"))
     named = "week" if window in (None, 7 * 86400) else terminal.format_age(window)
-    about = "≈" if terminal.utf8() else "~"
+    about = _glyph("≈", "~")
     return f"{named} {about} ${dollars:.0f} at list prices"
 
 
@@ -2003,7 +2003,7 @@ def marked_providers(cfg):
     return {cfg["models"][name]["provider"] for name in config.offered(cfg) if name in used}
 
 
-def _sep(utf, plain):
+def _glyph(utf, plain):
     """`utf` when the locale is UTF-8 and stdout can encode it, else `plain`."""
     if not terminal.utf8():
         return plain
@@ -2024,7 +2024,7 @@ def _month(cost, used):
     shown = _digits(cost)
     if used:
         return shown
-    return f"{shown}{_sep(' · ', ', ')}no role marks its models"
+    return f"{shown}{_glyph(' · ', ', ')}no role marks its models"
 
 
 def _budget_label(value, reason):
@@ -2215,7 +2215,7 @@ def render(cfg, providers, order, *, repo=None):
         # The full headings and all the meters still fit on a phone, as aligned label/value
         # pairs under each provider. Nothing is silently cut to squeeze a row.
         lines = []
-        sep = _sep(" · ", " - ")
+        sep = _glyph(" · ", " - ")
         label_width = max(len(label) for label in HEADERS[2:])
         for row in table[1:]:
             if lines:
