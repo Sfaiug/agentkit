@@ -217,7 +217,13 @@ def dispatch(argv):
         state = (record.read_state(config.RUNS / args[0])
                  if args and Path(args[0]).name == args[0] and args[0] not in (".", "..")
                  else None) or {}
-        if code := (state.get("ak_checkout") if argv[1] == "merge" else pinned(state)):
+        # a record another live process holds, its own run's aside, may end before the version it
+        # names reads it again, as one that version carries on and this one refuses
+        # (`transitions.rescoped`): this one reads it again under its lock and decides
+        held = (argv[1] == "resume" and state.get("state") in record.ACTIVE
+                and os.environ.get(config.RUN_DIR_ENV) != str(config.RUNS / args[0])
+                and record.process_active(state))
+        if code := (state.get("ak_checkout") if argv[1] == "merge" else not held and pinned(state)):
             with checkout(code) as path:
                 enter(path)
         elif (argv[1] == "resume" and state

@@ -4,7 +4,7 @@ With ak's six, a run whose first review leaves six ends FAIL after that round, a
 spent its rounds ends: its budget is the one round it recorded, its result says why in one
 sentence -- the count, the number, and that the task is to be rescoped --, its next step is to
 split the task, and its resume is refused in that sentence, whatever its `--rounds`, its worktree
-cleaned or not, and whichever version ended it.  One left five goes on to its second round, as does one left six
+cleaned or not, whichever version ended it, and started before the run ended too.  One left five goes on to its second round, as does one left six
 under `rescope_findings = 0`; a project's front matter of four ends a run its review left four.
 Under two, two left at the third round end the run there, with no extra round
 (tests/test_key_one_finding_left_gets_extra_rounds.py) after it.  Black-box: the program
@@ -14,7 +14,11 @@ harnesses from fakeadapter.py.
 """
 
 import json
+import shlex
+import shutil
+import signal
 import sys
+import time
 from pathlib import Path
 import unittest
 
@@ -57,6 +61,20 @@ def run(cls, count, settings=None, files=None):
     cls.run_dir = taskfile.only_run(cls.home)
     cls.state = json.loads((cls.run_dir / "run.json").read_text())
     cls.result = (cls.run_dir / "result.md").read_text()
+
+
+def older(home):
+    """An older ak's checkout, whose bin/ak would carry a resume on: the file it leaves as it runs."""
+    ran = home.root / "older-ak" / "ran"
+    home.write(ran.parent / "bin/ak", f"from pathlib import Path\nPath({str(ran)!r}).touch()\n")
+    return ran
+
+
+def refused(case, home, run_dir, *more):
+    resumed = home.ak("run", "resume", run_dir.name, *more, timeout=300)
+    case.assertEqual(resumed.code, 2, resumed.out + resumed.err)
+    case.assertIn("The review left 6 blocking findings, at or past rescope_findings = 6: "
+                  "rescope the task.", resumed.err)
 
 
 def rounds(state):
@@ -104,24 +122,67 @@ class SixLeft(Ends, unittest.TestCase):
         run(cls, 6)
 
     def test_its_resume_is_refused_for_rescoping(self):
-        # its record names an older ak, which would carry it on and must never run
-        older = self.home.root / "older-ak"
-        ran = older / "ran"
-        self.home.write(older / "bin/ak", f"from pathlib import Path\nPath({str(ran)!r}).touch()\n")
-        record = {**self.state, "ak_checkout": str(older)}
-        self.home.write(self.run_dir / "run.json", record)
-        for more in ((), ("--rounds", "3"), ("--rounds", "4"), ("cleaned", "--rounds", "3")):
+        for more in ((), ("--rounds", "3"), ("--rounds", "4")):
             with self.subTest(more=more):
-                if more[:1] == ("cleaned",):
+                refused(self, self.home, self.run_dir, *more)
+                self.assertEqual(json.loads((self.run_dir / "run.json").read_text()), self.state)
+        # its record naming an older ak, which never runs, its worktree cleaned or not
+        ran = older(self.home)
+        record = {**self.state, "ak_checkout": str(ran.parent)}
+        self.home.write(self.run_dir / "run.json", record)
+        for clean in (False, True):
+            with self.subTest(older=True, clean=clean):
+                if clean:
                     self.assertEqual(self.home.ak("run", "clean", self.run_dir.name).code, 0)
-                    more = more[1:]
-                resumed = self.home.ak("run", "resume", self.run_dir.name, *more, timeout=300)
-                self.assertEqual(resumed.code, 2, resumed.out + resumed.err)
-                self.assertIn("The review left 6 blocking findings, at or past rescope_findings = 6: "
-                              "rescope the task.", resumed.err)
+                refused(self, self.home, self.run_dir, "--rounds", "3")
                 self.assertFalse(ran.exists())
                 self.assertEqual(json.loads((self.run_dir / "run.json").read_text()), record)
-                self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (1, 1))
+        self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (1, 1))
+
+
+class SixLeftAsItsResumeStarts(unittest.TestCase):
+    """A resume started while the first review still goes, its record naming an older ak, and
+    stopped at its box check until the run has ended on six, is refused as one started after."""
+
+    def test_it_is_refused(self):
+        home = Home()
+        self.addCleanup(home.close)
+        rig = Rig(home, "widgets")
+        GitHub(home).grant(rig.slug, "WRITE")
+        akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
+        fakes = fakeadapter.install(home, claude=[WORK, FIX], codex="pass")
+        reviewing, release = (fakes["codex"].dir / name for name in ("reviewing", "release"))
+        fakes["codex"].behave({**review(6), "sh": f"touch {shlex.quote(str(reviewing))}; until [ -f "
+                               f"{shlex.quote(str(release))} ]; do sleep .05; done"}, "pass")
+        stopped = home.root / "stopped"
+        home.fake("bwrap", f'#!/bin/sh\nif [ -n "$STOP_AT" ] && mkdir "$STOP_AT" 2>/dev/null; then '
+                           f'kill -STOP "$PPID"; fi\nexec {shlex.quote(shutil.which("bwrap"))} "$@"\n')
+        launch = home.spawn("run", str(taskfile.write(home, rig.path, "Add retry file")), "--no-merge")
+        until(reviewing.exists)
+        run_dir = taskfile.only_run(home)
+        ran = older(home)
+        record = {**json.loads((run_dir / "run.json").read_text()), "ak_checkout": str(ran.parent)}
+        home.write(run_dir / "run.next", record).replace(run_dir / "run.json")
+        resume = home.spawn("run", "resume", run_dir.name, "--rounds", "3", env={"STOP_AT": str(stopped)})
+        try:
+            until(lambda: resume.poll() is not None or stopped.exists()
+                  and ") T " in Path(f"/proc/{resume.pid}/stat").read_text())
+        finally:
+            release.touch()
+        self.assertEqual(launch.wait(timeout=300), 1)
+        resume.send_signal(signal.SIGCONT)
+        self.assertEqual(resume.wait(timeout=300), 2, home.log("spawn-2.err").read_text())
+        self.assertIn("rescope_findings = 6: rescope the task.", home.log("spawn-2.err").read_text())
+        self.assertFalse(ran.exists())
+        state = json.loads((run_dir / "run.json").read_text())
+        self.assertEqual((state["state"], rounds(state)), ("fail", [(1, "FAIL", 6)]))
+
+
+def until(check):
+    deadline = time.monotonic() + 300
+    while not check():
+        assert time.monotonic() < deadline, "never came"
+        time.sleep(0.05)
 
 
 class FiveLeft(GoesOn, unittest.TestCase):
