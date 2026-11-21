@@ -46,7 +46,7 @@ class ALandingCheckKeepsEachCommandsGreenLength(unittest.TestCase):
             self.assertFalse(error)
             commands = commands or list(land._landing_checks(directory, state, checkout,
                                                              self.base))
-            gate.checked_green(self.repo, dict.fromkeys(commands, KEPT))
+            gate.checked_green(self.repo, dict.fromkeys(commands, (KEPT, 0)))
             ok = land._check(directory, state, checkout, commands, directory / "check.log",
                              lambda _: None, suite=suite, shard=shard)[0]
         return ok, {command: gate.green_seconds(command, self.repo) for command in commands}

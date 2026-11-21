@@ -1662,16 +1662,29 @@ def _a_cost(value):
 def green_seconds(command, cwd):
     """How long `command` took in the last green whole check running it (`checked_green`), 0
     where none was measured."""
-    seconds = read_suite_cost(suite_cost(command, cwd, None)[0]).get("green_seconds")
-    return seconds if _a_cost(seconds) else 0
+    return _green(command, cwd, "green_seconds")
+
+
+def green_cpus(command, cwd):
+    """How many processors `command` used on this host through that check, 0 where none was
+    measured."""
+    return _green(command, cwd, "green_cpus")
+
+
+def _green(command, cwd, name):
+    value = read_suite_cost(suite_cost(command, cwd, None)[0]).get(name)
+    return value if _a_cost(value) else 0
 
 
 def checked_green(cwd, took):
-    """Keep on each command's cost how long it took in a green whole check, `took` by command."""
-    for command, seconds in took.items():
+    """Keep on each command's cost, in one write, how long it took in a green whole check and the
+    processors it used on this host meanwhile, `took` by command its seconds and the CPU seconds
+    its rows count (`run_done_when`'s): a piece the suite helper ran used none here."""
+    for command, (seconds, cpu) in took.items():
         try:
             with watch.state_lock():
-                write_suite_cost(suite_cost(command, cwd, None)[0], {"green_seconds": seconds})
+                write_suite_cost(suite_cost(command, cwd, None)[0], {
+                    "green_seconds": seconds, "green_cpus": cpu / seconds if seconds else 0})
         except OSError:
             pass    # a length not kept leaves the last one
 
@@ -2020,7 +2033,8 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
     differently.
     With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, its first
     go asked for at `asked`, a later one as the go before it ended: a turn it waits for is wait.
-    `used`, a dict, gets what a command run as one piece used (`worker.boxed`).
+    `used`, a dict, gets what a command run as one piece used (`worker.boxed`), and a split
+    one's `cpu_seconds`, its pieces' rows' together.
     A helper red that repeats naming only tests in `known`, failures known before it (the
     target's own red, `land.red_part`), settles nothing: the next one is confirmed too.
     """
@@ -2223,6 +2237,10 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                             on_timeout=stopped, silence=silence if first else later or silence,
                             **here, **kwargs)
                         ended["exit"] = None if killed else code
+                    if used is not None:
+                        with writing:   # its siblings' threads add theirs
+                            used["cpu_seconds"] = (used.get("cpu_seconds", 0)
+                                                   + (ended.get("cpu_seconds") or 0))
                     if stops == ["silence"]:
                         tests[:] = unfinished(only or ran, piece.name, tests)
                         if not first and not tests:
@@ -2728,7 +2746,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
     until then, takes `text`, its capped form. `timings`, a dict, gets each passing command's
     ({file: seconds}, piece count) from this pass alone, before that cap, and `took` its last
-    go's seconds, charged to the ceiling as they are: its waits for a turn aside.  `absent` is
+    go's seconds, charged to the ceiling as they are: its waits for a turn aside, and the
+    `cpu_seconds` all its rows in the list count (`history.check`), 0 where none is.  `absent` is
     `run_suite`'s, for one command, and `known` its for every one.
     With `chosen`, a passed review's (`roundloop.chosen_tests`), `only` lists the tests it chose
     from the time record (`round_tests.chosen`), which holds while the round goes: the check keeps
@@ -2748,6 +2767,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                                             # begun, and the output it had produced by then
     reason, running = [], []
     held = [] if absent is None else absent     # a go's not there, where it passed all else
+    cpu = {}    # by command, the CPU seconds its rows count: every go of it in the list
 
     def stopped(why, pid):
         reason.append(why)
@@ -2807,6 +2827,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     ended["exit"] = None if killed else code
                     end = progress.tell()
                 go = left - (deadline - time.monotonic())
+                cpu[cmd] = cpu.get(cmd, 0) + (ended.get("cpu_seconds") or 0)
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)
                 if heavy and code == SUITE_BUSY and not killed:
@@ -2845,7 +2866,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             if timings is not None and code == 0 and not killed:
                 timings[cmd] = suite_times.measured(log_path, offset), max(1, len(raw))
             if took is not None and code == 0 and not killed:
-                took[cmd] = go
+                took[cmd] = go, cpu[cmd]
             if marks is not None:
                 marks.append(None if killed else code)
             if split(cmd):
