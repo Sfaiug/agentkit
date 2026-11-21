@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager, nullcontext
 import copy
 import fcntl
+from fractions import Fraction
 import functools
 import json
 import math
@@ -46,6 +47,9 @@ COMPANY = 3         # and at most this many times its last green check (`gate.gr
 # two hours were sized on suites of some 40 minutes, and one of 94 seconds waited 2 h 02 min.
 # Waiting three times its length, a suite holds the host a quarter of the time at most, as two
 # hours held those; the owner chose "3x own check" (18 Nov 2026).
+IDLE_SPAN = 60      # the seconds a mean of the host's idle processors spans at least: a run's end
+                    # leaves its processors idle for about a minute before waiting work takes
+                    # them (16 Nov 2026, #3746)
 
 
 def _trees(turn, kind="trees"):
@@ -144,10 +148,12 @@ def _pass(turn):
     pass's own: `fruitless`, how many passes before it in a row checked something and moved
     nobody, a pass whose process died mid-check one of them unless its record says it `moved`,
     and `moved`, None until it checks members, then whether it wrote one a verdict, and `waited`,
-    whether it ended holding a whole suite off for company (`_waits_for_company`).  A pass that
+    whether it ended holding a whole suite off for company (`_waits_for_company`), and `idle`,
+    the reading of the host it keeps should it hold one off (`_idle_mean`).  A pass that
     only waited counts for neither, and one that held a suite off neither, nor among the last
     20: a busy host holds one off at every retry, and their time would set the pace `stuck`
     reads."""
+    from . import host
     with turn.with_suffix(".lander.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -158,7 +164,7 @@ def _pass(turn):
         took = kept.get("took") or []
         held = SimpleNamespace(moved=None, fruitless=0 if kept.get("moved") else kept.get(
             "fruitless", 0) + bool(kept.get("started") and not record.process_active(kept)),
-            waited=False)
+            waited=False, idle=host.IdleReading.of(kept.get("idle")))
         counted = {"fruitless": held.fruitless} if held.fruitless else {}
         started = time.time()
         held.start = {"took": took, **counted, "started": started, **record.process_owner()}
@@ -170,13 +176,16 @@ def _pass(turn):
             checked = spent >= CHECKED and not held.waited
             fruitless = 0 if held.moved else held.fruitless + (held.moved is False and checked)
             _keep_passes(turn, {"took": (took + [spent])[-20:] if checked else took,
-                                **({"fruitless": fruitless} if fruitless else {})})
+                                **({"fruitless": fruitless} if fruitless else {}),
+                                **({"idle": held.idle._asdict()} if held.waited and held.idle
+                                   else {})})
 
 
 def passes(turn):
     """The line's passes (`_pass`): `took`, the seconds of its last passes that checked
-    something, `fruitless` while the last of those moved nobody, and while one runs its
-    `started`, process and, once it wrote a verdict, `moved`."""
+    something, `fruitless` while the last of those moved nobody, `idle` where the last held a
+    suite off, and while one runs its `started`, process and, once it wrote a verdict,
+    `moved`."""
     try:
         data = json.loads(turn.with_suffix(".passes").read_text())
     except (OSError, ValueError):
@@ -1326,7 +1335,7 @@ def _looks(directory, state, repo, tip, prefix, log):
                        **({"looks": True} if "land" in answer else {})}
 
 
-def _waits_for_company(turn, stacks, checks, suite, log):
+def _waits_for_company(turn, held, stacks, checks, suite, log):
     """Whether `checks`, the whole check of the last of `stacks` on those before it, wait, the
     pass then ending with none started: where they run a suite, the target's `suite` or a
     `tests:` line one of `stacks` declares (`_landing_checks`), while the host has no room
@@ -1335,13 +1344,19 @@ def _waits_for_company(turn, stacks, checks, suite, log):
     is), and its longest-ready member without a verdict, one `check_line` checks, has been in
     line under COMPANY times the longest any of those suites took in its last green whole check,
     and under BATCH: a suite never measured green waits none, as its first check measures it.
+    Nor do they wait where every suite without that room has a kept use (`gate.green_cpus`)
+    above 0 and no higher than the processors the host had idle on average since the line's
+    kept reading (`_idle_mean`): two lines held 64 hours from 17 to 20 Nov 2026 while their
+    suites, using 3.8 and 5.3 processors, would have fitted in idle ones in four of five held
+    minutes.
     Lines ran their suites whole back to back, 19 to 32 runs a day a project, each for the few
     members that joined during the last, on a host loaded over twice its processors (13 to 16
     Nov 2026): one run now covers up to two hours of changes.  A run's end left a processor idle
     for a minute, and 27 of a day's 65 runs started in that dip for the one or two members there
     (16 Nov 2026): a suite takes every free turn for some 40 minutes, so only room for all of it
-    says no other work waits on it.  Asked of the clock, the readings and the line as they are,
-    whatever led the pass to the run, and nothing kept: the callers that retry a pass ask again.
+    says no other work waits on it, or its use idle on average a minute and more.  Asked of
+    the clock, the readings and the line as they are, whatever led the pass to the run, and
+    nothing kept but the host's reading: the callers that retry a pass ask again.
     The test suites' `AK_MAX_RUNS=0` lifts it, as every host gate."""
     from . import gate
     if os.environ.get("AK_MAX_RUNS") == "0":
@@ -1359,11 +1374,39 @@ def _waits_for_company(turn, stacks, checks, suite, log):
                        for _, _, scratch, tree, *_ in stacks)} & set(checks)
     ends = since + min(BATCH, COMPANY * max(
         (gate.green_seconds(command, cwd) for command in suites), default=0))
-    if time.time() >= ends or all(gate.fits_whole(command, cwd) for command in suites):
+    if time.time() >= ends:
         return False
+    cramped = [command for command in suites if not gate.fits_whole(command, cwd)]
+    mean = _idle_mean(held) if cramped else None
+    # the use as its decimal was kept: the float 2.1 is above 21/10
+    if not cramped or mean is not None and all(
+            0 < Fraction(str(gate.green_cpus(command, cwd))) <= mean for command in cramped):
+        return False
+    # half up, as the float 2.55 is below 51/20
     log(f"no room for all the suite's pieces at once: it runs whole for everyone in line by "
-        f"{time.strftime('%H:%M', time.localtime(ends))}")
+        f"{time.strftime('%H:%M', time.localtime(ends))}" + ("" if mean is None else
+        f", {math.floor(mean * 10 + Fraction(1, 2)) / 10:.1f} processors idle on average"))
     return True
+
+
+def _idle_mean(held):
+    """The processors the host had idle on average since the line's kept reading (`held.idle`),
+    a Fraction, or None: the host unread, no reading kept, or one of another start of the host
+    (its boot clock or idle ticks above now's) or under IDLE_SPAN old.  The host is read once a pass, and
+    `held.idle` left as what the pass keeps should it wait: the kept reading where that is under
+    IDLE_SPAN old or the host unread, else now's."""
+    from . import host
+    if "mean" not in vars(held):
+        now, kept, held.mean = host.idle_reading(), held.idle, None
+        if now and kept and kept.boot_ns <= now.boot_ns and (
+                kept.cpu_idle_ticks <= now.cpu_idle_ticks):
+            if now.boot_ns - kept.boot_ns < IDLE_SPAN * 10**9:
+                return None
+            held.mean = Fraction((now.cpu_idle_ticks - kept.cpu_idle_ticks) * 10**9,
+                                 now.clk_tck * (now.boot_ns - kept.boot_ns))
+        if now:
+            held.idle = now
+    return held.mean
 
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, ready, held, prefix=(),
@@ -1769,8 +1812,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, held, p
                                 running[job] = index, None, narrowing
                             else:
                                 checks = commands(index) if batched else own
-                                if _waits_for_company(turn, stacks[:index + 1], checks, suite,
-                                                      log):
+                                if _waits_for_company(turn, held, stacks[:index + 1], checks,
+                                                      suite, log):
                                     held.waited = short = True      # this pass ends
                                     break
                                 running[pool.submit(_check_tree, member, saved, scratch, tree,

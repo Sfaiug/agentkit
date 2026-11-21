@@ -682,6 +682,16 @@ class IdleReading(NamedTuple):
     cpu_idle_ticks: int
     clk_tck: int
 
+    @classmethod
+    def of(cls, readings):
+        """The reading `readings` give by name, None where any is not a whole number from 0 or
+        the tick rate is 0, which no ticks turn into seconds."""
+        if not isinstance(readings, dict):
+            return None
+        reading = cls(*(readings.get(name) for name in cls._fields))
+        whole = all(type(number) is int and number >= 0 for number in reading)
+        return reading if whole and reading.clk_tck else None
+
 
 def idle_reading():
     """The host's `IdleReading`, or None where any of its numbers cannot be read.
@@ -700,10 +710,7 @@ def idle_reading():
                         "cpu_idle_ticks": int(cpu[4]), "clk_tck": os.sysconf("SC_CLK_TCK")}
         except (OSError, ValueError, IndexError, StopIteration):
             return None
-    numbers = [readings.get(name) for name in IdleReading._fields]
-    if not all(type(number) is int and number >= 0 for number in numbers):
-        return None
-    return IdleReading(*numbers)
+    return IdleReading.of(readings)
 
 
 def _ready(cgroup):
