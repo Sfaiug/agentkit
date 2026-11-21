@@ -48,10 +48,10 @@ func TestATerminalsLateAnswerIsNoKey(t *testing.T) {
 
 // An answer naming no colour is told from a dark one: it keeps nothing (keep).
 func TestABackgroundIsLightOnceItsLumaIsPastHalfWay(t *testing.T) {
-	for answer, want := range map[string][2]bool{"rgb:8080/8080/8080": {true, true}, "rgb:7f7f/7f7f/7f7f": {false, true},
-		"rgb:ff/ff/ff": {true, true}, "rgba:0000/0000/0000/ffff": {false, true}, "": {false, false}, "black": {false, false}} {
-		if light, read := isLight(answer); [2]bool{light, read} != want {
-			t.Errorf("%q: %v %v", answer, light, read)
+	for answer, want := range map[string][2]any{"rgb:8080/8080/8080": {"808080", true}, "rgb:7f7f/7f7f/7f7f": {"7f7f7f", false},
+		"rgb:ff/ff/ff": {"ffffff", true}, "rgba:0000/0000/0000/ffff": {"000000", false}, "": {"", false}, "black": {"", false}} {
+		if rgb, light := background(answer); [2]any{rgb, light} != want {
+			t.Errorf("%q: %v %v", answer, rgb, light)
 		}
 	}
 }

@@ -116,7 +116,8 @@ class EveryScreenComesUp(unittest.TestCase):
         half = self.inks(text, since, lambda found: found[-1] != background)[-1]
         self.term.keys(still)         # the clock still half way: the key ends the motion
         found = self.inks(text, since, lambda found: found[-1] != half)
-        self.assertEqual(background, (0, 0, 0), found)     # the black theme's background
+        self.assertEqual(background, tuple(map(int, re.search(     # every write's first colour
+            rb"\x1b\[48;2;(\d+);(\d+);(\d+)", self.raw.read_bytes()).groups())), found)
         self.assertNotIn(found[-1], found[:found.index(half)])     # never at rest before
         self.assertTrue(all(min(b, r) <= h <= max(b, r)
                             for b, h, r in zip(background, half, found[-1])), found)

@@ -17,7 +17,7 @@ from functools import lru_cache, wraps
 from itertools import groupby
 
 from . import config, guard, motion, warm
-from .themes import BLACK, KEPT, ROLES, WHITE, fits
+from .themes import BLACK, GROUNDS, KEPT, ROLES, WHITE, fits
 
 # glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
@@ -51,6 +51,10 @@ KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
+# The background that answer said, `rrggbb`, on a terminal that draws every colour: a screen sits
+# on it (`_painted`).  None where it gave none or draws the nearest of 256: no shade is known to
+# read on what it has, nor could a fade reach it, so a screen is painted in the theme's.
+GROUND = None
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
@@ -108,9 +112,15 @@ def colour(word, tmux=False):
     """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
     force; with `tmux`, in a tmux format (a seat's bar, a popup's border), in the kept one
     whichever process writes it: tmux shows it on a terminal ak never asks, and the
-    menu's writes and the tick's never disagree."""
+    menu's writes and the tick's never disagree.  Where a screen sits on the terminal's own
+    background (`GROUND`) that is the background, and its shades (themes.GROUNDS) are as far
+    from it as from the theme's: a fade nears what shows, and no band or line is lost on it."""
     role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
-    return ROLES[role][kept() if tmux else theme()]
+    shades = kept() if tmux else theme()
+    if tmux or GROUND is None or role not in GROUNDS:
+        return ROLES[role][shades]
+    return bytes(min(255, max(0, own + shade - back)) for own, shade, back in zip(*map(
+        bytes.fromhex, (GROUND, ROLES[role][shades], ROLES["background"][shades])))).hex()
 
 
 def glyph(word):
@@ -227,9 +237,10 @@ class _Screen:
     """stdout as a screen leaves for the terminal (`screens`): painted in the theme in force, and
     `_PAD` cells in from every edge.
 
-    Each write starts on no background in the theme's text, puts them back after every reset and
-    ends in the terminal's own colours: every cell a draw, a frame or a clear touches is on the
-    terminal's own, text of no colour is the theme's, whichever helper drew it, and the terminal is
+    Each write starts in the theme's text, on the terminal's own background where it is known
+    (`GROUND`) and on the theme's where not, puts them back after every reset and ends in the
+    terminal's own colours: every cell a draw, a frame or a clear touches is on that background
+    and text of no colour is the theme's, whichever helper drew it, and the terminal is
     its own again between writes, for whatever has it next -- a program ak starts, a signal, the
     shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at
     eight colours, whose tones read on any background.
@@ -260,10 +271,11 @@ class _Screen:
 
 
 def _painted(text):
-    """`text` in the text of the theme in force where it sets no colour, on the terminal's own
-    background where it sets none (`_Screen`)."""
+    """`text` in the text of the theme in force where it sets no colour, and where it sets no
+    background on the terminal's own, or where that is not known on the theme's (`_Screen`)."""
+    back = "49" if GROUND else ink(colour("background"), "48")
     fore = ink(colour("text"), "38")
-    again = {"": f"0;{fore}", "0": f"0;{fore}", "39": fore}
+    again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
 
     def put_back(code):
         parts, out = code[1].split(";"), []
@@ -274,7 +286,7 @@ def _painted(text):
                 size = 4 if parts[:1] == ["2"] else 2
                 out, parts = out + parts[:size], parts[size:]
         return f"\033[{';'.join(out)}m"
-    return f"\033[49;{fore}m{_SGR.sub(put_back, text)}\033[0m"
+    return f"\033[{back};{fore}m{_SGR.sub(put_back, text)}\033[0m"
 
 
 def screens(popup=False):
@@ -1062,16 +1074,17 @@ def sense():
 
     True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
     (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in -- as the popup was
-    handed them (FEATURES_ENV), else as tmux says, which takes a process.  And whether the
-    background is light, from the terminal's answer to OSC 11 within a second, kept (`_keep`); no
-    answer by then is the kept one.  Its attributes are asked for after it (DA1), which every
-    terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
-    is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
-    answers are read here and never as keys: anything typed while they were awaited is kept for
-    `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
-    back up in what it found (`_last_frame`), the hold it was given back under hiding the wait.
+    handed them (FEATURES_ENV), else as tmux says, which takes a process.  And its background,
+    from the terminal's answer to OSC 11 within a second: the theme it fits, kept (`_keep`), and
+    the background itself (`GROUND`); no answer by then is the kept theme.  Its attributes are
+    asked for after it (DA1), which every terminal answers, and answers in turn: once they are
+    in, an OSC 11 answer not in before them is none, so a terminal that never answers it --
+    tmux, in a popup -- costs no wait.  The answers are read here and never as keys: anything
+    typed while they were awaited is kept for `read_key`, and one that comes later is
+    `_sequence`'s.  Then the frame a restart left up goes back up in what it found
+    (`_last_frame`), the hold it was given back under hiding the wait.
     """
-    global _RGB, THEME, _KEYED
+    global _RGB, THEME, GROUND, _KEYED
     features = os.environ.get(FEATURES_ENV)
     if features is None and os.environ.get("TMUX"):
         try:
@@ -1098,10 +1111,12 @@ def sense():
     _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
     colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
                       found.group(1)) if found else None
-    THEME = None
+    THEME = GROUND = None
     if colour:
         red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
         THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK  # luma
+        if colour_depth() == 24:
+            GROUND = bytes(round(255 * part) for part in (red, green, blue)).hex()
         _keep(THEME)
     _last_frame()
 

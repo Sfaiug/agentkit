@@ -8,7 +8,7 @@ func RGB(word string) string { return RGBs(word)[0] }
 func RGBs(words ...string) []string {
 	shades, said := kept(), make([]string, len(words))
 	for i, word := range words {
-		said[i] = colourOf(word, shades)
+		said[i] = roles[roleOf(word)][shades]
 	}
 	return said
 }

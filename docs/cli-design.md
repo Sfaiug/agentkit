@@ -94,8 +94,10 @@ seat's bar surface, its chip on-accent on its state's. Names and numbers are `te
 its neighbour `muted`, what the eye skips `dim`, lines `border`, ak's own word `info`; a highlight
 keeps them. A fade nears the background; lit, the text; moving, the rainbow (`themes.RAINBOW`).
 
-The terminal's background stays, picking shades (`themes.ROLES`, Go: `terminal/themes.go`); `NO_COLOR`
-colours nothing.
+The terminal's background picks the shades (`themes.ROLES`, Go: `terminal/themes.go`). Where it
+says which it is and draws every colour it stays, `selection` and `border` as far from it as from
+the theme's (`themes.GROUNDS`); where it says none, or draws 256, a screen is painted in the
+theme's. `NO_COLOR` colours nothing.
 
 Colour says where a thing stands and never who.
 

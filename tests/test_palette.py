@@ -53,6 +53,7 @@ class Palette(unittest.TestCase):
             self.addCleanup(end.close)
         self.addCleanup(os.close, self.master)
         for target, name, value in ((terminal, "_RGB", False), (terminal, "THEME", None),
+                                    (terminal, "GROUND", None),
                                     (terminal, "_KEYED", b""), (sys, "stdin", stdin),
                                     (sys, "stdout", stdout), (config, "STATE", kept.name)):
             patcher = patch.object(target, name, value)
@@ -130,6 +131,25 @@ class Palette(unittest.TestCase):
         self.assertEqual((terminal.THEME, terminal.kept()), (terminal.BLACK, terminal.BLACK))
         with patch.object(terminal, "colour_depth", return_value=24):
             self.assertIn("38;2;215;146;0m", terminal.styled("x", "needs you"))
+
+    def test_a_screen_sits_on_the_background_a_terminal_of_every_colour_says(self):
+        dark = b"\033]11;rgb:20/30/40\033\\"
+        # the nearest of 256 colours is not the terminal's own: painted in black's
+        self.sense(dark, ATTRIBUTES)
+        self.assertIsNone(terminal.GROUND)
+        self.assertEqual(terminal._painted("x"), "\033[48;5;16;38;5;254mx\033[0m")
+        with patch.dict(os.environ, {"COLORTERM": "truecolor"}):
+            self.sense(dark, ATTRIBUTES)
+            self.assertEqual(terminal._painted("x"), "\033[49;38;2;226;232;239mx\033[0m")
+            # the background is the terminal's, the selection and the border as far from it as
+            # black's are from black, and a fade ends in it; what tmux draws keeps black's
+            roles = "background", "selection", "border", "text"
+            self.assertEqual([terminal.colour(role) for role in roles],
+                             ["203040", "28609d", "5a6f86", "e2e8ef"])
+            self.assertEqual(terminal.faded("dim", 1), "#203040")
+            self.assertEqual(terminal.colour("selection", tmux=True), "08305d")
+            self.sense(ATTRIBUTES)      # and none once it says none
+            self.assertIsNone(terminal.GROUND)
 
     def test_attributes_alone_end_the_wait_at_once_and_read_as_dark_with_none_kept(self):
         # tmux, in a popup: no answer to OSC 11, its own to DA1 at once

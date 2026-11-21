@@ -35,6 +35,9 @@ ROLES = {
 # A light that moves says only that it moves, so it is no role's: from its head back, the roles
 # that say where a thing stands in the spectrum's order, each theme's own rainbow (motion.lit).
 RAINBOW = ("error", "warning", "success", "info", "accent", "special")
+# The background and the shades drawn just off it: on a terminal's own background (terminal.GROUND)
+# each is as far from that as from its theme's, so none is lost on it.
+GROUNDS = ("background", "selection", "border")
 
 
 def fits(path):

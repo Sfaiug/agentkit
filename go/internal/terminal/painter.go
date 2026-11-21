@@ -80,17 +80,21 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	p.up, p.over, p.of, p.known = slices.Clone(lines), slices.Clone(over), screen, !tall
 }
 
-// paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the terminal's
-// own background, in the theme's text wherever it sets no colour, each reset putting both back, and the terminal
-// its own colours again after it, for whatever has it next.  At eight colours, whose tones read on any
-// background, it is as it is.
+// paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the
+// terminal's own background where it is known (ground) and on the theme's where not, in the theme's
+// text wherever it sets no colour, each reset putting both back, and the terminal its own colours
+// again after it, for whatever has it next.  At eight colours, whose tones read on any background,
+// it is as it is.
 func (s Screen) paint(text string) string {
 	if !s.Moves() || text == "" {
 		return text
 	}
-	fore := s.ink(colourOf("text", s.theme), "38")
-	again := map[string]string{"": "0;" + fore, "0": "0;" + fore, "39": fore}
-	return "\x1b[49;" + fore + "m" + sgr.ReplaceAllStringFunc(text, func(code string) string {
+	back, fore := "49", s.ink(s.colour("text"), "38")
+	if s.ground == "" {
+		back = s.ink(s.colour("background"), "48")
+	}
+	again := map[string]string{"": "0;" + back + ";" + fore, "0": "0;" + back + ";" + fore, "39": fore, "49": back}
+	return "\x1b[" + back + ";" + fore + "m" + sgr.ReplaceAllStringFunc(text, func(code string) string {
 		parts, out := strings.Split(code[2:len(code)-1], ";"), []string{}
 		for i := 0; i < len(parts); i++ {
 			if put, ok := again[parts[i]]; ok {
@@ -126,7 +130,7 @@ func (p painted) Write(text []byte) (int, error) {
 }
 
 // Clears begins a screen read a line at a time, as Python's menu begins one, on a terminal that takes
-// colour: the screen cleared, so every cell of it is on the terminal's own background.
+// colour: the screen cleared, so painted (Painted) every cell of it is on the background.
 func (s Screen) Clears() string {
 	if s.depth == 0 {
 		return ""

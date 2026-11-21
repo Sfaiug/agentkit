@@ -4,10 +4,12 @@
 package terminal
 
 import (
+	"encoding/hex"
 	"io"
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -36,34 +38,55 @@ var styles = map[string]style{
 // kinds are the roles a screen asks Styled for, each the word whose colour it is.
 var kinds = map[string]string{"accent": "working", "amber": "needs you"}
 
-// colourOf is a word's colour in a theme: a role's (roles), a state word's, or a kind's.
-func colourOf(word string, in theme) string {
+// roleOf is the role a word's colour is: its own (roles), a state word's, or a kind's.
+func roleOf(word string) string {
 	if _, ok := roles[word]; ok {
-		return roles[word][in]
+		return word
 	}
 	if role, ok := kinds[word]; ok {
 		word = role
 	}
-	return roles[styles[word].colour][in]
+	return styles[word].colour
+}
+
+// colour is a word's colour on this screen, its role's in the screen's theme, as Python's
+// terminal.colour says it: where the screen sits on the terminal's own background (ground) that is
+// the background, and its shades (grounds) are as far from it as from the theme's, so a fade nears
+// what shows and no band or line is lost on it.
+func (s Screen) colour(word string) string {
+	role := roleOf(word)
+	if s.ground == "" || !slices.Contains(grounds, role) {
+		return roles[role][s.theme]
+	}
+	own, _ := hex.DecodeString(s.ground)
+	shade, _ := hex.DecodeString(roles[role][s.theme])
+	back, _ := hex.DecodeString(roles["background"][s.theme])
+	for i := range shade {
+		shade[i] = byte(min(255, max(0, int(own[i])+int(shade[i])-int(back[i]))))
+	}
+	return hex.EncodeToString(shade)
 }
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
 
-// isLight is whether an answer's luma is past half way, and whether it names a colour to tell.
-func isLight(answer string) (light, read bool) {
+// background is the colour an answer names, `rrggbb`, "" where it names none to tell, and whether
+// its luma is past half way.
+func background(answer string) (rgb string, light bool) {
 	found := backgroundRGB.FindStringSubmatch(answer)
 	if found == nil {
-		return false, false
+		return "", false
 	}
 	var channel [3]float64
+	said := make([]byte, 3)
 	for i, part := range found[1:] {
 		value, err := strconv.ParseUint(part, 16, 64)
 		if err != nil {
-			return false, false
+			return "", false
 		}
 		channel[i] = float64(value) / (math.Pow(16, float64(len(part))) - 1)
+		said[i] = byte(math.RoundToEven(255 * channel[i]))
 	}
-	return 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5, true
+	return hex.EncodeToString(said), 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5
 }
 
 // trueColour is whether a tmux client's features say it takes true colour, as tmux and ssh both
@@ -100,6 +123,10 @@ type Screen struct {
 	depth, width, height int
 	ascii                bool
 	theme                theme
+	// The background its terminal said it has, `rrggbb`, where that draws every colour: the screen
+	// sits on it (paint).  "" where it said none or draws the nearest of 256: no shade is known to
+	// read on what it has, nor could a fade reach it, so the screen is painted in the theme's.
+	ground string
 }
 
 // For is out as a screen that never asks its terminal what it is: in the shades kept (kept).

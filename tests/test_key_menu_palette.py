@@ -22,6 +22,9 @@ from fixtures.akterm import SERVER, Terminal, forget
 
 DARK_ACCENT, DARK_NEEDS, DARK_MUTED = "38;2;77;163;255", "38;2;215;146;0", "38;2;172;180;189"
 LIGHT_ACCENT, LIGHT_NEEDS, LIGHT_MUTED = "38;2;0;103;198", "38;2;142;94;0", "38;2;83;89;98"
+# A theme's background off the highlight: painted where the terminal says none of its own, or
+# draws only the nearest of 256 colours; a terminal of every colour that says one keeps it.
+DARK, LIGHT_256 = "48;2;0;0;0", "48;5;231"
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -53,8 +56,8 @@ class Palette(unittest.TestCase):
     def test_with_no_answer_about_the_background_the_menu_is_dark(self):
         screen = self.menu(COLORTERM="truecolor")
         self.assertEqual(ink(look(screen, "›")), {"1", DARK_ACCENT})
-        self.assertEqual(look(screen, "! needs you", on="beta"), {"1", DARK_NEEDS})
-        self.assertEqual(look(screen, "Opus 5.5", on="beta"), {DARK_MUTED})
+        self.assertEqual(look(screen, "! needs you", on="beta"), {"1", DARK_NEEDS, DARK})
+        self.assertEqual(look(screen, "Opus 5.5", on="beta"), {DARK_MUTED, DARK})
 
     def test_on_a_light_background_the_menu_draws_the_white_theme(self):
         for colorterm in ("truecolor", "24bit"):
@@ -73,7 +76,7 @@ class Palette(unittest.TestCase):
 
     def test_on_256_colours_the_light_needs_you_is_its_nearest_fixed_colour(self):
         self.assertEqual(look(self.menu("#ffffff", TERM="xterm-256color"), "! needs you",
-                              on="beta"), {"1", "38;5;94"})
+                              on="beta"), {"1", "38;5;94", LIGHT_256})
 
 
 if __name__ == "__main__":

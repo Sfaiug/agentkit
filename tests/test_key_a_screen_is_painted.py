@@ -1,21 +1,27 @@
-"""A screen is painted in its theme on the terminal's own background: no cell of it, text or
-blank, on a background but those the highlight is on, on the theme's selection
-(tests/test_key_one_highlight.py), text of no colour in the theme's text, and the terminal its
-own again once ak leaves.
+"""A screen is painted in its theme: every cell of it, text or blank, on one background, or a
+row the highlight is on whole on the selection (tests/test_key_one_highlight.py), text of no
+colour in the theme's text, and the terminal its own again once ak leaves.  That background is
+the terminal's own where the terminal says which it is: ak sets none, the selection and a line
+are as far from it as the theme's are from the theme's background, so neither is lost on it, and
+a page comes up out of it.  A terminal that says none is painted in the theme's, to its last
+column: no shade is known to show on what it has.
 
-The owner (20 Nov 2026): the terminal's own background "should be used, and ak just sits on top".
+The owner (12 Nov 2026): two themes, white and black, seen through everywhere ak is visual; and
+(20 Nov 2026) the terminal's own background "should be used, and ak just sits on top".
 Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour
 (tests/fixtures/akterm.py) whose own background, set by its panes' `window-style`, which tmux
 answers OSC 11 with, is neither theme's, over a working seat and an idle one
-(tests/fixtures/akseat.py), each cell judged by how it looks (tests/fixtures/aklooks.py).  Its
-clock injected as tests/test_key_themes.py injects it, so each frame of a breath is drawn at a
-moment the test sets, however busy the host.
+(tests/fixtures/akseat.py), each cell judged by how it looks (tests/fixtures/aklooks.py), and a
+page as it comes up by what tmux's `pipe-pane` says it was written in
+(tests/test_key_every_screen_comes_up.py).  Its clock injected as tests/test_key_themes.py
+injects it, so each frame of a breath is drawn at a moment the test sets, however busy the host.
 """
 
 import shlex
 import sys
 from pathlib import Path
 import time
+import unicodedata
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -23,11 +29,15 @@ from fixtures.akbin import AK, REAL_TMUX, Home
 from fixtures.aklooks import ATTRIBUTES, look, looks, plain, settled
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal, forget
+from test_key_every_screen_comes_up import inks
 from test_key_one_highlight import ground
 
 DARK, LIGHT = "#203040", "#e8e4d8"     # terminals' own backgrounds, neither theme's
-# a theme's background, text and selection
-BLACK, WHITE = ("000000", "e2e8ef", "08305d"), ("ffffff", "181c22", "dcecff")
+# a theme's background, text, selection and border
+BLACK, WHITE = ("000000", "e2e8ef", "08305d", "3a3f46"), ("ffffff", "181c22", "dcecff", "b1b8c0")
+# ... and on a terminal's own background, which ak sets none on: the selection and the border as
+# far from DARK as black's are from black, from LIGHT as white's are from white
+ON_DARK, ON_LIGHT = (None, "e2e8ef", "28609d", "5a6f86"), (None, "181c22", "c5d1d8", "9a9d99")
 SIZE = (100, 30)
 OPENED = 1000.0     # the moment ak's motion stands at as a screen opens
 # a breath, which takes two seconds, in quarters, long after the screen opened: each a frame
@@ -35,7 +45,8 @@ MOMENTS = [OPENED + 10 + quarter / 4 for quarter in range(1, 9)]
 
 
 def sgr(rgb, ground="38"):
-    return f"{ground};2;" + ";".join(str(channel) for channel in bytes.fromhex(rgb))
+    """How a cell in that colour looks, its text or its `ground`; None for the terminal's own."""
+    return rgb and f"{ground};2;" + ";".join(str(channel) for channel in bytes.fromhex(rgb))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -58,9 +69,10 @@ class AScreenIsPainted(unittest.TestCase):
         new.replace(self.clock)
 
     def open(self, *args, background=DARK, env=None, program=AK):
-        """`args` run on a true-colour terminal of that background, ak's motion at OPENED."""
-        done = self.home.tmux("set-option", "-g", "window-style", f"bg={background}",
-                              server=SERVER)
+        """`args` run on a true-colour terminal of that background, or one that says none, ak's
+        motion at OPENED."""
+        option = ["window-style", f"bg={background}"] if background else ["-u", "window-style"]
+        done = self.home.tmux("set-option", "-g", *option, server=SERVER)
         self.assertEqual(done.code, 0, done.err)
         self.at(OPENED)
         term = Terminal(self.home, *args, size=SIZE, program=program, env={
@@ -75,24 +87,30 @@ class AScreenIsPainted(unittest.TestCase):
         return settled(term, shown, bound=60)
 
     def assert_painted(self, term, theme, rows=None):
-        """No cell of the terminal, to its last row, on a background but the theme's selection:
+        """Every cell of the terminal, to its last column and row, on the theme's background or
+        its selection, one never written, which tmux keeps none for, on the terminal's own:
         `rows`, a capture's looks, else the terminal's now."""
         rows = rows or looks(term.screen(colours=True, blank=True))
+        grounds = {sgr(theme[0], "48"), sgr(theme[2], "48")}
         self.assertGreaterEqual(len(rows), SIZE[1])
         for number, line in enumerate(rows[:SIZE[1]], 1):
-            off = {char for char, shown in line if ground(shown) not in (None, sgr(theme[2], "48"))}
-            self.assertEqual(off, set(), f"row {number}: {plain(line)!r}")
+            wide = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char, _ in line)
+            on = {*(ground(shown) for _, shown in line), *[None] * (SIZE[0] - wide)}
+            self.assertEqual(on - grounds, set(), f"row {number}: {plain(line)!r}")
 
     def assert_named(self, rows, theme):
-        """A seat's name in the theme's text, on no background."""
-        self.assertEqual(set(look(rows, "delta", on="idle")) - ATTRIBUTES, {sgr(theme[1])})
+        """A seat's name in the theme's text and the header's rule in its border, on its
+        background."""
+        back = {sgr(theme[0], "48")} - {None}
+        self.assertEqual(set(look(rows, "delta", on="idle")) - ATTRIBUTES, {sgr(theme[1])} | back)
+        self.assertEqual(set(look(rows, "─" * 40)) - ATTRIBUTES, {sgr(theme[3])} | back)
 
     def test_the_ak_screen_and_its_breath_set_no_background(self):
         menu = self.open()
         self.rest(menu, "esc leave", OPENED + 10)
         rows = looks(menu.screen(colours=True, blank=True))
-        self.assert_painted(menu, BLACK, rows)
-        self.assert_named(rows, BLACK)
+        self.assert_painted(menu, ON_DARK, rows)
+        self.assert_named(rows, ON_DARK)
         for moment in MOMENTS:
             last = menu.screen(colours=True, blank=True)
             self.at(moment)
@@ -101,26 +119,38 @@ class AScreenIsPainted(unittest.TestCase):
                 self.assertLess(time.monotonic(), deadline, f"ak drew no frame at {moment}")
                 time.sleep(0.05)
             with self.subTest(moment=moment):
-                self.assert_painted(menu, BLACK, looks(shown))
+                self.assert_painted(menu, ON_DARK, looks(shown))
 
-    def test_c_and_subscriptions_set_no_background(self):
+    def test_c_and_subscriptions_set_no_background_and_come_up_out_of_the_terminal_s_own(self):
         menu = self.open()
         self.rest(menu, "esc leave", OPENED + 10)
         menu.keys("c")
         self.rest(menu, lambda text: "› " in text and "Subscriptions" in text, OPENED + 20)
-        self.assert_painted(menu, BLACK)
+        self.assert_painted(menu, ON_DARK)
 
         def pointed(text):    # the highlighted row
             return next((line for line in text.split("\n") if line.startswith("› ")), None)
         while "Subscriptions" not in (row := pointed(menu.screen())):
             menu.keys("Down")
             menu.wait(lambda text: pointed(text) not in (None, row), 30)
+        written = self.home.root / "written"
+        done = self.home.tmux("pipe-pane", "-O", "-t", menu.pane,
+                              f"cat >{shlex.quote(str(written))}", server=SERVER)
+        self.assertEqual(done.code, 0, done.err)
         menu.keys("Enter")
+        deadline = time.monotonic() + 60
+        while not (found := inks(written.read_bytes().decode("utf-8", "replace")
+                                 if written.exists() else "", "+ add a subscription")):
+            self.assertLess(time.monotonic(), deadline, "Subscriptions was never written")
+            time.sleep(0.05)
+        # nothing of it to see in its first frame: the terminal's own background is its ink
+        self.assertEqual(found[0], tuple(bytes.fromhex(DARK[1:])))
         self.rest(menu, "+ add a subscription", OPENED + 30)
-        self.assert_painted(menu, BLACK)
+        self.assert_painted(menu, ON_DARK)
 
-    def test_the_popup_over_a_seat_sets_no_background_nor_its_padding(self):
-        popup = self.open("attach", "--overlay",
+    def test_the_popup_over_a_seat_is_on_black_its_padding_too(self):
+        forget(self.home)       # tmux says no background in a popup: black where none is kept
+        popup = self.open("attach", "--overlay", background=None,
                           env={"AGENTKIT_SESSION": "acme", "AGENTKIT_PADDING": "1"})
         rows = self.rest(popup, "esc leave", OPENED + 10)
         self.assertEqual(plain(rows[0]).strip(), "")      # the padding, above the header
@@ -130,10 +160,10 @@ class AScreenIsPainted(unittest.TestCase):
         menu = self.open(background=LIGHT)
         self.rest(menu, "esc leave", OPENED + 10)
         rows = looks(menu.screen(colours=True, blank=True))
-        self.assert_painted(menu, WHITE, rows)
-        self.assert_named(rows, WHITE)
+        self.assert_painted(menu, ON_LIGHT, rows)
+        self.assert_named(rows, ON_LIGHT)
 
-    def test_a_screen_read_a_line_at_a_time_sets_no_background(self):
+    def test_a_screen_read_a_line_at_a_time_is_on_black(self):
         forget(self.home)       # it cannot ask: in the theme kept, black where none is
         menu = self.open("-c", 'printf "\\033\\n" | "$0" --dry-run; exec sleep 86400', AK,
                          program="sh")
@@ -160,7 +190,7 @@ class AScreenIsPainted(unittest.TestCase):
                 break
             self.assertLess(time.monotonic(), deadline, "never took the screen again")
             time.sleep(0.05)
-        self.assert_named(looks(said[enter:release].decode()), WHITE)
+        self.assert_named(looks(said[enter:release].decode()), ON_LIGHT)
 
     def test_what_the_shell_writes_after_ak_is_in_the_terminal_s_own_colours(self):
         shell = self.open("-c", '"$0"; echo after ak', AK, program="sh")
