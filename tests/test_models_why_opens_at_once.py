@@ -30,7 +30,7 @@ class WhyOpensAtOnce(Sandbox):
         said = [(role, {"name": "Alpha", "effort": "high"}, ("100.0", "$1.00"))
                 for role in menu.quality.ROLES]
         empty = {role: {"choices": [], "others": [], "whys": {}} for role in menu.quality.ROLES}
-        used = dict.fromkeys(menu.quality.ROLES, (None, None, {"provider": "acme"}))
+        used = dict.fromkeys(menu.quality.ROLES, (None, None, {"provider": "acme", "yours": []}))
         for name, value in (("stored", {}), ("refresh", ({}, None)), ("answer", empty),
                             ("uses", used)):
             self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))
@@ -42,7 +42,7 @@ class WhyOpensAtOnce(Sandbox):
         self.opened, self.let_go = threading.Event(), threading.Event()
         self.addCleanup(self.let_go.set)
 
-    def why(self, found, role, row, kept, unit, weeks):
+    def why(self, found, role, row, kept, unit, weeks, runs):
         """The page: its heading, then a line of each of `weeks`."""
         self.opened.set()
         return [HEADING, *("  " + menu.week_checked(*week) for week in weeks)]

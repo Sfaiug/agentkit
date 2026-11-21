@@ -23,7 +23,8 @@ def model(name, quality, cost, effort):
 
 class WhyFitsItsWidth(unittest.TestCase):
     def test_no_line_is_wider_than_its_screen(self):
-        # each role's verb, with and without an effort beside the name in the heading
+        # each role's verb, with and without an effort beside the name in the heading, and the
+        # other effort a take writes in its quality part
         for role, effort, width in [(role, effort, width) for role in menu.DOES
                                     for effort in ("", "medium") for width in range(1, 41)]:
             choice, other = model("Acme 1", 95.0, 1, effort), model("Bolt 1", 90.0, 2, effort)
@@ -31,7 +32,8 @@ class WhyFitsItsWidth(unittest.TestCase):
                      "whys": {id(other): ("beaten", choice)}, "cost_unit": "money"}
             with self.subTest(role=role, effort=effort, width=width), patch.object(
                     terminal, "layout_width", return_value=width):
-                page = menu.models_why(found, role, choice, choice, "$ a task", [])
+                page = menu.models_why(found, role, choice, choice, "$ a task", [],
+                                       "minimal" if effort else None)
                 # the other, its bar drawn from 13 cells: its lines hang, beside its label where
                 # 14 cells leave a value one, else under it
                 if width >= 14:

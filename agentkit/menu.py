@@ -3196,16 +3196,27 @@ def stands(found, row):
     return id(row) in found["whys"] and row["cost"] is not None
 
 
+def role_steps(found, kept):
+    """The rows ← and → step among (next_choice) of a role's answer `found` (matrix.answer): its
+    `choices`, and the row of `kept` (model, effort, row) where it stands (`stands`)."""
+    return found["choices"] + ([kept[2]] if stands(found, kept[2]) else [])
+
+
+def step_take(cfg, found, kept, row):
+    """(model, effort) a step to `row`, one of role_steps, asks a take at (take_choice): a
+    choice's, the model a take of it takes (matrix.takes) at its effort; the row of `kept`'s, as
+    the role used it."""
+    return ((matrix.takes(cfg, row), row["effort"]) if any(one is row for one in found["choices"])
+            else kept[:2])
+
+
 def next_choice(cfg, found, row, step, kept):
     """What ← (`step` -1) or → (1) takes off `row`, the row a role uses, of its answer `found`
     (matrix.answer), the owner's design of 5 Nov 2026: (model, effort) of its next step down or
-    up, in order of cost and on a tie of quality; None past either end.  The steps: its
-    `choices`, each as the model a take of it takes (matrix.takes) at its effort, and the row
-    of `kept` (model, effort, row) where it stands (`stands`), as the role used it.  A `row`
-    that is no step stands at its cost and quality, one with no cost as its best choice."""
-    name, effort, own = kept
-    steps = [(one, matrix.takes(cfg, one), one["effort"]) for one in found["choices"]]
-    steps += [(own, name, effort)] if stands(found, own) else []
+    up (role_steps, step_take), in order of cost and on a tie of quality; None past either end.
+    A `row` that is no step stands at its cost and quality, one with no cost as its best
+    choice."""
+    steps = [(one, *step_take(cfg, found, kept, one)) for one in role_steps(found, kept)]
     here = row if row and row["cost"] is not None else next(reversed(found["choices"]), None)
     if here is None:
         return None
@@ -3899,18 +3910,20 @@ def week_checked(plan, checks):
             f"{'high' if off >= 0 else 'low'}")
 
 
-def models_why(found, role, row, kept, unit, weeks):
+def models_why(found, role, row, kept, unit, weeks, runs):
     """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
     2026: a label column, each value going on at its words in its own (flowed), an other's lines
     after its first two cells further in, so each other's first line stands out.  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
-    best choice it is, else, with no choice, the best on the boards; its cost in `unit`, said as
-    UNITS says it, where that comes from (SOURCES) and how far off each of `weeks` foretold
-    (week_checked); the rule that makes the choices; and why each model is none (WHYS): under
-    `shaded` each the bars of `kept` draw shaded at this width (models_standing), in their order,
-    under `not shown` the rest of its `others`, in theirs; a page leaving its values no cell
-    beside it folds each under its label, two cells in.  The page's margin and that fold are two
-    cells where that leaves a line a cell, else as many as do.  A model's name goes on at its
+    best choice it is, else, with no choice, the best on the boards, and, where `runs`, the
+    effort a step to it writes (None for a row no step is), is another than one it was rated at,
+    both, the owner's choice of 20 Nov 2026, its bars keeping the one rated; its cost in `unit`,
+    said as UNITS says it, where that comes from (SOURCES) and how far off each of `weeks`
+    foretold (week_checked); the rule that makes the choices; and why each model is none (WHYS):
+    under `shaded` each the bars of `kept` draw shaded at this width (models_standing), in their
+    order, under `not shown` the rest of its `others`, in theirs; a page leaving its values no
+    cell beside it folds each under its label, two cells in.  The page's margin and that fold are
+    two cells where that leaves a line a cell, else as many as do.  A model's name goes on at its
     words as any value does, never cut: releases of one name differ only at its end."""
     margin = min(2, terminal.layout_width() - 1)
     room = terminal.layout_width() - margin
@@ -3949,7 +3962,9 @@ def models_why(found, role, row, kept, unit, weeks):
                          [", ".join(scored(column, one) for column, one in measures.items())],
                          [best] if row is top else
                          [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
-                          f"{named(top)}"]]},
+                          f"{named(top)}"],
+                         *([[f"rated at {row['effort']}, runs at {runs}"]]
+                           if row["effort"] and runs not in (None, row["effort"]) else [])]},
             {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,
                        SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])],
                       *([week_checked(*week)] for week in weeks)]
@@ -4085,12 +4100,17 @@ def models_screen(cfg, session, selected, providers):
             # its plans' weeks take seconds to read: the page is drawn without them till they land
             weeks = []
             checking = row and Fetch(lambda name=row["provider"]: plans_checked(cfg, name))
+            # the effort a step to it writes (take_choice), asked of it alone: None for a row no
+            # step is, or one no take of which takes a model
+            taken, level = (step_take(cfg, answer[role], own[role], row) if any(
+                one is row for one in role_steps(answer[role], own[role])) else (None, None))
+            runs = taken and _taken_at(cfg, taken, level)
             clock.forget()            # another screen: the models back from it are as they are
             opened = motion.Clock(page=True)      # the why comes up as a page of `c`'s does
             while row and key != "back":
                 if checking and not checking.is_alive():
                     weeks, checking = checking.answer(), None
-                lines = models_why(answer[role], role, row, own[role][2], unit, weeks)
+                lines = models_why(answer[role], role, row, own[role][2], unit, weeks, runs)
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
                                              [why], why, page, "", "esc back", clock=opened,
