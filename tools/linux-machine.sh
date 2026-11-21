@@ -33,7 +33,7 @@ linux_share() {   # linux_share <total> <floor>
 }
 
 linux_machine_up() {
-  local dir name cpus mem had when disk power gib=$((1024 * 1024 * 1024))
+  local dir name cpus mem had when disk power settings gib=$((1024 * 1024 * 1024))
   local daemons=${AK_LAUNCH_DAEMONS:-/Library/LaunchDaemons}
   dir=$(linux_dir) name=$(linux_user)
   if ! limactl autostart --help >/dev/null 2>&1; then
@@ -51,9 +51,15 @@ linux_machine_up() {
     disk=$(linux_share $(($(df -Pk "$HOME" | awk 'NR == 2 { print $4 }') / 1024 / 1024)) 64) ||
       return 1
     # Debian stable, which boots systemd; --mount-none: the machine sees none of the Mac's folders
+    # but its own folder's `free-space`, empty and read-only, through which ak in it counts its disk
+    # as full as the Mac's volume under it (host.disk_use).  Lima makes it as the machine starts, and
+    # refuses a folder that is no full path, as {{.Dir}} is not in a store named relatively.
+    settings=".user.name = \"$name\" | .user.home = \"/home/$name\""
+    case $(linux_store) in /*)
+      settings+=' | .mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": "/mnt/ak-free-space", "writable": false}]'
+    esac
     limactl create --tty=false --name="$LINUX_INSTANCE" --cpus="$cpus" --memory="$mem" \
-      --disk="$disk" --mount-none \
-      --set ".user.name = \"$name\" | .user.home = \"/home/$name\"" template:debian || return 1
+      --disk="$disk" --mount-none --set "$settings" template:debian || return 1
     echo "linux: this Mac's Linux machine has $cpus cores, ${mem} GiB of memory and ${disk} GiB of disk"
   elif had=$(limactl list --format '{{.Memory}}' "$LINUX_INSTANCE") &&
     [ "$had" -gt $((mem * gib)) ]; then
