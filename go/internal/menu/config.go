@@ -64,11 +64,19 @@ type MatrixFrame struct {
 	keySpots
 }
 
+// line is the frame's line, from 0, up on the screen's row the pointer is on, -1 for none.
+func (f MatrixFrame) line(mouse terminal.Mouse) int {
+	if at := mouse.Row - 1 + f.scrolled; mouse.Row > 0 && at < min(len(f.spots), len(f.Lines)) {
+		return at
+	}
+	return -1
+}
+
 // Hit is the row and cell the pointer is on where they are drawn (terminal.Under), column -1 on the
 // row off its cells; not ok on nothing.
 func (f MatrixFrame) Hit(mouse terminal.Mouse) (row, column int, ok bool) {
-	line := mouse.Row - 1 + f.scrolled
-	if mouse.Row <= 0 || line >= min(len(f.spots), len(f.Lines)) || f.spots[line].row < 0 {
+	line := f.line(mouse)
+	if line < 0 || f.spots[line].row < 0 {
 		return 0, 0, false
 	}
 	spot := f.spots[line]
@@ -208,6 +216,7 @@ func ConfigFrame(s terminal.Screen, view ConfigView) ConfigMatrix {
 		}
 		for _, spot := range meterSpots(grid, len(view.Cells), per, row) {
 			if spot.row >= 3 && spot.row <= len(spots) { // on the page, not paged past
+				spot.row -= frame.scrolled // where it is up
 				frame.meters = append(frame.meters, spot)
 			}
 		}

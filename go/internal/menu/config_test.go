@@ -34,10 +34,11 @@ func TestConfigRolesFoldAndThePageKeepsItsSelectedCell(t *testing.T) {
 		if !strings.Contains(strings.Join(frame.Lines, "\n"), "[■]") {
 			t.Errorf("at %d columns the selected cell is off its page: %q", width, frame.Lines)
 		}
-		for number, spot := range frame.spots {
+		for number := frame.scrolled; number < len(frame.spots); number++ { // the lines up on the screen
+			spot := frame.spots[number]
 			for _, cell := range spot.cells {
 				first, _ := terminal.Drawn(frame.Lines[number], cell.first, cell.last)
-				row, column, ok := frame.Hit(terminal.Mouse{Row: number + 1, Column: first})
+				row, column, ok := frame.Hit(terminal.Mouse{Row: number + 1 - frame.scrolled, Column: first})
 				if !ok || row != spot.row || column != cell.column {
 					t.Fatalf("at %d columns, cell points to (%d, %d, %v)", width, row, column, ok)
 				}
