@@ -7326,8 +7326,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                         ahead = (more, drawn)     # read early: kept, with the screen it was read on
                 # whatever the key opens, the menu back replays nothing; the digit wait before
                 # it is still the menu, where the highlight fades as anywhere on it, and so is
-                # the card `x` asks on
-                if key not in ("x", "X"):
+                # the card `x` asks on, the key ending what moves as one does on a page
+                if key in ("x", "X"):
+                    clock.settle()
+                else:
                     clock.forget()
                 if isinstance(key, Path):
                     cursor = key              # the heading, highlighted when he is back
