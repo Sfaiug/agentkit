@@ -6,14 +6,15 @@ told its login may push, or last told it may not, checks the commit origin's `li
 host it told may push checks origin's main, and runs its tests/live.sh with
 AK_LIVE_NO_MODEL_CALLS=1; each moves to the commit its own check passed at.  GitHub's last answer
 stands through a tick it does not answer.  A main with no tests/live.sh has no check to pass:
-each of these hosts moves to it, though origin's `live` names an older commit.
+each of these hosts moves to it having run none, though origin's `live` names an older commit.
 Black-box: tests/fixtures/akinstall.py's Home, as
 tests/test_key_a_host_that_may_push_says_what_passed.py builds it, once with a `gh` that answers
 `false` to that question and once `true`, then exits 1 to it in both, and once with one that
 exits 1 to it throughout; origin's `live` is set one commit behind its main twice, and each time
 the test ticks until the install moves; then a commit takes tests/live.sh off origin's main, its
 `live` left as it was, and the test ticks until the install moves again.  The
-tests/live.sh on origin notes in HOME/checked the commit it ran at and its AK_LIVE_NO_MODEL_CALLS.
+tests/live.sh on origin notes in HOME/checked the commit it ran at and its AK_LIVE_NO_MODEL_CALLS,
+which the test reads after the second move and again after the third.
 This test fails against `/bin/false`.
 """
 
@@ -53,6 +54,12 @@ def moved(home, install):
     return install.head()
 
 
+def noted(home):
+    """Each line HOME/checked holds: one for each run of origin's tests/live.sh so far."""
+    checked = home.path / "checked"
+    return checked.read_text().splitlines() if checked.exists() else []
+
+
 @unittest.skipUnless(BOXED, "no bwrap able to box the test here")
 class AHostThatMayNotPushTakesWhatPassed(unittest.TestCase):
     @classmethod
@@ -64,9 +71,9 @@ class AHostThatMayNotPushTakesWhatPassed(unittest.TestCase):
     @classmethod
     def story(cls, said):
         """A Home whose GitHub answers `said`, then nothing: for each of two moves, origin's
-        `live` and main, and where the install stands after it; for one more, once origin's main
-        has no tests/live.sh, that main and where the install stands after it; then what
-        HOME/checked holds."""
+        `live` and main, and where the install stands after it; what HOME/checked holds then;
+        and for one more move, once origin's main has no tests/live.sh, that main, where the
+        install stands after it and what HOME/checked holds then."""
         home = Home()
         cls.addClassCleanup(home.close)
         akconfig.write(home, ["opus"])
@@ -79,27 +86,27 @@ class AHostThatMayNotPushTakesWhatPassed(unittest.TestCase):
             live, main = install.advance(), install.advance()
             install.set_ref("refs/heads/live", live)
             moves.append((live, main, moved(home, install)))
+        checked = noted(home)
         (install.seed / "tests" / "live.sh").unlink()
-        unchecked = install.advance(), moved(home, install)
-        checked = home.path / "checked"
-        return moves, unchecked, checked.read_text().splitlines() if checked.exists() else []
+        return moves, checked, (install.advance(), moved(home, install), noted(home))
 
     def test_a_host_that_may_not_push_checks_live_without_model_calls_and_moves_to_it(self):
-        for said, (moves, _, checked) in (("false", self.refused), ("never", self.unanswered)):
+        for said, (moves, checked, _) in (("false", self.refused), ("never", self.unanswered)):
             with self.subTest(said=said):
                 self.assertEqual([head for _, _, head in moves], [live for live, _, _ in moves])
                 self.assertEqual(checked, [f"{live} 1" for live, _, _ in moves])
 
     def test_a_host_that_may_push_checks_main_with_model_calls_and_moves_to_it(self):
-        moves, _, checked = self.allowed
+        moves, checked, _ = self.allowed
         self.assertEqual([head for _, _, head in moves], [main for _, main, _ in moves])
         self.assertEqual(checked, [f"{main} unset" for _, main, _ in moves])
 
-    def test_each_host_moves_to_a_main_without_live_sh(self):
-        for said, (_, (main, head), _) in (("false", self.refused), ("true", self.allowed),
-                                           ("never", self.unanswered)):
+    def test_each_host_moves_unchecked_to_a_main_without_live_sh(self):
+        for said, (_, checked, (main, head, after)) in (
+                ("false", self.refused), ("true", self.allowed), ("never", self.unanswered)):
             with self.subTest(said=said):
                 self.assertEqual(head, main)
+                self.assertEqual(after, checked)
 
 
 if __name__ == "__main__":
