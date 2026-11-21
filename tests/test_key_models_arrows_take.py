@@ -7,8 +7,9 @@ role lines paged around the question, under the header and their numbers' headin
 key line.  On `· new seats` [defaults] takes the orchestrator at once.  A model its harness lists
 at other efforts is taken at the nearest it lists, a model listing only `none` at `none`, the why
 page of a choice so taken saying both, `rated at high, runs at none`, and of one taken as rated
-or of a row no step is, neither.  The key line says `← cheaper` and `better →`, `r` takes
-nothing, and a save that fails changes nothing and says why.
+or of a row no step is, neither.  A choice its harness changed since leaves untaken is passed
+by.  The key line says `← cheaper` and `better →`, `r` takes nothing, and a save that fails
+changes nothing and says why.
 
 Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40, and 40 by 16, 15 and
 13 (tests/fixtures/akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own,
@@ -271,6 +272,19 @@ class ArrowsTake(unittest.TestCase):
                 term.keys("Escape", "Down", "Enter")    # Base, which runs at the high it is rated
                 shown = said(term.wait("why Acme Base 1 high builds"))
                 self.assertNotIn("rated at", shown)
+
+    def test_a_choice_its_harness_changed_since_leaves_untaken_is_passed_by(self):
+        # Step a choice set up beside Base, till its harness logs in to providers, of which
+        # acme-step-1 names none: as the screen stands, → then takes nothing
+        akconfig.write(self.home, {"base": MODELS["base"]})
+        hold(self.home, [ROWS[0], ROWS[2]])
+        given, manifest = self.config.read_bytes(), self.fake.manifest.read_text()
+        self.addCleanup(self.fake.manifest.write_text, manifest)
+        term = self.models(100, choices="two")
+        self.fake.manifest.write_text(f'{manifest}\n[providers]\nlabel = "Acme providers"\n')
+        term.keys("Right", "Enter")
+        term.wait("why Acme Base 1 high orchestrates")
+        self.assertEqual(self.config.read_bytes(), given)
 
     def test_the_key_line_says_cheaper_and_better_and_r_takes_nothing(self):
         for width in WIDTHS:
