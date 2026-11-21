@@ -27,12 +27,12 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, notify, orch, statusbar, terminal, watch
+from agentkit import config, notify, orch, statusbar, themes, watch
 from agentkit.guard import commands
 
 IDS = {"fix-api": "$0", "orbit-proxies": "$1", "web": "$2", "zeta": "$3"}
 WORDS = {"fix-api": "working", "orbit-proxies": "needs you", "web": "working", "zeta": "done"}
-NEEDS = terminal.colour("needs you", tmux=True)
+NEEDS = themes.ROLES["warning"][themes.BLACK]   # needs you's, in the black a fresh home draws
 
 
 def drawn(value):

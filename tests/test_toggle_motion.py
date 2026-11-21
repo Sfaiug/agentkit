@@ -28,12 +28,12 @@ from unittest.mock import patch
 import test_features_screen as features
 import test_new_session_screen as new_session
 from test_config_matrix import CHILD, RIGHT, SPACE, Screen, highlighted, row
-from agentkit import motion, terminal
+from agentkit import motion, terminal, themes
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
 MARKS = "●○■□—"
 # the background the pointer lights a cell on, at 256 colours, on the dark one a pty answers with
-LIT = f"48;5;{terminal.xterm_colour(terminal.colour('selection'))}m"
+LIT = f"48;5;{terminal.xterm_colour(themes.ROLES['selection'][themes.BLACK])}m"
 
 # Completion is observed after the real clock's last frame, including a skipped animation.
 OBSERVE = r'''

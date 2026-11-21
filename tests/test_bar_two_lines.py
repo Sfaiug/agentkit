@@ -19,13 +19,13 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, menu, notify, orch, run, statusbar, terminal, watch
+from agentkit import config, menu, notify, orch, run, statusbar, terminal, themes, watch
 from agentkit.guard import commands  # noqa: E402
 from agentkit import record
 
 NOW = 1_800_000_000
 CREW = "build and review: 6 Astra xhigh"   # line two
-MUTED = terminal.colour("muted", tmux=True)
+MUTED = themes.ROLES["muted"][themes.BLACK]     # a home that kept no light answer draws black
 
 
 def drawn(value):
