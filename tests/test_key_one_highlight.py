@@ -34,7 +34,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 from fixtures.draws import draws
 
-SELECTION, BLACK = "48;2;8;48;93", "48;2;0;0;0"     # the black theme's selection, background
+SELECTION = "48;2;8;48;93"      # the black theme's selection; None is the terminal's own
 COMES = "48;2;39;100;166"       # ... and where the highlight comes (tests/test_highlight_glows.py)
 WIDTH = 100                                         # the terminal's, and so the layout's
 MAIN_KEYS = "↑↓←→ move   ⏎ open   n new   c config   esc leave"
@@ -120,10 +120,10 @@ class OneHighlight(unittest.TestCase):
                     if text in plain(line))
 
     def calm(self, ready):
-        """`rest`'s looks, every cell of them on the theme's background or the selection, none
+        """`rest`'s looks, every cell of them on the terminal's background or the selection, none
         reversed."""
         shown = self.rest(ready)
-        self.assertLessEqual(grounds(shown), {BLACK, SELECTION})
+        self.assertLessEqual(grounds(shown), {None, SELECTION})
         self.assertEqual([look for line in shown for _, look in line if "7" in look], [])
         return shown
 
@@ -138,7 +138,7 @@ class OneHighlight(unittest.TestCase):
         shown = self.main(COLORTERM="truecolor")
         (_, acme), (number, beta) = self.row(shown, "1  acme"), self.row(shown, "2  beta")
         self.assertEqual(lit_rows(shown), {acme: list(range(1, WIDTH + 1))})
-        self.assertLessEqual(grounds(shown), {None, BLACK, SELECTION})
+        self.assertLessEqual(grounds(shown), {None, SELECTION})
         self.term.type(point(number + 3, beta))     # on its name
         shown = self.rest(lambda shown: starts(shown, "› 2  beta", beta))
         self.assertTrue(plain(shown[acme - 1]).startswith("  1  acme"))
@@ -146,7 +146,7 @@ class OneHighlight(unittest.TestCase):
         self.assertEqual(min(rows), beta)           # beta's row, and any line it opens under it
         self.assertEqual(sorted(rows), list(range(beta, beta + len(rows))))
         self.assertEqual(set(map(tuple, rows.values())), {tuple(range(1, WIDTH + 1))})
-        self.assertLessEqual(grounds(shown), {None, BLACK, SELECTION})
+        self.assertLessEqual(grounds(shown), {None, SELECTION})
 
     def test_on_c_a_mark_is_lit_over_its_column_alike_by_keys_and_pointer(self):
         first = self.config()
@@ -331,8 +331,9 @@ class OneHighlight(unittest.TestCase):
                 self.term.keys("Down")      # at 1010, as the clock stands: acme still lit
             shown = self.rest(lambda shown: starts(shown, "› 2  beta"))
             backs += [{ground(shown[acme - 1][column - 1][1]) for column in band}]
-        self.assertEqual((backs[0], backs[-1]), ({SELECTION}, {BLACK}))
-        sums = [sum(map(int, back.split(";")[2:])) for (back,) in backs]
+        self.assertEqual((backs[0], backs[-1]), ({SELECTION}, {None}))
+        # it nears the black theme's background, 0, and ends on the terminal's own
+        sums = [sum(map(int, back.split(";")[2:])) if back else 0 for (back,) in backs]
         self.assertEqual(sums, sorted(set(sums), reverse=True))
 
     def test_the_row_the_pointer_leaves_while_a_number_waits_fades_too(self):

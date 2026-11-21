@@ -227,9 +227,9 @@ class _Screen:
     """stdout as a screen leaves for the terminal (`screens`): painted in the theme in force, and
     `_PAD` cells in from every edge.
 
-    Each write starts in the theme's background and text, puts them back after every reset and
+    Each write starts on no background in the theme's text, puts them back after every reset and
     ends in the terminal's own colours: every cell a draw, a frame or a clear touches is on the
-    background and text of no colour is the theme's, whichever helper drew it, and the terminal is
+    terminal's own, text of no colour is the theme's, whichever helper drew it, and the terminal is
     its own again between writes, for whatever has it next -- a program ak starts, a signal, the
     shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at
     eight colours, whose tones read on any background.
@@ -260,11 +260,10 @@ class _Screen:
 
 
 def _painted(text):
-    """`text` on the background of the theme in force, in its text where it sets no colour
-    (`_Screen`)."""
-    back, fore = (ink(colour(role), ground)
-                  for role, ground in (("background", "48"), ("text", "38")))
-    again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
+    """`text` in the text of the theme in force where it sets no colour, on the terminal's own
+    background where it sets none (`_Screen`)."""
+    fore = ink(colour("text"), "38")
+    again = {"": f"0;{fore}", "0": f"0;{fore}", "39": fore}
 
     def put_back(code):
         parts, out = code[1].split(";"), []
@@ -275,7 +274,7 @@ def _painted(text):
                 size = 4 if parts[:1] == ["2"] else 2
                 out, parts = out + parts[:size], parts[size:]
         return f"\033[{';'.join(out)}m"
-    return f"\033[{back};{fore}m{_SGR.sub(put_back, text)}\033[0m"
+    return f"\033[49;{fore}m{_SGR.sub(put_back, text)}\033[0m"
 
 
 def screens(popup=False):
