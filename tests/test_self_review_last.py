@@ -233,10 +233,13 @@ class SelfReviewLast(unittest.TestCase):
             self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "beta-one")
         self.assertEqual((state["executor"], state["reviewer"]), ("beta-one", "beta-one"))
 
+    # beta-one reviews too: with acme-one alone, beta-one is the one builder another lab
+    # reviews, and its refusal hands the build to nobody
+    # (tests/test_key_a_build_is_handed_only_to_an_executor_another_lab_reviews.py)
     def test_a_handover_prefers_a_better_tier_over_a_cheaper_self(self):
         lp = self.loop(executor="beta-one", reviewer="beta-one")
         lp.state["workers"] = ["acme-one", "acme-two", "beta-one"]
-        lp.state["reviewers"] = ["acme-one"]
+        lp.state["reviewers"] = ["acme-one", "beta-one"]
         with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "acme-two")
         self.assertEqual((lp.executor, lp.reviewer), ("acme-two", "acme-one"))
@@ -244,7 +247,7 @@ class SelfReviewLast(unittest.TestCase):
     def test_a_stall_handover_prefers_a_better_tier_over_a_cheaper_self(self):
         state = {"executor": "beta-one", "reviewer": "beta-one",
                  "workers": ["acme-one", "acme-two", "beta-one"],
-                 "reviewers": ["acme-one"]}
+                 "reviewers": ["acme-one", "beta-one"]}
         with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "acme-two")
         self.assertEqual((state["executor"], state["reviewer"]), ("acme-two", "acme-one"))
