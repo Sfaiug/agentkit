@@ -826,14 +826,15 @@ def runs_by_seat(records):
 
 
 def needs_recovery(state):
-    """Work a resume could still carry on.  `blocked` never is: the task itself is wrong.
+    """Work a resume could still carry on.  `blocked` and a rescoped `fail` (`rescoped`) never
+    are: the task itself is what changes.
 
     A resume leaves `recovery_pending` on the record it starts from, so an attempt that ends
-    `blocked` would otherwise be offered for recovery it is refused -- see `cmd_resume`.
-    A `stopped` run is a deliberate end, never an accident to offer back. Line
+    `blocked` or rescoped would otherwise be offered for recovery it is refused -- see
+    `cmd_resume`.  A `stopped` run is a deliberate end, never an accident to offer back. Line
     members belong to the lander even if an earlier attempt left a recovery mark.
     """
-    return (not landing_line(state) and
+    return (not landing_line(state) and not rescoped(state) and
             state.get("state") not in (*run_record.ACTIVE, "pass", "blocked", "stopped", "not_needed") and
             (state.get("state") in ("interrupted", "exhausted", "stalled", "waiting_login") or
              bool(state.get("recovery_pending"))))
@@ -1507,14 +1508,18 @@ def extra_round(state, rnd):
             and left in ([1], [2]) and not rescope(state, left[0]))
 
 
-def rescope(state, count):
-    """Why a task's run whose review left `count` blocking findings spends no further round, else
-    None: at its `rescope_findings` or past it, another round almost never merges
-    (`config.POLICY`).  A review of a pull request, the seat's own too, goes on as ever.  A
-    record from before the number holds ak's default (`run_record.policy_of`), read here off
-    the record alone: a finished review never waits on the host's config to be said."""
+def rescope(state, count=None):
+    """Why a run whose review left `count` blocking findings (or its last recorded round's, when
+    omitted) spends no further round, else None: at its `rescope_findings` or past it, another
+    round almost never merges (`config.POLICY`).  Holds for a task's run and for a review of a
+    seat's own pull request; a review of somebody else's pull request goes on as ever.  A record
+    from before the number holds ak's default (`run_record.policy_of`), read here off the record
+    alone: a finished review never waits on the host's config to be said."""
+    if count is None:
+        rows = state.get("round_summaries") or [{}]
+        count = rows[-1].get("finding_count") or 0
     number = (state.get("policy") or {}).get("rescope_findings", config.POLICY["rescope_findings"][0])
-    if state.get("review_pr") or not 0 < number <= count:
+    if (state.get("review_pr") and not state.get("own_pr")) or not 0 < number <= count:
         return None
     return (f"The review left {count} blocking finding{'s' * (count != 1)}, at or past "
             f"rescope_findings = {number}: rescope the task.")
@@ -1525,8 +1530,7 @@ def rescoped(state):
     left its `rescope_findings` (`rescope`), so neither its result (`continue_line`) nor a
     resume (`run.resume_run`) hands it more rounds, whichever version ended it
     (`versions.pinned`).  A run an older ak resumed past that round counts its later one."""
-    rows = state.get("round_summaries") or [{}]
-    return state.get("state") == "fail" and rescope(state, rows[-1].get("finding_count") or 0) or None
+    return state.get("state") == "fail" and rescope(state) or None
 
 
 def round_allowed(lp):
@@ -1538,14 +1542,14 @@ def round_allowed(lp):
     (`roundloop.review`) says why as it ends, a loop resumed after the cut too."""
     if run_record.review_off(lp.state):
         return lp.rnd < 1
+    if why := rescope(lp.state):
+        lp.rounds = lp.state["rounds"] = len(lp.state["round_summaries"])
+        lp.state["error"] = why
+        lp.log(why)
+        return False
     if extra_round(lp.state, lp.rnd + 1):
         return True
     if lp.rnd >= lp.rounds:
-        rows = lp.state.get("round_summaries") or [{}]
-        why = rescope(lp.state, rows[-1].get("finding_count") or 0)
-        if why:
-            lp.state["error"] = why
-            lp.log(why)
         return False
     left, why = change_budget(lp.state, lp.run_dir, lp.rounds, own=lp.rnd)
     if left < 1:

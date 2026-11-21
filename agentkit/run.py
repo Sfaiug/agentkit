@@ -46,7 +46,7 @@ from .transitions import (change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, drop_error_retry, extra_round, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, leaves_line, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, rescoped, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
+    queued, report_config, rescope, rescoped, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
     stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
@@ -1942,7 +1942,8 @@ def resume_run(argv):
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
         over_lineage(state, run_dir, n_rounds)
-        state["rounds"] = n_rounds
+        if not rescope(state):
+            state["rounds"] = n_rounds
     # A failed review or aborted integration carries a stale pending review. A
     # landing gate wait keeps its non-task review so recovery first updates the
     # target, then fixes and reviews without spending another task round.  A line member keeps
@@ -2930,14 +2931,21 @@ def settle_pr_round(lp, url, info):
     # An obsolete verdict still supplies the next round's findings. The push wait
     # observes the moved head or closure immediately, including after a post retry.
     state.pop("waiting_on", None)        # whatever this round settled to, it is out of the line
-    if is_own and (verdict == "FAIL" or not posted) and (lp.rnd < lp.rounds
-                                                         or extra_round(state, lp.rnd + 1)):
+    why = rescope(state)
+    if why:
+        # a post-retry resume carrying `--rounds` never reopens a budget this round already cut
+        lp.rounds = state["rounds"] = len(state["round_summaries"])
+    if is_own and (verdict == "FAIL" or not posted) and not why and (
+            lp.rnd < lp.rounds or extra_round(state, lp.rnd + 1)):
         state.update(state="running", finished_at=None, own_pr_wait=head)
         state.pop("recovery_pending", None)
     else:
         state["state"] = "pass" if verdict == "PASS" and posted else "fail"
         state["finished_at"] = time.time()
-        if not posted:
+        if why:
+            state["error"] = why
+            log(why)
+        elif not posted:
             state["error"] = state["review_error"]
     state.pop("own_pr_round_pending", None)
     state.pop("landing_fix", None)
