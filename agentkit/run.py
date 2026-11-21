@@ -39,8 +39,9 @@ from .handback import (announce, announce_safely, clear_delivery, join_session_p
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
     start_followups, task_project, write_result)
 from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
-    note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
-    refuse_unready, replace_reviewer, resume_models, reviewer_order, run_workers, same_model, started_round)
+    note_handover, pick_models, ready_order, refuse_outside_group,
+    refuse_unready, replace_reviewer, resume_models, reviewer_order, run_refusal, run_workers,
+    same_model, started_round)
 from .transitions import (change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, drop_error_retry, extra_round, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
@@ -433,8 +434,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             executor, reviewer = pick_models(cfg, providers, opts["--exec"], want_review,
                                              log, repo=repo, workers=workers, reviewers=reviewers)
         except QuotaDry:
-            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], want_review,
-                                   reviewers)
+            refusal = run_refusal(cfg, providers, workers, opts["--exec"], want_review,
+                                  reviewers)
             if refusal:
                 raise config.Error(refusal) from None
             raise
@@ -1242,8 +1243,8 @@ def preset_models(cfg, opts, log, run_dir):
             executor, reviewer = pick_models(cfg, providers, opts["--exec"], want_review,
                                              log, quiet=True, workers=workers, reviewers=reviewers)
         except QuotaDry:
-            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], want_review,
-                                   reviewers)
+            refusal = run_refusal(cfg, providers, workers, opts["--exec"], want_review,
+                                  reviewers)
             if not refusal:
                 raise
             raise config.Error(refusal) from None

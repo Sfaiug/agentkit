@@ -257,19 +257,19 @@ class OneProvider(unittest.TestCase):
         self.unready(other="other is not logged in")
         # one runnable worker launches and reviews its own work
         self.assertEqual(self.pick(), ("alpha", "alpha"))
-        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, None))
-        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["alpha", "beta", "gamma"]))
+        self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, None))
+        self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, ["alpha", "beta", "gamma"]))
         # a spent meter refills; a list of one model launches on its own, in a session or not
         self.providers = self.meters(b=100)
-        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, None))
-        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["alpha"]))
+        self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, None))
+        self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, ["alpha"]))
         self.cfg["defaults"]["workers"] = ["alpha"]
-        self.assertIsNone(run.pair_refusal(self.cfg, self.providers, None))
+        self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, None))
         # nothing runnable is refused, in one sentence naming every harness
         self.unready(test="test is not logged in", other="other is not logged in")
         self.cfg["defaults"]["workers"] = ["alpha", "gamma"]
         self.assertEqual(
-            run.pair_refusal(self.cfg, self.providers, None),
+            staffing.pair_refusal(self.cfg, self.providers, None),
             "none of the workers alpha, gamma and reviewers alpha, gamma can run here "
             "(alpha: test is not logged in; gamma: other is not logged in); "
             "log in to another harness or add another model to the groups")
