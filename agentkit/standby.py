@@ -137,14 +137,12 @@ COPIES = "copies"
 # A record's age at which the home's tick pages the owner: a first pass after a long gap may take
 # half an hour, and no other pass begins while it runs, so an hour without one is no slow copy.
 GONE = 60 * 60
-# The words of `ak standby --copied HOST SECONDS yes|no`, each matched whole: a host name of at
-# most 64 characters, as Linux's, whole seconds since its pass began, and whether it takes over.
+# The words of `ak standby --copied HOST WALL SINCE BOOT yes|no`, each matched whole: a host name
+# of at most 64 characters, as Linux's, this machine's stamp as `--began` prints it, and whether
+# that host takes over.  Each clock in decimals, no sign or exponent, and a boot no dash begins, so
+# that no word is taken for a flag.
 HOST = "[A-Za-z0-9][A-Za-z0-9.-]{0,63}"
 TAKES = "yes|no"
-SAID = (HOST, "[0-9]{1,9}", TAKES)
-# The words of this machine's stamp, as `--began` prints it and `--copied HOST WALL SINCE BOOT
-# yes|no` hands it back: each clock in decimals, no sign or exponent, and a boot no dash begins,
-# so that no word is taken for a flag.
 CLOCK = "[0-9]{1,12}(?:[.][0-9]{1,17})?"
 STAMP = (CLOCK, CLOCK, "[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 TAG = b"# agentkit standby"     # what the job's line in the crontab ends in
@@ -347,25 +345,17 @@ def _home_began(alias):
     return [host, *said]
 
 
-def _set_back(seconds):
-    """This machine's stamp now, both clocks set back by `seconds`, as a line: when the copy was
-    taken by this machine's clocks alone, a wall clock off there changing nothing."""
-    now = pair_clock.now()      # whose boot Linux may not say
-    return now._replace(wall=now.wall - seconds, since=now.since - seconds).line()
-
-
-def _keep(host, dated, takes):
-    """Keep `host`'s record, whole or not at all: the stamp `dated()` gives, and whether it
-    `takes` over.  0, or 1 for a record that cannot be written."""
+def _keep(host, line, takes):
+    """Keep `host`'s record, whole or not at all: the stamp's `line`, and whether it `takes` over.
+    0, or 1 for a record that cannot be written."""
     folder = config.TMP / COPIES
     try:
-        began = dated()
         folder.mkdir(parents=True, exist_ok=True)
         # a name no host name is, as none begins with a dot, so no listing shows one
         handle, new = tempfile.mkstemp(dir=folder, prefix=".")
         try:
             with open(handle, "w") as record:
-                record.write(f"{began}\n{takes}\n")
+                record.write(f"{line}\n{takes}\n")
             os.replace(new, folder / host)
         except OSError:
             with contextlib.suppress(OSError):  # a folder no longer writable keeps it, unlisted
@@ -528,12 +518,9 @@ def main(argv):
     if argv == ["--began"]:
         return _began()
     flag, *said = argv
-    if flag == "--copied" and _fits(said, SAID):
-        host, seconds, takes = said
-        return _keep(host, lambda: _set_back(int(seconds)), takes)
     if flag == "--copied" and _fits(said, (HOST, *STAMP, TAKES)):
         host, *stamp, takes = said
-        return _keep(host, lambda: " ".join(stamp), takes)
+        return _keep(host, " ".join(stamp), takes)
     if len(argv) != 1 or argv[0].startswith("-"):
         raise config.Error(command_help.COMMANDS["standby"][0])
     alias, home = argv[0], Path.home()
