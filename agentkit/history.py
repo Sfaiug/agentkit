@@ -245,8 +245,9 @@ CREATE TABLE IF NOT EXISTS done_runs (
 # `plan` is the login's as state/logins.json named it then (`logins.whose`), so a changed plan
 # starts readings of its own, NULL where it named none or on a row from before it; `scope` the
 # model or surface whose own cap the meter is, as its provider names it, NULL for a meter every
-# model shares or on a row from before it.  A reading kept already, the same meter at the same
-# moment, adds nothing.
+# model shares or on a row from before it.  A reading kept already, the same meter of the same
+# scope at the same moment, adds nothing (`METER_READING_KEY`): two caps of one name are two
+# meters (`usage._key`), Fable's and Opus's own weeks both `weekly_scoped`.
 METER_READINGS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS meter_readings (
     provider TEXT,
@@ -257,9 +258,13 @@ CREATE TABLE IF NOT EXISTS meter_readings (
     window_secs REAL,
     at REAL,
     source TEXT,
-    PRIMARY KEY (provider, account, meter, at)
+    plan TEXT,
+    scope TEXT
 )
 """
+# A key's NULLs are all distinct, so a meter every model shares is keyed by '' as its scope.
+METER_READING_KEY = ("CREATE UNIQUE INDEX IF NOT EXISTS meter_reading ON meter_readings "
+                     "(provider, account, meter, at, COALESCE(scope, ''))")
 METER_READING_MIGRATIONS = (("plan", "TEXT"), ("scope", "TEXT"))
 READINGS_KEPT_FOR = 35 * 86400     # five weeks
 
@@ -332,6 +337,15 @@ def _connect(*, readonly=False):
         for name, kind in migrations:
             if name not in have:
                 connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+    # An older ak keyed a reading by its meter's name alone, keeping one of two caps of a name
+    # read at one moment; SQLite changes a table's key only by making the table again.
+    if any(row[5] for row in connection.execute("PRAGMA table_info(meter_readings)")):
+        connection.executescript(
+            f"BEGIN; ALTER TABLE meter_readings RENAME TO keyed_readings; {METER_READINGS_SCHEMA};"
+            "INSERT INTO meter_readings SELECT provider, account, meter, used, resets_at, "
+            "window_secs, at, source, plan, scope FROM keyed_readings; DROP TABLE keyed_readings;"
+            "COMMIT;")
+    connection.execute(METER_READING_KEY)
     # SQLite drops a column from 3.35 on: an older one keeps them, which nothing reads or writes
     if sqlite3.sqlite_version_info >= (3, 35):
         for name in set(DROPPED) & {row[1] for row in connection.execute("PRAGMA table_info(runs)")}:

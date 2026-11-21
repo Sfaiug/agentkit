@@ -158,9 +158,11 @@ class ClaudeResetInTheMenu(unittest.TestCase):
     def test_the_meters_a_spent_reset_reads_back_are_kept_as_readings_once(self):
         self.open()
         spent = fable_spent()
+        # Opus's own week beside Fable's: two caps of one name, each a reading of its own
+        spent["meters"].append({**spent["meters"][1], "used": 30, "scope": "Opus"})
         self.fake.answer("reset", json.dumps(spent), given=("Fable",))
         pressed = self.spend_fable()
-        self.noted("  Claude · 60% left · Fable 100% left · 1 weekly, 2 Fable resets in hand")
+        self.noted("1 weekly, 2 Fable resets in hand")
         self.assertCountEqual(kept(self.home, pressed), [
             (meter["name"], meter["used"], meter["resets_at"], meter["window_secs"], "probe",
              meter.get("scope")) for meter in spent["meters"]])
