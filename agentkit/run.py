@@ -2939,6 +2939,9 @@ def settle_pr_round(lp, url, info):
         state["finished_at"] = time.time()
         if not posted:
             state["error"] = state["review_error"]
+        elif why := rescoped(state):
+            state["error"] = why
+            log(why)
     state.pop("own_pr_round_pending", None)
     state.pop("landing_fix", None)
     run_record.save_state(run_dir, state)

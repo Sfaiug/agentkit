@@ -1508,13 +1508,14 @@ def extra_round(state, rnd):
 
 
 def rescope(state, count):
-    """Why a task's run whose review left `count` blocking findings spends no further round, else
-    None: at its `rescope_findings` or past it, another round almost never merges
-    (`config.POLICY`).  A review of a pull request, the seat's own too, goes on as ever.  A
-    record from before the number holds ak's default (`run_record.policy_of`), read here off
-    the record alone: a finished review never waits on the host's config to be said."""
+    """Why a run whose review left `count` blocking findings spends no further round, else None:
+    at its `rescope_findings` or past it, another round almost never merges (`config.POLICY`).
+    Holds for a task's run and for a review of a seat's own pull request; a review of somebody
+    else's pull request goes on as ever.  A record from before the number holds ak's default
+    (`run_record.policy_of`), read here off the record alone: a finished review never waits on
+    the host's config to be said."""
     number = (state.get("policy") or {}).get("rescope_findings", config.POLICY["rescope_findings"][0])
-    if state.get("review_pr") or not 0 < number <= count:
+    if (state.get("review_pr") and not state.get("own_pr")) or not 0 < number <= count:
         return None
     return (f"The review left {count} blocking finding{'s' * (count != 1)}, at or past "
             f"rescope_findings = {number}: rescope the task.")

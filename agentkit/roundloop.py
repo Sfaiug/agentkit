@@ -1613,7 +1613,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
              "summary": summary.strip(), **validation, **passed})
         if transitions.rescope(lp.state, len(submitted.findings)):
             # its budget ends at the rounds it recorded, so whatever asks whether a run's
-            # rounds are spent says yes, `round_allowed` saying why
+            # rounds are spent says yes, `round_allowed` and `settle_pr_round` saying why
             lp.rounds = lp.state["rounds"] = len(lp.state["round_summaries"])
     lp.log(f"round {lp.rnd} verdict: {verdict}")
     lp.state["verdict"] = verdict
