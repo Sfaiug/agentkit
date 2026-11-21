@@ -28,12 +28,15 @@ from fixtures.gitrig import Rig
 from test_key_own_pr_fix_and_land import FIND, FIX, RULES
 
 WEEK = 604800
+# how long astra's spent week has left when it is spent: the pick after the fix reads it well
+# inside that, and the tick comes after it, on the real clock ak reads
+SPENT_FOR = 20
 
 
-def reading(used):
-    """A usage answer: the week at `used`%, a day from rolling over."""
+def reading(used, left=86400):
+    """A usage answer: the week at `used`%, `left` seconds from rolling over."""
     return json.dumps({"meters": [{"name": "weekly", "used": used, "window_secs": WEEK,
-                                   "resets_at": int(time.time()) + 86400}], "error": None})
+                                   "resets_at": int(time.time()) + left}], "error": None})
 
 
 def until(shown, what, bound=120):
@@ -70,15 +73,16 @@ class AReviewerIsWaitedFor(unittest.TestCase):
                          env={"AGENTKIT_SESSION": "acme"}, cwd=rig.path)
         until(lambda: started.exists() or run.poll() is not None, "fixing")
         # astra's window is spent while opus fixes, and read again at the next pick
-        fakes["codex"].answer("usage", reading(100))
+        back = time.time() + SPENT_FOR
+        fakes["codex"].answer("usage", reading(100, SPENT_FOR))
         cls.age(home)
         go.touch()
         cls.code = run.wait(timeout=300)
         cls.run_dir = taskfile.only_run(home)
         cls.parked = json.loads((cls.run_dir / "run.json").read_text())
-        # then opus's window is spent too, and astra's has reset
+        # then opus's window is spent too, and astra's is past its reset
         fakes["claude"].answer("usage", reading(100))
-        fakes["codex"].answer("usage", reading(0))
+        time.sleep(max(0, back + 1 - time.time()))
         cls.age(home)
         cls.tick = home.tick()      # which waits out the run it resumes
         cls.state = json.loads((cls.run_dir / "run.json").read_text())

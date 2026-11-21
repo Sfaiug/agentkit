@@ -2805,8 +2805,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     else:
         # only the review is left, whatever step a fixer turn wrote down before it: the run
         # waits for a reviewer, not for its fixer's window (`staffing.resume_needs_executor`)
-        state.update(step="reviewer", step_at=time.time(), step_round=rnd)
-        run_record.save_state(run_dir, state)
+        with run_record.record(run_dir) as current:
+            current.update(step="reviewer", step_at=time.time(), step_round=rnd)
         raise QuotaDry("no marked reviewer has room to review")
     # a pick other than the saved reviewer takes the review over, as a task's is: the saved
     # one's conversation is not its own; the saved one picked again goes on in it
