@@ -734,11 +734,14 @@ def asking(clock, around, going=lambda: None):
     return ask
 
 
-def framed(clock, title, lines, at, card, keys):
+def framed(clock, title, lines, at, card, keys, places=None):
     """`title`'s screen of `lines` (terminal.frame) drawn on `clock`, the card terminal.confirm
     asks on among them from line `at`, before the first where its top gives way, its lines
-    there coming up on the clock (`asking`): the screen row of the card's first line."""
-    terminal.frame(title, lines, keys, drawn=lambda: clock.drawn(
+    there coming up on the clock (`asking`): the screen row of the card's first line.
+    `places` are the screen's own on the lines over the card (page_places), nothing the pointer
+    lands on while it asks (terminal.choose): by them the clock knows what the highlight left
+    where it was, and fades it there (`motion.Clock.light`)."""
+    terminal.frame(title, lines, keys, places=places, drawn=lambda: clock.drawn(
         [(line, ("asked",), True, motion.fading(lines[line]))
          for line in range(max(0, at), min(len(lines), at + len(card)))], lambda line: 3 + line))
     return 3 + at
@@ -4080,7 +4083,8 @@ def models_screen(cfg, session, selected, providers):
             over, lines, places = laid(card, keys)
             first, room = matrix_page(lines, places, here, top, card, keys, over)
             shown = [*over, *lines[first:first + room]]
-            return framed(clock, title, [*shown, *card], len(shown), card, keys)
+            return framed(clock, title, [*shown, *card], len(shown), card, keys,
+                          page_places(places, first, room, len(over)))
         ask = asking(clock, around)
         if act == "back":
             return
@@ -4659,6 +4663,17 @@ def matrix_page(body, places, here, top, under, keys, over=(), lead=None, keyed=
     return max(0, min(max(top, lo), hi, len(body) - room)), room
 
 
+def page_places(places, top, room, over=0):
+    """A matrix screen's `places` on the `room` lines of its page from `top`, `over` lines above
+    them, as terminal.frame takes them.  A line of a row whose cells are on its others -- a
+    model's name folded over its marks -- is on nothing, though they be off the page: a cell of
+    the row over no column, so it is no band (terminal.under) and still the row's, the pointer's
+    light going out as it comes under a still pointer (terminal.lit)."""
+    celled = {row for row, cells in places.values() if cells}
+    return {over + line - top: (row, cells if cells or row not in celled else [(1, 0, None)])
+            for line, (row, cells) in places.items() if top <= line < top + room}
+
+
 def note_lines(note):
     """A matrix screen's `note`, dim lines of its own under a blank one; none for no note."""
     return ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
@@ -4698,16 +4713,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     below = [*under, *said]
     top, room = matrix_page(body, places, here, top, below, keys, over, lead, keyed)
     shown, first = body[top:top + room], 3 + len(over)     # the screen row of the page's first
-    # a line of a row whose cells are on its others -- a model's name folded over its marks --
-    # is on nothing, though they be off the page: a cell of the row over no column, so it is no
-    # band (terminal.under) and still the row's, the pointer's light going out as it comes under
-    # a still pointer (terminal.lit)
-    celled = {row for row, cells in places.values() if cells}
     spots = terminal.frame(title, [*over, *shown, *under, *said], keys, first=lead, places={
-        **(over_places or {}), **{len(over) + line - top: (row, cells if cells or row not in celled
-                                                            else [(1, 0, None)])
-                                  for line, (row, cells) in places.items()
-                                  if top <= line < top + room}},
+        **(over_places or {}), **page_places(places, top, room, len(over))},
         drawn=clock and (lambda: clock.drawn(moves, lambda line: first + line if line < 0
                                              else first + line - top
                                              if top <= line < top + room else
@@ -4859,12 +4866,13 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         note, refused = "", {}
 
         def around(card, keys):   # the matrix laid out at this draw's size, the question under it
-            over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
+            over, meters, body, places, _ = meters_led(config_meters(cfg), *config_body(
                 cfg, None if terminal.away() else here, column, as_drawn, providers, scope=scope,
                 rows=under), card, keys)
             first, room = matrix_page(body, places, here, top, card, keys, over, keyed=column)
             shown = [*over, *body[first:first + room]]
-            return framed(clock, title, [*shown, *card], len(shown), card, keys)
+            return framed(clock, title, [*shown, *card], len(shown), card, keys,
+                          {**meters, **page_places(places, first, room, len(over))})
         ask = asking(clock, around)
         if act == "back" or born and act == "enter" and here[0] == "model":   # a meter opens
             # closing applies what the page holds; what that could not do keeps it open, said
@@ -4873,7 +4881,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             continue
         try:
             if act == "a" and fresh:
-                clock.forget()            # the card: the matrix back from it replays nothing
                 refused = apply_defaults(cfg, ask)
                 continue
             if act == "r" and advice:     # a record that will not read has nobody to take it
@@ -7025,7 +7032,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                 at = max(line for line, (row, _) in places.items() if row == ("row", here)) + 1
                 lines, skip = body[:at] + card + body[at:], max(0, at + len(card) - 1 - holds)
                 return framed(clock, "past sessions", lines[skip:skip + holds], at - skip, card,
-                              keys)
+                              keys, page_places(places, skip, at - skip))
             if asking(clock, around)(f"Remove {here} from past sessions?",
                                      "It can no longer be reopened.", "Remove"):
                 keyboard.give()       # the stop says what it did where it can be read
@@ -7321,8 +7328,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                     elif more is not None:
                         ahead = (more, drawn)     # read early: kept, with the screen it was read on
                 # whatever the key opens, the menu back replays nothing; the digit wait before
-                # it is still the menu, where the highlight fades as anywhere on it
-                clock.forget()
+                # it is still the menu, where the highlight fades as anywhere on it, and so is
+                # the card `x` asks on
+                if key not in ("x", "X"):
+                    clock.forget()
                 if isinstance(key, Path):
                     cursor = key              # the heading, highlighted when he is back
                     show_features(key, dry_run)    # read with the keys, on the screen the menu has

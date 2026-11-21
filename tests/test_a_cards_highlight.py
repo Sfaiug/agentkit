@@ -2,10 +2,10 @@
 draws none once the pointer leaves its rows (terminal.away): from the card's first frame the one
 `›` is the card's answer's, and no cell but that answer's has a background, wherever the card
 moved the row it asks about -- but what the row had lit and the card left where it was, which
-fades as the highlight does where it leaves (motion.LEAVES: past sessions and the models screen;
-"Build the fade", the owner, 20 Nov 2026) -- and what that row opened stays open; Keep gives the row all its
-highlight back, glowing as it comes (motion.LANDS).  The owner, 10 Nov 2026: "I want absolute
-consistency!!!"
+fades as the highlight does where it leaves (motion.LEAVES; the owner, 20 Nov 2026:
+"Build the fade"), the pointer moving under the card or not -- and what that row opened stays
+open; Keep gives the row all its highlight back, glowing as it comes (motion.LANDS).  The owner,
+10 Nov 2026: "I want absolute consistency!!!"
 
 Each screen that asks on a clock of its own -- past sessions' `x`, the ak screen's `x` over a
 seat, config's Apply, removing a subscription and the models screen's Restart -- runs in this
@@ -111,8 +111,8 @@ class CardsHighlight(test_breathing.MainScreen):
 
     def answered(self, script, run):
         """`run()` with each wait answered from `script` -- None running it to its frame, skipped
-        where the wait has no end, a key at once -- then Esc: (when, the screen up, the key it
-        read) at each wait."""
+        where the wait has no end, a key at once, the pointer where a move puts it
+        (terminal.read_key) -- then Esc: (when, the screen up, the key it read) at each wait."""
         steps, grid, shown, out = list(script), Grid(), [], io.StringIO()
         out.isatty = lambda: True           # a terminal, as far as colour is concerned
 
@@ -127,12 +127,15 @@ class CardsHighlight(test_breathing.MainScreen):
             self.assertLess(len(shown), 400, "the screen never went back")
             if key is None:
                 self.sleep(timeout)
+            elif key and key.name == "point":
+                terminal._point(key)
             return key
         with menu_input(wait=lambda prompt, timeout=None, wake=None: wait(timeout),
                         return_value="q"), redirect_stdout(out), \
                 patch.object(terminal, "read_key", lambda timeout=None, wake=None: wait(timeout)), \
                 patch.object(terminal, "_TAKEN", test_breathing.Keyboard()), \
-                patch.multiple(terminal, _UP=None, _SPOTS={}, _ASKED=False):
+                patch.multiple(terminal, _UP=None, _SPOTS={}, _ASKED=False, _POINTER=None,
+                               _AWAY=False):
             run()
         return shown
 
@@ -149,12 +152,13 @@ class CardsHighlight(test_breathing.MainScreen):
                 self.assertEqual(menu.loop(self.cfg, dry_run=True, overlay=True), 0)
         return self.answered([Key("char", "x"), *script, Key("esc"), ""], run)
 
-    def apply(self, *script):
-        """`a` on a fresh window's `c`, its first model highlighted, then `script` on its card."""
+    def apply(self, *script, first=()):
+        """`a` on a fresh window's `c`, its first model highlighted, after the keys `first`,
+        then `script` on its card."""
         records = dict.fromkeys(self.words, {"orchestrator": "another"})
         with patch.object(config, "session_records", return_value=records), \
                 patch.object(orch, "switch_lines", return_value=None):
-            return self.answered([Key("char", "a"), *script], lambda: menu.config_matrix(
+            return self.answered([*first, Key("char", "a"), *script], lambda: menu.config_matrix(
                 self.cfg, Mock(), "abc1234", None, copy.deepcopy(self.cfg["defaults"]), {},
                 fresh=True))
 
@@ -188,25 +192,30 @@ class CardsHighlight(test_breathing.MainScreen):
             return self.answered([Key("right"), *script], lambda: menu.models_screen(
                 self.cfg, "fix-api", {}, {}))
 
+    def left(self, shown, up, when):
+        """What the screen had lit as its card came up, at wait `up`, as it is at `when`: {row:
+        {column: the colour a highlight that left then has by now}} (motion.LEAVES), each row's
+        cells none once it is over."""
+        since, before = shown[up][0], shown[up - 1][1]
+        glow = motion.painted(motion.lighting(
+            (since, motion.LEAVES, motion.SELECTED, motion.BACKGROUND, ()), when))
+        return {row: dict.fromkeys(before.backs(row) if (when - since) / motion.LEAVES < 1 else (),
+                                   glow) for row in before.rows if before.backs(row)}
+
     def asks(self, shown, answer, fades=False):
         """From the first frame with the card to the one its answer is read on, the one `›` is
-        Keep's and the one cells with a background are Keep's lit ones -- and, where the screen's
-        clock `fades` what it had lit, those cells, each frame on the colour a highlight that
-        left has by then (motion.LEAVES), then on none: the wait the card is up at, and the one
-        its answer is read at."""
+        Keep's and the one cells with a background are Keep's lit ones -- and, where the screen
+        `fades` what it had lit, those cells till they have (`left`): the wait the card is up
+        at, and the one its answer is read at."""
         up = next(n for n, (_, grid, _) in enumerate(shown) if grid.find("✓ Keep"))
         read = next(n for n in range(up, len(shown)) if shown[n][2] is not None)
-        since, before = shown[up][0], shown[up - 1][1]
-        lit = {row: before.backs(row) for row in before.rows if before.backs(row) and fades}
-        self.assertEqual(bool(lit), fades)
+        self.assertEqual(bool(fades and self.left(shown, up, shown[up][0])), fades)
         for when, grid, _ in shown[up:read + 1]:
             (keep,), (act,) = grid.find("✓ Keep"), grid.find(f"× {answer}")
             self.assertEqual(grid.marks(), [(keep, 1)], [grid.text(row) for row in grid.rows])
-            glow = motion.painted(motion.lighting(
-                (since, motion.LEAVES, motion.SELECTED, motion.BACKGROUND, ()), when))
-            left = {row: dict.fromkeys(cells, glow) for row, cells in lit.items()}
+            left = self.left(shown, up, when) if fades else {}
             self.assertEqual({row: grid.backs(row) for row in grid.rows if grid.backs(row)},
-                             {**(left if (when - since) / motion.LEAVES < 1 else {}), keep: KEEP})
+                             {**{row: cells for row, cells in left.items() if cells}, keep: KEEP})
         return up, read
 
     def kept(self, shown, read, words):
@@ -239,29 +248,73 @@ class CardsHighlight(test_breathing.MainScreen):
                 "the models screen": (self.restart, "Restart", ["orchestrator", "Alpha"])}.items():
             with self.subTest(case):
                 shown = run(*frames, Key("enter"), *frames * 2)
-                # the ak screen and config forget their clock as they ask: no fade there yet
-                up, read = self.asks(shown, answer, case in ("past sessions", "the models screen"))
+                up, read = self.asks(shown, answer, bool(row))
                 self.assertEqual(bool(up), bool(row))
                 if row:             # asked over a screen, which Keep keeps
                     self.kept(shown, read, row)
 
-    def test_a_row_on_two_lines_the_card_moves_up_is_lit_on_neither(self):
-        for case, (run, size, name) in {"past sessions": (self.past, (30, 15), "fix-api-1"),
-                                        "the ak screen": (self.ak, (40, 16), "fix-api")}.items():
+    def test_a_row_of_lines_the_card_moves_up_one_is_lit_on_none(self):
+        # the last: two more lines, reading alike, the second then where the first was
+        for case, (run, size, name, said) in {
+                "past sessions": (self.past, (30, 15), "fix-api-1", ()),
+                "the ak screen": (self.ak, (40, 16), "fix-api", ()),
+                "its lines alike": (self.past, (30, 17), "fix-api-1", ("Run checks.",) * 2)}.items():
             with self.subTest(case), patch.object(terminal, "width", return_value=size[0]), \
                     patch.object(terminal, "height", return_value=size[1]), \
+                    patch.object(menu, "past_said", lambda seat: said or ("", "")), \
                     patch.dict(self.words, {"fix-api": "working"}):    # the seat's no plan line
                 shown = run(*[None] * 6)
-                up, _ = self.asks(shown, "Remove" if case == "past sessions" else "Stop")
+                up, _ = self.asks(shown, "Stop" if run == self.ak else "Remove")
                 before, grid = shown[up - 1][1], shown[up][1]
                 lit = [row for row in sorted(before.rows)
                        if SELECTION in before.backs(row).values()]
-                self.assertEqual(len(lit), 2, [before.text(row) for row in before.rows])
+                self.assertEqual(lit, list(range(lit[0], lit[0] + 2 + len(said))),
+                                 [before.text(row) for row in before.rows])
                 self.assertIn(name, before.text(lit[0]))
-                self.assertEqual(lit[1], lit[0] + 1)
                 moved = [row - 1 for row in lit]
                 self.assertIn(name, grid.text(moved[0]))
-                self.assertEqual([grid.backs(row) for row in moved], [{}, {}])
+                self.assertEqual([[screen.text(row).strip() for row in rows[2:]]
+                                  for screen, rows in ((before, lit), (grid, moved))],
+                                 [list(said)] * 2)
+                self.assertEqual([grid.backs(row) for row in moved], [{}] * len(lit))
+
+    def test_the_pointer_moved_onto_an_answer_leaves_the_fade_as_it_goes(self):
+        for case, (run, answer) in {"past sessions": (self.past, "Remove"),
+                                    "the ak screen": (self.ak, "Stop"),
+                                    "config": (self.apply, menu.APPLY_ANSWER),
+                                    "the models screen": (self.restart, "Restart")}.items():
+            with self.subTest(case):
+                (row,) = next(grid for _, grid, _ in run() if grid.find("✓ Keep")).find(
+                    f"× {answer}")
+                shown = run(None, Key("point", row=row, col=3), *[None] * 5)
+                up, read = self.asks(shown, answer, True)       # fading as the move is read
+                moved = shown[read + 1:read + 6]    # drawn again at once, then frame by frame
+                self.assertEqual(moved[0][0], shown[read][0])
+                for when, grid, _ in moved:
+                    self.assertEqual(grid.marks(), [(row, 1)])
+                    left = self.left(shown, up, when)
+                    self.assertEqual({at: grid.backs(at) for at in left}, left)
+                self.assertEqual([any(self.left(shown, up, when).values())      # to its end
+                                  for when, _, _ in (moved[0], moved[-1])], [True, False])
+
+    def test_a_meter_the_keys_were_on_fades_under_configs_card(self):
+        # ↑ past the first model, and the frames its meter's highlight takes to come
+        shown = self.apply(*[None] * 6, first=[Key("up"), *[None] * 6])
+        up, _ = self.asks(shown, menu.APPLY_ANSWER, True)
+        self.assertEqual(shown[up - 1][1].marks(), [])      # a cell over the page, no row's
+
+    def test_the_pointer_on_a_mark_under_configs_card_lights_nothing(self):
+        # a mark is a cell the pointer lights on `c` (terminal.lit): the next model's, under the
+        # one the keys were on, once that one has faded
+        before = next(grid for _, grid, key in self.apply() if key == Key("char", "a"))
+        ((row, cells),) = [(row, before.backs(row)) for row in before.rows if before.backs(row)]
+        self.assertIn(before.text(row + 1)[min(cells) - 1:max(cells)].strip(), ("○", "●"))
+        shown = self.apply(*[None] * 5, Key("point", row=row + 1, col=min(cells)), *[None] * 6)
+        _, read = self.asks(shown, menu.APPLY_ANSWER, True)
+        asked = [grid for _, grid, _ in shown[read + 1:] if grid.find("✓ Keep")]
+        self.assertGreater(len(asked), 6)
+        self.assertEqual([[at for at in grid.rows if grid.backs(at)
+                           and at not in grid.find("✓ Keep")] for grid in asked], [[]] * len(asked))
 
     def test_what_a_past_row_opened_stays_open_unlit_over_its_card(self):
         with patch.object(menu, "past_said", lambda seat: ("Shipped the login page.", "")):
