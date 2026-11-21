@@ -1421,8 +1421,9 @@ def lit(lines, spots):
     cell of a row -- lit as the keys light one (`selected`), so the pointer and the keys never
     show two.  `spots` are the screen's, kept as what the pointer is read against (`read_key`).
     Rows are the screen's to light: the keys' highlight is moved onto the pointer's.  What only
-    explains -- a cell that is a tuple -- is never lit.  Nothing the pointer rests on says
-    anything more of itself: the screen is its own manual.
+    explains -- a cell that is a tuple -- is never lit, nor a row's cell under a card, whose
+    answers have the highlight (`away`).  Nothing the pointer rests on says anything more of
+    itself: the screen is its own manual.
     A row drawn again on its line no longer reaching the still pointer -- a click shrank its
     cell -- is the pointer moved off it, held for `read_key` to answer, and `show` draws that;
     till then the pointer is on nothing drawn, so no move within one spot lets that one go.
@@ -1435,7 +1436,7 @@ def lit(lines, spots):
             and spots.get(_POINTER.row, (None,))[0] == on):
         _HELD, _POINTER = (_POINTER._replace(name="point"), time.monotonic()), None
     if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple)
-            or not 0 < _POINTER.row <= len(lines)):
+            or _CARD and _POINTED.what is not None or not 0 < _POINTER.row <= len(lines)):
         return lines
     _PAINTED = [*lines[:_POINTER.row - 1],
                 selected(lines[_POINTER.row - 1], _POINTED.first, _POINTED.last),
@@ -1450,25 +1451,29 @@ def on_screen():
 
 def lights():
     """What the screen up has lit (`on_screen`), each run of a row's cells on the theme's
-    selection by what it is (`held`), {what: [(row, first, last)]}, rows and columns from 1: the
-    one place every screen's highlight is read, so its clock moves it with no screen saying where
-    it is (`motion.Clock.light`)."""
+    selection by what it is and which of its lines (`held`), {what: [(row, first, last, line)]},
+    rows and columns from 1: the one place every screen's highlight is read, so its clock moves
+    it with no screen saying where it is (`motion.Clock.light`)."""
     back, found = ink(colour("selection"), "48"), {}
     for row, line in enumerate(_PAINTED, 1):
         at = 1
         for on, run in groupby(_grounds(line), key=back.__eq__):
             size = len(list(run))
             if on:
-                found.setdefault(held(row, at), []).append((row, at, at + size - 1))
+                what, which = held(row, at)
+                found.setdefault(what, []).append((row, at, at + size - 1, which))
             at += size
     return found
 
 
 def held(row, column):
     """What is at `column` of `row` on the screen up, as a click there reads it (`under`): its
-    spot's row and cell, or that place where it is on none."""
-    spot = under(Key("point", col=column, row=row), _SPOTS)
-    return spot[:2] if spot[:2] != (None, None) else (None, (row, column))
+    spot's row and cell, or that place where it is on none; then which of that row's lines
+    `row` is, from 0 down the screen, so none of them is taken for another that was there."""
+    spot, line = under(Key("point", col=column, row=row), _SPOTS), 0
+    while spot.what is not None and _SPOTS.get(row - line - 1, (None,))[0] == spot.what:
+        line += 1
+    return (spot[:2] if spot[:2] != (None, None) else (None, (row, column))), line
 
 
 def columns(line, first, last):
