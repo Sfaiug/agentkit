@@ -6,8 +6,9 @@ again, goes on in its own conversation.
 Somebody else's pull request is reviewed with `--review-pr`, opus and astra marked to review,
 astra spent at launch so opus is the pick.  opus's turn is refused and leaves its session; with
 astra still spent, the run parks.  Black-box, on the fixtures of
-tests/test_key_a_review_waits_for_another_provider.py.  A shortage ends as a meter does: its
-window resets.
+tests/test_key_a_review_waits_for_another_provider.py.  astra's window stays spent until the
+run has parked, and the test then moves it past its reset; opus's ends at the moment its
+refusal names.
 """
 
 import sys
@@ -18,21 +19,21 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import taskfile
 from fixtures.fakegh import GitHub
+from test_key_a_review_starts_on_another_provider import past_its_reset
 from test_key_a_review_waits_for_another_provider import refused
-from test_key_writer_reviews_only_without_room import (HOURS, meter, record, roles, staged,
-                                                       until_true)
+from test_key_writer_reviews_only_without_room import meter, record, roles, staged, until_true
 
-# long enough for a launch to pick, and to park, while the shortage lasts
-SHORTAGE = 30
+# how long opus's window stays spent from its refused turn
+SHORTAGE = 20
 ADDED = "+a line the pull request adds"
 
 
 def parked(case, codex, claude):
     """`case`'s run of the review of other-dev's pull request, parked, with astra's meters
     `codex` and opus's turns `claude`."""
-    week = time.time() + 86400
     home = staged(case, ["opus", "astra"], ["opus", "astra"],
-                  {"claude": [meter(10, week)], "codex": codex}, claude=claude, codex="pass")
+                  {"claude": [meter(10, time.time() + 86400)], "codex": codex}, claude=claude,
+                  codex="pass")
     case.gh = GitHub(home)
     case.head = case.rig.branch("contrib", {"contrib.txt": ADDED[1:] + "\n"})
     case.url = case.gh.open_pr(case.rig, "contrib", body="adds a line", author="other-dev")
@@ -59,10 +60,8 @@ class AnotherReviewerTakesItOver(LaunchParks, unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        over = time.time() + SHORTAGE
-        parked(cls, [meter(100, over, HOURS), meter(10, time.time() + 86400)],
-               refused(3600))
-        until_true(lambda: time.time() > over + 1)
+        parked(cls, [meter(100, time.time() + 86400)], refused(3600))
+        past_its_reset(cls, "codex")
         resumed(cls)
 
     def test_astra_reviews_the_diff_on_no_session(self):
