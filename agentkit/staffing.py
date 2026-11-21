@@ -47,6 +47,9 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     With review on, the executor is one the run's reviewers of another lab can review while
     one of its builders is (`ready_order`'s `reviewed_by`), as at launch.
     """
+    # the run's marks as its own loop reads them: one the config renamed since launch still
+    # builds, reviews and refuses as the model its record holds
+    cfg = config.as_launched(cfg, state)
     current = state.get("executor")
     try:
         current_provider = config.model(cfg, current)["provider"] if current else None
