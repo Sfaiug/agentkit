@@ -181,8 +181,9 @@ class LimitsPage(unittest.TestCase):
         self.limits(term)
         term.keys(*["j"] * NAMES.index(NAMES[3]))
         shown = flat(term.wait(lambda screen: EXTRA in flat(screen)))
-        self.assertIn(f"› {NAMES[3]} ◂ 1 ▸ default 2 ", shown)
-        self.assertIn(f" {EXTRA} ↑↓ limit", shown)      # under the rows, no chart after it
+        # the rescoping row under it (tests/test_key_limits_sets_rescope_findings.py)
+        self.assertIn(f"› {NAMES[3]} ◂ 1 ▸ default 2 Findings that end a run for rescoping 6 "
+                      f"{EXTRA} ↑↓ limit", shown)
 
     def test_c_shows_one_limits_row_with_the_four_values(self):
         shown = lines(self.c().wait("Limits"))
