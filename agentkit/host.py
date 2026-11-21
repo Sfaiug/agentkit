@@ -676,6 +676,36 @@ def _procs_running():
     return None
 
 
+class IdleReading(NamedTuple):
+    """Nanoseconds since boot, the idle ticks of every processor, the ticks in a second."""
+    boot_ns: int
+    cpu_idle_ticks: int
+    clk_tck: int
+
+
+def idle_reading():
+    """The host's `IdleReading`, or None where any of its numbers cannot be read.
+
+    An instant cannot say whether a long run has room, while the kernel counts idle time
+    itself: two readings minutes apart give the exact mean idle between them.  The numbers
+    stay the kernel's whole ones, as seconds in floats compare unequal at their edges, and
+    the boot clock is one no clock change steps.  Injected readings give them by their names.
+    """
+    readings = _injected()
+    if readings is None:
+        try:
+            cpu = next(line.split() for line in (PROC / "stat").read_text().splitlines()
+                       if line.startswith("cpu "))
+            readings = {"boot_ns": time.clock_gettime_ns(time.CLOCK_BOOTTIME),
+                        "cpu_idle_ticks": int(cpu[4]), "clk_tck": os.sysconf("SC_CLK_TCK")}
+        except (OSError, ValueError, IndexError, StopIteration):
+            return None
+    numbers = [readings.get(name) for name in IdleReading._fields]
+    if not all(type(number) is int and number >= 0 for number in numbers):
+        return None
+    return IdleReading(*numbers)
+
+
 def _ready(cgroup):
     """The threads of `cgroup` and every one under it on a CPU or ready for one."""
     ready = 0
