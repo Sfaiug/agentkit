@@ -59,9 +59,9 @@ def colours(shown):
 
 
 def colour(shown, theme):
-    """The one colour of a look on its theme's background (tests/test_key_a_screen_is_painted.py):
-    none, or another background, fails the test."""
-    [found] = colours(shown) - {role("background", theme, bg)}
+    """The one colour of a look on the terminal's own background
+    (tests/test_key_a_screen_is_painted.py): none, or a background, fails the test."""
+    [found] = colours(shown)
     return found
 
 
@@ -132,8 +132,8 @@ class Themes(unittest.TestCase):
                                  ("✓ done", "success", "gamma"), ("○ idle", "dim", "delta"),
                                  ("○ out of usage", "error", "omega")):
             with self.subTest(word):
-                ground = lit if seat == "acme" else role("background", theme, bg)
-                self.assertEqual(colours(look(screen, word, on=seat)), {role(name, theme), ground})
+                ground = {lit} if seat == "acme" else set()       # else the terminal's own
+                self.assertEqual(colours(look(screen, word, on=seat)), {role(name, theme)} | ground)
         for key in ("↑↓←→", "esc"):
             self.assertEqual(colour(look(screen, key, on="esc leave"), theme),
                              role("dim", theme))

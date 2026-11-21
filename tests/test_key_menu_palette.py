@@ -22,7 +22,6 @@ from fixtures.akterm import SERVER, Terminal, forget
 
 DARK_ACCENT, DARK_NEEDS, DARK_MUTED = "38;2;77;163;255", "38;2;215;146;0", "38;2;172;180;189"
 LIGHT_ACCENT, LIGHT_NEEDS, LIGHT_MUTED = "38;2;0;103;198", "38;2;142;94;0", "38;2;83;89;98"
-DARK, LIGHT = "48;2;0;0;0", "48;2;255;255;255"     # each theme's background, off the highlight
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -54,28 +53,27 @@ class Palette(unittest.TestCase):
     def test_with_no_answer_about_the_background_the_menu_is_dark(self):
         screen = self.menu(COLORTERM="truecolor")
         self.assertEqual(ink(look(screen, "›")), {"1", DARK_ACCENT})
-        self.assertEqual(look(screen, "! needs you", on="beta"), {"1", DARK_NEEDS, DARK})
-        self.assertEqual(look(screen, "Opus 5.5", on="beta"), {DARK_MUTED, DARK})
+        self.assertEqual(look(screen, "! needs you", on="beta"), {"1", DARK_NEEDS})
+        self.assertEqual(look(screen, "Opus 5.5", on="beta"), {DARK_MUTED})
 
     def test_on_a_light_background_the_menu_draws_the_white_theme(self):
         for colorterm in ("truecolor", "24bit"):
             with self.subTest(COLORTERM=colorterm):
                 screen = self.menu("#ffffff", COLORTERM=colorterm)
                 self.assertEqual(ink(look(screen, "›")), {"1", LIGHT_ACCENT})
-                self.assertEqual(look(screen, "! needs you", on="beta"),
-                                 {"1", LIGHT_NEEDS, LIGHT})
-                self.assertEqual(look(screen, "Opus 5.5", on="beta"), {LIGHT_MUTED, LIGHT})
+                self.assertEqual(look(screen, "! needs you", on="beta"), {"1", LIGHT_NEEDS})
+                self.assertEqual(look(screen, "Opus 5.5", on="beta"), {LIGHT_MUTED})
                 self.assertNotIn(DARK_NEEDS, colours(screen))
 
     def test_a_background_is_light_once_its_luma_is_past_half_way(self):
-        for background, *theme in (("#808080", LIGHT_NEEDS, LIGHT), ("#7f7f7f", DARK_NEEDS, DARK)):
+        for background, *theme in (("#808080", LIGHT_NEEDS), ("#7f7f7f", DARK_NEEDS)):
             with self.subTest(background=background):
                 screen = self.menu(background, COLORTERM="truecolor")
                 self.assertEqual(look(screen, "! needs you", on="beta"), {"1", *theme})
 
     def test_on_256_colours_the_light_needs_you_is_its_nearest_fixed_colour(self):
         self.assertEqual(look(self.menu("#ffffff", TERM="xterm-256color"), "! needs you",
-                              on="beta"), {"1", "38;5;94", "48;5;231"})
+                              on="beta"), {"1", "38;5;94"})
 
 
 if __name__ == "__main__":
