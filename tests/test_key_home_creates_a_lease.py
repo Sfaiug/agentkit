@@ -108,9 +108,9 @@ class AHomeCreatesALease(unittest.TestCase):
         home, other = machines
         self.record(home, "acme-laptop", "yes")
         machines.break_remote("unreachable")
-        self.assertEqual(home.tick().code, 0)
+        ours, theirs = home.tick(), other.tick()
+        self.assertEqual((ours.code, theirs.code), (0, 0), ours.err + theirs.err)
         self.assertFalse((home.path / LOCK).exists())
-        other.tick()
         self.assertTrue((other.path / LOCK).exists())
         machines.mend_remote()
         home.tick()
