@@ -3216,7 +3216,8 @@ def next_choice(cfg, found, row, step, kept):
     (matrix.answer), the owner's design of 5 Nov 2026: (model, effort) of its next step down or
     up (role_steps, step_take), in order of cost and on a tie of quality; None past either end.
     A `row` that is no step stands at its cost and quality, one with no cost as its best
-    choice."""
+    choice.  A choice a take takes no model of is passed by: a harness changed since `found`
+    was answered may leave one so."""
     steps = [(one, *step_take(cfg, found, kept, one)) for one in role_steps(found, kept)]
     here = row if row and row["cost"] is not None else next(reversed(found["choices"]), None)
     if here is None:
@@ -3224,7 +3225,7 @@ def next_choice(cfg, found, row, step, kept):
     steps += [] if any(one is here for one, *_ in steps) else [(here, None, None)]
     steps = sorted(steps, key=lambda one: (one[0]["cost"], one[0]["quality"]))[::step]
     at = next(n for n, (one, *_) in enumerate(steps) if one is here)
-    return next(((model, level) for _, model, level in steps[at + 1:]), None)
+    return next(((model, level) for _, model, level in steps[at + 1:] if model), None)
 
 
 def take_choice(cfg, name, selected, providers, role, model, effort, ask):
