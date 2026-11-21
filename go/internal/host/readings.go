@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -206,10 +207,13 @@ func ownCgroups() (string, bool) {
 	return string(data), err == nil
 }
 
-// cgroupContains is whether this process's membership names that group.
-func cgroupContains(name string) bool {
+// userManagerHolds is whether this user's systemd manager holds this process: a line of its
+// membership names user@<uid>.service as a whole component, as a system unit
+// backup-user@<uid>.service only ends like it.
+func userManagerHolds() bool {
 	data, _ := ownCgroups()
-	return strings.Contains(data, name)
+	return slices.Contains(strings.FieldsFunc(data, func(r rune) bool { return r == '/' || r == '\n' }),
+		fmt.Sprintf("user@%d.service", os.Getuid()))
 }
 
 // ownCgroup is this process's unified cgroup, relative to the cgroup root.

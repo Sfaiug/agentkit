@@ -15,9 +15,9 @@ import (
 )
 
 // A manager listens; systemd-run, of 258, is scripted, logging its words; this process sits in
-// the manager's own subtree where inManager.  The work, in a folder whose name holds a dollar,
-// adds its own pid where it says, once it wrote it where AK_PLACED says, as this program does
-// (Placed).
+// the manager's own subtree where inManager, else in a system unit whose name only ends like the
+// manager's.  The work, in a folder whose name holds a dollar, adds its own pid where it says,
+// once it wrote it where AK_PLACED says, as this program does (Placed).
 func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called string) {
 	t.Setenv("HOME", t.TempDir())
 	runtime, err := os.MkdirTemp("", "ak") // short: a socket's path has a limit
@@ -39,7 +39,7 @@ func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called 
 		os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho \"$*\" >>"+called+"\n"+script+"\n"), 0o755)
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	group := "0::/user.slice/acme.scope\n"
+	group := fmt.Sprintf("0::/system.slice/backup-user@%d.service\n", os.Getuid())
 	if inManager {
 		group = fmt.Sprintf("0::/user.slice/user-%d.slice/user@%d.service/app.slice/acme.scope\n", os.Getuid(), os.Getuid())
 	}

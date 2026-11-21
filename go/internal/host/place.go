@@ -195,7 +195,7 @@ func PlaceIn(slice string, cmd *exec.Cmd, log, unit string, properties []string,
 		}
 	}
 	os.Remove(claim)
-	scoped := cgroupContains(fmt.Sprintf("user@%d.service", os.Getuid()))
+	scoped := userManagerHolds()
 	switch {
 	case !UserManager():
 		return plain(cmd, "no user systemd manager")

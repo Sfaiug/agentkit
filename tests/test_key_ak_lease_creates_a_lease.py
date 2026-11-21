@@ -11,7 +11,8 @@ time makes nothing.  With any word it is a usage error, as `ak back acme` is, an
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, and each case builds its own machines.  What came back is the refs
-git reads in the origin and in each lease's repository; this test fails against `/bin/false`.
+git reads in the origin and in each lease's repository, and that repository's objects; this test
+fails against `/bin/false`.
 """
 
 import sys
@@ -49,6 +50,15 @@ def made(machine):
     """The values `machine` made, by their refs under refs/made/."""
     return {ref: value for ref, value in refs(kept(machine)).items()
             if ref.startswith("refs/made/")}
+
+
+def objects(machine):
+    """Every object `machine`'s lease's repository holds, a ref of it or not; none where there is
+    no repository."""
+    repo = kept(machine)
+    if not repo.exists():
+        return set()
+    return set(_git(repo, "cat-file", "--batch-all-objects", "--batch-check=%(objectname)").split())
 
 
 def lease(machine, *words, now=NOW):
@@ -99,6 +109,7 @@ class AkLeaseCreatesALease(unittest.TestCase):
         theirs = self.created(vm)
         self.turn(mini)
         self.assertEqual((mini.install.refs(), made(mini)), ({REF: theirs}, {}))
+        self.assertEqual(objects(mini), set())
 
     def test_a_ref_whose_name_ends_as_the_leases_does_is_no_lease(self):
         mini, = self.machines("acme-mini")
@@ -112,6 +123,7 @@ class AkLeaseCreatesALease(unittest.TestCase):
         machines.break_remote("unreachable")
         self.turn(mini)
         self.assertEqual((mini.install.refs(), made(mini)), ({}, {}))
+        self.assertEqual(objects(mini), set())
         machines.mend_remote()
         self.turn(mini)
         self.created(mini)
@@ -149,11 +161,13 @@ class AkLeaseCreatesALease(unittest.TestCase):
         self.created(mini, mini.path / "mirror.git")
         self.assertEqual([refs(vm.path / "mirror.git"), refs(vm.path / "other.git"),
                           mini.install.refs(), made(vm), made(mac)], [{}] * 5)
+        self.assertEqual((objects(vm), objects(mac)), (set(), set()))
 
     def test_a_stamp_that_is_no_time_makes_nothing(self):
         mini, = self.machines("acme-mini")
         self.turn(mini, now="acme")
         self.assertEqual((mini.install.refs(), made(mini)), ({}, {}))
+        self.assertEqual(objects(mini), set())
 
     def test_a_word_is_a_usage_error_that_takes_no_turn(self):
         mini, = self.machines("acme-mini")
