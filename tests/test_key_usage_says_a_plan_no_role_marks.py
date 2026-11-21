@@ -130,17 +130,18 @@ class UsageSaysAPlanNoRoleMarks(unittest.TestCase):
                           "xai": "8 · no role marks its models"})
 
     def test_ascii_locale_prints_without_unicode_error(self):
-        for width in ("200", "40"):
-            with self.subTest(width=width):
-                _, text = self.run_usage(
-                    workers=("anvil",), models_off=(),
-                    env={"COLUMNS": width, "LC_ALL": "C", "PYTHONUTF8": "0"})
-                self.assertTrue(text.isascii(), text)
-                if width == "200":
-                    self.assertEqual(meters.cell(text, "Grok", "a month"),
-                                     "8, no role marks its models")
-                else:
-                    self.assertEqual(card_month(text, "Grok"), "8, no role marks its models")
+        for env in ({"LC_ALL": "C", "PYTHONUTF8": "0"},
+                    {"LC_ALL": "C.UTF-8", "PYTHONIOENCODING": "ascii"}):
+            for width in ("200", "40"):
+                with self.subTest(env=env, width=width):
+                    _, text = self.run_usage(
+                        workers=("anvil",), models_off=(), env={"COLUMNS": width, **env})
+                    self.assertTrue(text.isascii(), text)
+                    if width == "200":
+                        self.assertEqual(meters.cell(text, "Grok", "a month"),
+                                         "8, no role marks its models")
+                    else:
+                        self.assertEqual(card_month(text, "Grok"), "8, no role marks its models")
 
     def test_medium_width_never_hides_another_providers_models_to_fit_the_note(self):
         akconfig.write(self.home, {"anvil-main": "claude", "anvil-alt": "claude",
