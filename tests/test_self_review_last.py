@@ -254,21 +254,21 @@ class SelfReviewLast(unittest.TestCase):
 
     def test_own_pr_picks_against_the_orchestrator_with_self_last(self):
         opts = {"--review-pr": "https://example.com/acme/fix-api/pull/1", "--review": None}
-        session = {"name": "seat", "orchestrator": "acme-one",
-                   "workers": ["acme-one", "acme-two", "beta-one"]}
-        with patch.object(run, "collect_usage", side_effect=lambda cfg: self.providers), patch.object(staffing, "collect_usage", side_effect=lambda cfg: self.providers), \
-                patch.object(config, "current_session", return_value="seat"), \
-                patch.object(config, "load_session", return_value=session), \
-                patch.object(run, "pr_view", return_value={"author": "owner"}), \
-                patch.object(run, "viewer_login", return_value="owner"):
-            self.assertEqual(run.preset_review_model(self.cfg, opts), "beta-one")
+
+        def preset(opts):
+            return run.preset_review_model(self.cfg, opts, writer="acme-one")
+
+        with patch.object(run, "collect_usage", side_effect=lambda cfg: self.providers), patch.object(staffing, "collect_usage", side_effect=lambda cfg: self.providers):
+            self.assertEqual(preset(opts), "beta-one")
             self.providers = self.meters(beta=100)
-            self.assertEqual(run.preset_review_model(self.cfg, opts), "acme-two")
+            # beta-one, of another lab, is marked: the pick waits for it, none of acme's reviews
+            self.assertIsNone(preset(opts))
+            self.cfg["defaults"]["workers"] = ["acme-one", "acme-two"]
+            self.assertEqual(preset(opts), "acme-two")
             self.cfg["defaults"]["workers"] = ["acme-one"]
-            self.assertEqual(run.preset_review_model(self.cfg, opts), "acme-one")
+            self.assertEqual(preset(opts), "acme-one")
             # an explicit review by the writer's own model is allowed, not refused
-            opts = {**opts, "--review": "acme-one"}
-            self.assertEqual(run.preset_review_model(self.cfg, opts), "acme-one")
+            self.assertEqual(preset({**opts, "--review": "acme-one"}), "acme-one")
 
     def test_a_resume_keeps_a_self_review_pair(self):
         self.assertEqual(run.pick_models(self.cfg, self.providers, "acme-one", "acme-one",
