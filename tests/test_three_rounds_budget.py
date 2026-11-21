@@ -142,6 +142,10 @@ sys.exit(1)
         directory = (set(record.run_dirs()) - before).pop()
         return code, directory, record.read_state(directory)
 
+    def rescope_off(self):
+        """A review of forty-two findings goes on as before `rescope_findings` ended it."""
+        (config.HOME / config.CONFIG_NAME).write_text("rescope_findings = 0\n")
+
     def calls(self, role=None):
         path = self.root / "calls.jsonl"
         rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
@@ -243,6 +247,25 @@ sys.exit(1)
         code, directory, state = self.launch(rounds=2)
         self.assertEqual((code, state["state"], state["rounds"]), (1, "fail", 2), self.log(directory))
         return directory, state
+
+    def test_v5l_a_run_cut_for_rescoping_says_why_when_resumed_after_its_process_died(self):
+        # the loop dies once the review that cut its budget is saved, before the run ends; the
+        # resume ends it as the cut left it, and its result still says why
+        self.reviews(fail(6), PASS)
+        pid = os.fork()
+        if pid == 0:
+            with patch.object(run.history, "record_review", side_effect=lambda *_a, **_kw: os._exit(75)):
+                self.launch()
+            os._exit(1)
+        self.assertEqual(os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]), 75)
+        directory, = record.run_dirs()
+        self.assertEqual(record.read_state(directory)["rounds"], 1)
+        run.cmd_resume([directory.name])
+        state = record.read_state(directory)
+        self.assertEqual((state["state"], state["rounds"], len(state["round_summaries"])),
+                         ("fail", 1, 1), self.log(directory))
+        self.assertIn("## Why this run stopped\n\nThe review left 6 blocking findings, at or past "
+                      "rescope_findings = 6: rescope the task.\n", (directory / "result.md").read_text())
 
     def test_v5l_resume_with_a_larger_budget_continues_a_fail_at_its_next_round(self):
         directory, state = self.exhausted_run()
@@ -367,6 +390,7 @@ sys.exit(1)
         """run.json keeps a bounded tail; the fixer that continues gets the file itself."""
         first = "first-pattern-site-that-the-tail-drops"
         wide = fail(2, note=first) + "\n" + fail(40, note="x" * 300).split("## Findings\n", 1)[1]
+        self.rescope_off()
         self.assertGreater(len(wide), 8000)
         self.reviews(wide, wide, PASS)
         directory, state = None, None
@@ -394,6 +418,7 @@ sys.exit(1)
         """`call_retrying` gives each retry its own directory; the answer is in the last one."""
         first = "first-pattern-site-that-the-tail-drops"
         wide = fail(2, note=first) + "\n" + fail(40, note="y" * 300).split("## Findings\n", 1)[1]
+        self.rescope_off()
         # the last round of the budget is the one whose reviewer had to be retried
         self.reviews(fail(42, note="earlier"), "HTTP 503 Service Unavailable\n", wide, PASS)
         with patch.object(run.time, "sleep"):
@@ -428,6 +453,7 @@ sys.exit(1)
     def test_v5l_an_existing_run_recovers_its_whole_review_from_the_round_directory(self):
         first = "first-pattern-site-that-the-tail-drops"
         wide = fail(2, note=first) + "\n" + fail(40, note="z" * 300).split("## Findings\n", 1)[1]
+        self.rescope_off()
         self.reviews(wide, wide, PASS)
         _, directory, state = self.launch(rounds=2)
         state = self.existing_format(directory)

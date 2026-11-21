@@ -203,7 +203,7 @@ class RulesCapTold(unittest.TestCase):
         self.assert_round_fails_with(
             "AGENTS.md front matter has lines ak does not read: `test: make check`, "
             "`preview: make serve` (it reads tests, health, deployed, cleanup, users, features, suite_image, "
-            "content, setup, alive, nightly, review_rounds, executor_lines, orchestrator_lines, extra_rounds): remove them, or fix "
+            "content, setup, alive, nightly, review_rounds, executor_lines, orchestrator_lines, extra_rounds, rescope_findings): remove them, or fix "
             "the misspelled name.")
 
     def test_a_project_names_its_product_text_in_its_front_matter(self):

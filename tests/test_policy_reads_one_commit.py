@@ -15,8 +15,10 @@ from fixtures.gitrig import Rig
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from agentkit import config, gitcall
 
-FIRST = {"review_rounds": 3, "executor_lines": 100, "orchestrator_lines": 50, "extra_rounds": 1}
-SECOND = {"review_rounds": 3, "executor_lines": 300, "orchestrator_lines": 200, "extra_rounds": 0}
+FIRST = {"review_rounds": 3, "executor_lines": 100, "orchestrator_lines": 50, "extra_rounds": 1,
+         "rescope_findings": 4}
+SECOND = {"review_rounds": 3, "executor_lines": 300, "orchestrator_lines": 200, "extra_rounds": 0,
+          "rescope_findings": 0}
 
 
 def front(numbers):
