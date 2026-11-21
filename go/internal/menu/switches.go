@@ -141,9 +141,9 @@ func FeaturesFrame(s terminal.Screen, view FeaturesView) MatrixFrame {
 	for _, each := range shown {
 		lines = append(lines, each.line)
 	}
-	lines = Panel(s, view.Title, view.Clock, append(lines, said...), keys)
+	frame := matrixPanel(s, view.Title, view.Clock, append(lines, said...), keys, top, append(spots, shown...))
 	if view.Waiting != nil {
-		lines[1] = view.Waiting.WaitingRule(s, s.LayoutWidth())
+		frame.Lines[1] = view.Waiting.WaitingRule(s, s.LayoutWidth())
 	}
-	return MatrixFrame{lines, top, append(spots, shown...)}
+	return frame
 }

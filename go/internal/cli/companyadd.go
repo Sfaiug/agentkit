@@ -42,12 +42,18 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 		top = frame.Top
 		painter.Write(frame.Lines, screen)
 		key := keyboard.ReadKey()
+		clicked := key.Name == "pointer" && clicks.Click(key.Mouse)
+		if clicked {
+			key = frame.Pressed(key) // a key-line item does what its key does
+		}
 		switch {
 		case key.Name == "again":
 			painter.Forget()
 			continue
 		case key.Name == "wake": // the boards landed, which only the company list reads
 			continue
+		case key.Name == "pointer" && !key.Mouse.Released && key.Mouse.Button&(32|64) == 0:
+			continue // the button going down lights nothing: the click is when it comes up (read_key)
 		case away && (key.Name == "space" || key.Name == "enter"):
 			away = false // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
@@ -65,7 +71,6 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			at = max(0, min(len(others)-1, at+key.Mouse.Notches))
 		case key.Name == "pointer":
-			clicked := clicks.Click(key.Mouse)
 			row, _, hit := frame.Hit(key.Mouse)
 			if away = !hit; hit {
 				at = row

@@ -33,5 +33,5 @@ func CompanyAddFrame(s terminal.Screen, title string, others []matrix.Company, a
 		}
 		lines, spots = append(lines, line), append(spots, matrixRow{line: line, row: row})
 	}
-	return MatrixFrame{Panel(s, title, time.Now().Format("15:04"), lines, keys), top, spots}
+	return matrixPanel(s, title, time.Now().Format("15:04"), lines, keys, top, spots)
 }

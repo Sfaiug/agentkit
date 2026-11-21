@@ -28,14 +28,16 @@ func (spots keySpots) Pressed(key terminal.Key) terminal.Key {
 	return key
 }
 
-// pressing is the key a key-line item names (menu.pressed): `⏎ open` Enter, `esc leave` Esc, an
-// arrow in front of the keys its page turn, any other key of one character itself; the page's place
-// between the arrows, and `↑↓←→ move`, none.
+// pressing is the key a key-line item names (menu.pressed, menu.matrix_key): `⏎ open` Enter,
+// `␣ mark` Space, `esc leave` Esc, an arrow in front of the keys its page turn, any other key of
+// one character itself; the page's place between the arrows, and `↑↓←→ move`, none.
 func pressing(item string) terminal.Key {
 	key, _, _ := strings.Cut(item, " ")
 	switch key {
 	case "⏎", "enter":
 		return terminal.Key{Name: "enter"}
+	case "␣", "space":
+		return terminal.Key{Name: "space"}
 	case "esc":
 		return terminal.Key{Name: "esc"}
 	case "←", "<":
