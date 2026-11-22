@@ -3,15 +3,16 @@ machine's client, with a standby's job: the work frozen in ak's slice is no long
 the other machine carries on from its copy.  This hides who is asked, the order of the steps, and
 the kill file.
 
-Asked is each machine a record here says takes over from this one (`standby._records`), by the
-record's name, whether it holds ak's lease by its own word (`ak standby --home`): nothing is ended
-on what this machine lacks, as a lease it cannot read looks the same as one taken, only on a
-machine it knows saying it is home.  The first that says so is told first that this machine
-copies it and takes over from it, so it keeps a record of that before this machine can ever watch
-its lease.  Then what ak's slice holds is ended by its `cgroup.kill`, the slice left frozen, which
-a firing of this machine as a home again thaws; the standby's folder is made, with which a
-client's install keeps this machine's runs, checkouts and work; the standby's job is kept; and
-`install.sh --client` runs last, whose record of a server makes the next firing a client's.
+Asked, in the order of their names, is each machine a record here says takes over from this one
+(`standby._records`), by the record's name, whether it holds ak's lease by its own word
+(`ak standby --home`): nothing is ended on what this machine lacks, as a lease it cannot read
+looks the same as one taken, only on a machine it knows saying it is home.  The first that says
+so is told first that this machine copies it and takes over from it, with this machine's name and
+that machine's stamp (`standby._home_began`), so it keeps a record of that before this machine
+can ever watch its lease.  Then what ak's slice holds is ended by its `cgroup.kill`, the slice left
+frozen, which a firing of this machine as a home again thaws; the standby's folder is made, with
+which a client's install keeps this machine's runs, checkouts and work; the standby's job is kept;
+and `install.sh --client` runs last, whose record of a server makes the next firing a client's.
 A step that fails or raises leaves the rest to the next paused firing, from the first.  Each
 leaves what a second firing doing the same at once would, so no lock is taken.
 """
@@ -27,9 +28,11 @@ def where_another_is_home():
     """This machine made the client of the first machine asked that says it is home; nothing
     where none does, nor past a step that fails or raises."""
     with contextlib.suppress(Exception):
-        home = next((path.name for path in standby._records()
+        home = next((path.name for path in sorted(standby._records())
                      if _takes(path) and _asked(path.name, "--home")), None)
-        if home and _asked(home, "--copied", *standby._home_began(home), "yes"):
+        # without this machine's name and that machine's stamp, no record of it is kept there
+        held = standby._home_began(home) if home else []
+        if held and _asked(home, "--copied", *held, "yes"):
             _kill()
             (config.TMP / standby.FOLDER).mkdir(parents=True, exist_ok=True)
             if standby._keep_job(home):
