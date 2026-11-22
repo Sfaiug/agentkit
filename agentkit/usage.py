@@ -1990,6 +1990,15 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
 HEADERS = ("provider", "model(s)", "left", "holds", "a month", "resets", "week elapsed",
            "session", "resets held", "headroom", "budget", "outlook")
 SPENT_OVER = 7 * 86400          # what a login's spend is priced over, and its plan's week fitted
+MONTH = 52 / 12 * 7 * 86400     # the weeks a month's price pays for
+
+
+def _now():
+    """The moment `ak usage` reports at.  An answer key names its clock in `AK_USAGE_CLOCK`, a
+    file of Unix seconds read anew each time, so it reaches whatever program the key runs;
+    unset, the real clock."""
+    clock = os.environ.get("AK_USAGE_CLOCK")
+    return float(Path(clock).read_text()) if clock else time.time()
 
 
 def _pct(value):
@@ -2077,15 +2086,32 @@ def _glyph(utf, plain):
     return utf
 
 
-def _month(cost, used):
+def no_use_read(cfg, provider, account, prov, cost, marked, now):
+    """Whether the login `account` of `provider` (None, its usual one), `prov` its reading, priced
+    at `cost` and its provider `marked`, shows no use read in the MONTH up to `now`: the readings
+    ak keeps of the meter that is its shared week now (`shared_week`) begin a MONTH back or more,
+    and none taken in that MONTH has `used` above 0.  The provider's meter, not ak's turns: older
+    turn rows name no model, and what the owner uses a login for outside ak is use.  Only what
+    was read: a stretch nobody read changes nothing, as a meter spent and reset in it was not."""
+    week = shared_week(cfg, provider, prov, now)
+    if cost is None or not marked or week is None:
+        return False
+    since = now - MONTH
+    [(old, spent)] = spend._select(
+        "SELECT MIN(at) <= ?, MAX(at >= ? AND used > 0) FROM meter_readings WHERE provider = ? "
+        "AND account = ? AND meter = ?", since, since, provider,
+        account or config.DEFAULT_ACCOUNT, week["name"]) or [(None, None)]
+    return bool(old) and not spent
+
+
+def _month(cost, marked, idle):
     """`a month`'s cell: the price in grouped digits, with `no role marks its models` where a
-    priced login's provider has no model on and marked; `-` for no price."""
+    priced login's provider has no model on and marked, else `no use read in a month` where its
+    month shows none (`no_use_read`); `-` for no price."""
     if cost is None:
         return "-"
-    shown = _digits(cost)
-    if used:
-        return shown
-    return f"{shown}{_glyph(' · ', ', ')}no role marks its models"
+    note = "no role marks its models" if not marked else "no use read in a month" if idle else None
+    return _digits(cost) + (f"{_glyph(' · ', ', ')}{note}" if note else "")
 
 
 def _budget_label(value, reason):
@@ -2223,10 +2249,11 @@ def rows(cfg, providers):
     Every number reads the shared week (`_as_shared`), the one the menu row names; a row with
     no shared week reads the tightest weekly meter.  `holds` is what that week of its plan holds
     at list prices and `a month` that login's price (`price`), with `no role marks its models`
-    where its provider has no model on and marked (`marked_providers`).  A provider with several
-    accounts is a row per account, `Claude II`, each on its own meters and its own plan.
+    where its provider has no model on and marked (`marked_providers`), else `no use read in a
+    month` where `no_use_read`.  A provider with several accounts is a row per account,
+    `Claude II`, each on its own meters and its own plan.
     """
-    now = time.time()
+    now = _now()
     weeks, used = plan_weeks(cfg, providers, now), marked_providers(cfg)
     out = []
     for label, name, prov, account in _accounts(cfg, providers):
@@ -2236,9 +2263,10 @@ def rows(cfg, providers):
         session = _worst([m for m in prov.get("meters") or []
                           if m.get("window_secs") == SESSION_SECS])
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
+        cost, marked = price(cfg, name, account), name in used
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
                     _held(weeks[name][account][1], shared or {}),
-                    _month(price(cfg, name, account), name in used),
+                    _month(cost, marked, no_use_read(cfg, name, account, prov, cost, marked, now)),
                     reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
@@ -2260,7 +2288,7 @@ def review_pair(cfg, providers):
 
 
 def render(cfg, providers, order, *, repo=None):
-    now = time.time()
+    now = _now()
     table = [HEADERS] + rows(cfg, providers)
     widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
@@ -2385,7 +2413,7 @@ def main(argv):
     repo = Path.cwd().name
     order = pick_order(cfg, providers, quiet=as_json, repo=repo)
     if as_json:
-        now = time.time()
+        now = _now()
         weeks, checks = plan_weeks(cfg, providers, now), plan_checks(cfg, providers, now)
         used = marked_providers(cfg)
         for _, name, prov, account in _accounts(cfg, providers):
@@ -2394,6 +2422,8 @@ def main(argv):
             # the plan it shows priced, not the plan read again: a probe meanwhile may change it
             prov["price"] = _monthly(cfg, name, account, lambda: prov["plan"])
             prov["marked"] = name in used
+            prov["no_use_read"] = no_use_read(cfg, name, account, prov, prov["price"],
+                                              prov["marked"], now)
             prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             prov["plan_checks"] = checks[name][account]
         json.dump({"providers": providers, "pick_order": order,
