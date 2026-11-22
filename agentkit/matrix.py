@@ -467,19 +467,26 @@ def company_order(cfg, lineup):
 
 @functools.lru_cache(maxsize=1)
 def _listed(text):
-    lineup = (json.loads(text).get("matrix") or {}).get("lineup") or []
-    return lineup, {row["release"]: row["maker"] for role in quality.ROLES
-                    for row in quality.rated(lineup, role)}
+    held = json.loads(text).get("matrix") or {}
+    lineup = held.get("lineup") or []
+    return (lineup, {row["release"]: row["maker"] for role in quality.ROLES
+                     for row in quality.rated(lineup, role)}), held.get("fetched_at")
 
 
 def listed():
     """The lineup last stored and its listed releases, {slug: maker}: each a role rates a row of
     (`answer`'s `rated`), rated once per stored lineup, so a release without scores is never
     listed; ([], {}) where nobody stored one."""
+    return dated()[0]
+
+
+def dated():
+    """`listed`'s pair and the `fetched_at` stored with it (`stored`), of one read: a refresh
+    between two reads would date one lineup by another's boards."""
     try:
         return _listed(cache_path().read_text())
     except (OSError, ValueError):
-        return [], {}
+        return ([], {}), None
 
 
 def ours(cfg, reading=None):

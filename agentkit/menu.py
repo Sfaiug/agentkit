@@ -4039,8 +4039,8 @@ def models_screen(cfg, session, selected, providers):
                 failed = " ".join(str(exc).split()) or type(exc).__name__
             note = f"the boards were not read: {failed}" if failed else note
             fetch, answer = None, None
-        if answer is None:        # counted and answered off one reading: `p` back may find a newer
-            fetched, reading = matrix.stored().get("fetched_at"), matrix.listed()
+        if answer is None:        # counted, answered and dated off one read of the boards
+            reading, fetched = matrix.dated()
             compared, total = matrix.compared(cfg, reading), len(matrix.ours(cfg, reading))
             answer = matrix.answer(reading[0], compared, cfg=cfg)
             note = "\n".join(filter(None, [note, *(price_take(
