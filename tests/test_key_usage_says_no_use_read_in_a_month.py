@@ -2,9 +2,11 @@
 `ak usage`'s `a month` cell, in the table and on a narrow card alike, and is `no_use_read` true in
 `ak usage --json`, where the readings ak keeps of the meter that is its shared week now begin a
 month (52/12 weeks) or more before the usage clock and none taken in that month reads above 0
-used.  A week in the middle nobody read changes nothing: ak says only what it read.  One with a
-reading above 0 in the month, one whose oldest reading is a week old and one with no shared week
-read as today and are `no_use_read` false; one no role marks keeps `no role marks its models`.
+used.  A week in the middle nobody read changes nothing: ak says only what it read; nor does a
+model's own cap of the meter's name (`scope`), nor a reading taken after the usage clock.  One
+with a reading above 0 in the month, one whose oldest reading is a week old and one with no
+shared week read as today and are `no_use_read` false; one no role marks keeps `no role marks
+its models`.
 
 Black-box, as tests/test_key_usage_says_a_plan_no_role_marks.py is and on its fixtures, with
 invented logins and readings written into its Home, the readings dated back from the moment its
@@ -35,6 +37,11 @@ LOGINS = {("anthropic", "default"): ("Claude I", "max 20x", range(35), None),
           ("openai", "default"): ("ChatGPT", "pro", range(35), 10),
           ("google", "default"): ("Gemini", "Google AI Pro", range(8), None),
           ("xai", "default"): ("Grok", "X Premium", range(35), None)}
+# No reading of a shared week in the month, (provider, account, used, at, scope) each: Anvil's own
+# caps of the meter's name, and a reading taken after NOW.
+NOT_THE_MONTH = [("anthropic", "default", 7, NOW - DAY, "anvil"),
+                 ("anthropic", "second", 5, NOW + 60, None),
+                 ("google", "default", 0, NOW - 33 * DAY, "anvil")]
 
 
 class UsageSaysNoUseReadInAMonth(unittest.TestCase):
@@ -55,12 +62,16 @@ class UsageSaysNoUseReadInAMonth(unittest.TestCase):
         self.home.write(".agentkit/state/logins.json", logins)
         with closing(sqlite3.connect(self.home.path / ".agentkit/history.db")) as db, db:
             db.execute(METER_READINGS)
+            db.execute("ALTER TABLE meter_readings ADD COLUMN scope TEXT")
             # each reading inside its week, the weeks resetting a day after NOW
-            db.executemany(f"INSERT INTO meter_readings VALUES ({', '.join('?' * 9)})", [
-                (provider, account, "weekly", 3 if day == spent else 0,
-                 NOW + DAY - day // 7 * WEEK, WEEK, NOW - day * DAY, "probe", plan)
-                for (provider, account), (_, plan, days, spent) in LOGINS.items()
-                for day in days])
+            db.executemany(f"INSERT INTO meter_readings VALUES ({', '.join('?' * 10)})", [
+                *((provider, account, "weekly", 3 if day == spent else 0,
+                   NOW + DAY - day // 7 * WEEK, WEEK, NOW - day * DAY, "probe", plan, None)
+                  for (provider, account), (_, plan, days, spent) in LOGINS.items()
+                  for day in days),
+                *((provider, account, "weekly", used, at + DAY, WEEK, at, "probe",
+                   LOGINS[provider, account][1], scope)
+                  for provider, account, used, at, scope in NOT_THE_MONTH)])
 
     def usage(self, *, orchestrator="anvil", workers=tuple(marks.MODELS)):
         """Each login's (`price`, `marked` and `no_use_read` on `ak usage --json`, `a month` in

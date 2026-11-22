@@ -2089,8 +2089,9 @@ def _glyph(utf, plain):
 def no_use_read(cfg, provider, account, prov, cost, marked, now):
     """Whether the login `account` of `provider` (None, its usual one), `prov` its reading, priced
     at `cost` and its provider `marked`, shows no use read in the MONTH up to `now`: the readings
-    ak keeps of the meter that is its shared week now (`shared_week`) begin a MONTH back or more,
-    and none taken in that MONTH has `used` above 0.  The provider's meter, not ak's turns: older
+    ak keeps of the meter that is its shared week now (`shared_week`) up to `now` begin a MONTH
+    back or more, and none taken in that MONTH has `used` above 0.  A model's own cap of that
+    meter's name (`scope`) is no reading of it.  The provider's meter, not ak's turns: older
     turn rows name no model, and what the owner uses a login for outside ak is use.  Only what
     was read: a stretch nobody read changes nothing, as a meter spent and reset in it was not."""
     week = shared_week(cfg, provider, prov, now)
@@ -2099,8 +2100,8 @@ def no_use_read(cfg, provider, account, prov, cost, marked, now):
     since = now - MONTH
     [(old, spent)] = spend._select(
         "SELECT MIN(at) <= ?, MAX(at >= ? AND used > 0) FROM meter_readings WHERE provider = ? "
-        "AND account = ? AND meter = ?", since, since, provider,
-        account or config.DEFAULT_ACCOUNT, week["name"]) or [(None, None)]
+        "AND account = ? AND meter = ? AND scope IS NULL AND at <= ?", since, since, provider,
+        account or config.DEFAULT_ACCOUNT, week["name"], now) or [(None, None)]
     return bool(old) and not spent
 
 
