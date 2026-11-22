@@ -103,8 +103,9 @@ class ABackgroundLaunchNamesTheReviewerTheChildKeeps(unittest.TestCase):
         cls.gh.reply("api user", json.dumps({"login": "acme"}), times=1)
         cls.gh.reply("api user", err=OFFLINE, code=1, times=1)
         launched(cls, "--bg")
-        until_true(lambda: record(cls.run_dir).get("state") not in (None, "queued", "running"),
-                   bound=300)
+        # a passed own pull request waits in the landing line, then lands
+        until_true(lambda: record(cls.run_dir).get("state") not in (None, "queued", "running",
+                                                                    "waiting"), bound=300)
         cls.state = record(cls.run_dir)
 
     def test_the_parent_names_opus_and_the_child_keeps_it(self):
