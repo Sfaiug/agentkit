@@ -263,6 +263,8 @@ class SelfReviewLast(unittest.TestCase):
             self.providers = self.meters(beta=100)
             # beta-one, of another lab, is spent: one of acme's reviews, the writer last
             self.assertEqual(preset(opts), "acme-two")
+            self.cfg["defaults"]["workers"] = ["acme-one", "acme-two"]
+            self.assertEqual(preset(opts), "acme-two")
             self.cfg["defaults"]["workers"] = ["acme-one"]
             self.assertEqual(preset(opts), "acme-one")
             # an explicit review by the writer's own model is allowed, not refused

@@ -158,16 +158,20 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
 
         if writers:
             far = [name for name in ready(workers)
-                   if all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)
-                   and not usage.model_exhausted(cfg, name, providers)[0]]
+                   if all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)]
+            # one of them spent is left to `pick_order`, which names its meter; no meters, no
+            # reading, so none is spent
+            room = [name for name in far
+                    if not usage.model_exhausted(cfg, name, providers or {})[0]]
             why = (f"a reviewer of another lab than {', '.join(writers)} has usage left: "
-                   f"{', '.join(far)}")
+                   f"{', '.join(room)}")
         else:
             reviews = [name for name in ready(reviewed_by) if not barred_reviewer(cfg, name)]
-            far = [name for name in ready(workers)
-                   if any(pair_tier(cfg, name, reviewer, lineup) == 0 for reviewer in reviews)]
+            far = room = [name for name in ready(workers)
+                          if any(pair_tier(cfg, name, reviewer, lineup) == 0
+                                 for reviewer in reviews)]
             why = f"a marked reviewer of another lab can review {', '.join(far)}"
-        if far:
+        if room:
             skip.update((name, why) for name in ready(workers) if name not in far)
     return workers, skip
 

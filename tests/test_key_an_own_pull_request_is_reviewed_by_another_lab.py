@@ -57,6 +57,7 @@ class AnotherLabsReviewerIsSpent(unittest.TestCase):
 
     def test_opus_reviews_its_own_work(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
+        self.assertEqual((self.state["state"], self.state["own_pr"]), ("pass", True))
         self.assertEqual(roles(self.fakes["claude"]), ["reviewer"])
         self.assertEqual(self.fakes["codex"].runs(), [])
 
@@ -111,7 +112,7 @@ class ABackgroundLaunchNamesTheReviewerTheChildKeeps(unittest.TestCase):
         [line] = [line for line in self.done.out.splitlines()
                   if line.startswith(f"run {self.run_dir.name} launched:")]
         self.assertIn("(opus review, self-reviewed)", line)
-        self.assertEqual((self.state["own_pr"], self.state["review"]["reviewer"]), (True, "opus"))
+        self.assertEqual((self.state["own_pr"], self.state["reviewer"]), (True, "opus"))
         self.assertEqual((roles(self.fakes["claude"]), self.fakes["codex"].runs()),
                          (["reviewer"], []))
 

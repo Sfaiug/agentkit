@@ -22,6 +22,8 @@ from fixtures import fakeadapter, taskfile
 from test_key_writer_reviews_only_without_room import (launched, meter, record, roles, staged,
                                                        until_true)
 
+# how long the window a reviewer's turn is refused on lasts from that turn
+SHORTAGE = 20
 # a turn of an adapter whose program is gone: the shell's exec found nothing, and nothing streamed
 GONE = {"stderr": "codex.sh: 1: exec: codex: not found\n", "exit": 127}
 
@@ -46,7 +48,7 @@ class AnotherProvidersReviewerIsSpent(unittest.TestCase):
     def setUpClass(cls):
         week = [meter(10, time.time() + 86400)]
         staged(cls, ["opus", "astra"], ["opus", "astra"], {"claude": week, "codex": week},
-               claude=["work", "pass"], codex=refused(3600))
+               claude=["work", "pass"], codex=refused(SHORTAGE))
         launch(cls)
 
     def test_with_the_other_labs_reviewer_spent_the_writers_lab_reviews(self):
@@ -55,7 +57,7 @@ class AnotherProvidersReviewerIsSpent(unittest.TestCase):
         self.assertEqual(roles(self.fakes["codex"]), ["reviewer"])
         self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer"])
         self.assertEqual(self.state["review"]["reviewer"], "opus")
-        self.assertEqual(self.state["verdict"], "PASS")
+        self.assertEqual((self.state["state"], self.state["verdict"]), ("pass", "PASS"))
 
 
 class OwnProvidersReviewerGivesWayToTheWriter(unittest.TestCase):

@@ -8,7 +8,8 @@ picked, but if multiple picked then from different."; 22 Nov: "Own lab reviews w
 one a run marked with only the reviewers on other providers gets, and a subscription on the
 writer's provider keeps no payg reviewer on another out.  A reviewer that is spent, off, unready
 or barred, a list on the writer's provider alone, or a writer the config does not know leaves
-the pick as it is without writers; meters nobody could read spend nobody.
+the pick as it is without writers; one spent beside one with usage is left out by its meter, and
+meters nobody could read spend nobody.
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
@@ -58,8 +59,23 @@ class ReviewersBesideWriters(Sandbox):
         self.providers = meters(acme=10, beta=100)
         self.assertEqual(self.pick(writers=["opus"]), self.pick())
         self.assertEqual(self.pick(), ["opus"])
+        self.assertEqual(self.pick(["astra"]), [])
+
+    def test_a_spent_one_beside_one_with_usage_is_left_to_its_meter(self):
+        self.cfg["providers"]["gamma"] = {}
+        self.cfg["models"]["nova"] = {**self.cfg["models"]["astra"], "model": "nova-1",
+                                      "provider": "gamma"}
+        self.providers = meters(acme=10, beta=70, gamma=100)
+        self.assertEqual(self.pick(["opus", "astra", "nova"], ["opus"], self.logs.append),
+                         ["astra"])
+        self.assertEqual(self.logs,
+                         ["skipped opus: a reviewer of another lab than opus has usage left: astra"])
+
+    def test_meters_nobody_could_read_spend_nobody(self):
         self.providers = usage.Readings({})
         self.assertEqual(self.pick(writers=["opus"]), ["astra"])
+        _, skip = staffing.takers(self.cfg, None, ["opus", "astra"], "reviewer", writers=["opus"])
+        self.assertEqual(list(skip), ["opus"])
 
     def test_a_subscription_on_the_writers_provider_keeps_no_payg_one_out(self):
         self.cfg["providers"]["beta"]["mode"] = "payg"

@@ -54,7 +54,7 @@ class AnotherProvidersReviewerIsSpent(unittest.TestCase):
         self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer"])
         self.assertEqual(self.fakes["codex"].runs(), [])
         self.assertEqual(self.state["review"]["reviewer"], "opus")
-        self.assertEqual(self.state["verdict"], "PASS")
+        self.assertEqual((self.state["state"], self.state["verdict"]), ("pass", "PASS"))
 
 
 class OwnProvidersReviewerGivesWayToTheWriter(unittest.TestCase):
@@ -98,10 +98,9 @@ class NamedReviewersStandInReviews(unittest.TestCase):
     def test_fable_reviews_while_mimo_is_spent(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual((self.state["executor"], self.state["reviewer"]), ("opus", "fable"))
+        self.assertEqual(self.state["state"], "pass")
         self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer"])
         self.assertEqual(self.fakes["opencode"].runs(), [])
-        self.assertEqual((self.state["review"]["reviewer"], self.state["verdict"]),
-                         ("fable", "PASS"))
 
 
 if __name__ == "__main__":
