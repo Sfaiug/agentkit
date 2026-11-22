@@ -958,9 +958,15 @@ def _on_disk(cfg):
     `cfg`, the caller's copy, stands in only where there is no such file, or it cannot be read.
     """
     try:
-        return config.load() if (config.HOME / config.CONFIG_NAME).exists() else cfg
+        return _config_now(cfg)
     except (OSError, config.Error):
         return cfg
+
+
+def _config_now(cfg):
+    """The config as config.toml holds it now, `cfg` where there is no such file; one that
+    cannot be read raises."""
+    return config.load() if (config.HOME / config.CONFIG_NAME).exists() else cfg
 
 
 def collect(cfg, *, refresh=False):
@@ -1288,17 +1294,18 @@ def answered(cfg, provider, account, model, at):
     refusal written meanwhile is seen.  A mark naming no meter parks every model and one naming
     a meter the reading no longer holds names whose it was nowhere (`_parks`), so both stay, as
     does one a meter showed (`_fresh_window` ends it).  What the change raises -- a model
-    config.toml no longer has -- is the caller's, and the file is then as it was.
+    config.toml no longer has, a config.toml that cannot be read, a reading of another shape --
+    is the caller's, and the file is then as it was: the caller's copy of the config standing
+    in (`_on_disk`), or a meter passed over, would unpark on what nobody can say gates `model`.
     """
     def change(providers, _):
-        here = _on_disk(cfg)
+        here = _config_now(cfg)
         login = _placed(here, provider, account)
         prov = _record(providers.get(provider))
         theirs = _record(prov.get("accounts"))
         record = prov if login is None else _record(theirs.get(login))
-        meters = [m for m in record.get("meters") or [] if isinstance(m, dict)]
-        gating = [_identity(m)
-                  for m in _gating_meters(here, model, {provider: {"meters": meters}})[0]]
+        reading = {provider: {"meters": record.get("meters") or []}}
+        gating = [_identity(m) for m in _gating_meters(here, model, reading)[0]]
 
         def wrong(mark):
             made, named = _number(mark.get("exhausted_at")), mark.get("exhausted_meters")

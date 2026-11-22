@@ -156,14 +156,27 @@ class AnsweredTurnEndsWrongMarks(unittest.TestCase):
         self.assertTrue(usage.answered(self.cfg, "beta", None, "three", NOW + 1))
         self.assertEqual(self.made(self.stored()["beta"]), [])
 
-    def test_a_model_config_toml_no_longer_holds_raises_and_leaves_the_snapshot(self):
-        self.refuse("second", "one", NOW)
+    def assert_raises_leaving_the_snapshot(self, error):
         cache = config.STATE / "usage.json"
         before = cache.read_bytes()
-        (config.HOME / config.CONFIG_NAME).write_text(CONFIG.replace(ONE, ""))
-        with self.assertRaises(config.Error):
+        with self.assertRaises(error):
             usage.answered(self.cfg, "acme", "second", "one", NOW + 1)
         self.assertEqual(cache.read_bytes(), before)
+
+    def test_a_model_config_toml_no_longer_holds_raises_and_leaves_the_snapshot(self):
+        self.refuse("second", "one", NOW)
+        # ... the caller's copy still holding it, and so where config.toml no longer loads
+        for toml in (CONFIG.replace(ONE, ""), "[models]\n"):
+            (config.HOME / config.CONFIG_NAME).write_text(toml)
+            self.assert_raises_leaving_the_snapshot(config.Error)
+
+    def test_a_reading_of_another_shape_raises_and_leaves_the_snapshot(self):
+        self.refuse("second", "one", NOW)
+        cache = config.STATE / "usage.json"
+        blob = json.loads(cache.read_text())
+        blob["providers"]["acme"]["accounts"]["second"]["meters"].append(None)
+        cache.write_text(json.dumps(blob))
+        self.assert_raises_leaving_the_snapshot(Exception)
 
 
 if __name__ == "__main__":
