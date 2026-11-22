@@ -128,13 +128,15 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
 
     A reviewer's pick given `writers`, every model that wrote part of the work, leaves out
     the same way every reviewer sharing a lab with one of them while another that is not
-    off, unready or barred shares none (`pair_tier` 0).  The owner, 18 Nov 2026: "same
-    provider or model for both roles should still be allowed if only picked, but if multiple
-    picked then from different."  So that one is waited for while spent, and a subscription
-    of a writer's lab keeps no payg reviewer of another out.  An executor's pick given
-    `reviewed_by`, the reviewer marks of its run, leaves out the same way every executor with
-    no reviewer of them at `pair_tier` 0 that is not off, unready or barred, while another has
-    one: the pick is the one a run marking only those executors gets.
+    off, unready or barred shares none (`pair_tier` 0) and has usage left on `providers`
+    (`usage.model_exhausted`).  The owner, 18 Nov 2026: "same provider or model for both
+    roles should still be allowed if only picked, but if multiple picked then from
+    different."; 22 Nov: "Own lab reviews when spent".  So a subscription of a writer's lab
+    keeps no payg reviewer of another out, and while every reviewer of another lab is spent
+    the pick is the one a run marking none of them gets: the writer's lab's, by rank.  An
+    executor's pick given `reviewed_by`, the reviewer marks of its run, leaves out the same
+    way every executor with no reviewer of them at `pair_tier` 0 that is not off, unready or
+    barred, while another has one: the pick is the one a run marking only those executors gets.
     """
     from . import usage  # here, not at the top: usage imports staffing
     offered = config.offered(cfg)
@@ -156,8 +158,10 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
 
         if writers:
             far = [name for name in ready(workers)
-                   if all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)]
-            why = f"a reviewer of another lab than {', '.join(writers)} is marked: {', '.join(far)}"
+                   if all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)
+                   and not usage.model_exhausted(cfg, name, providers)[0]]
+            why = (f"a reviewer of another lab than {', '.join(writers)} has usage left: "
+                   f"{', '.join(far)}")
         else:
             reviews = [name for name in ready(reviewed_by) if not barred_reviewer(cfg, name)]
             far = [name for name in ready(workers)

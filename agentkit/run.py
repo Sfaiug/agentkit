@@ -2779,7 +2779,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first,
-    # and none of their lab while one of another is marked (`ready_order`)
+    # and none of their lab while one of another has usage left (`ready_order`)
     writers = head_writers({**prior, "own_orchestrator": orchestrator, "own_pr": True}) if is_own else []
     order = reviewer_order(cfg, writers, ready_order(cfg, providers, reviewers, log,
                                                      role="reviewer", writers=writers))

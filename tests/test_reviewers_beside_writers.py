@@ -1,13 +1,14 @@
 """A reviewer's pick given the work's writers leaves out every reviewer of a writer's lab while
-one of another lab may review: with no lineup stored, as here, each provider is a lab.
+one of another lab with usage left may review: with no lineup stored, as here, each provider is
+a lab.
 
 The owner, 18 Nov 2026: "same provider or model for both roles should still be allowed if only
-picked, but if multiple picked then from different."  `staffing.ready_order` narrows the list
-before `usage.pick_order` reads it, so the pick is the one a run marked with only the reviewers
-on other providers gets: that one is waited for while spent, and a subscription on the writer's
-provider keeps no payg reviewer on another out.  A reviewer that is off, unready or barred, a
-list on the writer's provider alone, or a writer the config does not know leaves the pick as it
-is without writers.
+picked, but if multiple picked then from different."; 22 Nov: "Own lab reviews when spent".
+`staffing.ready_order` narrows the list before `usage.pick_order` reads it, so the pick is the
+one a run marked with only the reviewers on other providers gets, and a subscription on the
+writer's provider keeps no payg reviewer on another out.  A reviewer that is spent, off, unready
+or barred, a list on the writer's provider alone, or a writer the config does not know leaves
+the pick as it is without writers; meters nobody could read spend nobody.
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
@@ -47,17 +48,18 @@ class ReviewersBesideWriters(Sandbox):
         return staffing.ready_order(self.cfg, self.providers, list(listed), log,
                                     writers=writers, role="reviewer", quiet=True)
 
-    def test_a_reviewer_on_another_provider_alone_is_picked(self):
+    def test_a_reviewer_on_another_provider_alone_is_picked_and_the_log_says_why(self):
         self.assertEqual(self.pick(), ["opus", "astra"])
-        self.assertEqual(self.pick(writers=["opus"]), ["astra"])
-
-    def test_a_spent_one_is_waited_for_and_the_log_says_why(self):
-        self.providers = meters(acme=10, beta=100)
-        self.assertEqual(self.pick(writers=["opus"], log=self.logs.append),
-                         self.pick(["astra"]))
-        self.assertEqual(self.pick(["astra"]), [])
-        self.assertIn("skipped opus: a reviewer of another lab than opus is marked: astra",
+        self.assertEqual(self.pick(writers=["opus"], log=self.logs.append), ["astra"])
+        self.assertIn("skipped opus: a reviewer of another lab than opus has usage left: astra",
                       self.logs)
+
+    def test_a_spent_one_leaves_the_pick_as_without_writers(self):
+        self.providers = meters(acme=10, beta=100)
+        self.assertEqual(self.pick(writers=["opus"]), self.pick())
+        self.assertEqual(self.pick(), ["opus"])
+        self.providers = usage.Readings({})
+        self.assertEqual(self.pick(writers=["opus"]), ["astra"])
 
     def test_a_subscription_on_the_writers_provider_keeps_no_payg_one_out(self):
         self.cfg["providers"]["beta"]["mode"] = "payg"

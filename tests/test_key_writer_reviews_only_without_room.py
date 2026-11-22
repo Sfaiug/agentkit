@@ -3,8 +3,7 @@
 A run launched while every other reviewer was spent starts with its writer as its reviewer.
 Before each review -- a round's, or a landing fix's re-review on a resume after a passed
 review -- the writer gives way to a marked reviewer that is not the writer and has room now,
-on a fresh session.  With none, the writer reviews, as at launch, where the launch named it or
-no reviewer of another lab is marked; else a round's review waits for that one
+on a fresh session.  With none, the writer reviews, as at launch
 (tests/test_key_a_review_starts_on_another_provider.py).  A reviewer that is not the writer is
 never swapped, even for one ranked higher that regained room.  Black-box: the program `AK_BIN`
 names runs from outside through tests/fixtures/akbin.py, with harnesses from fakeadapter.py
@@ -181,21 +180,23 @@ class ResumeAfterPassedReview(unittest.TestCase):
 
 
 class NoOtherReviewerHasRoom(unittest.TestCase):
-    """astra stays spent: opus does not review its own work, and the run waits for astra."""
+    """astra stays spent: opus reviews its own work."""
 
     @classmethod
     def setUpClass(cls):
         home = staged(cls, ["opus", "astra"], ["opus", "astra"],
-                      {"codex": [meter(100, time.time() + 86400)]}, claude="work", codex="pass")
+                      {"codex": [meter(100, time.time() + 86400)]}, claude=["work", "pass"],
+                      codex="pass")
         cls.done = home.ak("run", str(taskfile.write(home, cls.rig.path)), "--no-merge",
                            timeout=300)
         cls.state = record(taskfile.only_run(home))
 
-    def test_the_run_waits_for_astra(self):
-        self.assertEqual(self.done.code, 1, self.done.out + self.done.err)
-        self.assertEqual(roles(self.fakes["claude"]), ["executor"])
+    def test_opus_reviews_its_own_work(self):
+        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
+        self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer"])
         self.assertEqual(self.fakes["codex"].runs(), [])
-        self.assertEqual(self.state["state"], "exhausted")
+        self.assertEqual((self.state["review"]["reviewer"], self.state["verdict"]),
+                         ("opus", "PASS"))
 
 
 class CrossPairIsKept(unittest.TestCase):
