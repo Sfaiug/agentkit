@@ -49,8 +49,9 @@ def named(minute):
     return "refs/made/" + now(minute).replace(" ", "_")
 
 
-@unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
-class AHomeFreezesWithoutItsLease(unittest.TestCase):
+class Firings:
+    """A key's machines, a home's record on them and its firings, for a TestCase."""
+
     def machines(self, *names, freezer="0"):
         """Machines of these names, each in ak's user manager by its cgroup file, with ak's slice
         in its cgroup tree and its freezer's file reading `freezer`, or with no slice for None."""
@@ -109,6 +110,9 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         self.assertEqual(made(home), {named(0): created, named(3): anew})
         return created, anew
 
+
+@unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
+class AHomeFreezesWithoutItsLease(Firings, unittest.TestCase):
     def unreachable(self, machines, home, since, older, newer):
         """`home`, keeping `older`, made at minute `since`, and `newer`, made 3 minutes on and the
         lease on the origin, with the origin unreachable: its firings run till that proof is 10

@@ -338,11 +338,17 @@ def render(command):
     return body + f"\n\nExample: {example}\n"
 
 
+def asked(argv):
+    """Whether `argv` asks for help: -h or --help anywhere before --."""
+    args = argv[:argv.index("--")] if "--" in argv else argv
+    return any(arg in ("-h", "--help") for arg in args)
+
+
 def show(command, argv):
     """Handle help anywhere before --, choosing a recognized leading nested verb."""
-    args = argv[:argv.index("--")] if "--" in argv else argv
-    if not any(arg in ("-h", "--help") for arg in args):
+    if not asked(argv):
         return False
+    args = argv[:argv.index("--")] if "--" in argv else argv
     nested = f"{command} {args[0]}" if args else command
     print(render(nested if nested in COMMANDS else command), end="")
     return True

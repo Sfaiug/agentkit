@@ -12,10 +12,14 @@ landers and checks run.
 Standing still is that slice frozen, which loses nothing: a thaw carries on where it stood.  The
 tick is cron's and runs outside the slice, as does whatever else ak started outside it.  Nothing
 else of ak freezes the slice, so a home that is not paused thaws it whoever froze it, and no state
-is kept.
+is kept; and the menu, which would wait on what is frozen, says so in its place, whoever froze it.
 """
 
-from . import host, lease, orch, standby
+import math
+import os
+import stat
+
+from . import host, lease, orch, standby, terminal
 
 # A home's tick fires every three minutes, so three more turns were tried before it pauses; a
 # standby waits twice this.
@@ -43,3 +47,26 @@ def paused():
     except (OSError, ValueError):     # ValueError: a path no file can have, as one holding a NUL
         pass
     return stale
+
+
+def stands_still():
+    """The line the menu prints instead of opening where ak's slice is frozen, None where its
+    freezer's file does not read `1` or cannot be read.  It writes nothing: only a firing freezes
+    and thaws."""
+    try:
+        # opened without waiting and read only as a file, its whole reading, as `paused` reads it:
+        # a pipe there would wait for a writer
+        with open(host.freezer(orch.slice_cgroup()), "rb",
+                  opener=lambda path, flags: os.open(path, flags | os.O_NONBLOCK)) as freezer:
+            if not stat.S_ISREG(os.fstat(freezer.fileno()).st_mode) or \
+                    freezer.read().strip() != b"1":
+                return None
+    except (OSError, ValueError):     # ValueError: a path no file can have, as one holding a NUL
+        return None
+    age = lease.proof_age()
+    # an age past a boot whose clock went back is no number (`pair_clock`)
+    since = ("it has no proof" if age is None else
+             "since before this boot it has had no proof" if age == math.inf else
+             f"for {terminal.format_age(age)} it has had no proof")
+    return (f"ak stands still on this machine: {since} that it is ak's home. It carries on by "
+            "itself once it holds its lease on ak's remote again.")
