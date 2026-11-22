@@ -49,8 +49,8 @@ from urllib.parse import urlsplit
 
 from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, handback,
                history, host, lease, login_refusals, logins, look, notify, orch, owner, parsed,
-               pause, questions, seat_tokens, staffing, standby, statusbar, transitions, turns,
-               update, usage, versions, worker)
+               pause, questions, seat_tokens, staffing, standby, statusbar, step_down, transitions,
+               turns, update, usage, versions, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
@@ -9153,8 +9153,9 @@ def main(argv):
             with suppress(Exception):
                 lease._turn()
         # ... and one that has not known for long that it is the home stands still, none of the
-        # tick's work done
+        # tick's work done, and becomes the client of a machine that says it is home
         if pause.paused():
+            step_down.where_another_is_home()
             return 0
         try:
             previous = tick_lock_path().stat().st_mtime   # before the lock stamps our start
