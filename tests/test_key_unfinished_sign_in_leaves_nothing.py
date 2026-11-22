@@ -61,6 +61,12 @@ def offered(screen):
     return [line[2:] for line in shown[2:end] if line[:2] in ("  ", "› ") and line[2:]]
 
 
+def rows(screen, mark="  "):
+    """The rows on the screen with that mark before them, the highlight's or none, each named as
+    row_at reads a row's line."""
+    return [line[2:].split("  ")[0] for line in lines(screen) if line.startswith(mark)]
+
+
 def on_page(screen):
     """Whether the screen is Subscriptions with its rows: its frame is drawn before them."""
     return title(screen) == PAGE and row_at(screen, "+ add a subscription") is not None
@@ -105,15 +111,21 @@ class UnfinishedSignInLeavesNothing(unittest.TestCase):
         self.term.wait(on_page)
 
     def to(self, row):
-        """The highlight moved, a line at a time, onto the line that reads `row`."""
+        """The highlight moved, a line at a time, onto the line that reads `row`, each key once
+        the last has moved it onto another row: a line that changes may be one redrawn, and a
+        key sent before the menu has read the last takes the highlight a row past."""
+        def whole(screen):    # a frame half drawn over the last shows a highlight too few or two
+            return len(rows(screen, "› ")) == 1 and row_at(screen, row) is not None
+        screen = self.term.wait(whole)
         for _ in range(20):
-            screen = self.term.screen()
-            if row_at(screen, row, "›") is not None:
+            [now] = rows(screen, "› ")
+            if now == row:
                 return
-            shown = lines(screen)
-            now = next(n for n, line in enumerate(shown) if line.startswith("› "))
-            self.term.keys("Down" if row_at(screen, row) > now else "Up")
-            self.term.wait(lambda screen: lines(screen)[now] != shown[now])
+            unlit = rows(screen)
+            self.term.keys("Down" if row_at(screen, row) > row_at(screen, now, "›") else "Up")
+            # onto a row it showed unlit: a line half written over another names none
+            screen = self.term.wait(lambda screen: whole(screen)
+                                    and rows(screen, "› ")[0] in unlit)
         self.fail(f"the highlight never reached {row}")
 
     def quit_sign_in(self, row):
