@@ -1,6 +1,7 @@
 """`ak lease`: one turn creating the lease on ak's remote where the remote holds none, and
 swapping a new value in where it holds this machine's own.  This hides where the lease is, how it
-is read and written, and what a machine keeps of the values it made.
+is read and written, what a machine keeps of the values it made, and what a standby keeps of the
+value it reads (`watch`).
 
 The lease says which machine is ak's home: `REF` in the repository at the push address of ak's
 checkout.  It changes only by compare-and-swap, so two machines never both create it and a swap
@@ -11,12 +12,13 @@ value made is a ref under `MADE` there, named for its stamp (`pair_clock`).  git
 whole or not at all, and a value is kept before it is sent, so a create the remote refused or never
 answered sends that same value on the next turn.
 
-One turn at a time makes, reads and writes that repository, so what a turn read is still what is
-kept when it writes: two at once would read one lease, and the one whose swap lost would delete the
-ref of the value that won, so the next turn would read this machine's own lease as another's.  The
-lock is on the folder the repository is in, which mkdir makes whole or finds there before anything
-of git's; a turn that finds it taken ends.  The kernel lets it go when the process ends, however it
-ends, and the folder is the lock, so there is no file of the lease's own.
+One turn at a time makes, reads and writes that repository, a standby's watch counted as one, so
+what a turn read is still what is kept when it writes: two at once would read one lease, and the
+one whose swap lost would delete the ref of the value that won, so the next turn would read this
+machine's own lease as another's.  The lock is on the folder the repository is in, which mkdir
+makes whole or finds there before anything of git's; a turn that finds it taken ends.  The kernel
+lets it go when the process ends, however it ends, and the folder is the lock, so there is no file
+of the lease's own.
 
 A lease is this machine's own where a ref git lists under `MADE` names its value: those refs are
 the one record of what this machine made, so one that lost the ref of its lease reads it as
@@ -27,6 +29,7 @@ makes a new one and swaps it in, so the lease changes as often as turns are take
 remote refused or never answered is not sent again, as the next turn makes another.
 """
 
+import contextlib
 import fcntl
 import functools
 import os
@@ -38,6 +41,9 @@ from . import config, gitcall, pair_clock, update
 
 REF = "refs/agentkit/home"
 MADE = "refs/made/"
+# A standby's record of the lease it watches (`watch`): one ref, which git writes whole or not at
+# all, so no pass meets a set of them to make consistent.
+SEEN = "refs/seen"
 REMOTE = 45     # seconds for each call that reaches the remote
 VALUE = rb"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})"
 # One address, of printable bytes without a space, that is no option: the one string git
@@ -62,35 +68,14 @@ def _turn():
     # its home lives
     if config.server_alias():
         return
-    checkout = update.agentkit_dir()
-    env = gitcall.project_env(checkout)
-    git = functools.partial(_git, cwd=checkout, env=env)
-    # every push address, so that more than one ends the turn: git would print the first alone
-    told = git("remote", "get-url", "--push", "--all", "origin")
-    if not ADDRESS.fullmatch(told):
-        return
-    address = told[:-1].decode()
-    repo = _repo()
-    repo.parent.mkdir(parents=True, exist_ok=True)
-    folder = os.open(repo.parent, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        fcntl.flock(folder, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:     # another turn is under way, and the next firing takes its own
-        pass
-    else:
-        _alone(git, env, address, repo)
-    finally:
-        os.close(folder)
+    git, env = _checkout()
+    address = _address(git)
+    _locked(lambda: _alone(git, env, address))
 
 
-def _alone(git, env, address, repo):
-    """The turn at the lease at `address`, through `repo`, with no other under way."""
-    env["GIT_DIR"] = str(repo)      # the checkout is the working folder alone from here on
-    git("init", "-q", "--bare", "--template=", str(repo))
-    held = git("ls-remote", address, REF, timeout=REMOTE)
-    # the pattern matches any name ending as REF does, which is no lease
-    read = next((line.partition(b"\t")[0] for line in held.split(b"\n")
-                 if re.fullmatch(VALUE + b"\t" + REF.encode(), line)), None)
+def _alone(git, env, address):
+    """The turn at the lease at `address`, with no other under way."""
+    read = _read(git, env, address)
     if read:
         kept = [line.split(b" ", 1) for line in
                 git("for-each-ref", "--format=%(objectname) %(refname)", MADE).splitlines()]
@@ -124,6 +109,119 @@ def _alone(git, env, address, repo):
     if re.fullmatch(VALUE + b"\n", value):
         git("push", address, f"{value[:-1].decode()}:{REF}", f"--force-with-lease={REF}:",
             timeout=REMOTE, check=False)
+
+
+def watch():
+    """A standby's watch of the lease its home holds, at each pass: SEEN at a commit made here
+    whose message is the value read and the stamp of the pass that first read it (`_seen`), the
+    lease read as a turn reads it, under its lock.  A value SEEN holds with a stamp of this boot
+    leaves it as it is; any other value read puts it at a commit of that value and this pass's
+    stamp, as a stamp of another boot counts for nothing; whatever else is met once the lock is
+    held, no lease among it, removes it.  Each is one update-ref at most, which git does whole or
+    not at all, and what it refused stays as it was: a home writes no value twice, so a record of
+    an older value matches no later read.  Where another turn holds the lock, or the lease's
+    folder cannot be made or opened, none of them.  Nothing is fetched from the remote or written
+    to it, and whatever the watch meets is dropped unsaid."""
+    with contextlib.suppress(Exception):
+        _locked(_watched)
+
+
+def _watched():
+    """The watch, with no turn under way."""
+    env, made = {}, None
+    try:
+        git, env = _checkout()
+        read = _read(git, env, _address(git))
+        # after the read: a stamp before it may be older than the value read
+        stamp = pair_clock.now()
+        seen = read and _seen(git)
+        if seen and seen[0] == read and seen[1].boot == stamp.boot:
+            return
+        if read:
+            made = git("commit-tree", git("mktree").strip(), "-m", _message(read, stamp),
+                       own=gitcall.STAMP).strip()
+    except Exception:   # whatever it was, no value is watched
+        pass
+    # in the lease's repository, which the read may not have reached; its exit is not read, as
+    # what git refused stays as it was
+    _git("update-ref", "--no-deref", *((SEEN, made) if made else ("-d", SEEN)),
+         env={**env, "GIT_DIR": str(_repo())}, check=False)
+
+
+def _seen(git):
+    """The value and the stamp SEEN holds, by `git` in the lease's repository; None where git gives
+    no commit for SEEN, or its message is not exactly `_message` of them.  Its message alone is
+    read: its tree, parents and dates are no part of the record."""
+    # an object the repository lacks is none, where a promisor remote would have git fetch it: the
+    # lease's commit among them
+    own = {"GIT_NO_LAZY_FETCH": "1"}
+    try:
+        # SEEN's own object: `cat-file commit SEEN` would read refs/heads/refs/seen where SEEN is
+        # not there, and the commit a tag names; the pattern matches refs under SEEN too
+        named = re.fullmatch(b"commit (" + VALUE + b") " + SEEN.encode() + b"\n", git(
+            "for-each-ref", "--format=%(objecttype) %(objectname) %(refname)", SEEN, own=own))
+        if not named:
+            return None
+        message = git("cat-file", "commit", named[1], own=own).partition(b"\n\n")[2]
+    except subprocess.CalledProcessError:
+        return None
+    value, _, line = message.partition(b" ")
+    stamp = pair_clock.read(os.fsdecode(line.removesuffix(b"\n")))
+    if stamp and re.fullmatch(VALUE, value) and message == _message(value, stamp):
+        return value, stamp
+    return None
+
+
+def _message(value, stamp):
+    """The message of SEEN's commit for the lease's `value` and the `stamp` that first read it,
+    one line, as git ends the message it is given."""
+    return value + b" " + os.fsencode(stamp.line()) + b"\n"
+
+
+def _checkout():
+    """git in ak's checkout, by `_git`, and the environment it is given, which `_read` turns to
+    the lease's repository."""
+    checkout = update.agentkit_dir()
+    env = gitcall.project_env(checkout)
+    return functools.partial(_git, cwd=checkout, env=env), env
+
+
+def _address(git):
+    """The one push address of ak's checkout, by `git` there: none, two, or one that reads as an
+    option raises."""
+    # every push address, so that more than one ends the turn: git would print the first alone
+    told = git("remote", "get-url", "--push", "--all", "origin")
+    if not ADDRESS.fullmatch(told):
+        raise ValueError("ak's checkout has no one push address")
+    return told[:-1].decode()
+
+
+def _locked(then):
+    """`then()` with no other turn under way: under the lock on the lease's folder, made where it
+    is not there.  Where another holds it, nothing."""
+    repo = _repo()
+    repo.parent.mkdir(parents=True, exist_ok=True)
+    folder = os.open(repo.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(folder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:     # another turn is under way, and the next firing takes its own
+        pass
+    else:
+        then()
+    finally:
+        os.close(folder)
+
+
+def _read(git, env, address):
+    """The value of the lease at `address`, or None for none, read through the lease's repository,
+    made ready first: `git` works in that repository from here on, the checkout its working folder
+    alone."""
+    env["GIT_DIR"] = str(_repo())
+    git("init", "-q", "--bare", "--template=", str(_repo()))
+    held = git("ls-remote", address, REF, timeout=REMOTE)
+    # the pattern matches any name ending as REF does, which is no lease
+    return next((line.partition(b"\t")[0] for line in held.split(b"\n")
+                 if re.fullmatch(VALUE + b"\t" + REF.encode(), line)), None)
 
 
 def proof_age():
