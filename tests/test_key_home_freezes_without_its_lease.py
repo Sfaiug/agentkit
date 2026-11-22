@@ -78,12 +78,14 @@ class Firings:
             return None
 
     def fire(self, machine, at, dry=False):
-        """One firing on `machine` at AK_NOW `at`, a dry run where `dry`: its exit, its freezer's
-        file, and whether the tick's lock file, removed first, is there after."""
+        """One firing on `machine` at AK_NOW `at`, a dry run where `dry`: its exit, what it printed
+        left undecoded, its freezer's file, and whether the tick's lock file, removed first, is
+        there after."""
         lock = machine.path / LOCK
         lock.unlink(missing_ok=True)
         env = {"AK_NOW": at}
-        done = machine.ak("watch", "--dry-run", env=env) if dry else machine.tick(env=env)
+        done = (machine.ak("watch", "--dry-run", env=env, raw=True) if dry else
+                machine.tick(env=env, raw=True))
         return done.code, self.freezer(machine), lock.exists()
 
     def paused(self, machine, at):
