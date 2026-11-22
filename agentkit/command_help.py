@@ -346,15 +346,15 @@ def asked(argv):
     return any(arg in ("-h", "--help") for arg in args)
 
 
-# Each command's flag whose exit is its whole answer: it takes no word, help included, as help's 0
-# after it would read as that answer.
-ANSWERS = {"standby": "--home"}
+# Each command's flags whose exit and lines are their whole answer: each takes no word, help
+# included, as help's 0 and lines after one would read as that answer.
+ANSWERS = {"standby": ("--home", "--takers")}
 
 
 def show(command, argv):
     """Handle help anywhere before --, choosing a recognized leading nested verb; none after a
     leading `ANSWERS` flag, which the command refuses as any word."""
-    if not asked(argv) or argv[:1] == [ANSWERS.get(command)]:
+    if not asked(argv) or argv[0] in ANSWERS.get(command, ()):
         return False
     args = argv[:argv.index("--")] if "--" in argv else argv
     nested = f"{command} {args[0]}" if args else command

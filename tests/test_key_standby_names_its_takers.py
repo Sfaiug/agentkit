@@ -1,7 +1,7 @@
 """`ak standby --takers` prints, one a line and in the order of their names, the name of each
 machine whose record here reads as a stamp and says it takes over, and exits 0: none for a record
-saying `no` or one that is no stamp, nothing at all where no record is kept.  Given a second word it
-is refused as `ak standby`'s other misuse is, printing nothing.  Black-box, through
+saying `no` or one that is no stamp, nothing at all where no record is kept.  Given a second word,
+help's too, it is refused as `ak standby`'s other misuse is, printing nothing.  Black-box, through
 tests/fixtures/akbin.py, the records written as `ak standby --copied` keeps them.
 """
 
@@ -39,8 +39,11 @@ class AStandbyNamesItsTakers(unittest.TestCase):
     def test_a_second_word_is_refused_as_any_other_misuse(self):
         misuse = self.home.ak("standby", "--began", "extra")
         self.assertNotEqual(misuse.code, 0, misuse.out + misuse.err)
-        done = self.takers("extra")
-        self.assertEqual((done.code, done.out), (misuse.code, ""), done.err)
+        # help too, whose 0 and lines would read as the names
+        for word in ("extra", "-h", "--help"):
+            with self.subTest(word=word):
+                done = self.takers(word)
+                self.assertEqual((done.code, done.out), (misuse.code, ""), done.err)
 
 
 if __name__ == "__main__":
