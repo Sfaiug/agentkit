@@ -7452,8 +7452,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
 # --- on a client ------------------------------------------------------------
 
 
-def client(alias, dry_run):
-    cmd = ["ssh", "-t", alias, "ak", "--client"]
+def client(alias, dry_run, hops=1):
+    """The menu of the home at `alias`, over ssh.  Its `--client`, once a hop, tells it how many
+    hops it is reached over: a client of a client hops on once, and goes no further (`main`)."""
+    cmd = ["ssh", "-t", alias, "ak", *["--client"] * hops]
     if dry_run:
         print(f"would run {shlex.join(cmd)}")
         return 0
@@ -7511,35 +7513,43 @@ def main(argv):
     way a client's menu does nor runs the maintenance that a menu opening a seat runs: reaping
     runs and retiring seats over a session the user is sitting in is not what `Ctrl-b m` was
     pressed for. A client's update starts detached before ssh; the server's starts behind the
-    first frame (update_first). Neither an overlay nor a dry run starts one.
+    first frame (update_first). Neither an overlay, a dry run nor a hop asked for by another
+    client's menu starts one: a standby follows its home by its passes.
+
+    A client's `--client` is another client's menu passing through, the old home's after a
+    standby took over: it goes on to this machine's home, once, saying so with `--client` twice.
+    Twice, a client goes no further, so two records naming each other never chain ssh sessions.
     """
     if command_help.show("attach", argv):
         return 0
-    flags = {"--client": False, "--overlay": False, "--dry-run": False}
+    flags = dict.fromkeys(("--client", "--overlay", "--dry-run"), 0)
     for arg in argv:
         if arg not in flags:
             config.migrate_policy()     # as bin/ak renames before any other command's refusal
             raise config.Error(f"{USAGE}  (got {arg!r})")
-        flags[arg] = True
+        flags[arg] += 1
     # painted, and in a popup inside the border what it asks to be left
     terminal.screens(popup=flags["--overlay"])
     if not flags["--dry-run"]:
         from . import macbridge
         macbridge.start_background()
-    alias = config.server_alias()
-    hops = alias and not (flags["--client"] or flags["--overlay"])
+    home = None if flags["--overlay"] else config.server_alias()
+    if home and flags["--client"] > 1:
+        print(f"this machine is a client of {home} and opens no menu for another client")
+        return 1
     from .pause import stands_still     # by name: this module's own `pause` is a notice
     # The menu that would open here says ak stands still before the config's and the state's
     # locks and the seats' tmux server, which a frozen slice may hold for good; past that, old
-    # config names are renamed, as bin/ak does before every other command.
-    if not (hops or flags["--overlay"]) and (still := stands_still()):
+    # config names are renamed, as bin/ak does before every other command.  A client's own slice
+    # is not what its hop shows.
+    if not (home or flags["--overlay"]) and (still := stands_still()):
         print(still)
         return 1
     config.migrate_policy()
-    if hops:
-        if not flags["--dry-run"]:
+    if home:
+        if not (flags["--dry-run"] or flags["--client"]):
             update_first()
-        return client(alias, flags["--dry-run"])
+        return client(home, flags["--dry-run"], 1 + flags["--client"])
     from . import watch
     messages = []     # a dry run's are what it would do, for the owner to read
     watch.resume_after_boot(config.load(), dry_run=flags["--dry-run"], log=messages.append
