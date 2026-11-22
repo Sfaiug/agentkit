@@ -702,7 +702,8 @@ case "$ROLE" in
     printf '%s\n' "$ALIAS" >"$AK/state/server"
     echo "client: the server is \`ssh $ALIAS\`; \`ak\` runs the menu there" ;;
   server)
-    rm -f -- "$AK/state/server"
+    # the record of a server goes after the crontab: an install cut short before then leaves a
+    # client, whose job runs the install again, never a machine with no client job and no tick
     if [ "$SANDBOX" = 1 ]; then
       echo "server: sandbox HOME, so the ak watch cron is not installed"
     elif ! have crontab; then
@@ -725,7 +726,8 @@ case "$ROLE" in
       else
         printf '%s\n' "$wanted" | crontab - && echo "server: ak watch runs every three minutes from cron"
       fi
-    fi ;;
+    fi
+    rm -f -- "$AK/state/server" ;;
 esac
 
 if py_ok; then
