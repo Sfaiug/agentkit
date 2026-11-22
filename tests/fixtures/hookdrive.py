@@ -28,7 +28,8 @@ there nothing installs, and every test fails.
 variable (`{"AK_RUN_ROLE": "worker"}` is a worker's).  `transcript` writes a conversation for a
 payload's `transcript_path`.  A prompt fired bare is a turn the harness began itself, a
 scheduled check-in or another session's message: only `prompt` writes the owner's words into
-the seat's conversation, the one place a harness says whose a turn's words are.
+the seat's conversation, the one place a harness says whose a turn's words are; `conversation`
+is where Claude Code keeps it.
 """
 
 from collections import namedtuple
@@ -103,13 +104,13 @@ class Hooks:
             _drained(end)
         return _fired(runs)
 
-    def prompt(self, text, seat, *, env=None, **payload):
+    def prompt(self, text, seat, *, env=None, finished=False, **payload):
         """The owner submits `text` in a Claude Code seat of tests/fixtures/akseat.py: Claude
-        writes it into the seat's conversation, under ~/.claude/projects, and fires
-        UserPromptSubmit in the seat's pane, `payload` beside its words."""
+        writes it into the seat's conversation (`conversation`) and fires UserPromptSubmit in
+        the seat's pane, `payload` beside its words, returning as `fire` does with `finished`."""
         self._written(seat, text)
         return self.fire("UserPromptSubmit", {"prompt": text, **payload}, seat=seat.name,
-                         pane=seat, env=env)
+                         pane=seat, env=env, finished=finished)
 
     def interrupt(self, seat):
         """The owner presses Esc in a Claude Code seat of tests/fixtures/akseat.py: Claude writes
@@ -117,19 +118,44 @@ class Hooks:
         self._written(seat, "[Request interrupted by user]")
 
     def _written(self, seat, text):
-        """A line of the owner's in the seat's conversation, under ~/.claude/projects."""
+        """A line of the owner's in the seat's conversation (`conversation`)."""
         assert self.harness == "claude", f"{self.harness} keeps no conversation here"
-        # Claude Code files a directory's conversations under it with each character not an
-        # ASCII letter or digit a hyphen; past 200 it adds a hash, which no Home path needs.
-        project = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(seat.cwd))
-        assert len(project) <= 200, project
-        path = (self.home.path / ".claude" / "projects" / project
-                / f"{seat.record['conversation']}.jsonl")
+        path = conversation(self.home, seat)
         path.parent.mkdir(parents=True, exist_ok=True)
         at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        with path.open("a") as conversation:
-            conversation.write(json.dumps({"type": "user", "timestamp": at, "message": {
+        with path.open("a") as kept:
+            kept.write(json.dumps({"type": "user", "timestamp": at, "message": {
                 "role": "user", "content": text}}) + "\n")
+
+
+def conversation(home, seat):
+    """Where Claude Code keeps the conversation of a seat of tests/fixtures/akseat.py: in the
+    config directory of the login its record names, as ak launches it there (~/.claude for the
+    usual one), under the project its directory is filed in."""
+    login = seat.record.get("account")
+    folder = f".claude-{login}" if login and login != "default" else ".claude"
+    return (home.path / folder / "projects" / _project(seat.cwd)
+            / f"{seat.record['conversation']}.jsonl")
+
+
+def _project(cwd):
+    """The folder Claude Code files a directory's conversations under: each UTF-16 unit of its
+    path not an ASCII letter or digit a hyphen, and past 200 that start and the path's 31-times
+    string hash, a signed 32-bit number's magnitude in base 36."""
+    units = str(cwd).encode("utf-16-be", "surrogatepass")
+    codes = [int.from_bytes(units[at:at + 2], "big") for at in range(0, len(units), 2)]
+    name = "".join(chr(code) if code < 128 and chr(code).isalnum() else "-" for code in codes)
+    if len(name) <= 200:
+        return name
+    value = 0
+    for code in codes:
+        value = (value * 31 + code) & 0xFFFFFFFF
+    value = abs(value - (value >> 31 << 32))
+    digits = ""
+    while value or not digits:
+        value, digit = divmod(value, 36)
+        digits = "0123456789abcdefghijklmnopqrstuvwxyz"[digit] + digits
+    return f"{name[:200]}-{digits}"
 
 
 def adapter(home, harness, *args, payload=None, seat="acme", pane=None, env=None):
