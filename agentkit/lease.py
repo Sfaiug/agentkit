@@ -92,29 +92,28 @@ def _alone(git, env, address):
             if value != read:
                 git("update-ref", "-d", name, value, check=False)
         if own:
-            _swap(git, address, read)
+            _swap(git, address, read, pair_clock.now())
         return
     made = ("for-each-ref", "--count=1", "--format=%(objectname)", MADE)
     if not git(*made):
-        _make(git)
+        _make(git, pair_clock.now())
     value = git(*made)
     if re.fullmatch(VALUE + b"\n", value):
         git("push", address, f"{value[:-1].decode()}:{REF}", f"--force-with-lease={REF}:",
             timeout=REMOTE, check=False)
 
 
-def _swap(git, address, read):
-    """A new value, made and kept (`_make`), sent to `address` as a swap from `read`: its exit is
-    not read, as the next read says what the remote holds."""
-    value = _make(git)
+def _swap(git, address, read, stamp):
+    """A new value, made and kept for `stamp` (`_make`), sent to `address` as a swap from `read`:
+    its exit is not read, as the next read says what the remote holds."""
+    value = _make(git, stamp)
     git("push", address, f"{value.decode()}:{REF}",
         f"--force-with-lease={REF}:{read.decode()}", timeout=REMOTE, check=False)
 
 
-def _make(git):
-    """A new value, kept under the name for its stamp before it is sent, by `git` in the lease's
+def _make(git, stamp):
+    """A new value, kept under the name for `stamp` before it is sent, by `git` in the lease's
     repository."""
-    stamp = pair_clock.now()
     # its own message, as every other part of it is any machine's
     value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
                 own=gitcall.STAMP).strip()
@@ -128,13 +127,14 @@ def watch():
     whose message is the value read and the stamp of the pass that first read it (`_seen`), the
     lease read as a turn reads it, under its lock.  A value SEEN holds with a stamp of this boot
     leaves it as it is, and once that stamp is STILL old by `age_at_least`, a swap from it is sent
-    as a turn sends one (`_swap`); any other value read puts it at a commit of that value and this
-    pass's stamp, as a stamp of another boot counts for nothing; whatever else is met once the
-    lock is held, no lease among it, removes it.  Each is one update-ref of SEEN at most, which git
-    does whole or not at all, and what it refused stays as it was: a home writes no value twice, so
-    a record of an older value matches no later read.  Where another turn holds the lock, or the
-    lease's folder cannot be made or opened, none of them.  Nothing is fetched from the remote, nor
-    written to it but that swap, and whatever the watch meets is dropped unsaid."""
+    as a turn sends one (`_swap`), its value kept for this pass's stamp where no ref holds the
+    name; any other value read puts it at a commit of that value and this pass's stamp, as a stamp
+    of another boot counts for nothing; whatever else is met once the lock is held, no lease among
+    it, removes it.  Each is one update-ref of SEEN at most, which git does whole or not at all,
+    and what it refused stays as it was: a home writes no value twice, so a record of an older
+    value matches no later read.  Where another turn holds the lock, or the lease's folder cannot
+    be made or opened, none of them.  Nothing is fetched from the remote, nor written to it but
+    that swap, and whatever the watch meets is dropped unsaid."""
     with contextlib.suppress(Exception):
         _locked(_watched)
 
@@ -153,9 +153,13 @@ def _watched():
             # The record stays, whatever the swap meets: the next pass reads what the remote
             # holds.  Nothing the repository lacks is fetched, as for `_seen`.
             with contextlib.suppress(Exception):
-                if seen[1].age_at_least() >= STILL:
-                    _swap(functools.partial(git, env={**env, "GIT_NO_LAZY_FETCH": "1"}),
-                          address, read)
+                git = functools.partial(git, env={**env, "GIT_NO_LAZY_FETCH": "1"})
+                # update-ref writes through a symbolic ref at the name to the ref it names, which
+                # need not be there: the name is taken only where it is no symbolic ref either, as
+                # the lock keeps it till the write
+                if seen[1].age_at_least() >= STILL and not git(
+                        "symbolic-ref", "-q", _named(stamp), check=False):
+                    _swap(git, address, read, stamp)
             return
         if read:
             made = git("commit-tree", git("mktree").strip(), "-m", _message(read, stamp),

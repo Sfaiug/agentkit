@@ -7,9 +7,10 @@ origin.  One sooner by either clock, or of another boot, sends none; nor does on
 another value, which is watched anew from that pass, or none, the origin unreachable, after which
 the next pass that reads the value watches it anew.  A swap the origin refused, another value
 written there between the read and the push, or whose answer was lost, is not sent again.
-`refs/seen` and every ref under `refs/made/` stay as they were.  The swap is sent whether the copy
-of the home that follows ends well or not, and the home's firing after it leaves the standby's value
-on the origin.  Every pass exits 0 but the one whose home is silent.
+`refs/seen` and every ref under `refs/made/` stay as they were; where the name for the pass's stamp
+is a symbolic ref, no value is kept and no swap sent.  The swap is sent whether the copy of the home
+that follows ends well or not, and the home's firing after it leaves the standby's value on the
+origin.  Every pass exits 0 but the one whose home is silent.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, a home and
 a standby that is its client, built and fired as the watch's key builds and fires them, each case
@@ -56,8 +57,8 @@ class AStandbyTakesTheLease(unittest.TestCase):
         self.assertEqual(refs(self.home.install.bare), before)
 
     def takes(self, at, code=0):
-        """The pass at `at`, which exits `code` and leaves the origin's lease at the standby's value,
-        one no firing of the home left there: that value."""
+        """The pass at `at`, which exits `code` and leaves the origin's lease at the standby's
+        value, one no firing of the home left there: that value."""
         value = self.passes(at, code)
         self.assertIn(value, made(self.standby).values())
         self.assertNotIn(value, self.leases)
@@ -130,6 +131,15 @@ class AStandbyTakesTheLease(unittest.TestCase):
         _git(repo, "update-ref", "refs/made/acme", named)
         self.takes(now(21))
         self.assertEqual(refs(repo).get("refs/made/acme"), named)
+
+    def test_a_symbolic_ref_at_the_name_for_the_passs_stamp_stays_and_no_swap_is_sent(self):
+        self.watched()
+        repo = kept(self.standby)
+        # at a ref that is not there: git lists neither, and a write through it would show both
+        _git(repo, "symbolic-ref", "refs/made/" + now(21).replace(" ", "_"), "refs/heads/acme")
+        before = refs(repo)
+        self.leaves(now(21))
+        self.assertEqual(refs(repo), before)
 
 
 if __name__ == "__main__":
