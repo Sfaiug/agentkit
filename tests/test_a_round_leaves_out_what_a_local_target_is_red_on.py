@@ -1,49 +1,66 @@
-"""A round whose target origin has no branch of leaves out the tests the target's landing line
-holds red on the commit its run is based on: the local branch's as the run started, though that
-branch has moved with the work since.
+"""A round whose target origin has no branch of leaves out the tests that target's landing line
+holds its local branch red on as the run started, though the work has moved that branch since.
+It runs one the line holds red on the tree of the run's base, where a tag named as origin's
+branch would be stands too.
 
-In-process on a sandbox HOME (tests/fixtures/sandbox.py), with real Git; the landings' reds are
-injected, and the line's record is written as its lander writes it.
+A task run with `--no-worktree` through `bin/ak` in a Home of tests/fixtures/akbin.py, on the
+origin of gitrig.py with scripted harnesses from fakeadapter.py.  The test writes an earlier
+landing's reds and the line's record as ak writes them, and the suite notes the tests it was
+handed to notes.py.
 """
 
+from contextlib import closing
+import os
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.sandbox import Sandbox
-from agentkit import deliver, gitcall, history, land, round_tests, suite_times
+from fixtures import akconfig, fakeadapter, taskfile
+from fixtures.akbin import Home
+from fixtures.gitrig import Rig
+from fixtures.notes import Notes
+from test_key_a_round_runs_its_changes_tests import SUITE
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from agentkit import config, deliver, history, land
 
-# By landings held runs first; the record times both.
-REDS = {"held": {"landings": 2}, "often": {"landings": 1}}
-TIMES = "PASS  held (1.0s)\nPASS  often (1.0s)\n"
+# An earlier landing was red on both; `draft` breaks the first.
+BROKEN, SOUND = "./tests/broken.sh", "./tests/sound.sh"
 
 
-class ARound(Sandbox):
-    def test_it_leaves_out_what_the_line_holds_its_base_red_on(self):
-        repo = self.root / "acme"
-        repo.mkdir()
-        gitcall.git(repo, "init", "-q")
-        (repo / "AGENTS.md").write_text("---\ntests: sh suite.sh\n---\n")
-        # The base, then the work on the same branch: no remote, so no `origin/main`.
-        for files in (("held", "often"), ("work",)):
-            for name in files:
-                (repo / name).write_text("")
-            gitcall.git(repo, "add", ".")
-            gitcall.git(repo, "-c", "user.name=Acme", "-c", "user.email=acme@localhost",
-                        "commit", "-qm", "acme")
-        measured = self.root / "measured.log"
-        measured.write_text(TIMES)
-        suite_times.keep(repo, measured)
-        lp = SimpleNamespace(wt=repo, state={"repo": str(repo), "worktree": str(repo)},
-                             scratch=False, upstream="origin/main",
-                             base_sha=gitcall.git(repo, "rev-parse", "HEAD^"))
-        land.note(deliver.turn_path(lp, lp.upstream), [], "fix-api", red={
-            gitcall.git(repo, "rev-parse", "HEAD^^{tree}"): {"tests": ["held"]}})
-        with patch.object(history, "test_audit", return_value=(REDS, None, 1)):
-            self.assertEqual(round_tests.chosen(lp)[1], ["often"])
+class ARound(unittest.TestCase):
+    def test_it_leaves_out_what_the_line_holds_the_local_branch_red_on_as_the_run_started(self):
+        with Home() as home, closing(Notes()) as said:
+            rig = Rig(home, "acme", files={
+                "AGENTS.md": "---\nusers: none\nhealth: none\ntests: python3 suite.py\n---\n",
+                "suite.py": SUITE.format(said=said.address), "value": "good\n",
+                BROKEN: "grep -qx good value\n", SOUND: "true\n"})
+            rig.git("config", "ak.repository", "0123456789ab")
+            home.write(".agentkit/state/test-times-0123456789ab.json", {BROKEN: 1, SOUND: 1})
+            # The base `main`, where the tag stands too, and the target `draft`, origin has no
+            # branch of: the checkout is on it, so the run's commit moves that name.
+            rig.git("tag", "origin/draft")
+            rig.branch("draft", {"value": "bad\n"}, push=False)
+            rig.git("checkout", "-q", "draft")
+            with patch.object(config, "HOME", home.path / ".agentkit"), \
+                    patch.dict(os.environ, home.env, clear=True):
+                history.start_run("fix-api", repo=rig.name)
+                history.test_reds(("fix-api", None, "landing", "tree"),
+                                  {"failed": [BROKEN, SOUND]}, [])
+                turn = deliver.merge_lock_path(rig.git("remote", "get-url", "origin"),
+                                               "origin/draft")
+                turn.parent.mkdir(parents=True, exist_ok=True)
+                land.note(turn, [], "fix-api", red={
+                    rig.git("rev-parse", "main^{tree}"): {"tests": [SOUND]},
+                    rig.git("rev-parse", "draft^{tree}"): {"tests": [BROKEN]}})
+            akconfig.write(home, ["opus", "astra"])
+            fakeadapter.install(home, claude={"write": {"retry.txt": "ok\n"}, "commit": "retry",
+                                              "hand_in": [["done"]]}, codex="pass")
+            task = taskfile.write(home, rig.path, front={"base": "main", "target": "draft"})
+            done = home.ak("run", str(task), "--rounds", "1", "--no-worktree", "--no-merge",
+                           cwd=rig.path, timeout=240)
+            self.assertEqual((done.code, said.since()), (0, ["suite " + SOUND]), done.out[-900:])
 
 
 if __name__ == "__main__":

@@ -56,11 +56,14 @@ def chosen(lp):
     tests = sorted({file for file in (test.partition("::")[0] for test in times)
                     if os.path.normpath(file) in changed})
     reds, piece, _ = history.test_audit(Path(lp.state["repo"]).name, _now() - WINDOW)
-    # Where git reads no tree of the target, the base's: a run based on a local branch origin
-    # has none of (`run.loop`) stands on its commit, pinned as the name moves with the work.
-    tree = (gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet",
-                        f"{lp.state.get('target_sha') or lp.upstream}^{{tree}}", check=False)
-            or gitcall.git(lp.wt, "rev-parse", f"{lp.base_sha}^{{tree}}"))
+    # The target's tip: the one the run pinned, else origin's branch, named in full as
+    # `origin/main` could be a tag, else, for a target origin has no branch of, its local branch
+    # as the run started (`run.loop`), as that name moves with work done on it.
+    tips = (lp.state.get("target_sha"), f"refs/remotes/{lp.upstream}",
+            lp.state.get("local_target_sha"))
+    tree = next(filter(None, (gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet",
+                                          f"{tip}^{{tree}}", check=False)
+                              for tip in tips if tip)), None)
     held = {name for test in land.red_tests(deliver.turn_path(lp, lp.upstream), tree)
             for name in (test, test.partition("::")[0])}
     # One piece of the suite, a ceiling as WINDOW is: a suite cut finer runs fewer.  One the

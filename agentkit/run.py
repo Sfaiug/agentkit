@@ -204,7 +204,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         if scratch:
             # nothing to branch from: the run gets a workspace of its own, and whatever it
             # leaves there is the deliverable
-            base = target = base_sha = branch = None
+            base = target = base_sha = local_target_sha = branch = None
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
@@ -244,6 +244,11 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 ref = spelled
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
             base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
+            # likewise the target's local branch, its tip where origin has no branch of it
+            # (`round_tests.chosen`)
+            local_target_sha = git(repo, "rev-parse", "--verify", "--quiet",
+                                   f"refs/heads/{target.removeprefix('origin/')}^{{commit}}",
+                                   check=False) or None
             if from_branch:
                 # the change continues on that branch: the run the branch belongs to names it,
                 # and the rounds earlier runs spent on it are spent
@@ -268,7 +273,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                  "launched_session": session_at_launch,
                  "repo": str(repo) if repo else None, "scratch": scratch,
                  "base": base, "target": target, "base_sha": base_sha, "branch": branch,
-                 "worktree": str(wt), "stalls": [],
+                 "local_target_sha": local_target_sha, "worktree": str(wt), "stalls": [],
                  "executor": None, "reviewer": None, "rounds": n_rounds, "state": "running",
                  "verdict": None, **run_record.process_owner(), "started_at": time.time(),
                  "finished_at": None, "round_summaries": [], "findings": "",
