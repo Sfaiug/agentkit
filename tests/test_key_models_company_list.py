@@ -3,7 +3,8 @@ off: at first the `[defaults]` models' companies, all on.  Space turns a model, 
 company's, on or off, saved at once; Esc drops a company left with none on, its releases without
 a score too, and those releases from `models_off`, and the answer compares only what is on.  `a`,
 or ⏎ on `+ add a company`, where Space does nothing, lists the other companies with scores,
-strongest first, and ⏎ adds one all on.  On 40 cells a
+strongest first, and ⏎ adds one all on.  A release whose maker the boards leave unnamed is
+no company's: neither page lists it, though a `[defaults]` model runs one.  On 40 cells a
 company's models go on under the column where they began, and a count too long for its line goes
 on at its words.
 
@@ -160,6 +161,19 @@ class CompanyList(Opened):
                                       "  + add a company"])
         term.keys("Down")
         self.whole(term, "›[Crux] ■ Crux 2")
+
+    def test_a_release_with_no_maker_is_on_neither_the_list_nor_its_add_page(self):
+        held = boards()
+        for row in held["artificialanalysis.ai"]["rows"]:
+            if row["model"].startswith("Crux"):     # Crux 2, and the defaults' Crux Flash 1
+                row["maker"] = None
+        self.home.write(".agentkit/state/boards.json", held)
+        self.addCleanup(self.home.write, ".agentkit/state/boards.json", boards())
+        term, shown = self.open()
+        self.assertEqual(shown[5:7], ["›[Acme] ■ Acme Max 5  ■ Acme Mid 5", "  + add a company"])
+        term.keys("a")
+        shown = self.whole(term, last=ADD_KEYS)
+        self.assertEqual(shown[2:4], ["› Dyne  2 models  Dyne Ultra 4", "  Bolt  1 model   Bolt 3"])
 
     def test_on_40_cells_a_companys_models_go_on_under_the_column_where_they_began(self):
         _, shown = self.open(width=40, companies=["Acme", "Dyne"])

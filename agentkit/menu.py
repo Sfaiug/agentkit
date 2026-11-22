@@ -4152,13 +4152,15 @@ ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which 
 def companies_listed(cfg):
     """Each company with a listed model (matrix.listed), strongest first as the lineup orders
     them, its listed models in that order, {maker: {slug: name}}; and your companies
-    (matrix.companies) in their order (matrix.company_order)."""
+    (matrix.companies) in their order (matrix.company_order).  A release whose maker the
+    boards leave unnamed is no company's: there is no name to list or to save in `companies`."""
     lineup, found = matrix.listed()
     makers, had = {}, matrix.companies(cfg, lineup)
     for row in lineup:
-        if row["release"] in found:
+        if row["release"] in found and row["maker"]:
             makers.setdefault(row["maker"], {})[row["release"]] = row["name"]
-    return makers, [maker for maker in matrix.company_order(cfg, lineup) if maker in had]
+    return makers, [maker for maker in matrix.company_order(cfg, lineup)
+                    if maker in had and maker]
 
 
 def models_listed(cfg, yours, off):
