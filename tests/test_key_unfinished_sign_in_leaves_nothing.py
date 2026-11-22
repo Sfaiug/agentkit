@@ -61,10 +61,9 @@ def offered(screen):
     return [line[2:] for line in shown[2:end] if line[:2] in ("  ", "› ") and line[2:]]
 
 
-def rows(screen, mark="  "):
-    """The rows on the screen with that mark before them, the highlight's or none, each named as
-    row_at reads a row's line."""
-    return [line[2:].split("  ")[0] for line in lines(screen) if line.startswith(mark)]
+def marks(screen):
+    """The lines the highlight's mark starts, by number: one on a frame drawn whole."""
+    return [number for number, line in enumerate(lines(screen)) if line.startswith("›")]
 
 
 def on_page(screen):
@@ -111,22 +110,18 @@ class UnfinishedSignInLeavesNothing(unittest.TestCase):
         self.term.wait(on_page)
 
     def to(self, row):
-        """The highlight moved, a line at a time, onto the line that reads `row`, each key once
-        the last has moved it onto another row: a line that changes may be one redrawn, and a
-        key sent before the menu has read the last takes the highlight a row past."""
-        def whole(screen):    # a frame half drawn over the last shows a highlight too few or two
-            return len(rows(screen, "› ")) == 1 and row_at(screen, row) is not None
-        screen = self.term.wait(whole)
-        for _ in range(20):
-            [now] = rows(screen, "› ")
-            if now == row:
-                return
-            unlit = rows(screen)
-            self.term.keys("Down" if row_at(screen, row) > row_at(screen, now, "›") else "Up")
-            # onto a row it showed unlit: a line half written over another names none
-            screen = self.term.wait(lambda screen: whole(screen)
-                                    and rows(screen, "› ")[0] in unlit)
-        self.fail(f"the highlight never reached {row}")
+        """The highlight moved down onto the line that reads `row`: a Down for each row on the
+        way, all sent at once as a person types ahead, since a frame read part way through its
+        draw shows no key's move for sure.  The menu draws a frame from its top, so once `row`
+        shows, the lines over it are that frame's, the highlight's among them."""
+        def over(screen):
+            at, lit = row_at(screen, row), marks(screen)
+            return at is not None and len(lit) == 1 and lit[0] <= at
+        screen = self.term.wait(over)
+        passed = lines(screen)[marks(screen)[0] + 1:row_at(screen, row) + 1]
+        # the rows the keys stop on are two cells in: a company's name is in none, an action more
+        self.term.keys(*["Down" for line in passed if line[:2] == "  " and line[2] != " "])
+        self.term.wait(lambda screen: marks(screen) == [row_at(screen, row, "›")])
 
     def quit_sign_in(self, row):
         """`row` picked under `+ add a subscription`, and its sign-in quit."""
