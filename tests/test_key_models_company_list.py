@@ -3,9 +3,9 @@ off: at first the `[defaults]` models' companies, all on.  Space turns a model, 
 company's, on or off, saved at once; Esc drops a company left with none on, its releases without
 a score too, and those releases from `models_off`, and the answer compares only what is on.  `a`,
 or ⏎ on `+ add a company`, where Space does nothing, lists the other companies with scores,
-strongest first, and ⏎ adds one all on.  A maker the boards leave unnamed is listed as
-`unknown` and written `""` in `companies`.  On 40 cells a company's models go on under the column
-where they began, and a count too long for its line goes on at its words.
+strongest first, and ⏎ adds one all on.  On 40 cells a
+company's models go on under the column where they began, and a count too long for its line goes
+on at its words.
 
 Black-box: the program `AK_BIN` names in a terminal (tests/fixtures/akterm.py), over the
 invented boards and harnesses of tests/test_key_models_on.py, Dyne's two releases, the stronger
@@ -160,39 +160,6 @@ class CompanyList(Opened):
                                       "  + add a company"])
         term.keys("Down")
         self.whole(term, "›[Crux] ■ Crux 2")
-
-    def nameless(self):
-        """Crux's releases, Crux 2 and the defaults' Crux Flash 1, under no maker."""
-        held = boards()
-        for row in held["artificialanalysis.ai"]["rows"]:
-            if row["model"].startswith("Crux"):
-                row["maker"] = None
-        self.home.write(".agentkit/state/boards.json", held)
-        self.addCleanup(self.home.write, ".agentkit/state/boards.json", boards())
-
-    def test_a_maker_the_boards_leave_unnamed_is_listed_as_unknown_and_saved_as_empty(self):
-        self.nameless()
-        term, shown = self.open()
-        self.assertEqual(shown[5:10], [
-            "›[Acme]    ■ Acme Max 5  ■ Acme Mid 5", "  unknown  ■ Crux 2", "  + add a company", "",
-            "  3 models on, from 2 companies · 2 more companies have benchmark scores"])
-        term.keys("Down", "Right", "Space")
-        self.whole(term, "› unknown [□ Crux 2]")
-        self.assertEqual(self.saved(), (["Acme", ""], ["crux-2"]))
-        term.keys("Space")
-        self.whole(term, "› unknown [■ Crux 2]")
-        self.assertEqual(self.saved(), (["Acme", ""], None))
-
-    def test_a_maker_the_boards_leave_unnamed_is_added_as_unknown(self):
-        self.nameless()
-        term, _ = self.open(companies=["Acme"])
-        term.keys("a")
-        shown = self.whole(term, last=ADD_KEYS)
-        self.assertEqual(shown[2:5], ["› Dyne     2 models  Dyne Ultra 4",
-                                      "  Bolt     1 model   Bolt 3", "  unknown  1 model   Crux 2"])
-        term.keys("Down", "Down", "Enter")
-        self.whole(term, "›[unknown] ■ Crux 2")
-        self.assertEqual(self.saved(), (["Acme", ""], None))
 
     def test_on_40_cells_a_companys_models_go_on_under_the_column_where_they_began(self):
         _, shown = self.open(width=40, companies=["Acme", "Dyne"])

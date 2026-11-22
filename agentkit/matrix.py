@@ -113,7 +113,8 @@ def _release_index(releases):
 def lineup(boards, offers):
     """A row per current release (`catalog.current`) and effort, `name` as ak says it
     (config.release_label), of its slug where that of its name is empty, and `board_name` as
-    the board does, with its `values` as the catalog joins them and `yours`: each model of
+    the board does, `maker` as the board names it, "" where it names none, as `companies` in
+    the config writes one, with its `values` as the catalog joins them and `yours`: each model of
     `offers` ({harness: config.catalog(harness)}) that `found` matches to this release alone,
     as {"harness", "model"}, at each effort it lists and at a row naming no effort, which is
     the model however it is run, or at the release's default where it lists none but `none`."""
@@ -134,7 +135,7 @@ def lineup(boards, offers):
     return [{"release": release["slug"],
              "name": (config.release_label(release["name"] or "")
                       or config.release_label(release["slug"])),
-             "board_name": release["name"], "maker": release["maker"],
+             "board_name": release["name"], "maker": release["maker"] or "",
              "effort": effort["effort"], "values": effort["values"],
              "yours": yours.get((release["slug"], effort["effort"]), [])}
             for release in releases for effort in release["efforts"]]
@@ -446,11 +447,11 @@ def _why(row, choices, front):
 
 
 def companies(cfg, lineup):
-    """The makers you have, as the boards name them: `companies` in the config (company_order),
-    else the makers of the releases the `[defaults]` orchestrator, workers and reviewers run, the
-    rows of `lineup` whose `yours` holds that model's harness and model."""
+    """The makers you have, as the boards name them: `companies` in the config, else the makers
+    of the releases the `[defaults]` orchestrator, workers and reviewers run, the rows of
+    `lineup` whose `yours` holds that model's harness and model."""
     if cfg.get("companies") is not None:
-        return set(company_order(cfg, ()))
+        return set(cfg["companies"])
     defaults = cfg["defaults"]
     runs = {(cfg["models"][name]["harness"], cfg["models"][name]["model"])
             for name in (defaults["orchestrator"], *defaults["workers"],
@@ -461,10 +462,8 @@ def companies(cfg, lineup):
 
 def company_order(cfg, lineup):
     """Every maker in the order `p` lists your companies (`companies`) in: `companies` in the
-    config as it lists them, its "" the maker the boards leave unnamed (None), which TOML cannot
-    write, then the makers of `lineup` as it orders them, strongest first."""
-    return list(dict.fromkeys([*(maker or None for maker in cfg.get("companies", ())),
-                               *(row["maker"] for row in lineup)]))
+    config as it lists them, then the makers of `lineup` as it orders them, strongest first."""
+    return list(dict.fromkeys([*cfg.get("companies", ()), *(row["maker"] for row in lineup)]))
 
 
 @functools.lru_cache(maxsize=1)
