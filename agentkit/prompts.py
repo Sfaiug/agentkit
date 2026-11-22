@@ -326,14 +326,19 @@ def first_failure(dw_log):
     return said if len(said) <= 200 else said[:199] + "\u2026"
 
 
+def changed_paths(lp, head, *only):
+    """Every path the branch changes from its base to `head`, removed ones included, `only`
+    narrowing git's diff (`--diff-filter=D`).  Each name byte for byte (`git_bytes`): every
+    list of them spells a name alike, and handed back to git it is still the file it names."""
+    return [p for p in gitcall.git_bytes(lp.wt, "diff", "--name-only", "-z", "--no-renames", *only,
+                                         f"{lp.base_sha}...{head}").split("\0") if p]
+
+
 def changed_test_paths(lp, head="HEAD", named=True):
     """The branch's changed tests: test-shaped paths, and with `named` every file a
     done-when command names."""
-    # Include removed paths too: renaming a test out of discovery must remain visible.  Every
-    # byte kept (`git_bytes`): handed back to git, each name is still the file it names.
-    changed = gitcall.git_bytes(lp.wt, "diff", "--name-only", "-z", "--no-renames",
-                                f"{lp.base_sha}...{head}").split("\0")
-    return [p for p in changed if p and (
+    # Include removed paths too: renaming a test out of discovery must remain visible.
+    return [p for p in changed_paths(lp, head) if (
         any(part in TEST_DIRS for part in Path(p).parts[:-1]) or test_named(p)
         or (named and any(p in cmd for cmd in getattr(lp, "cmds", []))))]
 

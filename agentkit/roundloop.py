@@ -370,8 +370,7 @@ def fails_on_base(lp):
         return "the task has no check of its own that runs each round"
     head = gitcall.git(lp.wt, "rev-parse", "HEAD")
     base = lp.base_sha
-    changed = [p for p in gitcall.git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
-                              f"{base}...{head}").split("\0") if p]
+    changed = prompts.changed_paths(lp, head)
     tests = prompts.changed_test_paths(lp, head, named=False)
     if len(tests) == len(changed):
         return "the branch changes nothing but tests"
@@ -424,8 +423,7 @@ def replay_checkout(lp, head, paths):
             # what the branch deleted goes first, so a file or submodule it put where a
             # folder was takes that place; the paths come from a file, as a branch can change
             # more of them than one command line holds
-            deleted = set(gitcall.git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
-                              "--diff-filter=D", f"{lp.base_sha}...{head}").split("\0"))
+            deleted = set(prompts.changed_paths(lp, head, "--diff-filter=D"))
             for part, command in (([p for p in paths if p in deleted],
                                    ("rm", "--quiet", "-r", "--ignore-unmatch")),
                                   ([p for p in paths if p not in deleted],
@@ -461,9 +459,7 @@ def regression_fails_before(lp):
         return "regression.sh cannot be checked without a base commit"
     head = gitcall.git(lp.wt, "rev-parse", "HEAD")
     base = lp.base_sha
-    # read as `changed_test_paths` reads them, so the two lists spell each name alike
-    changed = [p for p in gitcall.git_bytes(lp.wt, "diff", "--name-only", "-z", "--no-renames",
-                                            f"{base}...{head}").split("\0") if p]
+    changed = prompts.changed_paths(lp, head)
     only_tests = prompts.changed_test_paths(lp, head) == changed
     proof = prompts.proof_on(lp, f"bash {shlex.quote(str(script))}", lp.run_dir / "regression-base.log",
                      base, tests_from=None if only_tests else head)

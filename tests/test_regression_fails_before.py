@@ -468,6 +468,25 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertEqual(proof["returncode"], 0, proof)
         self.assert_restored(head)
 
+    def test_both_base_replays_take_the_branch_s_tests_under_their_own_names(self):
+        # a removed copy whose name starts with a space beside the changed one, and a test
+        # with a carriage return in its name that a folder of code replaced
+        for name in (" tests/check.py", "test_entry\r.py"):
+            (self.wt / name).parent.mkdir(exist_ok=True)
+            (self.wt / name).write_text("base\n")
+        self.commit("Tests under odd names")
+        self.base = run.git(self.wt, "rev-parse", "HEAD")
+        (self.wt / " tests/check.py").unlink()
+        (self.wt / "tests/check.py").write_text("branch\n")
+        (self.wt / "test_entry\r.py").unlink()
+        (self.wt / "test_entry\r.py").mkdir()
+        (self.wt / "test_entry\r.py/engine.py").write_text("code\n")
+        self.commit("The test's code as a folder")
+        ok, text = self.checked(self.loop(
+            [r"grep -qx branch tests/check.py && test -f $'test_entry\r.py/engine.py'"]))
+        self.assertTrue(ok, text)
+        self.assertEqual(record.read_state(self.directory)["base_proof"], "proven", text)
+
     def test_a_test_git_matches_in_another_case_is_removed_as_the_branch_removed_it(self):
         run.git(self.wt, "mv", "tests/removed.py", "tests/REMOVED.py")
         self.commit("The test renamed")
