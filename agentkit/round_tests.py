@@ -56,12 +56,13 @@ def chosen(lp):
     tests = sorted({file for file in (test.partition("::")[0] for test in times)
                     if os.path.normpath(file) in changed})
     reds, piece, _ = history.test_audit(Path(lp.state["repo"]).name, _now() - WINDOW)
-    # A target origin has no branch of (`run.loop` bases a run on the local one) has no tree to
-    # look up in the line's record: none is held.
-    held = {name for test in land.red_tests(deliver.turn_path(lp, lp.upstream), gitcall.git(
-        lp.wt, "rev-parse", "--verify", "--quiet",
-        f"{lp.state.get('target_sha') or lp.upstream}^{{tree}}", check=False))
-        for name in (test, test.partition("::")[0])}
+    # Where git reads no tree of the target, the base's: a run based on a local branch origin
+    # has none of (`run.loop`) stands on its commit, pinned as the name moves with the work.
+    tree = (gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet",
+                        f"{lp.state.get('target_sha') or lp.upstream}^{{tree}}", check=False)
+            or gitcall.git(lp.wt, "rev-parse", f"{lp.base_sha}^{{tree}}"))
+    held = {name for test in land.red_tests(deliver.turn_path(lp, lp.upstream), tree)
+            for name in (test, test.partition("::")[0])}
     # One piece of the suite, a ceiling as WINDOW is: a suite cut finer runs fewer.  One the
     # target runs uncut, whatever it ran as before, or no landing ran whole in pieces yet, the
     # whole.
