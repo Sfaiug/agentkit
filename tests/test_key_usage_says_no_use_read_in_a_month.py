@@ -39,7 +39,7 @@ LOGINS = {("anthropic", "default"): ("Claude I", "max 20x", range(35), None),
           ("xai", "default"): ("Grok", "X Premium", range(35), None)}
 # No reading of a shared week in the month, (provider, account, used, at, scope) each: Anvil's own
 # caps of the meter's name, and a reading taken after NOW.
-NOT_THE_MONTH = [("anthropic", "default", 7, NOW - DAY, "anvil"),
+NOT_THE_MONTH = [("anthropic", "default", 7, NOW - DAY // 2, "anvil"),
                  ("anthropic", "second", 5, NOW + 60, None),
                  ("google", "default", 0, NOW - 33 * DAY, "anvil")]
 
