@@ -5,7 +5,8 @@ suite that test once its reviewer has answered PASS, not before and not after a 
 commit that breaks that test turns the review's verdict to FAIL, does not merge on that commit,
 and hands the seat's fixer the first failing line with the findings; the fixer's commit passes the
 test and merges.  A review of another author's pull request hands the suite nothing.  A task run
-with `--no-worktree` still hands the suite that test once its reviewer has answered PASS.
+with `--no-worktree` still hands the suite that test once its reviewer has answered PASS, its
+target a local branch origin has none of.
 
 Owner, 20 Nov 2026: "why does an orch never get a quick set?".
 
@@ -15,7 +16,8 @@ against the bare origin of gitrig.py, the GitHub of fakegh.py, the seat of aksea
 harnesses from fakeadapter.py, its clock injected (tests/fixtures/clock.py).  A first seat PR lands
 to create history.db; then earlier landings red on often.sh and the time record are written, and
 four jobs run: a seat's own PR whose first review fails and second passes; a seat's own PR whose
-change breaks often.sh; another author's PR; and a task run with `--no-worktree`.
+change breaks often.sh; another author's PR; and a task run with `--no-worktree`, based on a
+local branch origin has none of.
 """
 
 import json
@@ -111,8 +113,9 @@ class SeatOwnPrQuickSet(unittest.TestCase):
 
         cls.rig.git("checkout", "-q", "main")
         cls.rig.git("pull", "-q", "--ff-only")
+        cls.rig.git("branch", "draft")
         cls.rig.git("checkout", "-qb", "local")
-        task = taskfile.write(cls.home, cls.rig.path, "Add local",
+        task = taskfile.write(cls.home, cls.rig.path, "Add local", front={"base": "draft"},
                               done_when=("test -f local.txt",))
         before = set(taskfile.runs(cls.home))
         cls.done["local"] = cls.home.ak("run", str(task), "--no-worktree", "--no-merge",
@@ -169,9 +172,9 @@ class SeatOwnPrQuickSet(unittest.TestCase):
         done, (_, state) = self.done["local"], self.states["local"]
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual({key: state.get(key) for key in ("state", "verdict", "worktree",
-                                                          "branch", "no_merge")},
+                                                          "branch", "target", "no_merge")},
                          {"state": "pass", "verdict": "PASS", "worktree": str(self.rig.path),
-                          "branch": "local", "no_merge": True})
+                          "branch": "local", "target": "draft", "no_merge": True})
         self.assertEqual(self.notes["local"], ["review", CHOSEN])
 
 
