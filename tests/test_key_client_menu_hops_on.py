@@ -4,12 +4,16 @@ When a standby takes over, the old home becomes the new home's client while the 
 still the old home's: its `ak` runs `ssh -t OLD ak --client`, and there the menu goes on with
 `ssh -t NEW ak --client --client`, exiting as ssh did; `--dry-run` names that hop without making
 it.  `--client` twice is the second hop saying it is one: a client goes no further, prints one
-line naming its home and exits 1, so two records naming each other never chain ssh sessions.  On
-a machine that is no client, `--client` twice is `--client` once.  A client's `ak` without
+line naming its home and exits 1, so two records naming each other never chain ssh sessions.
+Either goes before anything of the machine's own: a config's lock held for good, as a process
+frozen in the old home's slice may hold it, holds no hop back.  On a machine that is no client,
+`--client` twice is `--client` once.  A client's `ak` without
 `--client` hops with one, as tests/test_key_dash_led_attach.py holds.  Black-box: the program
 `AK_BIN` names runs on Homes of tests/fixtures/akbin.py, with a fake ssh that logs its arguments.
 """
 
+import fcntl
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -19,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import LOG, Home
 
 HOME = "acme-mini"
+CONFIG = Path(".agentkit/config.toml")
 
 
 class AClientsMenuHopsOn(unittest.TestCase):
@@ -46,6 +51,20 @@ class AClientsMenuHopsOn(unittest.TestCase):
                 done, hops = self.ak("--client")
                 self.assertEqual(done.code, code, done)
                 self.assertEqual(hops, [["-t", HOME, "ak", "--client", "--client"]])
+
+    def test_its_config_s_lock_held_elsewhere_holds_no_hop_back(self):
+        config = self.client.path / CONFIG
+        kept = config.read_text()
+        self.addCleanup(config.write_text, kept)
+        # an old name, which the menu renames under the config's lock: its directory's
+        config.write_text("rounds = 2\n" + kept)
+        lock = os.open(config.parent, os.O_RDONLY)
+        self.addCleanup(os.close, lock)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        self.ssh_exits(7)
+        for args, code in ((("--client",), 7), (("--client", "--client"), 1)):
+            with self.subTest(args=args):
+                self.assertEqual(self.ak(*args)[0].code, code)
 
     def test_a_dry_run_names_that_hop_and_makes_none(self):
         self.ssh_exits(0)
