@@ -78,18 +78,29 @@ class Loop:
         return bool(self.state.get("followup") or any(words in self.body for words in (
             taskfile.FIX_THE_COMMAND, taskfile.OLD_FIX_THE_COMMAND)))
 
-    @property
-    def where(self):
-        """The checkout and the commit its branch starts from, which every turn opens with as it
-        starts (`turns.call_retrying`).  Every run's checkout shares one clone's
+    def where(self, checkout):
+        """The checkout a turn runs in and the commit its branch starts from, which every prompt
+        opens with as it is written (`worker.call`).  Every run's checkout shares one clone's
         `origin/<target>`, which any run's fetch moves: a worker squashing onto that name would
-        undo what landed meanwhile.  A scratch run has no branch, so none."""
+        undo what landed meanwhile.  So would one squashing onto a recorded base its branch does
+        not hold (`--no-worktree` on a branch behind it, a `from:` branch whose merge of the
+        target was aborted), so the line names the commit the branch shares with it, or the
+        recorded base where git names none.  A pull request's line names the base recorded for
+        the head under review, wherever its checkout stands.  A scratch run has no branch, so
+        none."""
         if self.scratch:
             return ""
         pr = self.state.get("review_pr")
         head = f"PR #{transitions.PR_PARTS.match(pr).group(3)} head, " if pr else ""
-        return (f"Repo checkout: {self.wt}\nBranch: {self.state['branch']} ({head}based on "
-                f"{self.base_sha}, to be merged into {self.upstream}, which may have moved on since)")
+        base = self.base_sha
+        if not pr:
+            try:
+                code, fork, _ = gitcall.tool_run(["git", "-C", str(checkout), "merge-base", "HEAD", base])
+                base = code == 0 and fork.strip() or base
+            except OSError:     # a git that cannot start names no fork either
+                pass
+        return (f"Repo checkout: {checkout}\nBranch: {self.state['branch']} ({head}based on "
+                f"{base}, to be merged into {self.upstream}, which may have moved on since)")
 
     body = property(lambda self: self._body + self.scope,
                     lambda self, text: setattr(self, "_body", text))
@@ -1111,7 +1122,7 @@ def execute(lp, role, text, name):
                                                                      "limit": lp.done_when_limit,
                                                                      "silence": lp.turn_limit},
                                                              handover=handover,
-                                                             where=getattr(lp, "where", ""), **resume)
+                                                             where=getattr(lp, "where", lambda _checkout: ""), **resume)
         except worker.LoginExpired as expired:
             lp.exec_sid = expired.session or lp.exec_sid
             lp.save()           # the parked conversation is in run.json before the run parks
@@ -1475,7 +1486,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                                                             lp.turn_limit,
                                                             handover=handover, findings=listed,
                                                             base=lp.state.get("target_sha") or lp.upstream,
-                                                            where=getattr(lp, "where", ""), **resume)
+                                                            where=getattr(lp, "where", lambda _checkout: ""), **resume)
         except worker.LoginExpired as expired:
             lp.review_sid = expired.session or lp.review_sid
             lp.save()           # the parked conversation is in run.json before the run parks

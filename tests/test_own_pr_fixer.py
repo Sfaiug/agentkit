@@ -19,19 +19,30 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import OwnPr
-from agentkit import config, gitcall, hand_in, roundloop, run, staffing, turns, worker
+from agentkit import config, gitcall, hand_in, machine_turn, roundloop, run, staffing, turns, worker
 from agentkit import record
 
 
 class OwnPrFixer(OwnPr):
+    def setUp(self):
+        self.call = worker.call     # before the fixture's mock stands in for it
+        super().setUp()
+
     def test_a_fail_is_fixed_on_the_prs_branch_and_reviewed_again(self):
         def harness(cfg, name, body, workspace, out_dir, role, session, **kw):
             if role != "fixer":
                 return self.reviewer(cfg, name, body, workspace, out_dir, role, session, **kw)
-            self.fixes.append(body)     # the prompt as it reaches the harness
-            # the fixer edits and never commits: ak commits what it left
-            (Path(workspace) / "fence.txt").write_text("mended\n")
-            return 0, self.fix_summary, "fix-1", False
+
+            def fixer(_entry, cmd, cwd, out, *_args):
+                self.fixes.append(Path(cmd[5]).read_text())     # the prompt as it reaches the harness
+                # the fixer edits and never commits: ak commits what it left
+                (Path(cwd) / "fence.txt").write_text("mended\n")
+                (Path(out) / "final.md").write_text(self.fix_summary)
+                return 0, False, "fix-1"
+            # worker.call writes the prompt; a machine taking the turn is where it leaves here
+            with patch.object(worker, "auth_ok", return_value=(True, "fixture login")), \
+                    patch.object(machine_turn, "call", side_effect=fixer):
+                return self.call(cfg, name, body, workspace, out_dir, role, session, **kw)
 
         # the fixer's turn as execute takes it, through to the harness
         self.stack.enter_context(patch.object(run, "execute", roundloop.execute))
