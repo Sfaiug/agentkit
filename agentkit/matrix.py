@@ -469,7 +469,8 @@ def company_order(cfg, lineup):
 @functools.lru_cache(maxsize=1)
 def _listed(text):
     held = json.loads(text).get("matrix") or {}
-    lineup = held.get("lineup") or []
+    # an earlier build stored a maker the boards leave unnamed as null, not "" (`lineup`)
+    lineup = [{**row, "maker": row["maker"] or ""} for row in held.get("lineup") or []]
     return (lineup, {row["release"]: row["maker"] for role in quality.ROLES
                      for row in quality.rated(lineup, role)}), held.get("fetched_at")
 
