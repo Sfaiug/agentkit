@@ -75,6 +75,8 @@ OMNISCIENCE = ("aa.omniscience", "aa.omniscienceAccuracy", "aa.omniscienceHalluc
 # and the kind of those that are not shares: what an effort's change in them says of its error
 EVALUATION = "aa.intelligenceIndexEvaluations."
 EVALUATION_KINDS = {"aa-briefcase": "rating", "omniscience": "percent"}
+# The fewest of a role's measures, measured or carried, that rate a row for it (`rated`)
+FEWEST = 2
 
 
 def interval(column):
@@ -109,8 +111,8 @@ def _error(values, column, kind, best):
 
 
 def rated(rows, role):
-    """Each of `rows` ({"release", "effort", "values": {column: number}}) that has at least two
-    of `role`'s measures measured or carried, as itself with its "quality" (100 less its
+    """Each of `rows` ({"release", "effort", "values": {column: number}}) that has at least
+    `FEWEST` of `role`'s measures measured or carried, as itself with its "quality" (100 less its
     weighted mean points behind the best over the role's measures a row of the index has), its
     "se", the root of squares of its error's parts by the score each comes from, its "cost"
     (`COSTS` at its own effort, else None) and per measure {"points", "how", "parts"}, those
@@ -189,7 +191,7 @@ def rated(rows, role):
             found = None if column in points else carried(row, column)
             if found:
                 points[column] = found
-        if len(points) < 2:
+        if len(points) < FEWEST:
             continue
         worst = max(points.values(), key=lambda one: one["points"])
         for column in best:

@@ -132,7 +132,8 @@ class Answer(unittest.TestCase):
         self.assertEqual(matrix.answer(self.lineup)["orchestrate"],
                          {"cost_unit": "board_dollars", "rated": [], "best": None,
                           "pick": None, "front": [], "take": None, "choices": [],
-                          "others": [], "whys": {}, "limits": {}})
+                          "others": [], "whys": {}, "limits": {},
+                          "unrated": ["Acme 5", "Bolt 2", "Crux 1", "Dune 1"]})
 
     def test_a_take_is_picked_even_when_yours_is_measurably_worse(self):
         lineup = [dict(row, yours=row["yours"] if row["release"] == "crux-1" else [])
@@ -146,7 +147,7 @@ class Answer(unittest.TestCase):
         for name, cost, share, error, yours in (
                 ("acme-cheap-1", 1, .93, 0, True), ("acme-noisy-1", 2, .92, 10, True),
                 ("acme-best-1", 10, .99, 0, True), ("acme-higher-1", 20, 1, 5, False)):
-            lineup.append({"release": name, "effort": "high",
+            lineup.append({"release": name, "name": name, "maker": "Acme", "effort": "high",
                            "yours": [{"harness": "anvil", "model": name}] if yours else [],
                            "values": {quality.INTEL: 50, COST: cost,
                                       "aa.frontierCode20": share,

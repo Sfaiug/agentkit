@@ -3398,6 +3398,8 @@ WHYS = {"beaten": "beaten by {by}", "close": "within {apart} of {by}",
         "not set up": "would be a choice, but it is listed nowhere a model of yours runs",
         "no cost": "no board prices it",
         "not converted": "a board prices it, but your runs and plans give that price no cost"}
+# Why a release compared is none of a role's when the role rates no row of it (quality.rated)
+UNRATED = "fewer than {fewest} of this role's benchmarks score it"
 NUMBERS = "zero one two three four five six seven eight nine".split()
 
 
@@ -3931,7 +3933,8 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     in `unit`, said as UNITS says it, where that comes from (SOURCES) and how far off each of
     `weeks` foretold (week_checked); the rule that makes the choices; and why each model is none (WHYS):
     under `shaded` each the bars of `kept` draw shaded at this width (models_standing), in their
-    order, under `not shown` the rest of its `others`, in theirs; a page leaving its values no
+    order, under `not shown` the rest of its `others`, in theirs, then each release it rates no
+    row of by name (`unrated`), in its order, and why (UNRATED); a page leaving its values no
     cell beside it folds each under its label, two cells in.  The page's margin and that fold are
     two cells where that leaves a line a cell, else as many as do.  A model's name goes on at its
     words as any value does, never cut: releases of one name differ only at its end."""
@@ -3967,7 +3970,9 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     drawn = {id(one) for one in bars}
     kinds = {label: whys for label, whys in [
         ("shaded", [[why(one)] for one in bars if id(one) in found["whys"]]),
-        ("not shown", [[why(one)] for one in found["others"] if id(one) not in drawn])] if whys}
+        ("not shown", [[why(one)] for one in found["others"] if id(one) not in drawn] + [
+            [f"{terminal.plain(name)}: " + UNRATED.format(fewest=number(quality.FEWEST))]
+            for name in found["unrated"]])] if whys}
     said = [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
                                                    f"{number(counted)} benchmarks"],
                          [", ".join(scored(column, one) for column, one in measures.items())],
@@ -4011,10 +4016,10 @@ def models_screen(cfg, session, selected, providers):
     and steps; each answer made (opening, the boards landing, `p`) takes the best up to each
     price that holds (price_take), saying so under the rows.  ⏎ or a click opens the why
     (models_why) of the row the role uses, else of its first choice, else of its first other
-    (matrix.answer: every release compared is a choice or an other), at once, drawn again with
-    its plans' weeks (plans_checked) once they land off the drawing thread.  `p` lists companies
-    (company_list), and `u` counts every cost in the next unit (next_unit), the screen opening
-    in the last one (models_unit).  The why comes up as a page does."""
+    (matrix.answer: every release compared it rates is a choice or an other), at once, drawn
+    again with its plans' weeks (plans_checked) once they land off the drawing thread.  `p`
+    lists companies (company_list), and `u` counts every cost in the next unit (next_unit), the
+    screen opening in the last one (models_unit).  The why comes up as a page does."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -4136,14 +4141,13 @@ ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which 
 def companies_listed(cfg):
     """Each company with a listed model (matrix.listed), strongest first as the lineup orders
     them, its listed models in that order, {maker: {slug: name}}; and your companies
-    (matrix.companies) as `companies` lists them, else as the lineup does."""
+    (matrix.companies) in their order (matrix.company_order)."""
     lineup, found = matrix.listed()
     makers, had = {}, matrix.companies(cfg, lineup)
     for row in lineup:
         if row["release"] in found:
             makers.setdefault(row["maker"], {})[row["release"]] = row["name"]
-    return makers, cfg["companies"] if "companies" in cfg else [
-        maker for maker in dict.fromkeys(row["maker"] for row in lineup) if maker in had]
+    return makers, [maker for maker in matrix.company_order(cfg, lineup) if maker in had]
 
 
 def models_listed(cfg, yours, off):
