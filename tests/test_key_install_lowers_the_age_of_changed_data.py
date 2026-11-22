@@ -8,6 +8,7 @@ passwordless probe and runs what it is given there.  The real kernel is never re
 
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -124,6 +125,51 @@ class ChangedDataAge(unittest.TestCase):
         self.assertEqual(list(self.sysctl_d.iterdir()), [])
         self.assertEqual(self.sudo_calls(), [])
 
+    def test_f_a_file_named_like_aks_is_replaced_only_if_ak_wrote_it(self):
+        # a name proves nothing: the line ak writes first into each entry says whose it is
+        owners = self.sysctl_d / "zz-agentkit-dirty_expire_centisecs.conf"
+        owners.write_text("vm.swappiness = 10\n")
+        earlier = self.sysctl_d / "zz-local.conf-agentkit-dirty_expire_centisecs.conf"
+        earlier.write_text(f"{OURS}: changed data\n{AGE} = 1000\n")
+        self.set_live(3000, 100)
+        self.install()
+        self.assertEqual(owners.read_text(), "vm.swappiness = 10\n")
+        self.assertFalse(earlier.exists())
+        [ours] = self.entries(AGE)
+        self.assertGreater(ours, owners.name)
+        self.assertIn(f"\n{AGE} = 1000\n", (self.sysctl_d / ours).read_text())
+        self.assertEqual(len(list(self.sysctl_d.iterdir())), 2)
+
+    def test_g_aks_entry_for_another_key_this_key_was_added_to_applies_before_ours(self):
+        core = self.sysctl_d / "zz-agentkit-no-core-dumps.conf"
+        text = f"{OURS}: no core dumps\nkernel.core_pattern = |/bin/false\n{AGE} = 3000\n"
+        core.write_text(text)
+        self.set_live(3000, 100)
+        self.install()
+        self.assertEqual(core.read_text(), text)
+        [ours] = set(self.entries(AGE)) - {core.name}
+        self.assertGreater(ours, core.name)
+        self.assertIn(f"\n{AGE} = 1000\n", (self.sysctl_d / ours).read_text())
+
+    def test_h_a_file_is_aks_only_by_its_bytes_and_a_pipe_is_never_opened(self):
+        owners = self.sysctl_d / "zz-agentkit-dirty_expire_centisecs.conf"
+        data = f"\0{OURS}\nvm.swappiness = 10\n".encode()
+        owners.write_bytes(data)
+        self.set_live(3000, 100)
+        self.install()
+        self.assertEqual(owners.read_bytes(), data)
+        [ours] = self.entries(AGE)
+        self.assertGreater(ours, owners.name)
+        # opened, a pipe nobody writes to would hold the next install until its timeout
+        pipe = self.sysctl_d / "zz-local.conf-agentkit-dirty_expire_centisecs.conf"
+        os.mkfifo(pipe)
+        self.set_live(3000, 100)
+        self.install()
+        self.assertTrue(stat.S_ISFIFO(pipe.stat().st_mode))
+        pipe.unlink()
+        [ours] = self.entries(AGE)
+        self.assertGreater(ours, pipe.name)
+        self.assertEqual(owners.read_bytes(), data)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

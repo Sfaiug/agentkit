@@ -814,15 +814,24 @@ sysctl_set() {
   # systemd-sysctl applies entries in the byte order of their names, the last value for a key
   # winning, and a name extended sorts after it: ours is the last of `zz` and every other name
   # (99-sysctl.conf, which is /etc/sysctl.conf, included), extended, so it is applied last.
-  # Only that rule makes these two shapes, so an entry of either is an earlier install's.  ak's
-  # entries for other keys take them with their own names, and ours follows such a name only if
-  # it holds this key's last part, which every spelling of the key does, so an owner's entry
-  # named like ak's is still followed and neither of ak's names grows out of the other's.
+  # Only that rule makes these two shapes, but a name proves nothing: an entry of either is ak's
+  # only if it is a file whose bytes open with the line every release has written first into
+  # each (a pipe is never opened), and an owner's is followed like any other.  ak's own under
+  # this name is an earlier install's, removed; under another it is another key's, followed only
+  # if it holds this key's last part, which every spelling of the key does, so one this key was
+  # added to still applies first and neither of ak's names grows out of the other's.
   while IFS= read -r name; do
     case $name in
-      zz"$ours"|*.conf"$ours") sudo -n rm -f -- "$SYSCTL_D/$name" 2>/dev/null || return 1 ;;
       zz-agentkit-*.conf|*.conf-agentkit-*.conf)
-        sudo -n grep -qF -- "${2##*.}" "$SYSCTL_D/$name" 2>/dev/null && others+=$'\n'$name ;;
+        if sudo -n test -f "$SYSCTL_D/$name" 2>/dev/null && sudo -n sed 1q -- "$SYSCTL_D/$name" \
+             2>/dev/null | grep -qa "^# Written by agentkit's install\.sh"; then
+          case $name in
+            zz"$ours"|*.conf"$ours") sudo -n rm -f -- "$SYSCTL_D/$name" 2>/dev/null || return 1 ;;
+            *) sudo -n grep -qF -- "${2##*.}" "$SYSCTL_D/$name" 2>/dev/null && others+=$'\n'$name ;;
+          esac
+        else
+          others+=$'\n'$name
+        fi ;;
       *.conf) others+=$'\n'$name ;;
     esac
   done <<<"$names"
