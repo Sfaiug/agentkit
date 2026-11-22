@@ -1,7 +1,7 @@
 """`ak lease`: one turn creating the lease on ak's remote where the remote holds none, and
 swapping a new value in where it holds this machine's own.  This hides where the lease is, how it
 is read and written, what a machine keeps of the values it made, and what a standby keeps of the
-value it reads (`watch`).
+value it reads and when it sends a swap of its own (`watch`).
 
 The lease says which machine is ak's home: `REF` in the repository at the push address of ak's
 checkout.  It changes only by compare-and-swap, so two machines never both create it and a swap
@@ -45,6 +45,10 @@ MADE = "refs/made/"
 # all, so no pass meets a set of them to make consistent.
 SEEN = "refs/seen"
 REMOTE = 45     # seconds for each call that reaches the remote
+# How long a standby reads one lease unchanged, by the younger of its clocks, before its watch
+# sends a swap: twice `pause.STALE`, so its home has stood still a while by then.  A number, as
+# `pause` imports this module.
+STILL = 20 * 60
 VALUE = rb"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})"
 # One address, of printable bytes without a space, that is no option: the one string git
 # resolved, which the read and the write each take whole.
@@ -87,41 +91,63 @@ def _alone(git, env, address):
         for value, name in kept:
             if value != read:
                 git("update-ref", "-d", name, value, check=False)
-        if not own:
-            return
-        # made and kept as the create's below
-        stamp = pair_clock.now()
-        value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
-                    own=gitcall.STAMP).strip()
-        git("update-ref", _named(stamp), value, "")
-        git("push", address, f"{value.decode()}:{REF}",
-            f"--force-with-lease={REF}:{read.decode()}", timeout=REMOTE, check=False)
+        if own:
+            _swap(git, address, read, pair_clock.now())
         return
     made = ("for-each-ref", "--count=1", "--format=%(objectname)", MADE)
     if not git(*made):
-        stamp = pair_clock.now()
-        # its own message, as every other part of it is any machine's
-        value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
-                    own=gitcall.STAMP).strip()
-        # only as a name no ref holds, so no value kept is replaced
-        git("update-ref", _named(stamp), value, "")
+        _make(git, pair_clock.now())
     value = git(*made)
     if re.fullmatch(VALUE + b"\n", value):
         git("push", address, f"{value[:-1].decode()}:{REF}", f"--force-with-lease={REF}:",
             timeout=REMOTE, check=False)
 
 
+def _swap(git, address, read, stamp):
+    """A new value, made and kept for `stamp` (`_make`), sent to `address` as a swap from `read`:
+    its exit is not read, as the next read says what the remote holds."""
+    value = _make(git, stamp)
+    git("push", address, f"{value.decode()}:{REF}",
+        f"--force-with-lease={REF}:{read.decode()}", timeout=REMOTE, check=False)
+
+
+def _make(git, stamp):
+    """A new value, kept under the name for `stamp` before it is sent, by `git` in the lease's
+    repository."""
+    # its own message, as every other part of it is any machine's
+    value = git("commit-tree", git("mktree").strip(), "-m", secrets.token_hex(16),
+                own=gitcall.STAMP).strip()
+    # only as a name no ref holds, so no value kept is replaced
+    git("update-ref", _named(stamp), value, "")
+    return value
+
+
+def _unlinked(git, name):
+    """Whether `name` is no symbolic ref, by `git` in the lease's repository: update-ref writes
+    through one to the ref it names, there or not.  Only `symbolic-ref -q` exiting 1 says so, for
+    a plain ref, which update-ref's empty old value refuses, or none; it exits 0 at a symbolic ref
+    and 128 at one it cannot follow, a chain too long among them.  The lock keeps the name as it
+    is till the write."""
+    try:
+        git("symbolic-ref", "-q", name)
+    except subprocess.CalledProcessError as error:
+        return error.returncode == 1
+    return False
+
+
 def watch():
     """A standby's watch of the lease its home holds, at each pass: SEEN at a commit made here
     whose message is the value read and the stamp of the pass that first read it (`_seen`), the
     lease read as a turn reads it, under its lock.  A value SEEN holds with a stamp of this boot
-    leaves it as it is; any other value read puts it at a commit of that value and this pass's
-    stamp, as a stamp of another boot counts for nothing; whatever else is met once the lock is
-    held, no lease among it, removes it.  Each is one update-ref at most, which git does whole or
-    not at all, and what it refused stays as it was: a home writes no value twice, so a record of
-    an older value matches no later read.  Where another turn holds the lock, or the lease's
-    folder cannot be made or opened, none of them.  Nothing is fetched from the remote or written
-    to it, and whatever the watch meets is dropped unsaid."""
+    leaves it as it is, and once that stamp is STILL old by `age_at_least`, a swap from it is sent
+    as a turn sends one (`_swap`), its value kept for this pass's stamp where no ref holds the
+    name; any other value read puts it at a commit of that value and this pass's stamp, as a stamp
+    of another boot counts for nothing; whatever else is met once the lock is held, no lease among
+    it, removes it.  Each is one update-ref of SEEN at most, which git does whole or not at all,
+    and what it refused stays as it was: a home writes no value twice, so a record of an older
+    value matches no later read.  Where another turn holds the lock, or the lease's folder cannot
+    be made or opened, none of them.  Nothing is fetched from the remote, nor written to it but
+    that swap, and whatever the watch meets is dropped unsaid."""
     with contextlib.suppress(Exception):
         _locked(_watched)
 
@@ -131,11 +157,18 @@ def _watched():
     env, made = {}, None
     try:
         git, env = _checkout()
-        read = _read(git, env, _address(git))
+        address = _address(git)
+        read = _read(git, env, address)
         # after the read: a stamp before it may be older than the value read
         stamp = pair_clock.now()
         seen = read and _seen(git)
         if seen and seen[0] == read and seen[1].boot == stamp.boot:
+            # The record stays, whatever the swap meets: the next pass reads what the remote
+            # holds.  Nothing the repository lacks is fetched, as for `_seen`.
+            with contextlib.suppress(Exception):
+                git = functools.partial(git, env={**env, "GIT_NO_LAZY_FETCH": "1"})
+                if seen[1].age_at_least() >= STILL and _unlinked(git, _named(stamp)):
+                    _swap(git, address, read, stamp)
             return
         if read:
             made = git("commit-tree", git("mktree").strip(), "-m", _message(read, stamp),
