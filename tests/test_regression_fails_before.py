@@ -432,6 +432,24 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
+    def test_a_folder_standing_where_a_removed_test_was_reaches_the_commit_a_review_judged(self):
+        # no file test_runner on the head nor that commit, yet git lays the folder there over
+        (self.wt / "test_runner").write_text("runner\n")
+        self.commit("A runner in one file")
+        self.base = run.git(self.wt, "rev-parse", "HEAD")
+        (self.wt / "test_runner").unlink()
+        (self.wt / "test_runner").mkdir()
+        (self.wt / "test_runner/driver.py").write_text("judged\n")
+        self.commit("The runner as a folder")
+        judged = run.git(self.wt, "rev-parse", "HEAD")
+        (self.wt / "test_runner/driver.py").write_text("head\n")
+        self.commit("The runner fixed")
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        proof = prompts.proof_on(self.loop(), "grep -qx head test_runner/driver.py",
+                                 self.directory / "proof.log", judged, head)
+        self.assertEqual(proof["returncode"], 0, proof)
+        self.assert_restored(head)
+
     def test_a_replay_never_sees_what_another_replay_s_checks_wrote(self):
         # the round's own gate runs in the run's checkout, each replay in one of its own
         (self.wt / ".gitignore").write_text("ignored-ready.tmp\n")

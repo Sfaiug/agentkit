@@ -424,6 +424,13 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             gitcall.reset_checkout(lp.wt, head, before)
             gitcall.git(lp.wt, "checkout", "--quiet", "--detach", revision)
             if paths:
+                # git refuses the whole restore for a path neither the index nor the head holds,
+                # as a test an earlier round removed on the commit the last review judged: there
+                # is nothing to lay over.  A folder standing at a path holds it, as for git.
+                held = gitcall.git_bytes(lp.wt, "ls-files", "-z", f"--with-tree={tests_from}", "--",
+                                         *(f":(literal){p}" for p in paths)).split("\0")
+                paths = [p for p in paths if any(h == p or h.startswith(f"{p}/") for h in held)]
+            if paths:
                 gitcall.git(lp.wt, "restore", f"--source={tests_from}", "--staged", "--worktree", "--",
                     *(f":(literal){p}" for p in paths))
         run_record.stop_check(lp.run_dir)
