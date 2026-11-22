@@ -2,7 +2,8 @@
 choice, else of its first other, as the owner drew it on 5 Nov 2026, a label column as wide as
 its widest label beside values that wrap at words in their own: its quality give or take 1.96
 standard errors, the benchmarks that scored it and how far below the role's best choice it is,
-of the two qualities as shown; its cost, `≈` against one no runs measured, and where that comes
+else, with no choice, the best of the models on, never one of a company not added, of the two
+qualities as shown; its cost, `≈` against one no runs measured, and where that comes
 from -- its runs, its board price times what runs on its provider cost a board dollar, or on
 every provider at list prices at its own plan's rate, or its board price alone; the rule that
 makes the choices; and why each model is none -- beaten, within a point of a choice, far below
@@ -272,12 +273,28 @@ class ModelsWhy(unittest.TestCase):
             "             Crux 2 low, 80.0: no board prices it"])
 
     def test_with_no_row_in_use_and_no_choice_it_opens_its_first_other(self):
-        # Crux 2 orchestrates on no board, and nothing priced leaves no choice: the best on the
-        # boards is no best choice
+        # Crux 2 orchestrates on no board, and nothing priced leaves no choice: the best of the
+        # models on is no best choice
         self.write([row for row in DRAWN if row[0] != "crux-2"], ["max"], priced=False)
         shown = self.why(self.models())
         self.assertEqual(shown[0], "  why Acme Max 5 max orchestrates")
-        self.assertEqual(shown[4], "             the best on the boards")
+        self.assertEqual(shown[4], "             the best of the models on")
+
+    def test_with_no_choice_a_release_of_a_company_not_added_is_never_the_best(self):
+        # the boards rate Zeal 9, of a company not added, best of all, and nothing priced leaves
+        # nothing to take: the owner, 5 Nov 2026, "I dont want others to be shown"
+        self.write(DRAWN, ["max"], priced=False)
+        held = boards([*DRAWN, ("zeal-9", "Zeal 9", "max", 80, .95, .95, 60, 30.0)], False)
+        for row in held["artificialanalysis.ai"]["rows"]:
+            row["maker"] = "Zeal" if row["model"] == "Zeal 9" else row["maker"]
+        self.home.write(".agentkit/state/boards.json", held)
+        shown = self.why(self.models(), "Down")
+        # its 100 leaves Acme Max 5 max 85.0, its high 79.8: still 5.2 below the best compared
+        self.assertEqual(shown[2:5], [
+            "  quality    79.8   give or take 3.7, from three benchmarks",
+            "             FrontierCode 2.0, Arena Agent carried from max, Terminal-Bench 4.0",
+            "             5.2 below the best, Acme Max 5 max"])
+        self.assertFalse([line for line in shown if "Zeal" in line])
 
     def test_a_cost_from_your_runs_says_how_many_and_others_past_five_choices(self):
         self.write(FIVE, ["mid"], ["crux"], runs=True,

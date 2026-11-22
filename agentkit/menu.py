@@ -3924,12 +3924,12 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     2026: a label column, each value going on at its words in its own (flowed), an other's lines
     after its first two cells further in, so each other's first line stands out.  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
-    best choice it is, else, with no choice, the best on the boards, and, where `runs`, the
-    effort a step to it writes (None for a row no step is), is another than one it was rated at,
-    both, the owner's choice of 20 Nov 2026, its bars and the role lines keeping the one rated
-    (left so 21 Nov 2026); its cost in `unit`,
-    said as UNITS says it, where that comes from (SOURCES) and how far off each of `weeks`
-    foretold (week_checked); the rule that makes the choices; and why each model is none (WHYS):
+    best choice it is, else, with no choice, the best compared (`best`), none where the role
+    rates no row of a release compared, and, where `runs`, the effort a step to it writes (None
+    for a row no step is), is another than one it was rated at, both, the owner's choice of 20
+    Nov 2026, its bars and the role lines keeping the one rated (left so 21 Nov 2026); its cost
+    in `unit`, said as UNITS says it, where that comes from (SOURCES) and how far off each of
+    `weeks` foretold (week_checked); the rule that makes the choices; and why each model is none (WHYS):
     under `shaded` each the bars of `kept` draw shaded at this width (models_standing), in their
     order, under `not shown` the rest of its `others`, in theirs; a page leaving its values no
     cell beside it folds each under its label, two cells in.  The page's margin and that fold are
@@ -3941,9 +3941,10 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     fold = room - width - 2 < 1
     indent = min(2, room - 1) if fold else width + 2       # the cells before a value
     values = room - indent
-    # the best choice, else, with nothing priced to choose among, the best on the boards
-    top, best = max(found["choices"] or found["rated"], key=lambda one: one["quality"]), (
-        "the best of these choices" if found["choices"] else "the best on the boards")
+    # the best choice, else, with nothing compared to take, the best compared: never a row of a
+    # company not added or turned off, the owner, 5 Nov 2026: "I dont want others to be shown"
+    top = max(found["choices"], key=lambda one: one["quality"], default=found["best"])
+    best = "the best of these choices" if found["choices"] else "the best of the models on"
     measures = {column: one for column, *_ in quality.ROLES[role]
                 for one in [row["measures"].get(column)] if one}
     counted = sum(one["how"] != "missing" for one in measures.values())
@@ -3960,7 +3961,7 @@ def models_why(found, role, row, kept, unit, weeks, runs):
         return f"{priced(one)}: " + WHYS[word].format(
             by=by and priced(by), apart=points(matrix.APART), below=f"{below(one):.1f}",
             places=number(matrix.PLACES))
-    behind, cost = below(row), cost_said(found, row, unit)
+    behind, cost = top and below(row), cost_said(found, row, unit)
     # the bars with a why are the shaded ones; a kind with none goes unsaid
     bars = [one for one, _ in models_standing(found, kept, unit)[1]]
     drawn = {id(one) for one in bars}
@@ -3970,9 +3971,9 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     said = [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
                                                    f"{number(counted)} benchmarks"],
                          [", ".join(scored(column, one) for column, one in measures.items())],
-                         [best] if row is top else
-                         [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
-                          f"{named(top)}"],
+                         *([[best]] if row is top else [] if top is None else
+                           [[f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the "
+                             f"best, {named(top)}"]]),
                          *([[f"rated at {row['effort']}, runs at {runs}"]]
                            if row["effort"] and runs not in (None, row["effort"]) else [])]},
             {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,

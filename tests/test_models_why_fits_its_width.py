@@ -28,7 +28,7 @@ class WhyFitsItsWidth(unittest.TestCase):
         for role, effort, width in [(role, effort, width) for role in menu.DOES
                                     for effort in ("", "medium") for width in range(1, 41)]:
             choice, other = model("Acme 1", 95.0, 1, effort), model("Bolt 1", 90.0, 2, effort)
-            found = {"choices": [choice], "rated": [choice, other], "others": [other],
+            found = {"choices": [choice], "best": choice, "others": [other],
                      "whys": {id(other): ("beaten", choice)}, "cost_unit": "money"}
             with self.subTest(role=role, effort=effort, width=width), patch.object(
                     terminal, "layout_width", return_value=width):
