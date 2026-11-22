@@ -4026,7 +4026,7 @@ def models_screen(cfg, session, selected, providers):
     with its plans' weeks (plans_checked) once they land off the drawing thread.  `p` lists
     companies (company_list), and `u` counts every cost in the next unit (next_unit), the screen
     opening in the last one (models_unit).  The why comes up as a page does."""
-    fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
+    fetch, answer = Fetch(lambda: matrix.refresh(cfg)), None
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
     clock, rows = motion.Clock(page=True), [("row", role) for role in quality.ROLES]
@@ -4038,10 +4038,11 @@ def models_screen(cfg, session, selected, providers):
             except Exception as exc:      # noqa: BLE001 -- what stands is shown, the fault said
                 failed = " ".join(str(exc).split()) or type(exc).__name__
             note = f"the boards were not read: {failed}" if failed else note
-            held, fetch, answer = matrix.stored(), None, None
-        if answer is None:
-            compared, total = matrix.compared(cfg), len(matrix.ours(cfg))
-            answer = matrix.answer(held.get("lineup") or [], compared, cfg=cfg)
+            fetch, answer = None, None
+        if answer is None:        # counted and answered off one reading: `p` back may find a newer
+            fetched, reading = matrix.stored().get("fetched_at"), matrix.listed()
+            compared, total = matrix.compared(cfg, reading), len(matrix.ours(cfg, reading))
+            answer = matrix.answer(reading[0], compared, cfg=cfg)
             note = "\n".join(filter(None, [note, *(price_take(
                 cfg, session, selected, providers, answer, role) for role in answer)]))
         # a take changes what each role uses, never the answer, which takes seconds to price
@@ -4070,7 +4071,7 @@ def models_screen(cfg, session, selected, providers):
                 return [], lines, places
             return over, [lines[number] for number in places], dict(enumerate(places.values()))
         over, body, places = laid(note_lines(note), keys)
-        read = ["", *models_read(compared, total, held.get("fetched_at"))]
+        read = ["", *models_read(compared, total, fetched)]
         price = price_held(session, here[1], used[here[1]], answer[here[1]])
         # a limit leaving every choice out says so, as the role stays (price_take); none leaves
         # none out, keeping the best whatever runs

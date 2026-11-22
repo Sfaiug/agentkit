@@ -491,11 +491,11 @@ def ours(cfg, reading=None):
     return {slug for slug, maker in found.items() if maker in makers}
 
 
-def compared(cfg):
+def compared(cfg, reading=None):
     """The releases on, the only ones the models screen and `ak models` compare: those of
-    `ours` whose slug `models_off` in the config does not hold.  A company's next release is
-    on by itself."""
-    return ours(cfg) - set(cfg.get("models_off") or ())
+    `ours` (off `reading` alike) whose slug `models_off` in the config does not hold.  A
+    company's next release is on by itself."""
+    return ours(cfg, reading) - set(cfg.get("models_off") or ())
 
 
 def off(cfg):

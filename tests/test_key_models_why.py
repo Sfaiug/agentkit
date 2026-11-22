@@ -11,7 +11,8 @@ the best, no room, not set up, or priced by no board (tests/test_key_models_why_
 under `shaded` each the role's bars shade, in their order, under `not shown` the rest of the
 role's others, in theirs (tests/test_key_models_why_shaded.py), each one's lines after its first
 two cells further in, a label with none left out.  Esc returns with `›` where it was, and a page
-taller than the screen turns with ↓ and ↑.
+taller than the screen turns with ↓ and ↑.  Back from `p`, it answers over the boards the screen
+counts, though another `ak models` read them anew meanwhile.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
 harnesses fakes listing invented models, the boards held as just asked with invented rows, and
@@ -304,6 +305,21 @@ class ModelsWhy(unittest.TestCase):
         term.keys("Escape")
         term.wait("\n› executor ")
         self.assertEqual(self.why(term, "Down"), CRUX_REVIEWS)
+
+    def test_back_from_p_it_answers_over_the_boards_another_process_read_meanwhile(self):
+        mid = [row for row in DRAWN if row[0] == "acme-mid-5"]
+        self.write(mid, ["mid"])
+        term = self.models()
+        term.keys("p")
+        term.wait("+ add a company")
+        self.home.write(".agentkit/state/boards.json",
+                        boards([*mid, *(row for row in DRAWN if row[0] == "bolt-3")]))
+        self.assertEqual(self.home.ak("models", "--json", env=ENV).code, 0)
+        term.keys("Right")
+        term.wait("■ Bolt 3")
+        term.keys("Escape")
+        term.wait("comparing all 2 models")
+        self.assertTrue([line for line in self.why(term, "Down") if "Bolt 3" in line])
 
     def test_on_40_cells_each_value_wraps_at_words_in_its_column(self):
         self.write(TWO, ["crux"])
