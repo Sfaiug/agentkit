@@ -264,8 +264,9 @@ def unpark(launched, payload):
         if turn is None:
             return
         cfg = config.load()
-        with look.one_look():   # resolving the name reads the record: a second read finds a move
-            record = config.session_record(resolve(launched)) or {}
+        with look.one_look():   # each seat's file read once: following a rename rereads none
+            records = config.session_records()
+            record = records.get(resolve(launched)) or {}
         entry = config.model(cfg, record.get("orchestrator"))
         told = os.environ.get(config.ACCOUNT_ENV, "")
         if config.account_env(record.get("account"))[config.ACCOUNT_ENV] != told:
