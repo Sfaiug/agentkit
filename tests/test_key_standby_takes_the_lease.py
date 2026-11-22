@@ -8,9 +8,10 @@ another value, which is watched anew from that pass, or none, the origin unreach
 the next pass that reads the value watches it anew.  A swap the origin refused, another value
 written there between the read and the push, or whose answer was lost, is not sent again.
 `refs/seen` and every ref under `refs/made/` stay as they were; where the name for the pass's stamp
-is a symbolic ref, no value is kept and no swap sent.  The swap is sent whether the copy of the home
-that follows ends well or not, and the home's firing after it leaves the standby's value on the
-origin.  Every pass exits 0 but the one whose home is silent.
+is a symbolic ref, the first of a chain too long for git to follow among them, no value is kept and
+no swap sent.  The swap is sent whether the copy of the home that follows ends well or not, and the
+home's firing after it leaves the standby's value on the origin.  Every pass exits 0 but the one
+whose home is silent.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, a home and
 a standby that is its client, built and fired as the watch's key builds and fires them, each case
@@ -132,14 +133,19 @@ class AStandbyTakesTheLease(unittest.TestCase):
         self.takes(now(21))
         self.assertEqual(refs(repo).get("refs/made/acme"), named)
 
-    def test_a_symbolic_ref_at_the_name_for_the_passs_stamp_stays_and_no_swap_is_sent(self):
+    def test_symbolic_refs_at_the_name_for_the_passs_stamp_stay_and_no_swap_is_sent(self):
         self.watched()
         repo = kept(self.standby)
-        # at a ref that is not there: git lists neither, and a write through it would show both
-        _git(repo, "symbolic-ref", "refs/made/" + now(21).replace(" ", "_"), "refs/heads/acme")
-        before = refs(repo)
-        self.leaves(now(21))
-        self.assertEqual(refs(repo), before)
+        # one link, then a chain of five, which git does not follow to its end, each to a ref that
+        # is not there: git lists none of them, and a write through them would show that ref
+        for minute, links in ((21, 1), (22, 5)):
+            chain = ["refs/made/" + now(minute).replace(" ", "_"),
+                     *(f"refs/made/acme-{minute}-{n}" for n in range(links - 1)), "refs/heads/acme"]
+            for link, target in zip(chain, chain[1:]):
+                _git(repo, "symbolic-ref", link, target)
+            before = refs(repo)
+            self.leaves(now(minute))
+            self.assertEqual(refs(repo), before)
 
 
 if __name__ == "__main__":

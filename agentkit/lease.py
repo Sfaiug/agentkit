@@ -122,6 +122,19 @@ def _make(git, stamp):
     return value
 
 
+def _unlinked(git, name):
+    """Whether `name` is no symbolic ref, by `git` in the lease's repository: update-ref writes
+    through one to the ref it names, there or not.  Only `symbolic-ref -q` exiting 1 says so, for
+    a plain ref, which update-ref's empty old value refuses, or none; it exits 0 at a symbolic ref
+    and 128 at one it cannot follow, a chain too long among them.  The lock keeps the name as it
+    is till the write."""
+    try:
+        git("symbolic-ref", "-q", name)
+    except subprocess.CalledProcessError as error:
+        return error.returncode == 1
+    return False
+
+
 def watch():
     """A standby's watch of the lease its home holds, at each pass: SEEN at a commit made here
     whose message is the value read and the stamp of the pass that first read it (`_seen`), the
@@ -154,11 +167,7 @@ def _watched():
             # holds.  Nothing the repository lacks is fetched, as for `_seen`.
             with contextlib.suppress(Exception):
                 git = functools.partial(git, env={**env, "GIT_NO_LAZY_FETCH": "1"})
-                # update-ref writes through a symbolic ref at the name to the ref it names, which
-                # need not be there: the name is taken only where it is no symbolic ref either, as
-                # the lock keeps it till the write
-                if seen[1].age_at_least() >= STILL and not git(
-                        "symbolic-ref", "-q", _named(stamp), check=False):
+                if seen[1].age_at_least() >= STILL and _unlinked(git, _named(stamp)):
                     _swap(git, address, read, stamp)
             return
         if read:
