@@ -1585,18 +1585,29 @@ def resolve_session(name):
         from . import orch
         name = orch.session_name(name)
     try:
-        return _followed(name)
+        return _followed(name)[0]
     except Error:
         with look.aside():      # what it raises is the disk's now, never a pass's earlier read
-            return _followed(name)
+            return _followed(name)[0]
+
+
+def resolved_record(name):
+    """The record of the seat `name` leads to now, None where it ends at none: what the walk
+    following its renames read there, so a reader judging by it never takes a second read, which
+    a move or rename meanwhile can make another seat's.  Raises Error where a file on the way
+    cannot be read or the chain loops or runs too deep, as nothing then says which seat it is."""
+    data = _followed(normalize_session(name))[1]
+    return data if isinstance(data, dict) and "renamed" not in data else None
 
 
 def _followed(name):
+    """(The name a chain of renames from `name` ends at, what its file held), each file read
+    once."""
     seen = [name]
     for _ in range(RENAME_HOPS + 1):    # RENAME_HOPS renames, then the name after the last
         data = _session_json(session_path(name))
         if not isinstance(data, dict) or not isinstance(data.get("renamed"), str):
-            return name
+            return name, data
         name = normalize_session(data["renamed"])
         if name in seen:
             raise Error(f"{session_path(seen[0])}: the rename chain loops through {' -> '.join(seen)}")

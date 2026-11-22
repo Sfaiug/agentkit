@@ -55,7 +55,7 @@ so no screen ever reads one before it has been judged.
 import json
 import os
 
-from . import config, harness, lifecycle, look, notify, questions, usage
+from . import config, harness, lifecycle, notify, questions, usage
 from .handback import handback_reason
 from .stop import live_unrecorded, question_refused, recorded_ending, untested, ways_out
 from .watch import keep, start_look, turn_ended
@@ -264,9 +264,7 @@ def unpark(launched, payload):
         if turn is None:
             return
         cfg = config.load()
-        with look.one_look():   # each seat's file read once: following a rename rereads none
-            records = config.session_records()
-            record = records.get(resolve(launched)) or {}
+        record = config.resolved_record(launched) or {}
         entry = config.model(cfg, record.get("orchestrator"))
         told = os.environ.get(config.ACCOUNT_ENV, "")
         if config.account_env(record.get("account"))[config.ACCOUNT_ENV] != told:
