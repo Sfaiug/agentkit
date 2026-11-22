@@ -450,6 +450,37 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertEqual(proof["returncode"], 0, proof)
         self.assert_restored(head)
 
+    def test_tests_named_as_git_s_text_would_misread_them_reach_base_as_named(self):
+        # a leading space on the first name, a carriage return, a byte that is not UTF-8
+        names = (" leading/tests/check.py", "tests/case\r1.py", os.fsdecode(b"tests/case\xff.py"))
+        for name in names:
+            (self.wt / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.wt / name).write_text("base\n")
+        self.commit("Tests under odd names")
+        self.base = run.git(self.wt, "rev-parse", "HEAD")
+        for name in names:
+            (self.wt / name).write_text("branch\n")
+        self.commit("The branch's tests")
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        check = (r"""for f in ' leading/tests/check.py' $'tests/case\r1.py' $'tests/case\xff.py'; """
+                 r"""do grep -qx branch "$f" || exit 1; done""")
+        proof = prompts.proof_on(self.loop(), check, self.directory / "proof.log", self.base, head)
+        self.assertEqual(proof["returncode"], 0, proof)
+        self.assert_restored(head)
+
+    def test_a_test_git_matches_in_another_case_is_removed_as_the_branch_removed_it(self):
+        run.git(self.wt, "mv", "tests/removed.py", "tests/REMOVED.py")
+        self.commit("The test renamed")
+        judged = run.git(self.wt, "rev-parse", "HEAD")
+        (self.wt / "tests/REMOVED.py").unlink()
+        self.commit("The test removed")
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        with patch.dict(os.environ, {"GIT_ICASE_PATHSPECS": "1"}):
+            proof = prompts.proof_on(self.loop(), "test ! -e tests/REMOVED.py",
+                                     self.directory / "proof.log", judged, head)
+        self.assertEqual(proof["returncode"], 0, proof)
+        self.assert_restored(head)
+
     def test_a_replay_never_sees_what_another_replay_s_checks_wrote(self):
         # the round's own gate runs in the run's checkout, each replay in one of its own
         (self.wt / ".gitignore").write_text("ignored-ready.tmp\n")

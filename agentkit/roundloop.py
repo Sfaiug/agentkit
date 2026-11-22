@@ -461,8 +461,9 @@ def regression_fails_before(lp):
         return "regression.sh cannot be checked without a base commit"
     head = gitcall.git(lp.wt, "rev-parse", "HEAD")
     base = lp.base_sha
-    changed = [p for p in gitcall.git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
-                              f"{base}...{head}").split("\0") if p]
+    # read as `changed_test_paths` reads them, so the two lists spell each name alike
+    changed = [p for p in gitcall.git_bytes(lp.wt, "diff", "--name-only", "-z", "--no-renames",
+                                            f"{base}...{head}").split("\0") if p]
     only_tests = prompts.changed_test_paths(lp, head) == changed
     proof = prompts.proof_on(lp, f"bash {shlex.quote(str(script))}", lp.run_dir / "regression-base.log",
                      base, tests_from=None if only_tests else head)
@@ -1293,7 +1294,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         paths = prompts.changed_test_paths(lp, head)
         if paths:
             # Leave room for full names, including git's quoted non-ASCII paths.
-            width = max(len(p.encode()) * 4 + 2 for p in paths)
+            width = max(len(os.fsencode(p)) * 4 + 2 for p in paths)
             stat = gitcall.git(lp.wt, "diff", f"--stat={width + 80},{width}", "--no-renames",
                        f"{lp.base_sha}...{head}", "--", *(f":(literal){p}" for p in paths))
             checks = ("## Checks the executor changed\n```\n"

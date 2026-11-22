@@ -329,9 +329,10 @@ def first_failure(dw_log):
 def changed_test_paths(lp, head="HEAD", named=True):
     """The branch's changed tests: test-shaped paths, and with `named` every file a
     done-when command names."""
-    # Include removed paths too: renaming a test out of discovery must remain visible.
-    changed = gitcall.git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
-                  f"{lp.base_sha}...{head}").split("\0")
+    # Include removed paths too: renaming a test out of discovery must remain visible.  Every
+    # byte kept (`git_bytes`): handed back to git, each name is still the file it names.
+    changed = gitcall.git_bytes(lp.wt, "diff", "--name-only", "-z", "--no-renames",
+                                f"{lp.base_sha}...{head}").split("\0")
     return [p for p in changed if p and (
         any(part in TEST_DIRS for part in Path(p).parts[:-1]) or test_named(p)
         or (named and any(p in cmd for cmd in getattr(lp, "cmds", []))))]
@@ -424,12 +425,15 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             gitcall.reset_checkout(lp.wt, head, before)
             gitcall.git(lp.wt, "checkout", "--quiet", "--detach", revision)
             if paths:
-                # git refuses the whole restore for a path neither the index nor the head holds,
-                # as a test an earlier round removed on the commit the last review judged: there
-                # is nothing to lay over.  A folder standing at a path holds it, as for git.
-                held = gitcall.git_bytes(lp.wt, "ls-files", "-z", f"--with-tree={tests_from}", "--",
-                                         *(f":(literal){p}" for p in paths)).split("\0")
-                paths = [p for p in paths if any(h == p or h.startswith(f"{p}/") for h in held)]
+                # git refuses the whole restore for a path that matches nothing in the index nor
+                # the head, as a test an earlier round removed on the commit the last review
+                # judged: there is nothing to lay over.  A name git lists matches; whether any
+                # other does (a folder there, git's pathspec settings) git alone says.
+                listing = ("ls-files", "-z", f"--with-tree={tests_from}", "--")
+                listed = set(gitcall.git_bytes(lp.wt, *listing, *(f":(literal){p}" for p in paths))
+                             .split("\0"))
+                paths = [p for p in paths
+                         if p in listed or gitcall.git_bytes(lp.wt, *listing, f":(literal){p}")]
             if paths:
                 gitcall.git(lp.wt, "restore", f"--source={tests_from}", "--staged", "--worktree", "--",
                     *(f":(literal){p}" for p in paths))
