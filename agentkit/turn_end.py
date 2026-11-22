@@ -55,7 +55,7 @@ so no screen ever reads one before it has been judged.
 import json
 import os
 
-from . import config, harness, lifecycle, notify, questions
+from . import config, harness, lifecycle, notify, questions, usage
 from .handback import handback_reason
 from .stop import live_unrecorded, question_refused, recorded_ending, untested, ways_out
 from .watch import keep, start_look, turn_ended
@@ -239,6 +239,47 @@ def asked_owner(seat, said):
     notify.keep_back(seat, f"{STUCK} {words}")
 
 
+def unpark(launched, payload):
+    """The login this Stop's harness runs on loses the refusals the turn it ends shows were
+    wrong (`usage.answered`), where that login answered it; whatever fails here, the Stop is
+    judged, written down and answered as without it.
+
+    On 19 Nov 2026 a login 25% used was parked for an hour while it answered the owner: "even
+    this session says out of usage".  Asked on 20 Nov whether ak should unpark an account as
+    soon as a session finishes a turn on it, the owner said "Yes, build it"; on 21 Nov, after
+    designs failed review, "Keep trying".  An answered turn is a fact about the past, whole
+    when its Stop is judged, and heard exactly only here: once for each Stop, in its harness's
+    own environment, whose AGENTKIT_ACCOUNT names the login it runs on (`config.account_env`).
+    A later look at the seat finds another hook, a prompt, a move or a second wait come
+    between, and so does a second read of its record, which a move leaves naming another login:
+    so each thing is read once, in this order, and the record's harness is asked what
+    `watch.recorded_error` and `watch.limit_ended` ask, on that one record -- both read it
+    again, and the plan `limit_ended` asks writes.
+    """
+    try:
+        if (payload.get("terminationReason") not in (None, "", "NO_TOOL_CALL")
+                or last_message(payload) is None):
+            return      # as `held` reads it: no turn ending on words it can read
+        turn = moment(read(config.stop_path(launched)).get("turn"))
+        if turn is None:
+            return
+        cfg = config.load()
+        record = config.session_record(resolve(launched)) or {}
+        entry = config.model(cfg, record.get("orchestrator"))
+        told = os.environ.get(config.ACCOUNT_ENV, "")
+        plugin = harness.load(entry["harness"])
+        if (config.account_env(record.get("account"))[config.ACCOUNT_ENV] != told
+                or not plugin.keeps_errors):
+            return
+        cwd = record.get("cwd")
+        conversation = plugin.conversation(record, cwd)
+        if (plugin.error(record, cwd, conversation) == ""
+                and plugin.wrapped_up(record, cwd, conversation) is None):
+            usage.answered(cfg, entry["provider"], told or None, record["orchestrator"], turn)
+    except Exception:
+        pass        # the login stays parked as it was; the Stop is no less judged
+
+
 def held(launched, payload, records=None):
     """The reason to send this stop back with, or "" where the stop stands.
 
@@ -320,7 +361,8 @@ def written(launched, payload, held):
 def judge(launched, payload, records=None):
     """What the hook prints for the seat launched as `launched` on `payload`, its harness's
     JSON as handed over: the block decision, the refusal of a question, or "" for nothing.
-    `records` are the runs judged on (`stop.recorded_ending`), read here where none are given."""
+    `records` are the runs judged on (`stop.recorded_ending`), read here where none are given.
+    A Stop first unparks the login that answered the turn it ends (`unpark`)."""
     payload = loads(payload)
     if payload.get("hook_event_name") == "PreToolUse":
         seat = resolve(launched)
@@ -336,6 +378,7 @@ def judge(launched, payload, records=None):
             if isinstance(text, str) and text.strip():
                 keep(seat, text)
         return ""
+    unpark(launched, payload)
     back = held(launched, payload, records)
     if not back:
         # the stop stands: the turn a kept question was asked in has ended, and that is on
