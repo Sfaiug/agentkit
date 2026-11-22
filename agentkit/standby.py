@@ -433,10 +433,25 @@ def _records():
         return []
 
 
+def _takes(path):
+    """Whether the record at `path` reads as a stamp and says its machine takes over."""
+    stamp, takes = _record(path)
+    return bool(stamp) and takes
+
+
 def takes_over():
     """Whether a record this machine keeps says its machine takes over as home when this one
     stops, as `ak standby` lists one."""
-    return any(stamp and takes for stamp, takes in map(_record, _records()))
+    return any(map(_takes, _records()))
+
+
+def _takers():
+    """Print the name of each machine a record here says takes over, one a line in the order of
+    their names, for a client that must reach one once this home no longer answers."""
+    for path in sorted(_records()):
+        if _takes(path):
+            print(path.name)
+    return 0
 
 
 def tell():
@@ -521,6 +536,8 @@ def main(argv):
         return _shown()
     if argv == ["--began"]:
         return _began()
+    if argv == ["--takers"]:
+        return _takers()
     if argv == ["--home"]:
         from . import pause     # here, as pause imports this module
         return 0 if pause.holds() else 1

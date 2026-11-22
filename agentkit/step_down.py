@@ -29,7 +29,7 @@ def where_another_is_home():
     where none does, nor past a step that fails or raises."""
     with contextlib.suppress(Exception):
         home = next((path.name for path in sorted(standby._records())
-                     if _takes(path) and _asked(path.name, "--home")), None)
+                     if standby._takes(path) and _asked(path.name, "--home")), None)
         # without this machine's name and that machine's stamp, no record of it is kept there
         held = standby._home_began(home) if home else []
         if held and _asked(home, "--copied", *held, "yes"):
@@ -39,12 +39,6 @@ def where_another_is_home():
                 checkout = update.agentkit_dir()
                 versions.run([str(checkout / "install.sh"), "--client", home], checkout,
                              **update.PINS)
-
-
-def _takes(path):
-    """Whether the record at `path` reads as a stamp and says its machine takes over."""
-    stamp, takes = standby._record(path)
-    return bool(stamp) and takes
 
 
 def _asked(alias, *words):
