@@ -4147,6 +4147,7 @@ def models_screen(cfg, session, selected, providers):
 
 
 ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens
+UNKNOWN = "unknown"     # the name the company lists give a maker the boards leave unnamed
 
 
 def companies_listed(cfg):
@@ -4179,15 +4180,15 @@ def companies_body(makers, yours, off, at=None, column=0, moves=None):
     Last, `+ add a company`; each mark and its move (motion.toggled) goes on `moves`."""
     room, (on, out) = terminal.layout_width(), "■□" if terminal.utf8() else "#-"
     shown = [maker for maker in yours if maker in makers]
-    label = max((terminal.cells(maker) for maker in shown), default=0)
+    label = max((terminal.cells(maker or UNKNOWN) for maker in shown), default=0)
     start = label + 4         # the models' first column: after a space, the name's cell and one
     lines, places = [], {}
     for maker in shown:
         row, parts = ("company", maker), [[" ", []]]
-        texts = [(maker, None), *((f"{out if slug in off else on} "
-                                   f"{terminal.cut(name, room - start - 2)}",
-                                   "dim" if slug in off else "accent")
-                                  for slug, name in makers[maker].items())]
+        texts = [(maker or UNKNOWN, None), *((f"{out if slug in off else on} "
+                                              f"{terminal.cut(name, room - start - 2)}",
+                                              "dim" if slug in off else "accent")
+                                             for slug, name in makers[maker].items())]
         for number, (text, kind) in enumerate(texts):
             first, width = terminal.cells(parts[-1][0]) + 1, terminal.cells(text) + 2
             if number > 1 and first + width - 2 > room:      # its space after may go
@@ -4263,7 +4264,7 @@ def company_list(cfg, title):
         if act == "a" or act == "enter" and here == ADD_COMPANY:
             clock.forget()            # another screen: the list back from it is drawn as it is
             added = company_add(title, makers, yours)
-            if added:
+            if added is not None:      # "", the maker the boards leave unnamed, is one
                 note = models_listed(cfg, [*yours, added], off - makers[added].keys())
                 here, column = ("company", added), 0
         elif act in ("left", "right"):
@@ -4285,9 +4286,11 @@ def company_add(title, makers, yours):
               for _, maker in rows}
     while True:
         here = here if here in rows else rows[0] if rows else None
-        widths = [max(map(terminal.cells, texts), default=0) for texts in (counts, counts.values())]
+        widths = [max(map(terminal.cells, texts), default=0)
+                  for texts in ([maker or UNKNOWN for maker in counts], counts.values())]
         widths.append(max(1, terminal.layout_width() - 6 - sum(widths)))
-        body = [terminal.table_row([maker, counts[maker], next(iter(makers[maker].values()))],
+        body = [terminal.table_row([maker or UNKNOWN, counts[maker],
+                                    next(iter(makers[maker].values()))],
                                    widths, indent="  ") for _, maker in rows]
         body = [terminal.highlight(line) if row == here and not terminal.away() else line
                 for row, line in zip(rows, body)]

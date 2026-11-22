@@ -8,6 +8,7 @@ execute, with no `arena.agent` anywhere, a row's quality is 100 less the weighte
 its frontier-code and terminal-bench shares are behind the best's, in hundredths.
 """
 
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -70,6 +71,18 @@ class Lineup(unittest.TestCase):
                                                      nameless]}}
         row = next(row for row in matrix.lineup(boards, {}) if row["release"] == "bevel-1")
         self.assertEqual((row["name"], row["board_name"]), ("Bevel 1", None))
+
+    def test_an_unnamed_maker_is_empty_as_built_and_as_an_earlier_build_stored_it(self):
+        # acme-5 with no creator, bolt-2 with an empty name
+        makers = (None, None, "", "Crux", "Dune", None)
+        rows = [dict(row, maker=maker)
+                for row, maker in zip(BOARDS["artificialanalysis.ai"]["rows"], makers)]
+        lineup = matrix.lineup({"artificialanalysis.ai": {"rows": rows}}, OFFERS)
+        made = {"acme-5": "", "bolt-2": "", "crux-1": "Crux", "dune-1": "Dune"}
+        self.assertEqual({row["release"]: row["maker"] for row in lineup}, made)
+        stored = [dict(row, maker=row["maker"] or None) for row in lineup]    # an earlier build's
+        (read, found), _ = matrix._listed(json.dumps({"matrix": {"lineup": stored}}))
+        self.assertEqual(({row["release"]: row["maker"] for row in read}, found), (made, made))
 
     def test_a_model_naming_an_older_release_makes_nothing_of_the_current_one_yours(self):
         offers = {"anvil": [{"id": "acme-4", "efforts": ["high"]}]}

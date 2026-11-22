@@ -113,7 +113,8 @@ def _release_index(releases):
 def lineup(boards, offers):
     """A row per current release (`catalog.current`) and effort, `name` as ak says it
     (config.release_label), of its slug where that of its name is empty, and `board_name` as
-    the board does, with its `values` as the catalog joins them and `yours`: each model of
+    the board does, `maker` as the board names it, "" where it names none, as `companies` in
+    the config writes one, with its `values` as the catalog joins them and `yours`: each model of
     `offers` ({harness: config.catalog(harness)}) that `found` matches to this release alone,
     as {"harness", "model"}, at each effort it lists and at a row naming no effort, which is
     the model however it is run, or at the release's default where it lists none but `none`."""
@@ -134,7 +135,7 @@ def lineup(boards, offers):
     return [{"release": release["slug"],
              "name": (config.release_label(release["name"] or "")
                       or config.release_label(release["slug"])),
-             "board_name": release["name"], "maker": release["maker"],
+             "board_name": release["name"], "maker": release["maker"] or "",
              "effort": effort["effort"], "values": effort["values"],
              "yours": yours.get((release["slug"], effort["effort"]), [])}
             for release in releases for effort in release["efforts"]]
@@ -468,7 +469,8 @@ def company_order(cfg, lineup):
 @functools.lru_cache(maxsize=1)
 def _listed(text):
     held = json.loads(text).get("matrix") or {}
-    lineup = held.get("lineup") or []
+    # an earlier build stored a maker the boards leave unnamed as null, not "" (`lineup`)
+    lineup = [{**row, "maker": row["maker"] or ""} for row in held.get("lineup") or []]
     return (lineup, {row["release"]: row["maker"] for role in quality.ROLES
                      for row in quality.rated(lineup, role)}), held.get("fetched_at")
 
