@@ -2104,13 +2104,14 @@ def no_use_read(cfg, provider, account, prov, cost, marked, now):
     return bool(old) and not spent
 
 
-def _month(cost, marked, idle):
+def _month(cost, marked, no_use):
     """`a month`'s cell: the price in grouped digits, with `no role marks its models` where a
     priced login's provider has no model on and marked, else `no use read in a month` where its
     month shows none (`no_use_read`); `-` for no price."""
     if cost is None:
         return "-"
-    note = "no role marks its models" if not marked else "no use read in a month" if idle else None
+    note = ("no role marks its models" if not marked
+            else "no use read in a month" if no_use else None)
     return _digits(cost) + (f"{_glyph(' · ', ', ')}{note}" if note else "")
 
 
