@@ -4,8 +4,8 @@ With a time record and landings red on a test, the review of a seat's own pull r
 suite that test once its reviewer has answered PASS, not before and not after a failed review.  A
 commit that breaks that test turns the review's verdict to FAIL, does not merge on that commit,
 and hands the seat's fixer the first failing line with the findings; the fixer's commit passes the
-test and merges.  A review of another author's pull request hands the suite nothing, nor does a
-seat's own run with `--no-worktree`.
+test and merges.  A review of another author's pull request hands the suite nothing.  A task run
+with `--no-worktree` still hands the suite that test once its reviewer has answered PASS.
 
 Owner, 20 Nov 2026: "why does an orch never get a quick set?".
 
@@ -15,7 +15,7 @@ against the bare origin of gitrig.py, the GitHub of fakegh.py, the seat of aksea
 harnesses from fakeadapter.py, its clock injected (tests/fixtures/clock.py).  A first seat PR lands
 to create history.db; then earlier landings red on often.sh and the time record are written, and
 four jobs run: a seat's own PR whose first review fails and second passes; a seat's own PR whose
-change breaks often.sh; another author's PR; and a seat's own `--no-worktree` run.
+change breaks often.sh; another author's PR; and a task run with `--no-worktree`.
 """
 
 import json
@@ -165,14 +165,14 @@ class SeatOwnPrQuickSet(unittest.TestCase):
                           "review_posted": True})
         self.assertEqual(self.notes["other"], ["suite whole", "review"])
 
-    def test_a_seats_no_worktree_run_hands_the_suite_nothing(self):
+    def test_a_no_worktree_task_run_still_hands_the_suite_its_chosen_test(self):
         done, (_, state) = self.done["local"], self.states["local"]
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual({key: state.get(key) for key in ("state", "verdict", "worktree",
                                                           "branch", "no_merge")},
                          {"state": "pass", "verdict": "PASS", "worktree": str(self.rig.path),
                           "branch": "local", "no_merge": True})
-        self.assertEqual(self.notes["local"], ["review"])
+        self.assertEqual(self.notes["local"], ["review", CHOSEN])
 
 
 if __name__ == "__main__":

@@ -40,13 +40,13 @@ def _now():
 
 def chosen(lp):
     """(the target's `tests:` line, the tests of it the round runs), or None where the round has
-    none to run or does not answer for this change: it answers for a task run or the review of a
-    seat's own PR (`own_pr`) with a checkout of its own (`worktrees.checkout_removable`), never
-    for scratch, another's PR or `--no-worktree`.  A record's `./tests/a.py` is git's
-    `tests/a.py`."""
+    none to run or does not answer for this change: it answers for a task run, in its own
+    checkout or with `--no-worktree` as before 21 Nov 2026, and for the review of a seat's own PR
+    (`own_pr`) with a checkout of its own (`worktrees.checkout_removable`), never for scratch or
+    another's PR.  A record's `./tests/a.py` is git's `tests/a.py`."""
     from . import deliver, gate, land, worktrees    # here, not at the top: they reach roundloop
-    if (lp.scratch or not worktrees.checkout_removable(lp.state)
-            or (lp.state.get("review_pr") and not lp.state.get("own_pr"))):
+    if lp.scratch or (lp.state.get("review_pr") and not (
+            lp.state.get("own_pr") and worktrees.checkout_removable(lp.state))):
         return None
     line = gitcall.declared_suite(lp.wt, lp.upstream, ref=lp.state.get("target_sha"))
     times = suite_times.read(suite_times.handed(lp.wt)) if line else {}
