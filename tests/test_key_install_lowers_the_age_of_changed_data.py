@@ -142,11 +142,14 @@ class ChangedDataAge(unittest.TestCase):
 
     def test_g_aks_entry_for_another_key_this_key_was_added_to_applies_before_ours(self):
         core = self.sysctl_d / "zz-agentkit-no-core-dumps.conf"
-        core.write_text(f"{OURS}: no core dumps\nkernel.core_pattern = |/bin/false\n{AGE} = 3000\n")
+        text = f"{OURS}: no core dumps\nkernel.core_pattern = |/bin/false\n{AGE} = 3000\n"
+        core.write_text(text)
         self.set_live(3000, 100)
         self.install()
+        self.assertEqual(core.read_text(), text)
         [ours] = set(self.entries(AGE)) - {core.name}
         self.assertGreater(ours, core.name)
+        self.assertIn(f"\n{AGE} = 1000\n", (self.sysctl_d / ours).read_text())
 
     def test_h_a_file_is_aks_only_by_its_bytes_and_a_pipe_is_never_opened(self):
         owners = self.sysctl_d / "zz-agentkit-dirty_expire_centisecs.conf"
