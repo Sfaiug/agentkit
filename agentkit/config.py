@@ -2063,7 +2063,9 @@ def active_session(cfg):
 def server_alias():
     """The ssh alias of the server, which install.sh records on a client and nowhere else."""
     try:
-        return (_self.STATE / "server").read_text().strip() or None
+        # decoded as an argument is, so any alias reads, whatever the locale, and reaches ssh as
+        # the bytes install.sh wrote
+        return os.fsdecode((_self.STATE / "server").read_bytes()).strip() or None
     except OSError:
         return None
 

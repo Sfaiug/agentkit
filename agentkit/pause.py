@@ -19,7 +19,7 @@ import math
 import os
 import stat
 
-from . import host, lease, orch, standby, terminal
+from . import config, host, lease, orch, standby, terminal
 
 # A home's tick fires every three minutes, so three more turns were tried before it pauses; a
 # standby waits twice this.
@@ -47,6 +47,14 @@ def paused():
     except (OSError, ValueError):     # ValueError: a path no file can have, as one holding a NUL
         pass
     return stale
+
+
+def holds():
+    """Whether this machine holds ak's lease by its own word, `ak standby --home`: it is no home's
+    client, whose home is ak's whatever it keeps, and its proof is younger than `STALE`, as
+    `paused` judges it, so no proof is none.  It writes nothing and asks no remote."""
+    age = None if config.server_alias() else lease.proof_age()
+    return age is not None and age < STALE
 
 
 def stands_still():

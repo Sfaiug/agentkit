@@ -518,6 +518,9 @@ def main(argv):
         return _shown()
     if argv == ["--began"]:
         return _began()
+    if argv == ["--home"]:
+        from . import pause     # here, as pause imports this module
+        return 0 if pause.holds() else 1
     flag, *said = argv
     if flag == "--copied" and _fits(said, (HOST, *STAMP, TAKES)):
         host, *stamp, takes = said

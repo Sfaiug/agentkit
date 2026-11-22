@@ -233,7 +233,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
              "tick or fails, or one of those kept is a link or under one on either machine.",
              "ak move acme-mini"),
     "standby": ("usage: ak standby [ALIAS]\n"
-                "       ak standby --copied HOST WALL SINCE BOOT yes|no",
+                "       ak standby --copied HOST WALL SINCE BOOT yes|no\n"
+                "       ak standby --home",
                 "On a client of ALIAS, keep this machine's crontab job that does this every three minutes,\n"
                 "then copy from that home to the same paths here each harness's logins, every account's,\n"
                 "and the folders its conversations are in, then ~/code file by file, its .git folders and\n"
@@ -260,7 +261,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                 "stops.  --copied keeps HOST's record, the last one's replaced: its copy taken at WALL\n"
                 "SINCE BOOT, the stamp of this machine's clocks HOST's pass was handed when it began, and\n"
                 "yes if it takes over.  HOST is 1 to 64 letters, digits, - and . beginning with a letter\n"
-                "or digit.",
+                "or digit.  --home prints nothing and exits 0 if this machine is no home's client and\n"
+                "its proof that it holds ak's lease on ak's remote is under 10 minutes old, else 1.",
                 "ak standby acme-mini"),
 }
 
@@ -344,9 +346,15 @@ def asked(argv):
     return any(arg in ("-h", "--help") for arg in args)
 
 
+# Each command's flag whose exit is its whole answer: it takes no word, help included, as help's 0
+# after it would read as that answer.
+ANSWERS = {"standby": "--home"}
+
+
 def show(command, argv):
-    """Handle help anywhere before --, choosing a recognized leading nested verb."""
-    if not asked(argv):
+    """Handle help anywhere before --, choosing a recognized leading nested verb; none after a
+    leading `ANSWERS` flag, which the command refuses as any word."""
+    if not asked(argv) or argv[:1] == [ANSWERS.get(command)]:
         return False
     args = argv[:argv.index("--")] if "--" in argv else argv
     nested = f"{command} {args[0]}" if args else command
