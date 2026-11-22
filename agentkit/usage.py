@@ -1272,6 +1272,60 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
     return float(until)
 
 
+def answered(cfg, provider, account, model, at):
+    """A turn of `model`, begun at `at`, was answered on `account`, that login of `provider`:
+    each refusal parked there that no meter showed, made before `at`, whose every meter it can
+    have come from (`exhausted_meters`) gates `model` in that login's reading, was wrong, and
+    goes.  Returns whether one went.
+
+    Nothing else ends such a mark before its time, right or wrong.  On 19 Nov 2026 a login 25%
+    used was parked for another login's refusal, and through that hour twenty seats waited for
+    usage, one of them answering the owner on that very login: "even this session says out of
+    usage".  Asked on 20 Nov whether ak should unpark an account as soon as a session finishes
+    a turn on it, the owner said "Yes, build it"; on 21 Nov, "Keep trying".
+
+    One change under `_write`, as `mark_exhausted`'s is: config.toml is read there, and a
+    refusal written meanwhile is seen.  A mark naming no meter parks every model and one naming
+    a meter the reading no longer holds names whose it was nowhere (`_parks`), so both stay, as
+    does one a meter showed (`_fresh_window` ends it).  What the change raises -- a model
+    config.toml no longer has -- is the caller's, and the file is then as it was.
+    """
+    def change(providers, _):
+        here = _on_disk(cfg)
+        login = _placed(here, provider, account)
+        prov = _record(providers.get(provider))
+        theirs = _record(prov.get("accounts"))
+        record = prov if login is None else _record(theirs.get(login))
+        meters = [m for m in record.get("meters") or [] if isinstance(m, dict)]
+        gating = [_identity(m)
+                  for m in _gating_meters(here, model, {provider: {"meters": meters}})[0]]
+
+        def wrong(mark):
+            made, named = _number(mark.get("exhausted_at")), mark.get("exhausted_meters")
+            return (mark.get("exhausted_by") is None and made is not None and made < at
+                    and isinstance(named, list) and named and all(r in gating for r in named))
+
+        marks = _marks(record)
+        kept = [mark for mark in marks if not wrong(mark)]
+        if len(kept) == len(marks):
+            return False
+        record = _with(record, kept)
+        providers[provider] = (record if login is None
+                               else {**prov, "accounts": {**theirs, login: record}})
+        return True
+    return _write(change)
+
+
+def _placed(cfg, provider, account):
+    """Where the snapshot keeps `account`, a login of `provider`, as `cfg` lists its accounts:
+    the usual login goes by two names, None and `default`, and is kept under `default` where
+    the provider lists it, else as the provider's own record (None)."""
+    if account not in (None, config.DEFAULT_ACCOUNT):
+        return account
+    listed = config.accounts(cfg, provider)
+    return config.DEFAULT_ACCOUNT if config.DEFAULT_ACCOUNT in listed else None
+
+
 def record_turn_meters(cfg, provider, meters, account=None, now=None, asked=False):
     """The meters a worker turn, or a seat's status render (`watch.hook_meters`), reported about
     the account it ran on become that reading.
@@ -1287,15 +1341,11 @@ def record_turn_meters(cfg, provider, meters, account=None, now=None, asked=Fals
     `asked`: ak ran the turn to read them (`_read_by_turn`), so they were asked for as it
     began, as a probe's are, and a fall they show ends a refusal's mark (`_fresh_window`).
 
-    The usual login goes by two names, None and `default`, and its reading is kept where
-    config.toml now says (`_on_disk`): under `default` where the provider lists it, else
-    as the provider's own record. A turn begun before accounts were added still reports
-    about the login it ran on.
+    The reading is kept where config.toml now says (`_on_disk`, `_placed`): a turn begun
+    before accounts were added still reports about the login it ran on.
     """
     cfg = _on_disk(cfg)
-    if account in (None, config.DEFAULT_ACCOUNT):
-        listed = config.accounts(cfg, provider)
-        account = config.DEFAULT_ACCOUNT if config.DEFAULT_ACCOUNT in listed else None
+    account = _placed(cfg, provider, account)
     if not isinstance(meters, list) or not meters:
         return False
     fresh = [m for m in meters if isinstance(m, dict) and isinstance(m.get("name"), str)

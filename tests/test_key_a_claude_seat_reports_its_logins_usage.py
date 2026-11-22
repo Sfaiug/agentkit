@@ -4,7 +4,8 @@ ak asks Anthropic's usage endpoint about a login at most every fifteen minutes; 
 render carries the numbers the API last reported to its seat (Claude Code 2.1.322's
 `rate_limits`), an idle seat's the same again and again.  Numbers for a window other than its
 conversation's last render's are that login's reading of the window's meter, with no ask; a
-conversation's first numbers may be as old as its last answer and are only kept.
+conversation's first numbers may be as old as its last answer and are only kept.  A seat naming
+no login reports about the usual one, kept under `default` where the provider lists it.
 
 Black-box against AK_BIN: a Home whose Claude provider lists a second login, read once through a
 fake `curl` counting each ask; two seats on that login (tests/fixtures/akseat.py) run their status
@@ -48,18 +49,19 @@ class ClaudeSeatReportsItsLoginsUsage(unittest.TestCase):
     def asked(self):
         return len(self.asks.read_text().splitlines()) if self.asks.exists() else 0
 
-    def reading(self):
-        """The second login's reading as `ak usage --json` shows it."""
+    def reading(self, login=LOGIN):
+        """That login's reading as `ak usage --json` shows it."""
         done = self.home.ak("usage", "--json")
         self.assertEqual(done.code, 0, done.out + done.err)
-        return json.loads(done.out)["providers"]["anthropic"]["accounts"][LOGIN]
+        return json.loads(done.out)["providers"]["anthropic"]["accounts"][login]
 
     def weekly(self, reading):
         return [meter["used"] for meter in reading["meters"] if meter["name"] == "weekly_all"]
 
-    def status(self, name):
-        """`render(week, session=None)`: seat `name`'s status line run on those percentages."""
-        seat = Seat(self.home, name, alive=False, record={"account": LOGIN})
+    def status(self, name, login=LOGIN):
+        """`render(week, session=None)`: the status line of seat `name`, on `login` (None: naming
+        none), run on those percentages."""
+        seat = Seat(self.home, name, alive=False, record={"account": login} if login else {})
         done = self.home.ak("orch", seat.name, "--dry-run", cwd=self.home.path)
         self.assertEqual(done.code, 0, done.out + done.err)
         words = shlex.split(done.out.splitlines()[-1])
@@ -102,6 +104,13 @@ class ClaudeSeatReportsItsLoginsUsage(unittest.TestCase):
             again = self.reading()
             self.assertEqual((self.weekly(again), again["probed_at"]), ([42], reading["probed_at"]))
         self.assertEqual(self.asked(), 1, "a probe was asked")
+
+    def test_a_seat_naming_no_login_reports_the_usual_one(self):
+        one = self.status("acme", login=None)
+        one(20, session=12.5)
+        one(42, session=12.5)
+        self.assertEqual(self.weekly(self.reading("default")), [42])
+        self.assertEqual(self.weekly(self.reading()), [10])
 
 
 if __name__ == "__main__":
