@@ -245,9 +245,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
             base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
             # likewise the target's local branch, its tip where origin has no branch of it
-            # (`round_tests.chosen`)
-            local_target_sha = git(repo, "rev-parse", "--verify", "--quiet",
-                                   f"refs/heads/{target.removeprefix('origin/')}^{{commit}}",
+            # (`round_tests.chosen`); `show-ref` reads the full name alone, `rev-parse` a tag of
+            # that name too
+            local_target_sha = git(repo, "show-ref", "--verify", "--hash",
+                                   f"refs/heads/{target.removeprefix('origin/')}",
                                    check=False) or None
             if from_branch:
                 # the change continues on that branch: the run the branch belongs to names it,

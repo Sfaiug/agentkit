@@ -56,14 +56,18 @@ def chosen(lp):
     tests = sorted({file for file in (test.partition("::")[0] for test in times)
                     if os.path.normpath(file) in changed})
     reds, piece, _ = history.test_audit(Path(lp.state["repo"]).name, _now() - WINDOW)
-    # The target's tip: the one the run pinned, else origin's branch, named in full as
-    # `origin/main` could be a tag, else, for a target origin has no branch of, its local branch
-    # as the run started (`run.loop`), as that name moves with work done on it.
-    tips = (lp.state.get("target_sha"), f"refs/remotes/{lp.upstream}",
-            lp.state.get("local_target_sha"))
-    tree = next(filter(None, (gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet",
-                                          f"{tip}^{{tree}}", check=False)
-                              for tip in tips if tip)), None)
+    # The target's tip: the one the run pinned, else origin's branch, else, for a target origin
+    # has no branch of, its local branch as the run started (`run.loop`), as that name moves with
+    # work done on it; a record from before runs kept that names it as the base, where the base
+    # is the target.  `show-ref` reads a branch by its full name alone, `rev-parse` a tag of
+    # that name too.
+    tip = (lp.state.get("target_sha")
+           or gitcall.git(lp.wt, "show-ref", "--verify", "--hash", f"refs/remotes/{lp.upstream}",
+                          check=False)
+           or lp.state.get("local_target_sha", lp.base_sha if lp.base.removeprefix("origin/")
+                           == lp.target.removeprefix("origin/") else None))
+    tree = tip and gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet", f"{tip}^{{tree}}",
+                               check=False)
     held = {name for test in land.red_tests(deliver.turn_path(lp, lp.upstream), tree)
             for name in (test, test.partition("::")[0])}
     # One piece of the suite, a ceiling as WINDOW is: a suite cut finer runs fewer.  One the
