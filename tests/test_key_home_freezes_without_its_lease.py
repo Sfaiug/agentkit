@@ -16,7 +16,8 @@ made.  No output of a firing is compared: what a tick prints varies with the clo
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, a later firing at a later clock, and
 ak's slice a folder in the cgroup tree each machine is given (AK_CGROUP_ROOT, AK_CGROUP_FILE).
-Each case builds its own machines.  What came back is a firing's exit, the freezer's file, and
+Each case builds its own machines and writes and removes a home's record by hand, as
+`ak standby --copied` leaves one.  What came back is a firing's exit, the freezer's file, and
 whether the tick's lock file, removed before each firing, is there after.
 """
 
@@ -64,11 +65,9 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         return machines
 
     def record(self, home, takes):
-        """acme-vm's record on `home`, as a pass that ended well leaves it, saying whether it
-        takes over."""
-        began = home.ak("standby", "--began")
-        kept = home.ak("standby", "--copied", "acme-vm", *began.out.split(), takes)
-        self.assertEqual((began.code, kept.code), (0, 0), began.err + kept.err)
+        """acme-vm's record on `home`, written as a pass that ended well at minute 0 leaves it:
+        its stamp, and whether it takes over."""
+        home.write(RECORDS / "acme-vm", f"{now(0)}\n{takes}\n")
 
     def freezer(self, machine):
         """What `machine`'s freezer's file reads, None where it is not there."""
