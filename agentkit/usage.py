@@ -965,8 +965,12 @@ def _on_disk(cfg):
 
 def _config_now(cfg):
     """The config as config.toml holds it now, `cfg` where there is no such file; one that
-    cannot be read raises."""
-    return config.load() if (config.HOME / config.CONFIG_NAME).exists() else cfg
+    cannot be read raises, a symlink loop too, which `Path.exists` calls no file."""
+    try:
+        (config.HOME / config.CONFIG_NAME).stat()
+    except FileNotFoundError:
+        return cfg
+    return config.load()
 
 
 def collect(cfg, *, refresh=False):
@@ -1296,15 +1300,15 @@ def answered(cfg, provider, account, model, at):
     does one a meter showed (`_fresh_window` ends it).  What the change raises -- a model
     config.toml no longer has, a config.toml that cannot be read, a reading of another shape --
     is the caller's, and the file is then as it was: the caller's copy of the config standing
-    in (`_on_disk`), or a meter passed over, would unpark on what nobody can say gates `model`.
+    in (`_on_disk`), or a reading of another shape read as an empty one, would unpark on what
+    nobody can say gates `model`.  So the reading is read as stored, absent the only empty one.
     """
     def change(providers, _):
         here = _config_now(cfg)
         login = _placed(here, provider, account)
-        prov = _record(providers.get(provider))
-        theirs = _record(prov.get("accounts"))
-        record = prov if login is None else _record(theirs.get(login))
-        reading = {provider: {"meters": record.get("meters") or []}}
+        prov = providers.get(provider, {})
+        record = prov if login is None else prov.get("accounts", {}).get(login, {})
+        reading = {provider: {"meters": record.get("meters", [])}}
         gating = [_identity(m) for m in _gating_meters(here, model, reading)[0]]
 
         def wrong(mark):
@@ -1318,7 +1322,7 @@ def answered(cfg, provider, account, model, at):
             return False
         record = _with(record, kept)
         providers[provider] = (record if login is None
-                               else {**prov, "accounts": {**theirs, login: record}})
+                               else {**prov, "accounts": {**prov["accounts"], login: record}})
         return True
     return _write(change)
 

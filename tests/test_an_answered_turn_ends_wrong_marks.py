@@ -170,13 +170,26 @@ class AnsweredTurnEndsWrongMarks(unittest.TestCase):
             (config.HOME / config.CONFIG_NAME).write_text(toml)
             self.assert_raises_leaving_the_snapshot(config.Error)
 
+    def test_a_config_toml_that_cannot_be_read_raises_and_leaves_the_snapshot(self):
+        self.refuse("second", "one", NOW)
+        path = config.HOME / config.CONFIG_NAME
+        path.unlink()
+        path.symlink_to(path.name)     # a loop: there, and nothing to read
+        self.assert_raises_leaving_the_snapshot(OSError)
+
     def test_a_reading_of_another_shape_raises_and_leaves_the_snapshot(self):
         self.refuse("second", "one", NOW)
         cache = config.STATE / "usage.json"
-        blob = json.loads(cache.read_text())
-        blob["providers"]["acme"]["accounts"]["second"]["meters"].append(None)
-        cache.write_text(json.dumps(blob))
-        self.assert_raises_leaving_the_snapshot(Exception)
+        marked = cache.read_text()
+        for shape in (lambda held: held["acme"]["accounts"]["second"]["meters"].append(None),
+                      lambda held: held["acme"]["accounts"]["second"].update(meters=None),
+                      lambda held: held["acme"]["accounts"].update(second=["bad"]),
+                      lambda held: held["acme"].update(accounts=["bad"]),
+                      lambda held: held.update(acme=["bad"])):
+            blob = json.loads(marked)
+            shape(blob["providers"])
+            cache.write_text(json.dumps(blob))
+            self.assert_raises_leaving_the_snapshot(Exception)
 
 
 if __name__ == "__main__":
