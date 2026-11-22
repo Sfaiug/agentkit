@@ -3937,7 +3937,9 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     row of by name (`unrated`), in its order, and why (UNRATED); a page leaving its values no
     cell beside it folds each under its label, two cells in.  The page's margin and that fold are
     two cells where that leaves a line a cell, else as many as do.  A model's name goes on at its
-    words as any value does, never cut: releases of one name differ only at its end."""
+    words as any value does, never cut: releases of one name differ only at its end.  A row no
+    board rates, the role line's own for a model no row is (models_said), has neither quality
+    nor cost: its page is the rule and the whys."""
     margin = min(2, terminal.layout_width() - 1)
     room = terminal.layout_width() - margin
     width = terminal.cells("not shown")     # the design's label column: its widest label
@@ -3948,9 +3950,6 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     # company not added or turned off, the owner, 5 Nov 2026: "I dont want others to be shown"
     top = max(found["choices"], key=lambda one: one["quality"], default=found["best"])
     best = "the best of these choices" if found["choices"] else "the best of the models on"
-    measures = {column: one for column, *_ in quality.ROLES[role]
-                for one in [row["measures"].get(column)] if one}
-    counted = sum(one["how"] != "missing" for one in measures.values())
 
     def below(one):       # of the qualities as shown: 98.46 and 94.04 read 98.5, 94.0 and 4.5
         return round(top["quality"], 1) - round(one["quality"], 1)
@@ -3964,7 +3963,24 @@ def models_why(found, role, row, kept, unit, weeks, runs):
         return f"{priced(one)}: " + WHYS[word].format(
             by=by and priced(by), apart=points(matrix.APART), below=f"{below(one):.1f}",
             places=number(matrix.PLACES))
-    behind, cost = top and below(row), cost_said(found, row, unit)
+
+    def rating():         # its quality and cost
+        measures = {column: one for column, *_ in quality.ROLES[role]
+                    for one in [row["measures"].get(column)] if one}
+        counted = sum(one["how"] != "missing" for one in measures.values())
+        behind, cost = top and below(row), cost_said(found, row, unit)
+        return [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, "
+                                                       f"from {number(counted)} benchmarks"],
+                             [", ".join(scored(column, one) for column, one in measures.items())],
+                             *([[best]] if row is top else [] if top is None else
+                               [[f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the "
+                                 f"best, {named(top)}"]]),
+                             *([[f"rated at {row['effort']}, runs at {runs}"]]
+                               if row["effort"] and runs not in (None, row["effort"]) else [])]},
+                {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,
+                           SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])],
+                          *([week_checked(*week)] for week in weeks)]
+                         if row["cost"] is not None else [["no cost"]]}]
     # the bars with a why are the shaded ones; a kind with none goes unsaid
     bars = [one for one, _ in models_standing(found, kept, unit)[1]]
     drawn = {id(one) for one in bars}
@@ -3973,18 +3989,7 @@ def models_why(found, role, row, kept, unit, weeks, runs):
         ("not shown", [[why(one)] for one in found["others"] if id(one) not in drawn] + [
             [f"{terminal.plain(name)}: " + UNRATED.format(fewest=number(quality.FEWEST))]
             for name in found["unrated"]])] if whys}
-    said = [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
-                                                   f"{number(counted)} benchmarks"],
-                         [", ".join(scored(column, one) for column, one in measures.items())],
-                         *([[best]] if row is top else [] if top is None else
-                           [[f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the "
-                             f"best, {named(top)}"]]),
-                         *([[f"rated at {row['effort']}, runs at {runs}"]]
-                           if row["effort"] and runs not in (None, row["effort"]) else [])]},
-            {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,
-                       SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])],
-                      *([week_checked(*week)] for week in weeks)]
-                     if row["cost"] is not None else [["no cost"]]},
+    said = [*(rating() if "quality" in row else []),
             {"choices": [[f"the best, then cheaper ones {points(matrix.APART)} apart, none more "
                           f"than {number(matrix.WINDOW)} below, {number(matrix.PLACES)} at most"]],
              **kinds}]
@@ -4016,8 +4021,9 @@ def models_screen(cfg, session, selected, providers):
     and steps; each answer made (opening, the boards landing, `p`) takes the best up to each
     price that holds (price_take), saying so under the rows.  ⏎ or a click opens the why
     (models_why) of the row the role uses, else of its first choice, else of its first other
-    (matrix.answer: every release compared it rates is a choice or an other), at once, drawn
-    again with its plans' weeks (plans_checked) once they land off the drawing thread.  `p`
+    (matrix.answer: every release compared it rates is a choice or an other), else of its role
+    line's (models_said), at once, drawn again with its plans' weeks (plans_checked) once they
+    land off the drawing thread.  `p`
     lists companies (company_list), and `u` counts every cost in the next unit (next_unit), the
     screen opening in the last one (models_unit).  The why comes up as a page does."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
@@ -4111,12 +4117,15 @@ def models_screen(cfg, session, selected, providers):
             unit = next_unit(unit)
         elif act == "enter":
             role = here[1]
+            # else the role line's own, of a model no row is: its page still says the whys
             row = used[role][2] or next(iter(answer[role]["choices"] + answer[role]["others"]),
-                                        None)
+                                        None) or next(one for name, one, _ in said if name == role)
             key, why, page = None, ("why",), 0    # every line one row: ↑/↓ turn its pages
-            # its plans' weeks take seconds to read: the page is drawn without them till they land
+            # its plans' weeks take seconds to read: the page is drawn without them till they land,
+            # under a cost, which a row no board rates has none of
             weeks = []
-            checking = row and Fetch(lambda name=row["provider"]: plans_checked(cfg, name))
+            checking = Fetch(lambda name=row["provider"]: plans_checked(cfg, name)) if (
+                "quality" in row) else None
             # the effort a step to it writes (take_choice), asked of it alone: None for a row no
             # step is, or one no take of which takes a model
             taken, level = (step_take(cfg, answer[role], own[role], row) if any(
@@ -4124,7 +4133,7 @@ def models_screen(cfg, session, selected, providers):
             runs = taken and _taken_at(cfg, taken, level)
             clock.forget()            # another screen: the models back from it are as they are
             opened = motion.Clock(page=True)      # the why comes up as a page of `c`'s does
-            while row and key != "back":
+            while key != "back":
                 if checking and not checking.is_alive():
                     weeks, checking = checking.answer(), None
                 lines = models_why(answer[role], role, row, own[role][2], unit, weeks, runs)
