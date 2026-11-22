@@ -432,6 +432,74 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
+    def test_a_folder_standing_where_a_removed_test_was_reaches_the_commit_a_review_judged(self):
+        # no file test_runner on the head nor that commit, yet git lays the folder there over
+        (self.wt / "test_runner").write_text("runner\n")
+        self.commit("A runner in one file")
+        self.base = run.git(self.wt, "rev-parse", "HEAD")
+        (self.wt / "test_runner").unlink()
+        (self.wt / "test_runner").mkdir()
+        (self.wt / "test_runner/driver.py").write_text("judged\n")
+        self.commit("The runner as a folder")
+        judged = run.git(self.wt, "rev-parse", "HEAD")
+        (self.wt / "test_runner/driver.py").write_text("head\n")
+        self.commit("The runner fixed")
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        proof = prompts.proof_on(self.loop(), "grep -qx head test_runner/driver.py",
+                                 self.directory / "proof.log", judged, head)
+        self.assertEqual(proof["returncode"], 0, proof)
+        self.assert_restored(head)
+
+    def test_tests_named_as_git_s_text_would_misread_them_reach_base_as_named(self):
+        # a leading space on the first name, a carriage return, a byte that is not UTF-8
+        names = (" leading/tests/check.py", "tests/case\r1.py", os.fsdecode(b"tests/case\xff.py"))
+        for name in names:
+            (self.wt / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.wt / name).write_text("base\n")
+        self.commit("Tests under odd names")
+        self.base = run.git(self.wt, "rev-parse", "HEAD")
+        for name in names:
+            (self.wt / name).write_text("branch\n")
+        self.commit("The branch's tests")
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        check = (r"""for f in ' leading/tests/check.py' $'tests/case\r1.py' $'tests/case\xff.py'; """
+                 r"""do grep -qx branch "$f" || exit 1; done""")
+        proof = prompts.proof_on(self.loop(), check, self.directory / "proof.log", self.base, head)
+        self.assertEqual(proof["returncode"], 0, proof)
+        self.assert_restored(head)
+
+    def test_both_base_replays_take_the_branch_s_tests_under_their_own_names(self):
+        # a removed copy whose name starts with a space beside the changed one, and a test
+        # with a carriage return in its name that a folder of code replaced
+        for name in (" tests/check.py", "test_entry\r.py"):
+            (self.wt / name).parent.mkdir(exist_ok=True)
+            (self.wt / name).write_text("base\n")
+        self.commit("Tests under odd names")
+        self.base = run.git(self.wt, "rev-parse", "HEAD")
+        (self.wt / " tests/check.py").unlink()
+        (self.wt / "tests/check.py").write_text("branch\n")
+        (self.wt / "test_entry\r.py").unlink()
+        (self.wt / "test_entry\r.py").mkdir()
+        (self.wt / "test_entry\r.py/engine.py").write_text("code\n")
+        self.commit("The test's code as a folder")
+        ok, text = self.checked(self.loop(
+            [r"grep -qx branch tests/check.py && test -f $'test_entry\r.py/engine.py'"]))
+        self.assertTrue(ok, text)
+        self.assertEqual(record.read_state(self.directory)["base_proof"], "proven", text)
+
+    def test_a_test_git_matches_in_another_case_is_removed_as_the_branch_removed_it(self):
+        run.git(self.wt, "mv", "tests/removed.py", "tests/REMOVED.py")
+        self.commit("The test renamed")
+        judged = run.git(self.wt, "rev-parse", "HEAD")
+        (self.wt / "tests/REMOVED.py").unlink()
+        self.commit("The test removed")
+        head = run.git(self.wt, "rev-parse", "HEAD")
+        with patch.dict(os.environ, {"GIT_ICASE_PATHSPECS": "1"}):
+            proof = prompts.proof_on(self.loop(), "test ! -e tests/REMOVED.py",
+                                     self.directory / "proof.log", judged, head)
+        self.assertEqual(proof["returncode"], 0, proof)
+        self.assert_restored(head)
+
     def test_a_replay_never_sees_what_another_replay_s_checks_wrote(self):
         # the round's own gate runs in the run's checkout, each replay in one of its own
         (self.wt / ".gitignore").write_text("ignored-ready.tmp\n")

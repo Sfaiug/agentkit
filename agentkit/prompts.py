@@ -326,13 +326,19 @@ def first_failure(dw_log):
     return said if len(said) <= 200 else said[:199] + "\u2026"
 
 
+def changed_paths(lp, head, *only):
+    """Every path the branch changes from its base to `head`, removed ones included, `only`
+    narrowing git's diff (`--diff-filter=D`).  Each name byte for byte (`git_bytes`): every
+    list of them spells a name alike, and handed back to git it is still the file it names."""
+    return [p for p in gitcall.git_bytes(lp.wt, "diff", "--name-only", "-z", "--no-renames", *only,
+                                         f"{lp.base_sha}...{head}").split("\0") if p]
+
+
 def changed_test_paths(lp, head="HEAD", named=True):
     """The branch's changed tests: test-shaped paths, and with `named` every file a
     done-when command names."""
     # Include removed paths too: renaming a test out of discovery must remain visible.
-    changed = gitcall.git(lp.wt, "diff", "--name-only", "-z", "--no-renames",
-                  f"{lp.base_sha}...{head}").split("\0")
-    return [p for p in changed if p and (
+    return [p for p in changed_paths(lp, head) if (
         any(part in TEST_DIRS for part in Path(p).parts[:-1]) or test_named(p)
         or (named and any(p in cmd for cmd in getattr(lp, "cmds", []))))]
 
@@ -423,6 +429,16 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
         if not lp.scratch:
             gitcall.reset_checkout(lp.wt, head, before)
             gitcall.git(lp.wt, "checkout", "--quiet", "--detach", revision)
+            if paths:
+                # git refuses the whole restore for a path that matches nothing in the index nor
+                # the head, as a test an earlier round removed on the commit the last review
+                # judged: there is nothing to lay over.  A name git lists matches; whether any
+                # other does (a folder there, git's pathspec settings) git alone says.
+                listing = ("ls-files", "-z", f"--with-tree={tests_from}", "--")
+                listed = set(gitcall.git_bytes(lp.wt, *listing, *(f":(literal){p}" for p in paths))
+                             .split("\0"))
+                paths = [p for p in paths
+                         if p in listed or gitcall.git_bytes(lp.wt, *listing, f":(literal){p}")]
             if paths:
                 gitcall.git(lp.wt, "restore", f"--source={tests_from}", "--staged", "--worktree", "--",
                     *(f":(literal){p}" for p in paths))
