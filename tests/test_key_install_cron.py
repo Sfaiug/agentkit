@@ -4,7 +4,8 @@ The tick is what moves every run, landing and stalled seat on the server, so eac
 install owns the one live line: every line carrying the tag goes first, a copy the owner
 commented out to pause the tick too, and the owner's other lines stay.  Every crontab exits 1
 for an account with no table yet, which then gets one; any other failure is a table that could
-not be read, and it stays as it is.  Black-box: install.sh
+not be read, and it stays as it is.  The record of a server goes after the crontab, so an install
+cut short before then leaves a client, whose job installs again.  Black-box: install.sh
 of the checkout `AK_BIN` names runs from outside in a Home of tests/fixtures/akbin.py made the
 account's own by tests/fixtures/installer.py, so the install does what it does on a real host,
 every tool it calls a fake and the crontab a table on disk.
@@ -26,6 +27,13 @@ UNREADABLE = """#!/bin/sh
 case "$1" in
   -l) echo "crontab: cannot read the table" >&2; exit 2 ;;
   -) exec cat >{table} ;;
+esac
+"""
+# an account with no table yet whose crontab notes, at its write, whether the record is there
+NOTING = """#!/bin/sh
+case "$1" in
+  -l) exit 1 ;;
+  -) if [ -f {record} ]; then echo there; else echo gone; fi >{note}; exec cat >{table} ;;
 esac
 """
 
@@ -94,6 +102,22 @@ class Listing(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual(table.read_text(), f"{MINE}\n")
         self.assertIn("the ak watch cron is not installed", done.err)
+
+
+@linux
+class Record(unittest.TestCase):
+    def test_the_record_of_a_server_goes_only_after_the_tick_is_written(self):
+        home = account(self)
+        record = home.path / ".agentkit/state/server"
+        home.write(".agentkit/state/server", "acme-mini\n")
+        table, note = home.root / "crontab", home.root / "note"
+        q = lambda path: shlex.quote(str(path))
+        home.fake("crontab", NOTING.format(record=q(record), note=q(note), table=q(table)))
+        done = installer.run(home, "--server")
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertTrue(table.read_text().endswith(" # agentkit watch\n"), table.read_text())
+        self.assertEqual(note.read_text(), "there\n")
+        self.assertFalse(record.exists())
 
 
 if __name__ == "__main__":
