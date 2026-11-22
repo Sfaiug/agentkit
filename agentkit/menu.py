@@ -3398,6 +3398,8 @@ WHYS = {"beaten": "beaten by {by}", "close": "within {apart} of {by}",
         "not set up": "would be a choice, but it is listed nowhere a model of yours runs",
         "no cost": "no board prices it",
         "not converted": "a board prices it, but your runs and plans give that price no cost"}
+# Why a release compared is none of a role's when the role rates no row of it (quality.rated)
+UNRATED = "fewer than {fewest} of this role's benchmarks score it"
 NUMBERS = "zero one two three four five six seven eight nine".split()
 
 
@@ -3931,10 +3933,13 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     in `unit`, said as UNITS says it, where that comes from (SOURCES) and how far off each of
     `weeks` foretold (week_checked); the rule that makes the choices; and why each model is none (WHYS):
     under `shaded` each the bars of `kept` draw shaded at this width (models_standing), in their
-    order, under `not shown` the rest of its `others`, in theirs; a page leaving its values no
+    order, under `not shown` the rest of its `others`, in theirs, then each release it rates no
+    row of by name (`unrated`), in its order, and why (UNRATED); a page leaving its values no
     cell beside it folds each under its label, two cells in.  The page's margin and that fold are
     two cells where that leaves a line a cell, else as many as do.  A model's name goes on at its
-    words as any value does, never cut: releases of one name differ only at its end."""
+    words as any value does, never cut: releases of one name differ only at its end.  A row no
+    board rates, the role line's own for a model no row is (models_said), has neither quality
+    nor cost: its page is the rule and the whys."""
     margin = min(2, terminal.layout_width() - 1)
     room = terminal.layout_width() - margin
     width = terminal.cells("not shown")     # the design's label column: its widest label
@@ -3945,9 +3950,6 @@ def models_why(found, role, row, kept, unit, weeks, runs):
     # company not added or turned off, the owner, 5 Nov 2026: "I dont want others to be shown"
     top = max(found["choices"], key=lambda one: one["quality"], default=found["best"])
     best = "the best of these choices" if found["choices"] else "the best of the models on"
-    measures = {column: one for column, *_ in quality.ROLES[role]
-                for one in [row["measures"].get(column)] if one}
-    counted = sum(one["how"] != "missing" for one in measures.values())
 
     def below(one):       # of the qualities as shown: 98.46 and 94.04 read 98.5, 94.0 and 4.5
         return round(top["quality"], 1) - round(one["quality"], 1)
@@ -3961,25 +3963,33 @@ def models_why(found, role, row, kept, unit, weeks, runs):
         return f"{priced(one)}: " + WHYS[word].format(
             by=by and priced(by), apart=points(matrix.APART), below=f"{below(one):.1f}",
             places=number(matrix.PLACES))
-    behind, cost = top and below(row), cost_said(found, row, unit)
+
+    def rating():         # its quality and cost
+        measures = {column: one for column, *_ in quality.ROLES[role]
+                    for one in [row["measures"].get(column)] if one}
+        counted = sum(one["how"] != "missing" for one in measures.values())
+        behind, cost = top and below(row), cost_said(found, row, unit)
+        return [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, "
+                                                       f"from {number(counted)} benchmarks"],
+                             [", ".join(scored(column, one) for column, one in measures.items())],
+                             *([[best]] if row is top else [] if top is None else
+                               [[f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the "
+                                 f"best, {named(top)}"]]),
+                             *([[f"rated at {row['effort']}, runs at {runs}"]]
+                               if row["effort"] and runs not in (None, row["effort"]) else [])]},
+                {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,
+                           SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])],
+                          *([week_checked(*week)] for week in weeks)]
+                         if row["cost"] is not None else [["no cost"]]}]
     # the bars with a why are the shaded ones; a kind with none goes unsaid
     bars = [one for one, _ in models_standing(found, kept, unit)[1]]
     drawn = {id(one) for one in bars}
     kinds = {label: whys for label, whys in [
         ("shaded", [[why(one)] for one in bars if id(one) in found["whys"]]),
-        ("not shown", [[why(one)] for one in found["others"] if id(one) not in drawn])] if whys}
-    said = [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
-                                                   f"{number(counted)} benchmarks"],
-                         [", ".join(scored(column, one) for column, one in measures.items())],
-                         *([[best]] if row is top else [] if top is None else
-                           [[f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the "
-                             f"best, {named(top)}"]]),
-                         *([[f"rated at {row['effort']}, runs at {runs}"]]
-                           if row["effort"] and runs not in (None, row["effort"]) else [])]},
-            {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,
-                       SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])],
-                      *([week_checked(*week)] for week in weeks)]
-                     if row["cost"] is not None else [["no cost"]]},
+        ("not shown", [[why(one)] for one in found["others"] if id(one) not in drawn] + [
+            [f"{terminal.plain(name)}: " + UNRATED.format(fewest=number(quality.FEWEST))]
+            for name in found["unrated"]])] if whys}
+    said = [*(rating() if "quality" in row else []),
             {"choices": [[f"the best, then cheaper ones {points(matrix.APART)} apart, none more "
                           f"than {number(matrix.WINDOW)} below, {number(matrix.PLACES)} at most"]],
              **kinds}]
@@ -4011,10 +4021,11 @@ def models_screen(cfg, session, selected, providers):
     and steps; each answer made (opening, the boards landing, `p`) takes the best up to each
     price that holds (price_take), saying so under the rows.  ⏎ or a click opens the why
     (models_why) of the row the role uses, else of its first choice, else of its first other
-    (matrix.answer: every release compared is a choice or an other), at once, drawn again with
-    its plans' weeks (plans_checked) once they land off the drawing thread.  `p` lists companies
-    (company_list), and `u` counts every cost in the next unit (next_unit), the screen opening
-    in the last one (models_unit).  The why comes up as a page does."""
+    (matrix.answer: every release compared it rates is a choice or an other), else, where it
+    rates no row of one (`unrated`), of its role line's (models_said), at once, drawn again
+    with its plans' weeks (plans_checked) once they land off the drawing thread.  `p` lists
+    companies (company_list), and `u` counts every cost in the next unit (next_unit), the screen
+    opening in the last one (models_unit).  The why comes up as a page does."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -4106,12 +4117,16 @@ def models_screen(cfg, session, selected, providers):
             unit = next_unit(unit)
         elif act == "enter":
             role = here[1]
-            row = used[role][2] or next(iter(answer[role]["choices"] + answer[role]["others"]),
-                                        None)
+            # else, with releases it rates no row of to name, the role line's own of a model no
+            # row is: never a page that would stay empty while the boards are first read
+            row = used[role][2] or next(iter([*answer[role]["choices"], *answer[role]["others"], *(
+                one for name, one, _ in said if name == role and answer[role]["unrated"])]), None)
             key, why, page = None, ("why",), 0    # every line one row: ↑/↓ turn its pages
-            # its plans' weeks take seconds to read: the page is drawn without them till they land
+            # its plans' weeks take seconds to read: the page is drawn without them till they land,
+            # under a cost, which a row no board rates has none of
             weeks = []
-            checking = row and Fetch(lambda name=row["provider"]: plans_checked(cfg, name))
+            checking = Fetch(lambda name=row["provider"]: plans_checked(cfg, name)) if (
+                row and "quality" in row) else None
             # the effort a step to it writes (take_choice), asked of it alone: None for a row no
             # step is, or one no take of which takes a model
             taken, level = (step_take(cfg, answer[role], own[role], row) if any(
@@ -4136,14 +4151,13 @@ ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which 
 def companies_listed(cfg):
     """Each company with a listed model (matrix.listed), strongest first as the lineup orders
     them, its listed models in that order, {maker: {slug: name}}; and your companies
-    (matrix.companies) as `companies` lists them, else as the lineup does."""
+    (matrix.companies) in their order (matrix.company_order)."""
     lineup, found = matrix.listed()
     makers, had = {}, matrix.companies(cfg, lineup)
     for row in lineup:
         if row["release"] in found:
             makers.setdefault(row["maker"], {})[row["release"]] = row["name"]
-    return makers, cfg["companies"] if "companies" in cfg else [
-        maker for maker in dict.fromkeys(row["maker"] for row in lineup) if maker in had]
+    return makers, [maker for maker in matrix.company_order(cfg, lineup) if maker in had]
 
 
 def models_listed(cfg, yours, off):

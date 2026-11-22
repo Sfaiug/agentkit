@@ -276,16 +276,22 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     yours, as one no harness of yours runs is no reason to leave it out; `take`: the same rule
     over yours; and `choices` over those with a cost, `others` and `whys` over every one
     (`_choices`), the choices being rows a take can take (`takes`).  Keep the pick and take
-    visible even if rows outside their eligible pool beat them.  Every role's costs are in one
-    unit (`_costs`), off `task_usage`, (logins, shares) as `spend.roles` measures them.
-    `limits`: each choice's price (`_limits`)."""
+    visible even if rows outside their eligible pool beat them.  `unrated`: the names of the
+    releases compared it rates no row of, as `p` lists them (`company_order`).  Every role's
+    costs are in one unit (`_costs`), off `task_usage`, (logins, shares) as `spend.roles`
+    measures them.  `limits`: each choice's price (`_limits`)."""
     measures = task_usage if task_usage is not None else _task_usage(cfg) if cfg else ({}, {})
     cfg = cfg or {"models": {}, "providers": {}}
     every = {role: quality.rated(lineup, role) for role in quality.ROLES}
     unit = _costs(every, lineup, cfg, *measures)
+    order = company_order(cfg, lineup)
+    releases = {row["release"]: row["name"] for row in sorted(
+        lineup, key=lambda row: order.index(row["maker"]))
+        if compared is None or row["release"] in compared}
     out = {}
     for role, rated in every.items():
-        them = [row for row in rated if compared is None or row["release"] in compared]
+        them = [row for row in rated if row["release"] in releases]
+        scored = {row["release"] for row in them}
         best = max(them, key=lambda row: row["quality"], default=None)
         priced = sorted((row for row in them if row["cost"] is not None),
                         key=lambda row: (row["cost"], -row["quality"]))
@@ -298,7 +304,8 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
                                          {id(row) for row in priced if takes(cfg, row)})
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
                      "front": front, "take": take, "choices": choices, "others": others,
-                     "whys": whys, "limits": _limits(choices, priced)}
+                     "whys": whys, "limits": _limits(choices, priced),
+                     "unrated": [name for slug, name in releases.items() if slug not in scored]}
     return out
 
 
@@ -370,7 +377,8 @@ def _choices(priced, costless, runs):
     (`takes`): `choices` are theirs (`_chosen`), so a better row none can take moves none.
     `others`: of each release with no choice its best row with a cost, a cheaper one on a tie,
     else its best row, best first, those with a cost before those with none: every release
-    compared is among the choices or them, as `p` turns it on (the owner, 5 Nov 2026).
+    compared the role rates is among the choices or them, as `p` turns it on (the owner, 5 Nov
+    2026).
     `whys`: by its id, each row no choice's (`_why`), which a role using it draws too
     (menu.models_bars), kept beside the rows as what is compared never changes a row; one no
     take can take has the why it would have were it takeable, the same rule over them and it."""
@@ -449,6 +457,12 @@ def companies(cfg, lineup):
                          *defaults.get("reviewers", ())) if name in cfg["models"]}
     return {row["maker"] for row in lineup for one in row["yours"]
             if (one["harness"], one["model"]) in runs}
+
+
+def company_order(cfg, lineup):
+    """Every maker in the order `p` lists your companies (`companies`) in: `companies` in the
+    config as it lists them, then the makers of `lineup` as it orders them, strongest first."""
+    return list(dict.fromkeys([*cfg.get("companies", ()), *(row["maker"] for row in lineup)]))
 
 
 @functools.lru_cache(maxsize=1)
