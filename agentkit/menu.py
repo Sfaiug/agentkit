@@ -7452,9 +7452,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
 # --- on a client ------------------------------------------------------------
 
 
-def client(alias, dry_run, hops=1):
-    """The menu of the home at `alias`, over ssh.  Its `--client`, once a hop, tells it how many
-    hops it is reached over: a client of a client hops on once, and goes no further (`main`)."""
+def client(alias, dry_run, hops):
+    """The menu of the home at `alias`, over ssh, told by one `--client` a hop how many hops it is
+    reached over: a client's client goes no further (`main`)."""
     cmd = ["ssh", "-t", alias, "ak", *["--client"] * hops]
     if dry_run:
         print(f"would run {shlex.join(cmd)}")
