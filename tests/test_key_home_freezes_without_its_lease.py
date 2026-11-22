@@ -1,20 +1,23 @@
-"""A firing of the tick, `ak watch`, on a home whose record says a machine takes over from it, and
-whose oldest value kept, the proof that it is the home, is 10 minutes old by either clock or that
-keeps none, writes `1` to the `cgroup.freeze` of ak's slice and exits 0 before the tick's lock: a
+"""A firing of the tick, `ak watch`, on a home whose oldest value kept, the proof that it is the
+home, is 10 minutes old by either clock, or that keeps none where its record says a machine takes
+over from it, writes `1` to the `cgroup.freeze` of ak's slice and exits 0 before the tick's lock: a
 standby that takes a lease standing still finds the home doing nothing.  A turn that reads the
 home's own lease keeps only that value and the one it makes, so an unreachable origin or one that
 answers reads and refuses pushes pauses it at 10 minutes.  One that reads another machine's lease
 keeps none, as one that never made a value does, so it pauses at once and at each firing after,
 the origin reachable or not; one that lost its lease's folder reads its own lease as another's.
-Any other firing that is no dry run and no client's writes `0` there where it reads `1`, whoever
-froze it: a mended origin's second firing, its first having swapped, the firing that makes a
-home's first value, one with no record or one saying `no`.  A freezer's file that is not there is
-not made.  No output of a firing is compared: what a tick prints varies with the clock.
+A home keeping a value takes its turns and pauses by that proof whatever its records say: one whose
+record turned to `no`, or went, does as one whose record says `yes`.  Any other firing that is no
+dry run and no client's writes `0` there where it reads `1`, whoever froze it: a mended origin's
+second firing, its first having swapped, the firing that makes a home's first value, one with no
+record keeping no value, whose origin holds no lease.  A freezer's file that is not there is not
+made.  No output of a firing is compared: what a tick prints varies with the clock.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, a later firing at a later clock, and
 ak's slice a folder in the cgroup tree each machine is given (AK_CGROUP_ROOT, AK_CGROUP_FILE).
-Each case builds its own machines.  What came back is a firing's exit, the freezer's file, and
+Each case builds its own machines and writes and removes a home's record by hand, as
+`ak standby --copied` leaves one.  What came back is a firing's exit, the freezer's file, and
 whether the tick's lock file, removed before each firing, is there after.
 """
 
@@ -62,11 +65,9 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         return machines
 
     def record(self, home, takes):
-        """acme-vm's record on `home`, as a pass that ended well leaves it, saying whether it
-        takes over."""
-        began = home.ak("standby", "--began")
-        kept = home.ak("standby", "--copied", "acme-vm", *began.out.split(), takes)
-        self.assertEqual((began.code, kept.code), (0, 0), began.err + kept.err)
+        """acme-vm's record on `home`, written as a pass that ended well at minute 0 leaves it:
+        its stamp, and whether it takes over."""
+        home.write(RECORDS / "acme-vm", f"{now(0)}\n{takes}\n")
 
     def freezer(self, machine):
         """What `machine`'s freezer's file reads, None where it is not there."""
@@ -108,6 +109,23 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         self.assertEqual(made(home), {named(0): created, named(3): anew})
         return created, anew
 
+    def unreachable(self, machines, home, since, older, newer):
+        """`home`, keeping `older`, made at minute `since`, and `newer`, made 3 minutes on and the
+        lease on the origin, with the origin unreachable: its firings run till that proof is 10
+        minutes old and are paused from then, the origin mended too, till the firing that swapped
+        in a value from `newer` is paused for the last time; the one after runs."""
+        machines.break_remote("unreachable")
+        self.runs(home, now(since + 9))
+        self.paused(home, now(since + 10))
+        self.paused(home, now(since + 13))
+        machines.mend_remote()
+        self.paused(home, now(since + 16))
+        swapped = made(home).get(named(since + 16))
+        self.assertNotIn(swapped, (older, newer))
+        self.assertEqual(home.install.refs(), {REF: swapped})
+        self.assertEqual(made(home), {named(since + 3): newer, named(since + 16): swapped})
+        self.runs(home, now(since + 19))
+
     def test_an_origin_refusing_every_push_pauses_the_home_at_10_minutes(self):
         home, = self.machines()
         created, anew = self.home(home)
@@ -127,18 +145,7 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
     def test_an_unreachable_origin_pauses_the_home_at_10_minutes_till_it_is_mended(self):
         machines = self.machines()
         home, = machines
-        created, anew = self.home(home)
-        machines.break_remote("unreachable")
-        self.runs(home, now(9))
-        self.paused(home, now(10))
-        self.paused(home, now(13))
-        machines.mend_remote()
-        self.paused(home, now(16))
-        swapped = made(home).get(named(16))
-        self.assertNotIn(swapped, (created, anew))
-        self.assertEqual(home.install.refs(), {REF: swapped})
-        self.assertEqual(made(home), {named(3): anew, named(16): swapped})
-        self.runs(home, now(19))
+        self.unreachable(machines, home, 0, *self.home(home))
 
     def test_either_clock_at_10_minutes_pauses_the_home(self):
         # each clock alone, the other held at minute 4
@@ -193,34 +200,46 @@ class AHomeFreezesWithoutItsLease(unittest.TestCase):
         self.runs(home, now(63))
         self.assertEqual(made(home), {named(63): home.install.refs().get(REF)})
 
-    def test_a_home_whose_record_turned_to_no_runs(self):
-        home, = self.machines()
-        self.home(home)
-        self.record(home, "no")
-        self.runs(home, now(63))
+    def test_a_home_whose_record_turned_to_no_or_went_holds_its_lease_as_one_saying_yes(self):
+        for takes in ("no", None):      # None: the record removed
+            with self.subTest(takes=takes):
+                machines = self.machines()
+                home, = machines
+                _, anew = self.home(home)
+                if takes:
+                    self.record(home, takes)
+                else:
+                    (home.path / RECORDS / "acme-vm").unlink()
+                self.runs(home, now(6))
+                swapped = made(home).get(named(6))
+                self.assertNotIn(swapped, (None, anew))
+                self.assertEqual(home.install.refs(), {REF: swapped})
+                self.unreachable(machines, home, 3, anew, swapped)
 
-    def test_a_home_with_no_record_thaws_the_slice(self):
+    def test_a_home_with_no_record_keeping_no_value_thaws_the_slice_and_holds_no_lease(self):
         machines = self.machines(freezer="1")
         home, = machines
         self.runs(home, now(0))
-        self.home(home)
         machines.break_remote("unreachable")
-        self.paused(home, now(10))
-        (home.path / RECORDS / "acme-vm").unlink()      # the values it keeps stay 10 minutes old
         self.runs(home, now(10))
+        # no turn taken, the origin reachable or not
+        self.assertEqual(home.install.refs(), {})
+        self.assertFalse((home.path / LEASE).exists())
 
     def test_a_dry_run_and_a_clients_firing_leave_the_freezer_as_it_was(self):
         machines = self.machines("acme-mini", "acme-vm")
         home, vm = machines
-        self.home(home)
+        _, anew = self.home(home)
         machines.break_remote("unreachable")
         self.assertEqual(self.fire(home, now(10), dry=True), (0, "0", False))
         self.paused(home, now(10))
-        # without it a firing here thaws, as the case above shows
-        (home.path / RECORDS / "acme-vm").unlink()
+        # mended, a firing here swaps the lease from `anew`, keeping a proof 7 minutes old, and
+        # thaws
+        machines.mend_remote()
         self.assertEqual(self.fire(home, now(10), dry=True), (0, "1", False))
-        home.client_of(vm)      # the values it made as home kept, 10 minutes old
+        home.client_of(vm)      # the values it made as home kept
         self.assertEqual(self.fire(home, now(10)), (0, "1", False))
+        self.assertEqual(home.install.refs(), {REF: anew})
         server, client = self.machines("acme-mini", "acme-vm", freezer="1")
         client.client_of(server)
         self.assertEqual(self.fire(server, now(0), dry=True), (0, "1", False))

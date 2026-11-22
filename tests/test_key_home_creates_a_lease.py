@@ -2,9 +2,10 @@
 home whose record says a machine takes over from it: one `ak standby` lists so, written there
 by `ak standby --began` and `--copied HOST WALL SINCE BOOT yes`.  So the lease is on ak's remote,
 `refs/agentkit/home`, the one value that home made, and is put there while another tick holds the
-lock, beside a record that says `no` or a named pipe at a record's path.  A home with no record,
-or only one that says `no` or whose stamp does not read, makes none and keeps no lease folder; a
-dry run takes no turn, nor does a client, whose tick ends first.  An unreachable origin holds up
+lock, beside a record that says `no` or a named pipe at a record's path.  A home keeping no value
+with no record, or only one that says `no` or whose stamp does not read, makes none and keeps no
+lease folder (one keeping a value: tests/test_key_home_freezes_without_its_lease.py); a dry run
+takes no turn, nor does a client, whose tick ends first.  An unreachable origin holds up
 no tick: a home's with a record, which then has no proof that it is the home, exits 0 before the
 lock, and one without takes it; mended, the home's next firing creates the lease and takes its
 lock.  No output of a firing is compared: what a tick prints varies with the clock.
