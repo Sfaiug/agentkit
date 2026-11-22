@@ -135,24 +135,25 @@ def _unlinked(git, name):
     return False
 
 
-def watch():
+def watch(takes):
     """A standby's watch of the lease its home holds, at each pass: SEEN at a commit made here
     whose message is the value read and the stamp of the pass that first read it (`_seen`), the
     lease read as a turn reads it, under its lock.  A value SEEN holds with a stamp of this boot
-    leaves it as it is, and once that stamp is STILL old by `age_at_least`, a swap from it is sent
-    as a turn sends one (`_swap`), its value kept for this pass's stamp where no ref holds the
-    name; any other value read puts it at a commit of that value and this pass's stamp, as a stamp
-    of another boot counts for nothing; whatever else is met once the lock is held, no lease among
-    it, removes it.  Each is one update-ref of SEEN at most, which git does whole or not at all,
-    and what it refused stays as it was: a home writes no value twice, so a record of an older
-    value matches no later read.  Where another turn holds the lock, or the lease's folder cannot
-    be made or opened, none of them.  Nothing is fetched from the remote, nor written to it but
-    that swap, and whatever the watch meets is dropped unsaid."""
+    leaves it as it is, and once that stamp is STILL old by `age_at_least`, where `takes` says this
+    machine may take the lease, a swap from it is sent as a turn sends one (`_swap`), its value
+    kept for this pass's stamp where no ref holds the name; any other value read puts it at a
+    commit of that value and this pass's stamp, as a stamp of another boot counts for nothing;
+    whatever else is met once the lock is held, no lease among it, removes it.  Each is one
+    update-ref of SEEN at most, which git does whole or not at all, and what it refused stays as it
+    was: a home writes no value twice, so a record of an older value matches no later read.  Where
+    another turn holds the lock, or the lease's folder cannot be made or opened, none of them.
+    Nothing is fetched from the remote, nor written to it but that swap, and whatever the watch
+    meets is dropped unsaid."""
     with contextlib.suppress(Exception):
-        _locked(_watched)
+        _locked(lambda: _watched(takes))
 
 
-def _watched():
+def _watched(takes):
     """The watch, with no turn under way."""
     env, made = {}, None
     try:
@@ -167,7 +168,7 @@ def _watched():
             # holds.  Nothing the repository lacks is fetched, as for `_seen`.
             with contextlib.suppress(Exception):
                 git = functools.partial(git, env={**env, "GIT_NO_LAZY_FETCH": "1"})
-                if seen[1].age_at_least() >= STILL and _unlinked(git, _named(stamp)):
+                if takes and seen[1].age_at_least() >= STILL and _unlinked(git, _named(stamp)):
                     _swap(git, address, read, stamp)
             return
         if read:

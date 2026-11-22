@@ -28,10 +28,13 @@ the home writes meanwhile is here as it held it at no one moment, a lock file of
 The next that ends well evens it out.
 
 Before the pass, first of all under its lock, it watches its home's lease (`lease.watch`), whose
-record is the lease's, kept whatever the pass does.  Then it keeps this machine's own job, which
-makes the pass again every three minutes, as the home's tick runs, after the keeper of a move of
-ak here, as the tick's line runs it (`back`), then sends again, as a tick does, each page of this
-machine's own the webhook did not take (`notify.retry_pending`), whether the home answers or not.
+record is the lease's, kept whatever the pass does.  It may take the lease only where the stamp,
+read before it, says a pass from this home has ended well: the machine that takes it carries on
+from its copy, and one holding none would from its own old state.  Then it keeps this machine's
+own job, which makes the pass again every three minutes, as the home's tick runs, after the keeper
+of a move of ak here, as the tick's line runs it (`back`), then sends again, as a tick does, each
+page of this machine's own the webhook did not take (`notify.retry_pending`), whether the home
+answers or not.
 A pass that ends well stamps when it began, and from which home, then why ak here stayed where it
 was, if it did, and at its end does with the last move here what the end of a tick does on a home
 (`versions.final`): a pass of the version that move put live makes it final.
@@ -558,7 +561,7 @@ def main(argv):
             print("ak standby: a pass is under way already, so this one copies nothing",
                   file=sys.stderr)
             return 1
-        lease.watch()
+        lease.watch(_copied(alias)[0] is not None)
         if not _keep_job(alias):
             return 1
         notify.retry_pending()

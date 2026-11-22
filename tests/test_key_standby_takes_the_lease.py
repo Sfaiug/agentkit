@@ -3,9 +3,12 @@ swap for the lease it has read unchanged for twenty minutes: a pass that reads t
 holds, first read 20 minutes before or more by whichever of the wall clock and the clock since boot
 calls it younger, on the boot that read it, makes a value, keeps it under `refs/made/` in its
 lease's repository, and sends it as a swap from the value read to `refs/agentkit/home` on the
-origin.  One sooner by either clock, or of another boot, sends none; nor does one that reads
-another value, which is watched anew from that pass, or none, the origin unreachable, after which
-the next pass that reads the value watches it anew.  A swap the origin refused, another value
+origin, where a pass from that home ended well before it began, by the stamp the last such pass
+left in `.agentkit/tmp/standby/copied`, whose second line names the home.  A standby none of whose
+passes ended well sends none, nor one whose stamp names another home; its first pass after one that
+ends well sends it.  One sooner by either clock, or of another boot, sends none; nor does one that
+reads another value, which is watched anew from that pass, or none, the origin unreachable, after
+which the next pass that reads the value watches it anew.  A swap the origin refused, another value
 written there between the read and the push, or whose answer was lost, is not sent again.
 `refs/seen` and every ref under `refs/made/` stay as they were; where the name for the pass's stamp
 is a symbolic ref, the first of a chain too long for git to follow among them, no value is kept and
@@ -31,6 +34,8 @@ from test_key_ak_lease_creates_a_lease import REF, kept, made, refs
 import test_key_standby_watches_its_homes_lease as watching
 from test_key_standby_watches_its_homes_lease import SEEN, now
 
+STAMP = ".agentkit/tmp/standby/copied"      # the stamp of the last pass that ended well
+
 
 def on(wall, since):
     """The standby's AK_NOW `wall` minutes into the case by the wall clock and `since` minutes by
@@ -51,10 +56,10 @@ class AStandbyTakesTheLease(unittest.TestCase):
         self.assertEqual(done.code, code, done.err)
         return self.home.install.refs().get(REF)
 
-    def leaves(self, at):
-        """The pass at `at`, which leaves the origin's refs as they were."""
+    def leaves(self, at, code=0):
+        """The pass at `at`, which exits `code` and leaves the origin's refs as they were."""
         before = refs(self.home.install.bare)
-        self.passes(at)
+        self.passes(at, code)
         self.assertEqual(refs(self.home.install.bare), before)
 
     def takes(self, at, code=0):
@@ -90,6 +95,24 @@ class AStandbyTakesTheLease(unittest.TestCase):
         self.watched()
         self.home.silence()
         self.takes(now(21), code=1)
+
+    def test_no_swap_is_sent_till_a_pass_from_the_home_has_ended_well(self):
+        self.fire(0)
+        self.home.silence()
+        self.leaves(now(1), code=1)
+        self.leaves(now(21), code=1)
+        self.home.answer()
+        # its watch reads the stamp before the pass leaves one
+        self.leaves(now(24))
+        self.takes(now(27))
+
+    def test_a_stamp_naming_another_home_sends_no_swap(self):
+        self.watched()
+        stamp = self.standby.path / STAMP
+        lines = stamp.read_text().splitlines()
+        lines[1] = "acme-other"
+        stamp.write_text("".join(f"{line}\n" for line in lines))
+        self.leaves(now(21))
 
     def test_a_value_written_between_the_read_and_the_push_stays(self):
         self.watched()
