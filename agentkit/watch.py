@@ -9147,7 +9147,9 @@ def main(argv):
         # A home a machine takes over from puts the lease on ak's remote where it holds none,
         # before the lock: a tick that runs long holds that, and the lease must be written while
         # it does.  Whatever ends the turn, the next firing's turn reads what the remote holds.
-        if standby.takes_over():
+        # So does one keeping a value it made, whatever its records say: `pause` holds it to
+        # its proof, which only its turns keep young.
+        if standby.takes_over() or lease.proof_age() is not None:
             with suppress(Exception):
                 lease._turn()
         # ... and one that has not known for long that it is the home stands still, none of the
