@@ -271,14 +271,14 @@ def _costs(rated, lineup, cfg, logins, shares):
 def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     """Per role, `rated`: `quality.rated` over every row of `lineup`, so a row's quality never
     changes with what is compared; then over the rows of the releases in `compared` (slugs, None
-    for every one), `best` quality, `pick` by role, `front`: those with a cost, best first,
-    each better than every cheaper one, a row of yours than every cheaper one of yours, as one
-    no harness of yours runs is no reason to leave it out; `take`: the same rule over yours;
-    and `choices` over those with a cost, `others` and `whys` over every one (`_choices`), the
-    choices being rows a take can take (`takes`).  Keep the pick and take visible even if rows
-    outside their eligible pool beat them.  Every role's costs are in one unit (`_costs`), off
-    `task_usage`, (logins, shares) as `spend.roles` measures them.  `limits`: each choice's
-    price (`_limits`)."""
+    for every one), `best`: the row of best quality, `pick` by role, `front`: those with a cost,
+    best first, each better than every cheaper one, a row of yours than every cheaper one of
+    yours, as one no harness of yours runs is no reason to leave it out; `take`: the same rule
+    over yours; and `choices` over those with a cost, `others` and `whys` over every one
+    (`_choices`), the choices being rows a take can take (`takes`).  Keep the pick and take
+    visible even if rows outside their eligible pool beat them.  Every role's costs are in one
+    unit (`_costs`), off `task_usage`, (logins, shares) as `spend.roles` measures them.
+    `limits`: each choice's price (`_limits`)."""
     measures = task_usage if task_usage is not None else _task_usage(cfg) if cfg else ({}, {})
     cfg = cfg or {"models": {}, "providers": {}}
     every = {role: quality.rated(lineup, role) for role in quality.ROLES}
@@ -286,7 +286,7 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     out = {}
     for role, rated in every.items():
         them = [row for row in rated if compared is None or row["release"] in compared]
-        best = max((row["quality"] for row in them), default=None)
+        best = max(them, key=lambda row: row["quality"], default=None)
         priced = sorted((row for row in them if row["cost"] is not None),
                         key=lambda row: (row["cost"], -row["quality"]))
         pick = quality.pick(them, role)
@@ -723,7 +723,7 @@ def main(argv):
                                                  "cost", "board_cost", "cost_rule")},
                     "notes": notes(row, said)}
         json.dump({**{role: {
-            "best": said["best"], "cost_unit": said["cost_unit"],
+            "best": said["best"] and said["best"]["quality"], "cost_unit": said["cost_unit"],
             **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
             "others": [{**drawn(row, said), "why": why, "by": by and {
                 key: by[key] for key in ("name", "effort")}}

@@ -28,7 +28,7 @@ def why(names, width):
     """The page of the first of `names` beside the best, the last, each between beaten by it."""
     rows = [model(name, 80 + n, 1 + n) for n, name in enumerate(names)]
     best = rows[-1]
-    found = {"choices": [rows[0], best], "others": rows[1:-1], "cost_unit": "money",
+    found = {"choices": [rows[0], best], "best": best, "others": rows[1:-1], "cost_unit": "money",
              "whys": {id(other): ("beaten", best) for other in rows[1:-1]}}
     with patch.object(terminal, "layout_width", return_value=width):
         return menu.models_why(found, "orchestrate", rows[0], rows[0], "$ a task", [], None)

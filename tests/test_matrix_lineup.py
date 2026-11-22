@@ -109,7 +109,7 @@ class Answer(unittest.TestCase):
         self.assertEqual({key(row): round(row["quality"], 6) for row in execute["rated"]},
                          {("acme-5", "high"): 100, ("acme-5", "low"): 96, ("bolt-2", "high"): 98,
                           ("crux-1", "medium"): 80, ("dune-1", "high"): 70})
-        self.assertEqual(execute["best"], 100)
+        self.assertEqual(key(execute["best"]), ("acme-5", "high"))
         self.assertEqual(key(execute["pick"]), ("bolt-2", "high"))
         self.assertEqual([key(row) for row in execute["front"]],
                          [("acme-5", "high"), ("bolt-2", "high"), ("acme-5", "low"),
@@ -127,7 +127,7 @@ class Answer(unittest.TestCase):
 
     def test_nothing_with_a_cost_picks_and_takes_nothing(self):
         execute = matrix.answer(self.lineup, {"dune-1"})["execute"]
-        self.assertEqual((round(execute["best"], 6), execute["pick"], execute["front"],
+        self.assertEqual((round(execute["best"]["quality"], 6), execute["pick"], execute["front"],
                           execute["take"]), (70, None, [], None))
         self.assertEqual(matrix.answer(self.lineup)["orchestrate"],
                          {"cost_unit": "board_dollars", "rated": [], "best": None,
