@@ -7514,6 +7514,7 @@ def main(argv):
     flags = {"--client": False, "--overlay": False, "--dry-run": False}
     for arg in argv:
         if arg not in flags:
+            config.migrate_policy()     # as bin/ak renames before any other command's refusal
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] = True
     # painted, and in a popup inside the border what it asks to be left
@@ -7522,7 +7523,16 @@ def main(argv):
         from . import macbridge
         macbridge.start_background()
     alias = config.server_alias()
-    if alias and not (flags["--client"] or flags["--overlay"]):
+    hops = alias and not (flags["--client"] or flags["--overlay"])
+    from .pause import stands_still     # by name: this module's own `pause` is a notice
+    # The menu that would open here says ak stands still before the config's and the state's
+    # locks and the seats' tmux server, which a frozen slice may hold for good; past that, old
+    # config names are renamed, as bin/ak does before every other command.
+    if not (hops or flags["--overlay"]) and (still := stands_still()):
+        print(still)
+        return 1
+    config.migrate_policy()
+    if hops:
         if not flags["--dry-run"]:
             update_first()
         return client(alias, flags["--dry-run"])
