@@ -18,6 +18,7 @@ from pathlib import Path
 import sys
 import time
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -70,6 +71,17 @@ class ReviewersBesideWriters(Sandbox):
                          ["astra"])
         self.assertEqual(self.logs,
                          ["skipped opus: a reviewer of another lab than opus has usage left: astra"])
+
+    def test_a_refusal_ending_between_two_reads_of_one_pick_offers_one_lab(self):
+        self.providers["beta"]["exhausted_until"] = 10001       # the sandbox's clock reads 10000
+        pick_order = usage.pick_order
+
+        def after_it(*args, **kwargs):
+            with patch.object(usage.time, "time", return_value=10002):
+                return pick_order(*args, **kwargs)
+
+        with patch.object(usage, "pick_order", after_it):
+            self.assertEqual(self.pick(writers=["opus"]), ["opus"])
 
     def test_meters_nobody_could_read_spend_nobody(self):
         self.providers = usage.Readings({})

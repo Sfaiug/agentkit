@@ -195,8 +195,8 @@ class NoOtherReviewerHasRoom(unittest.TestCase):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer"])
         self.assertEqual(self.fakes["codex"].runs(), [])
-        self.assertEqual((self.state["review"]["reviewer"], self.state["verdict"]),
-                         ("opus", "PASS"))
+        self.assertEqual((self.state["state"], self.state["review"]["reviewer"],
+                          self.state["verdict"]), ("pass", "opus", "PASS"))
 
 
 class CrossPairIsKept(unittest.TestCase):

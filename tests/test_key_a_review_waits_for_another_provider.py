@@ -56,7 +56,8 @@ class AnotherProvidersReviewerIsSpent(unittest.TestCase):
         self.assertEqual(launched(self.done), ("opus", "astra"))
         self.assertEqual(roles(self.fakes["codex"]), ["reviewer"])
         self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer"])
-        self.assertEqual(self.state["review"]["reviewer"], "opus")
+        self.assertEqual((self.state["reviewer"], self.state["review"]["reviewer"]),
+                         ("opus", "opus"))
         self.assertEqual((self.state["state"], self.state["verdict"]), ("pass", "PASS"))
 
 

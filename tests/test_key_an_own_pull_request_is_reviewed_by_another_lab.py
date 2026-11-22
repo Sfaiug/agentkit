@@ -112,7 +112,8 @@ class ABackgroundLaunchNamesTheReviewerTheChildKeeps(unittest.TestCase):
         [line] = [line for line in self.done.out.splitlines()
                   if line.startswith(f"run {self.run_dir.name} launched:")]
         self.assertIn("(opus review, self-reviewed)", line)
-        self.assertEqual((self.state["own_pr"], self.state["reviewer"]), (True, "opus"))
+        self.assertEqual((self.state["state"], self.state["own_pr"], self.state["reviewer"]),
+                         ("pass", True, "opus"))
         self.assertEqual((roles(self.fakes["claude"]), self.fakes["codex"].runs()),
                          (["reviewer"], []))
 
