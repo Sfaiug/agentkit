@@ -211,7 +211,7 @@ class RoleCostFromRuns(unittest.TestCase):
 
     def test_a_measured_cost_is_in_dollars_of_the_plans_its_providers_logins_hold(self):
         with open(self.meter.dir / "echo.toml", "a") as toml:
-            toml.write("\n[plans]\nMax = 100\nPro = 20\n")
+            toml.write("\n[plans]\nMax = 100\nPro = 20\nTeam = 100\n")
         # bolt's models run on a copy of it, `chime`, as a harness's spend is a provider's only
         # where it runs that provider's models alone
         for suffix in (".sh", ".toml"):
@@ -222,9 +222,13 @@ class RoleCostFromRuns(unittest.TestCase):
                                              "provider": "bolt"}},
                        settings={"companies": ["Acme"]},
                        providers={"acme": {"mode": "subscription",
-                                           "accounts": ["default", "second"]},
+                                           "accounts": ["default", "second", "third"]},
                                   "bolt": {"mode": "subscription", "accounts": ["work"]}})
         logins = json.loads((self.home.path / ".agentkit/state/logins.json").read_text())
+        # acme's third login is on Team, a plan no reading has fitted a week of: out of the
+        # mean until one has, as its owner left it (matrix._costs)
+        logins["acme"]["third"] = {"email": "third@acme.test", "ends": None, "plan": "Team",
+                                   "checked_at": NOW}
         logins["bolt"] = {"work": {"email": "work@bolt.test", "ends": None, "plan": "Pro",
                                    "checked_at": NOW}}
         self.home.write(".agentkit/state/logins.json", logins)
@@ -235,7 +239,7 @@ class RoleCostFromRuns(unittest.TestCase):
         answer = self.answer()[1]
         self.assertEqual(answer["execute"]["cost_unit"], "money")
         share = lambda model: answer["task_usage"][model]["high"]["executor"]
-        # acme's logins are on Max and Pro: $60 a month, though its usual one is on Max
+        # acme's logins with a week are on Max and Pro: $60 a month, though its usual one is on Max
         for release, model, price in (("anvil-1", "anvil", 60), ("crown-1", "crown", 20)):
             self.assertCost(answer, "execute", release, "measured",
                             share(model) / 100 * price * 12 / 52)

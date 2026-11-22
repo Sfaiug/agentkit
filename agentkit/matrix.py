@@ -209,7 +209,10 @@ def _costs(rated, lineup, cfg, logins, shares):
     if not measured:
         return "board_dollars"
     # a share is of its logins' weeks, any of which pays the next task: so their mean, never
-    # the price of the login a past task ran on, the owner's choice of 21 Nov 2026
+    # the price of the login a past task ran on, the owner's choice of 21 Nov 2026.  Of the
+    # logins whose week is fitted (`logins`) alone, so price and week are the same logins': one
+    # with a price and no week yet, on a plan no fitted login shares the name of, joins once it
+    # has one.  The owner, 22 Nov 2026: "Leave it".
     def price(provider):
         held = [one for one, _ in logins.get(provider, ()) if one is not None]
         return sum(held) / len(held) if held else usage.price(cfg, provider)
