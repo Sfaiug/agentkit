@@ -124,6 +124,21 @@ class ChangedDataAge(unittest.TestCase):
         self.assertEqual(list(self.sysctl_d.iterdir()), [])
         self.assertEqual(self.sudo_calls(), [])
 
+    def test_f_a_file_named_like_aks_is_replaced_only_if_ak_wrote_it(self):
+        # a name proves nothing: the line ak writes first into each entry says whose it is
+        owners = self.sysctl_d / "zz-agentkit-dirty_expire_centisecs.conf"
+        owners.write_text("vm.swappiness = 10\n")
+        earlier = self.sysctl_d / "zz-local.conf-agentkit-dirty_expire_centisecs.conf"
+        earlier.write_text(f"{OURS}: changed data\n{AGE} = 1000\n")
+        self.set_live(3000, 100)
+        self.install()
+        self.assertEqual(owners.read_text(), "vm.swappiness = 10\n")
+        self.assertFalse(earlier.exists())
+        [ours] = self.entries(AGE)
+        self.assertGreater(ours, owners.name)
+        self.assertIn(f"\n{AGE} = 1000\n", (self.sysctl_d / ours).read_text())
+        self.assertEqual(len(list(self.sysctl_d.iterdir())), 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
