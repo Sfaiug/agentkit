@@ -2100,8 +2100,9 @@ def no_use_read(cfg, provider, account, prov, cost, marked, now):
     since = now - MONTH
     [(old, spent)] = spend._select(
         "SELECT MIN(at) <= ?, MAX(at >= ? AND used > 0) FROM meter_readings WHERE provider = ? "
-        "AND account = ? AND meter = ? AND scope IS NULL AND at <= ?", since, since, provider,
-        account or config.DEFAULT_ACCOUNT, week["name"], now) or [(None, None)]
+        "AND account = ? AND meter = ? AND {added[meter_readings.scope]} IS NULL AND at <= ?",
+        since, since, provider, account or config.DEFAULT_ACCOUNT, week["name"],
+        now) or [(None, None)]
     return bool(old) and not spent
 
 
