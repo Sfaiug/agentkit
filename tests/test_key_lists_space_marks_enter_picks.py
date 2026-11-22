@@ -53,17 +53,25 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.term.keys("c")
         self.term.wait("› Fable 5.1")
 
+    def at(self, row, keys=None):
+        """The screen once the highlight is on the line that starts `row`, its key line `keys`
+        where given."""
+        return self.term.wait(lambda screen: any(line.startswith(f"› {row}")
+                                                 for line in lines(screen))
+                              and keys in (None, key_line(screen)))
+
     def to(self, row, keys=None):
-        """The highlight moved, a line at a time, onto the line that starts `row`; the screen,
-        once its key line is `keys` where given."""
+        """`at` once the highlight has moved, a line at a time, onto the line that starts `row`,
+        from a screen every key sent before is seen to have reached: one read before a key lands
+        shows the highlight where that key moves it from, and a key sent from there moves it
+        twice."""
         for _ in range(20):
             shown = lines(self.term.wait(lambda screen: any(
                 line.startswith(f"{mark} {row}") for line in lines(screen) for mark in "› ")
                 and any(line.startswith("› ") for line in lines(screen))))
             now = next(n for n, line in enumerate(shown) if line.startswith("› "))
             if shown[now].startswith(f"› {row}"):
-                return self.term.wait(lambda screen: lines(screen)[now].startswith(f"› {row}")
-                                      and keys in (None, key_line(screen)))
+                return self.at(row, keys)
             there = next(n for n, line in enumerate(shown) if line.startswith(f"  {row}"))
             self.term.keys("Down" if there > now else "Up")
             self.term.wait(lambda screen: lines(screen)[now] != shown[now])
@@ -76,17 +84,17 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.to("Models", "  ↑↓←→ move   ⏎ open   r recommended   a apply to all sessions"
                           "   esc back")
         self.term.keys("Enter")
-        self.to("Claude Code", OPEN)
+        self.at("Claude Code", OPEN)
         self.term.keys("Enter")
-        self.to("  ■ Fable 5.1", CLOSE)
+        self.at("  ■ Fable 5.1", CLOSE)
         self.term.keys("Space")
-        self.to("  □ Fable 5.1", CLOSE)                # the list open still
+        self.at("  □ Fable 5.1", CLOSE)                # the list open still
         self.assertNotIn("fable", akconfig.read(self.home)["models"])
         shown = lines(self.term.screen())             # a click on a mark does as Space does
         row = next(n for n, line in enumerate(shown) if "□ Fable 5.1" in line) + 1
         col = shown[row - 1].index("□") + 1
         self.term.type(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m")
-        self.to("  ■ Fable 5.1", CLOSE)
+        self.at("  ■ Fable 5.1", CLOSE)
         before = akconfig.read(self.home)
         self.assertIn("fable", before["models"])
         self.term.keys("Enter")
@@ -98,21 +106,21 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"}, page="config_audit")
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
-        self.to("On", MARK)
+        self.at("On", MARK)
         self.term.keys("Enter")                       # nothing: On is a mark
         self.term.keys("Space")
         self.term.wait("› On            ● on")
         self.assertIs(self.audit()["on"], True)
         self.term.keys("Enter", "Down")               # nothing, then onto Orchestrator
-        self.to("Orchestrator", OPEN)
+        self.at("Orchestrator", OPEN)
         self.assertIs(self.audit()["on"], True)
         self.term.keys("Enter")
-        self.to("  ● Fable 5.1", PICK)
+        self.at("  ● Fable 5.1", PICK)
         self.term.keys("Down", "Space")
-        self.to("  ● 6 Astra", PICK)              # the ● moved, the list open still
+        self.at("  ● 6 Astra", PICK)              # the ● moved, the list open still
         self.assertEqual(self.audit()["orchestrator"], "astra")
         self.term.keys("Up", "Enter")
-        self.to("Orchestrator  Fable 5.1", OPEN)      # taken, and the list closed
+        self.at("Orchestrator  Fable 5.1", OPEN)      # taken, and the list closed
         self.assertNotIn("○", self.term.screen())
         self.assertEqual(self.audit()["orchestrator"], "fable")
 
@@ -124,15 +132,15 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.fakes["claude"].answer("login-end", json.dumps(login))
         self.to("Subscriptions")
         self.term.keys("Enter")
-        self.to("Claude", acts)
+        self.at("Claude", acts)
         self.term.keys("Space", "Down")               # Space first: had it run, Down waits
-        self.to("ChatGPT")
+        self.at("ChatGPT")
         self.assertEqual(self.fakes["claude"].calls("login"), [])
         self.term.keys("Up")
-        self.to("Claude", acts)
+        self.at("Claude", acts)
         self.term.keys("Enter")
         self.term.wait(lambda screen: len(self.fakes["claude"].calls("login")) == 1)
-        shown = lines(self.to("Claude", acts))
+        shown = lines(self.at("Claude", acts))
         row = next(n for n, line in enumerate(shown) if "[→ log in again]" in line)
         column = shown[row].index("[→ log in again]") + 3
         self.term.type(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m")
