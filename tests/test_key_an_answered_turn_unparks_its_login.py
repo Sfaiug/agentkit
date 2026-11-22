@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
-from fixtures.hookdrive import Hooks
+from fixtures.hookdrive import Hooks, conversation
 
 TESTS = Path(__file__).resolve().parent
 LOGINS = ["default", "second"]
@@ -67,34 +67,20 @@ class AnAnsweredTurnUnparksItsLogin(unittest.TestCase):
         return {login: logins[login]["exhausted"] for login in LOGINS}
 
     def seat(self, name):
-        """A seat whose record names the second login, its conversation where Claude Code keeps
-        that login's, and an open line in its plan: its Stop goes back, which says something."""
-        seat = Seat(self.home, name, record={"account": "second"}, planned=True)
-        # Claude Code files a directory's conversations under it with each character not an
-        # ASCII letter or digit a hyphen
-        project = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(seat.cwd))
-        seat.conversation = (self.home.path / ".claude-second" / "projects" / project
-                             / f"{seat.record['conversation']}.jsonl")
-        seat.conversation.parent.mkdir(parents=True, exist_ok=True)
-        return seat
-
-    def said(self, seat, entry):
-        with seat.conversation.open("a") as conversation:
-            conversation.write(json.dumps(entry) + "\n")
+        """A seat whose record names the second login, and an open line in its plan: its Stop
+        goes back, which says something."""
+        return Seat(self.home, name, record={"account": "second"}, planned=True)
 
     def prompt(self, seat):
-        at = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
-        self.said(seat, {"type": "user", "timestamp": at,
-                         "message": {"role": "user", "content": "fix the api"}})
-        fired = self.hooks.fire("UserPromptSubmit", {"prompt": "fix the api"}, seat=seat.name,
-                                pane=seat, env=SECOND, finished=True)
+        fired = self.hooks.prompt("fix the api", seat, env=SECOND, finished=True)
         self.assertEqual(fired.code, 0, fired)
 
     def stop(self, seat, ending=ANSWER, env=SECOND):
         """The turn ends on `ending`, its Stop heard in `env`; what the hook printed."""
-        self.said(seat, ending)
-        fired = self.hooks.fire("Stop", {"background_tasks": [],
-                                         "transcript_path": str(seat.conversation)},
+        path = conversation(self.home, seat)
+        with path.open("a") as said:
+            said.write(json.dumps(ending) + "\n")
+        fired = self.hooks.fire("Stop", {"background_tasks": [], "transcript_path": str(path)},
                                 seat=seat.name, pane=seat, env=env, finished=True)
         self.assertEqual(fired.code, 0, fired)
         return fired
