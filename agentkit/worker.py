@@ -768,7 +768,7 @@ def shell_timeout_ms():
 
 
 def call(cfg, model_name, body, workspace, out_dir, role="executor", session=None, env=None,
-         limit=None, places=()):
+         limit=None, places=(), where=lambda _workspace: ""):
     """Run one turn.  Returns (exit_code, final_text, session_id, killed); out_dir holds the
     artifacts.
 
@@ -799,7 +799,9 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     a follow-up that starts a new conversation all hold it.  No other preamble has the gate.
 
     `places` are directories the turn may write beside its workspace, out dir and harness state.
-    A model off in the model list runs none (matrix.refuse_off).
+    A model off in the model list runs none (matrix.refuse_off).  `where(workspace)` gives the
+    line that opens the prompt, read as the prompt is written: the checkout can move until then,
+    during the login check and between attempts alike.
     """
     entry = config.model(cfg, model_name)
     matrix.refuse_off(cfg, model_name)
@@ -831,7 +833,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         if users_declared(workspace, base) == "real":
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")
     prompt = out_dir / "prompt.md"
-    prompt.write_text(f"{preamble}\n\n{body}")
+    line = where(workspace)
+    prompt.write_text(f"{preamble}\n\n{line}\n\n{body}" if line else f"{preamble}\n\n{body}")
     effort = config.role_effort(entry, "reviewer" if role.startswith("reviewer") else "executor")
     cmd = [str(adapter), "run", entry["model"], effort, str(workspace), str(prompt), str(out_dir)]
     if session:
@@ -896,7 +899,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
 
 
 def turn(cfg, model_name, body, workspace, out_dir, role="executor", session=None, env=None,
-         limit=None, log=None, places=()):
+         limit=None, log=None, places=(), where=lambda _workspace: ""):
     """One call and its cleanup; the fifth result says whether it left processes running."""
     # Let call apply harness defaults over inheritance; pass only explicit overrides.
     env = dict(env or {})
@@ -907,7 +910,7 @@ def turn(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     log = log or (lambda message: print(message, file=sys.stderr))
     try:
         result = call(cfg, model_name, body, workspace, out_dir, role, session, env=env,
-                      limit=limit, places=places)
+                      limit=limit, places=places, where=where)
     finally:
         left = box.leftovers(out_dir)
         for pid, command in left:
