@@ -1,8 +1,9 @@
 """⏎ on the models screen names, on a role's why page, each release on that the role rates no row
 of, as `p` names it, after the others under `not shown` and in the order `p` lists them:
 "fewer than two of this role's benchmarks score it"; where it has no other, `not shown` holds
-them alone, and a role rating none of the releases on says them under the model its line names.
-A role that rates it says it as it says any row, a choice or one of its others.
+them alone, and a role rating none of the releases on says them under the model its line names,
+while one with none to name opens no page.  A role that rates it says it as it says any row, a
+choice or one of its others.
 
 Black-box, as tests/test_key_models_why.py, on its drawing: the program `AK_BIN` names in a
 terminal, its harnesses fakes listing invented models and the boards held as just asked; judged
@@ -81,6 +82,14 @@ class ModelsWhyUnrated(unittest.TestCase):
         self.assertEqual(self.why(self.models(), "Down"), [
             "  why Acme Mid 5 high builds", "", drawing.CHOICES,
             "  not shown  Cove 1" + UNRATED, "             Bolt 2" + UNRATED])
+
+    def test_with_none_to_name_enter_on_a_role_with_no_row_opens_nothing(self):
+        # as while the boards are first read: no page that would stay empty once they land, so
+        # the ↓ after ⏎ moves on to the reviewer
+        self.on([], set(), ["Acme"])
+        term = self.models()
+        term.keys("Down", "Enter", "Down")
+        term.wait("\n› reviewer ")
 
 
 if __name__ == "__main__":

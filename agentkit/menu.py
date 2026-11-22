@@ -4021,11 +4021,11 @@ def models_screen(cfg, session, selected, providers):
     and steps; each answer made (opening, the boards landing, `p`) takes the best up to each
     price that holds (price_take), saying so under the rows.  ⏎ or a click opens the why
     (models_why) of the row the role uses, else of its first choice, else of its first other
-    (matrix.answer: every release compared it rates is a choice or an other), else of its role
-    line's (models_said), at once, drawn again with its plans' weeks (plans_checked) once they
-    land off the drawing thread.  `p`
-    lists companies (company_list), and `u` counts every cost in the next unit (next_unit), the
-    screen opening in the last one (models_unit).  The why comes up as a page does."""
+    (matrix.answer: every release compared it rates is a choice or an other), else, where it
+    rates no row of one (`unrated`), of its role line's (models_said), at once, drawn again
+    with its plans' weeks (plans_checked) once they land off the drawing thread.  `p` lists
+    companies (company_list), and `u` counts every cost in the next unit (next_unit), the screen
+    opening in the last one (models_unit).  The why comes up as a page does."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -4117,15 +4117,16 @@ def models_screen(cfg, session, selected, providers):
             unit = next_unit(unit)
         elif act == "enter":
             role = here[1]
-            # else the role line's own, of a model no row is: its page still says the whys
-            row = used[role][2] or next(iter(answer[role]["choices"] + answer[role]["others"]),
-                                        None) or next(one for name, one, _ in said if name == role)
+            # else, with releases it rates no row of to name, the role line's own of a model no
+            # row is: never a page that would stay empty while the boards are first read
+            row = used[role][2] or next(iter([*answer[role]["choices"], *answer[role]["others"], *(
+                one for name, one, _ in said if name == role and answer[role]["unrated"])]), None)
             key, why, page = None, ("why",), 0    # every line one row: ↑/↓ turn its pages
             # its plans' weeks take seconds to read: the page is drawn without them till they land,
             # under a cost, which a row no board rates has none of
             weeks = []
             checking = Fetch(lambda name=row["provider"]: plans_checked(cfg, name)) if (
-                "quality" in row) else None
+                row and "quality" in row) else None
             # the effort a step to it writes (take_choice), asked of it alone: None for a row no
             # step is, or one no take of which takes a model
             taken, level = (step_take(cfg, answer[role], own[role], row) if any(
@@ -4133,7 +4134,7 @@ def models_screen(cfg, session, selected, providers):
             runs = taken and _taken_at(cfg, taken, level)
             clock.forget()            # another screen: the models back from it are as they are
             opened = motion.Clock(page=True)      # the why comes up as a page of `c`'s does
-            while key != "back":
+            while row and key != "back":
                 if checking and not checking.is_alive():
                     weeks, checking = checking.answer(), None
                 lines = models_why(answer[role], role, row, own[role][2], unit, weeks, runs)
