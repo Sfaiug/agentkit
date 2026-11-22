@@ -446,11 +446,11 @@ def _why(row, choices, front):
 
 
 def companies(cfg, lineup):
-    """The makers you have, as the boards name them: `companies` in the config, else the makers
-    of the releases the `[defaults]` orchestrator, workers and reviewers run, the rows of
-    `lineup` whose `yours` holds that model's harness and model."""
+    """The makers you have, as the boards name them: `companies` in the config (company_order),
+    else the makers of the releases the `[defaults]` orchestrator, workers and reviewers run, the
+    rows of `lineup` whose `yours` holds that model's harness and model."""
     if cfg.get("companies") is not None:
-        return set(cfg["companies"])
+        return set(company_order(cfg, ()))
     defaults = cfg["defaults"]
     runs = {(cfg["models"][name]["harness"], cfg["models"][name]["model"])
             for name in (defaults["orchestrator"], *defaults["workers"],
@@ -461,8 +461,10 @@ def companies(cfg, lineup):
 
 def company_order(cfg, lineup):
     """Every maker in the order `p` lists your companies (`companies`) in: `companies` in the
-    config as it lists them, then the makers of `lineup` as it orders them, strongest first."""
-    return list(dict.fromkeys([*cfg.get("companies", ()), *(row["maker"] for row in lineup)]))
+    config as it lists them, its "" the maker the boards leave unnamed (None), which TOML cannot
+    write, then the makers of `lineup` as it orders them, strongest first."""
+    return list(dict.fromkeys([*(maker or None for maker in cfg.get("companies", ())),
+                               *(row["maker"] for row in lineup)]))
 
 
 @functools.lru_cache(maxsize=1)

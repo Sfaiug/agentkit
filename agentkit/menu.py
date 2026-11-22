@@ -4147,27 +4147,27 @@ def models_screen(cfg, session, selected, providers):
 
 
 ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens
+UNKNOWN = "unknown"     # the name the company lists give a maker the boards leave unnamed (None)
 
 
 def companies_listed(cfg):
     """Each company with a listed model (matrix.listed), strongest first as the lineup orders
     them, its listed models in that order, {maker: {slug: name}}; and your companies
-    (matrix.companies) in their order (matrix.company_order).  A release whose maker the
-    boards leave unnamed is no company's: there is no name to list or to save in `companies`."""
+    (matrix.companies) in their order (matrix.company_order)."""
     lineup, found = matrix.listed()
     makers, had = {}, matrix.companies(cfg, lineup)
     for row in lineup:
-        if row["release"] in found and row["maker"]:
+        if row["release"] in found:
             makers.setdefault(row["maker"], {})[row["release"]] = row["name"]
-    return makers, [maker for maker in matrix.company_order(cfg, lineup)
-                    if maker in had and maker]
+    return makers, [maker for maker in matrix.company_order(cfg, lineup) if maker in had]
 
 
 def models_listed(cfg, yours, off):
-    """`yours` saved as `companies` and the slugs `off` as `models_off` at once (_saved), so a
-    first change writes the companies the config had.  What to say, or ""."""
+    """`yours` saved as `companies`, the maker the boards leave unnamed as ""
+    (matrix.company_order), and the slugs `off` as `models_off` at once (_saved), so a first
+    change writes the companies the config had.  What to say, or ""."""
     before = copy.deepcopy(cfg)
-    cfg.update(companies=yours, models_off=sorted(off))
+    cfg.update(companies=[maker or "" for maker in yours], models_off=sorted(off))
     if not off:
         del cfg["models_off"]
     return _saved(cfg, cfg, before)
@@ -4181,15 +4181,15 @@ def companies_body(makers, yours, off, at=None, column=0, moves=None):
     Last, `+ add a company`; each mark and its move (motion.toggled) goes on `moves`."""
     room, (on, out) = terminal.layout_width(), "■□" if terminal.utf8() else "#-"
     shown = [maker for maker in yours if maker in makers]
-    label = max((terminal.cells(maker) for maker in shown), default=0)
+    label = max((terminal.cells(maker or UNKNOWN) for maker in shown), default=0)
     start = label + 4         # the models' first column: after a space, the name's cell and one
     lines, places = [], {}
     for maker in shown:
         row, parts = ("company", maker), [[" ", []]]
-        texts = [(maker, None), *((f"{out if slug in off else on} "
-                                   f"{terminal.cut(name, room - start - 2)}",
-                                   "dim" if slug in off else "accent")
-                                  for slug, name in makers[maker].items())]
+        texts = [(maker or UNKNOWN, None), *((f"{out if slug in off else on} "
+                                              f"{terminal.cut(name, room - start - 2)}",
+                                              "dim" if slug in off else "accent")
+                                             for slug, name in makers[maker].items())]
         for number, (text, kind) in enumerate(texts):
             first, width = terminal.cells(parts[-1][0]) + 1, terminal.cells(text) + 2
             if number > 1 and first + width - 2 > room:      # its space after may go
@@ -4266,8 +4266,8 @@ def company_list(cfg, title):
             clock.forget()            # another screen: the list back from it is drawn as it is
             added = company_add(title, makers, yours)
             if added:
-                note = models_listed(cfg, [*yours, added], off - makers[added].keys())
-                here, column = ("company", added), 0
+                note = models_listed(cfg, [*yours, added[1]], off - makers[added[1]].keys())
+                here, column = ("company", added[1]), 0
         elif act in ("left", "right"):
             column = max(0, min(column + (1 if act == "right" else -1), len(models)))
         elif act == "space" and models:
@@ -4280,16 +4280,17 @@ def company_list(cfg, title):
 def company_add(title, makers, yours):
     """`a` on the company list, `<title> · add a company`: each company of `makers` not among
     `yours`, strongest first, with how many listed models it has and its strongest, until ⏎ or
-    a click picks one, or Esc goes back: that company, or None.  It comes up as a page does."""
+    a click picks one, or Esc goes back: that company's row, ("row", maker), since the maker
+    the boards leave unnamed is None; or None.  It comes up as a page does."""
     rows, here, top = [("row", maker) for maker in makers if maker not in yours], None, 0
     clock = motion.Clock(page=True)
-    counts = {maker: f"{len(makers[maker])} model{'s' * (len(makers[maker]) != 1)}"
-              for _, maker in rows}
+    counts = {maker: (maker or UNKNOWN, f"{len(makers[maker])} model"
+                      f"{'s' * (len(makers[maker]) != 1)}") for _, maker in rows}
     while True:
         here = here if here in rows else rows[0] if rows else None
-        widths = [max(map(terminal.cells, texts), default=0) for texts in (counts, counts.values())]
+        widths = [max(map(terminal.cells, texts), default=0) for texts in zip(*counts.values())]
         widths.append(max(1, terminal.layout_width() - 6 - sum(widths)))
-        body = [terminal.table_row([maker, counts[maker], next(iter(makers[maker].values()))],
+        body = [terminal.table_row([*counts[maker], next(iter(makers[maker].values()))],
                                    widths, indent="  ") for _, maker in rows]
         body = [terminal.highlight(line) if row == here and not terminal.away() else line
                 for row, line in zip(rows, body)]
@@ -4297,7 +4298,7 @@ def company_add(title, makers, yours):
             line: (row, []) for line, row in enumerate(rows)}, rows, here, top, "",
             terminal.keys("esc back", enter="add", move=("company",)), marks=0, clock=clock)
         if act == "back" or act == "enter" and here:
-            return None if act == "back" else here[1]
+            return None if act == "back" else here
 
 
 def config_columns(selected, name):
