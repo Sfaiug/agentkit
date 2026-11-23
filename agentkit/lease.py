@@ -9,9 +9,10 @@ checkout.  It changes only by compare-and-swap, so two machines never both creat
 replaces only the value its turn read.  The checkout is asked that address and nothing else.  A
 repository of the lease's own, with no setting but git's defaults and the user's, reads and writes
 there, so no setting of the checkout makes the read and the write differ or writes into it.  Each
-value made is a ref under `MADE` there, named for its stamp (`pair_clock`).  git writes a ref
-whole or not at all, and a value is kept before it is sent, so a create the remote refused or never
-answered sends that same value on the next turn.
+value made is a ref under `MADE` there, named for its stamp (`pair_clock`).  A read asks git for
+its housekeeping there, so what git removes of the values no ref names, and when, is git's.  git
+writes a ref whole or not at all, and a value is kept before it is sent, so a create the remote
+refused or never answered sends that same value on the next turn.
 
 One turn at a time makes, reads and writes that repository, a standby's watch counted as one, so
 what a turn read is still what is kept when it writes: two at once would read one lease, and the
@@ -274,6 +275,11 @@ def _read(git, env, address):
     env["GIT_DIR"] = str(_repo())
     git("init", "-q", "--bare", "--template=", str(_repo()))
     held = git("ls-remote", address, REF, timeout=REMOTE)
+    # Each turn makes a commit here and drops the ref of the one before, and no other call here
+    # starts git's housekeeping, so without this the commits no ref names stay for ever.  What it
+    # does is git's; whatever it exits or raises leaves the read as it is.
+    with contextlib.suppress(Exception):
+        git("gc", "--auto", check=False)
     # the pattern matches any name ending as REF does, which is no lease
     return next((line.partition(b"\t")[0] for line in held.split(b"\n")
                  if re.fullmatch(VALUE + b"\t" + REF.encode(), line)), None)
