@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -2060,12 +2061,22 @@ def active_session(cfg):
     return {"name": name, **selection} if selection else None
 
 
+def read_regular(path, most=-1):
+    """The bytes of the regular file at `path`, `most` of them at most; OSError for anything
+    else there.  Opened without waiting, so that a named pipe there holds up no reader."""
+    with open(path, "rb", opener=lambda name, flags: os.open(name, flags | os.O_NONBLOCK)) as file:
+        if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+            raise OSError(f"{path} is no regular file")
+        os.set_blocking(file.fileno(), True)
+        return file.read(most)
+
+
 def server_alias():
     """The ssh alias of the server, which install.sh records on a client and nowhere else."""
     try:
         # decoded as an argument is, so any alias reads, whatever the locale, and reaches ssh as
         # the bytes install.sh wrote
-        return os.fsdecode((_self.STATE / "server").read_bytes()).strip() or None
+        return os.fsdecode(read_regular(_self.STATE / "server")).strip() or None
     except OSError:
         return None
 
