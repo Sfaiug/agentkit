@@ -34,12 +34,13 @@ the old one would overwrite: the pass copies nothing and runs `install.sh --serv
 the install exited, whose record of a server says whether this machine is a home after it, and
 where it exited 0 tells the owner (`_took_over`).  Else it watches its home's lease
 (`lease.watch`), whose record is the lease's, kept whatever the pass does.  It may take the lease
-only where the stamp, read before it, says a pass from this home has ended well: the machine that
-takes it carries on from its copy, and one holding none would from its own old state.  Then it
-keeps this machine's own job, which makes the pass again every three minutes, as the home's tick
-runs, after the keeper of a move of ak here, as the tick's line runs it (`back`), then sends
-again, as a tick does, each page of this machine's own the webhook did not take
-(`notify.retry_pending`), whether the home answers or not.
+only where the stamp, read before it, says a pass from this home ended well less than GONE ago, by
+the clock calling it older: the machine that takes it carries on from its copy, and one holding
+none, or an older one, would from a state the home has moved past.  Then it keeps this machine's
+own job, which makes the pass again every three minutes, as the home's tick runs, after the keeper
+of a move of ak here, as the tick's line runs it (`back`), then sends again, as a tick does, each
+page of this machine's own the webhook did not take (`notify.retry_pending`), whether the home
+answers or not.
 A pass that ends well stamps when it began, and from which home, then why ak here stayed where it
 was, if it did, and at its end does with the last move here what the end of a tick does on a home
 (`versions.final`): a pass of the version that move put live makes it final.
@@ -145,6 +146,8 @@ FOLDER, COPIED, LOCK = "standby", "copied", "lock"
 COPIES = "copies"
 # A record's age at which the home's tick pages the owner: a first pass after a long gap may take
 # half an hour, and no other pass begins while it runs, so an hour without one is no slow copy.
+# A standby whose copy is this old takes no lease: the owner has been told, and ak waits for a
+# machine to come back.
 GONE = 60 * 60
 # The words of `ak standby --copied HOST WALL SINCE BOOT yes|no|back`, each matched whole: a host
 # name of at most 64 characters, as Linux's, this machine's stamp as `--began` prints it, and
@@ -643,7 +646,10 @@ def main(argv):
                 return code
             _took_over(alias, taken)
             return 0
-        lease.watch(_copied(alias)[0] is not None)
+        # Only from a copy under GONE old by the clock calling it older: an older one would carry
+        # ak on from a state its home has moved past, then be copied over the home's own once it
+        # is back.
+        lease.watch(bool(stamp := _copied(alias)[0]) and stamp.age_at_most() < GONE)
         if not _keep_job(alias):
             return 1
         notify.retry_pending()
