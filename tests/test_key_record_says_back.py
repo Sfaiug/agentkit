@@ -2,7 +2,7 @@
 `yes` or `no` is kept, the word `back` in it; `ak standby --takers` names its machine, which takes
 over as one saying `yes` does; and `ak standby` lists it in the line it gives one saying `yes`, and
 says more after it: that home goes back to that machine once it is steady.  Any other word is
-refused as a request that misses one is, and leaves the record byte for byte.  Black-box, through
+refused as misuse, exit 2, and leaves the record byte for byte.  Black-box, through
 tests/fixtures/akbin.py, with the home's clocks from AK_NOW (`wall seconds-since-boot boot`).
 """
 
@@ -54,10 +54,8 @@ class ARecordSaysBack(unittest.TestCase):
     def test_any_other_word_is_refused_and_leaves_the_record(self):
         self.assertEqual(self.told("back").code, 0)
         held = (self.home.path / RECORD).read_bytes()
-        misuse = self.ak("--copied", "acme-vm", *STAMP.split())
-        self.assertNotEqual(misuse.code, 0, misuse.out + misuse.err)
         done = self.told("maybe")
-        self.assertEqual(done.code, misuse.code, done.out + done.err)
+        self.assertEqual(done.code, 2, done.out + done.err)
         self.assertEqual((self.home.path / RECORD).read_bytes(), held)
 
 
