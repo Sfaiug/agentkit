@@ -5757,15 +5757,17 @@ def config_page(name, page, move=True):
         first, *rest = [(value, None)] if isinstance(value, str) else value
         return [*([(left, "dim", "left")] if near(-1) is not None else []), first,
                 *([(right, "dim", "right")] if near(1) is not None else []), *rest]
-    # A row as each draw knows it again: its label, and whether it only shows, as a machine ak
-    # uses may share its name with one that stands in, whose row only shows.
-    def who(row):
-        return row[0], row[2] is None
+    # Each row as each draw knows it again: its label, whether it only shows, and how many rows
+    # above share both, as a machine ak uses may share its name with one that stands in, whose
+    # row only shows, and two harnesses the name their manifests give.
+    def who(rows):
+        keys = [(label, act is None) for label, _, act, *_ in rows]
+        return [(key, keys[:number].count(key)) for number, key in enumerate(keys)]
     while True:
-        was = who(rows[here[1]]) if rows else None
+        was = who(rows)[here[1]] if rows else None
         rows, note = page()
         if not opened:                # a pick removed the last row: the highlight on the new last
-            here = ("row", next((number for number, row in enumerate(rows) if who(row) == was),
+            here = ("row", next((number for number, row in enumerate(who(rows)) if row == was),
                                  min(here[1], len(rows) - 1)))
         drawn = [(("row", number), label,
                   stepping(value, act[1]) if kind(act) == "step" and here == ("row", number)
@@ -5837,13 +5839,13 @@ def config_page(name, page, move=True):
         else:
             # typed in, the arrows move nothing: Enter saves what was typed
             opened, at = None, here[1]
-            field_row = who(rows[at])
+            field_row = who(rows)[at]
             clock.forget()            # drawn off the clock: the page back is drawn as it is
             keys = terminal.keys("esc back", enter="save", move=False)
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
-                at = next(number for number, row in enumerate(rows) if who(row) == field_row)
+                at = who(rows).index(field_row)
                 body, places = page_body([(("row", number), label, value)
                                           for number, (label, value, *_) in enumerate(rows)])
                 # under the row's last line, a value that wrapped included
