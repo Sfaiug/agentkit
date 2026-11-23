@@ -71,7 +71,6 @@ import re
 import selectors
 import shlex
 import socket
-import stat
 import subprocess
 import sys
 import tempfile
@@ -388,20 +387,11 @@ def _age(stamp):
 
 def _record(path):
     """The stamp of the record at `path` and its word of TAKES, both None for one that cannot be
-    read.  Opened without waiting, so that a named pipe there holds up neither `ak standby`
-    nor the tick, and read only as a regular file."""
+    read."""
     try:
-        opened = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
-        try:
-            if not stat.S_ISREG(os.fstat(opened).st_mode):
-                return None, None
-            os.set_blocking(opened, True)
-            # A MiB at most, more than any record ak writes, whose boot from `pair_clock.NOW` Linux
-            # keeps under 128 KiB: a damaged one may be any size.
-            with open(opened, "rb", closefd=False) as record:
-                held = record.read(2**20 + 1)
-        finally:
-            os.close(opened)
+        # A MiB at most, more than any record ak writes, whose boot from `pair_clock.NOW` Linux
+        # keeps under 128 KiB: a damaged one may be any size.
+        held = config.read_regular(path, 2**20 + 1)
         line, takes = held.decode().splitlines() if len(held) <= 2**20 else (None, None)
     except (OSError, ValueError):     # one that may not be read, or not two lines of text
         line = takes = None
@@ -504,7 +494,7 @@ def _copied(alias):
     """The stamp of the last pass from `alias` that ended well, and why ak here stayed where it
     was, if it did; no stamp for none yet, one cut short or one of another home."""
     try:
-        line, of, *stayed = (config.TMP / FOLDER / COPIED).read_text().splitlines()
+        line, of, *stayed = config.read_regular(config.TMP / FOLDER / COPIED).decode().splitlines()
     except (OSError, ValueError):     # none yet, or one cut short
         return None, []
     return pair_clock.read(line) if of == alias else None, stayed

@@ -16,8 +16,6 @@ is kept; and the menu, which would wait on what is frozen, says so in its place,
 """
 
 import math
-import os
-import stat
 
 from . import config, host, lease, orch, standby, terminal
 
@@ -62,13 +60,9 @@ def stands_still():
     freezer's file does not read `1` or cannot be read.  It writes nothing: only a firing freezes
     and thaws."""
     try:
-        # opened without waiting and read only as a file, its whole reading, as `paused` reads it:
-        # a pipe there would wait for a writer
-        with open(host.freezer(orch.slice_cgroup()), "rb",
-                  opener=lambda path, flags: os.open(path, flags | os.O_NONBLOCK)) as freezer:
-            if not stat.S_ISREG(os.fstat(freezer.fileno()).st_mode) or \
-                    freezer.read().strip() != b"1":
-                return None
+        # its whole reading, as `paused` reads it
+        if config.read_regular(host.freezer(orch.slice_cgroup())).strip() != b"1":
+            return None
     except (OSError, ValueError):     # ValueError: a path no file can have, as one holding a NUL
         return None
     age = lease.proof_age()

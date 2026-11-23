@@ -6,7 +6,6 @@ option.  `menu.client_menu` keeps the list and tries its names once the home doe
 
 import os
 import re
-import stat
 
 from . import config, standby
 
@@ -16,13 +15,9 @@ WHOLE = re.compile(f"(?:{standby.HOST}(?:\n|\\Z))*".encode())
 
 def read():
     """The names kept, in the list's order: none where it is not there, cannot be read, or holds
-    any other line.  Opened without waiting, so that a named pipe there holds no menu up, and
-    read only as a regular file."""
+    any other line."""
     try:
-        with open(os.open(config.TMP / "takers", os.O_RDONLY | os.O_NONBLOCK), "rb") as kept:
-            if not stat.S_ISREG(os.fstat(kept.fileno()).st_mode):
-                return []
-            held = kept.read()
+        held = config.read_regular(config.TMP / "takers")
     except OSError:
         return []
     return held.decode().split() if WHOLE.fullmatch(held) else []
