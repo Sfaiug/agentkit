@@ -371,8 +371,12 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             saved = executor
             executor, reviewer = resume_models(cfg, providers, state, log, repo=repo, skip=backoff)
             if executor != saved:
-                spent, why = usage.model_exhausted(cfg, saved, providers)
-                gone = usage.unready(cfg, saved, providers) or "is no longer eligible"
+                if saved in backoff:
+                    # its refusal is why, read off no meter: the config may have dropped it since
+                    spent, why, gone = False, None, "refused"
+                else:
+                    spent, why = usage.model_exhausted(cfg, saved, providers)
+                    gone = usage.unready(cfg, saved, providers) or "is no longer eligible"
                 log(f"saved executor {saved} cannot run: {why or gone}")
                 handed = saved
                 note_handover(state, handed, "ran dry" if spent else gone,

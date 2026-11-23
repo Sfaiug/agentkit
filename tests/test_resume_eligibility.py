@@ -102,14 +102,19 @@ class ResumeEligibility(unittest.TestCase):
             with self.assertRaisesRegex(config.Error, "unknown model 'delta'"):
                 run.resume_models(self.cfg, self.providers(b=used), state)
 
-    def resumed_past_a_refusal(self, marks, ticked=None, then=None):
-        """The pairs the rounds run of a run alpha refused until ten minutes on, marked `marks`,
-        once a tick reading `ticked` resumes it on beta and the readings turn `then`."""
+    def refused(self, marks, model="alpha"):
+        """A parked run `model` refused until ten minutes on, marked `marks`."""
         directory = self.receipt("refused")
         state = record.read_state(directory)
         state.update(marks, no_merge=True, base=None, branch=None, base_sha=None, findings="",
-                     refusal_retry={"model": "alpha", "at": self.now + 600})
+                     refusal_retry={"model": model, "at": self.now + 600})
         record.save_state(directory, state)
+        return directory
+
+    def resumed_past_a_refusal(self, marks, ticked=None, then=None):
+        """The pairs the rounds run of a run alpha refused until ten minutes on, marked `marks`,
+        once a tick reading `ticked` resumes it on beta and the readings turn `then`."""
+        directory = self.refused(marks)
         with patch.object(run, "spawn_bg") as spawn, patch.object(run, "rounds") as rounds:
             watch.resume_exhausted(self.cfg, ticked or self.readings, log=self.logs.append,
                                    now=self.now)
@@ -134,6 +139,16 @@ class ResumeEligibility(unittest.TestCase):
                                                      then=self.providers(b=100)), [])
         run.run_slot.assert_not_called()
         self.assertEqual(record.read_state(config.RUNS / "refused")["state"], "exhausted")
+
+    def test_a_refused_executor_the_config_dropped_since_hands_an_explicit_resume_on(self):
+        directory = self.refused({"executor": "delta", "workers": ["delta", "beta"],
+                                  "reviewers": ["beta"], "reviewer": "beta",
+                                  "models": dict(self.cfg["models"])}, "delta")
+        config.remove_provider(self.cfg, "c")
+        with patch.object(run, "rounds") as rounds:
+            run.resume_run([directory.name])
+        self.assertEqual([(call.args[0].executor, call.args[0].reviewer)
+                          for call in rounds.call_args_list], [("beta", "beta")])
 
 
 if __name__ == "__main__":
