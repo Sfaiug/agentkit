@@ -1397,19 +1397,17 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         # record is new, so no turn of this review has run and nothing it handed in is lost: one
         # entered again is reviewed as its resume picked (`resume_models`).  Only a reviewer of a
         # writer's lab is left out beside them, so only then are the meters read; once for both
-        # picks, so one with room in the first is in the second unless the lab rule's pick names
-        # one of another lab (`ready_order`); a lineup refreshed between the two reads can still
-        # leave the second empty.
+        # reads, so one with room without the writers is picked beside them unless one of
+        # another lab is (`ready_order`), or a lineup refreshed between the reads leaves it out.
         providers = meters()
         if lp.reviewer in ready_reviewers(providers=providers, log=None):
             offered = ready_reviewers(writers, providers, log=None)
             if not offered:
                 raise turns.QuotaDry("no eligible reviewer is left to review; waiting for review")
-            first = staffing.kept_reviewer(lp.cfg, writers, offered, lp.reviewer)
-            if first != lp.reviewer:
-                lp.log(f"reviewer {first} is of another lab: {lp.reviewer} does not review "
-                       f"this round")
-                lp.reviewer, lp.review_sid = first, None
+            if lp.reviewer not in offered:
+                lp.log(f"reviewer {offered[0]} reviews this round: the pick left out "
+                       f"{lp.reviewer}")
+                lp.reviewer, lp.review_sid = offered[0], None
                 name = f"reviewer-{lp.reviewer}"
                 lp.save()
 

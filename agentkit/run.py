@@ -38,7 +38,7 @@ from .roundloop import (Loop, check_fix_on_tip, note, pin_checkout, pinned_head,
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
     start_followups, task_project, write_result)
-from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, kept_reviewer,
+from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
     note_handover, pick_models, ready_order, refuse_outside_group,
     refuse_unready, replace_reviewer, resume_models, reviewer_order, run_refusal, run_workers,
     same_model, started_round)
@@ -2779,7 +2779,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first,
-    # and none of their lab while one of another has usage left (`ready_order`)
+    # and none of their lab while one of another is marked (`ready_order`)
     writers = head_writers({**prior, "own_orchestrator": orchestrator, "own_pr": True}) if is_own else []
     order = reviewer_order(cfg, writers, ready_order(cfg, providers, reviewers, log,
                                                      role="reviewer", writers=writers))
@@ -2790,10 +2790,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
             config.model(cfg, preset_rev)
     except config.Error:
         preset_rev = None
-    if preset_rev:
-        # a saved reviewer keeps its identity; a stale one does not, nor one of a writer's lab
-        # where the pick names one of another (`kept_reviewer`)
-        preset_rev = kept_reviewer(cfg, writers, order, preset_rev) if order else None
+    if preset_rev and preset_rev not in order:
+        preset_rev = None   # a saved reviewer keeps its identity; a stale one does not
     if opts["--review"]:
         config.model(cfg, opts["--review"])
         refuse_unready(cfg, providers, opts["--review"], "reviewer")

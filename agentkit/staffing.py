@@ -105,18 +105,17 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_b
     through here; `log`, on the one call of a pick that gives a role, says in one line why
     each marked one is left out of the pick returned.
 
-    A reviewer's pick that comes back empty where `takers`' lab rule left reviewers out is
-    made once more without that rule, a pick of its own of `workers` as given, at its own
-    moment, in `reviewer_order`'s order beside the writers.  The owner, 22 Nov 2026: "Own lab
-    reviews when spent".  So one of another lab whose window came back in between is first,
-    and a reviewer of theirs already given the role gives way to it (`kept_reviewer`).
+    A reviewer's pick that comes back empty where `takers`' lab rule left names out is made
+    once more of those names alone.  The owner, 22 Nov 2026: "Own lab reviews when spent".
+    So it never names one of another lab, and a caller choosing among it chooses as among any.
     """
     from . import usage  # here, not at the top: usage imports staffing
     role, reviewers = kwargs.get("role", "executor"), kwargs.get("reviewers")
     marks, skip, by_lab = _takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)
     order = usage.pick_order(cfg, providers, marks, skip=skip, **kwargs)
     if role == "reviewer" and by_lab and not order:
-        return reviewer_order(cfg, writers, ready_order(cfg, providers, workers, log, **kwargs))
+        order = usage.pick_order(cfg, providers, by_lab, **kwargs)
+        skip = {name: why for name, why in skip.items() if name not in by_lab}
     if log and skip:
         for name in usage.marked(cfg, marks, role, reviewers):
             if name in skip:
@@ -139,10 +138,11 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
     off, unready or barred shares none (`pair_tier` 0).  The owner, 18 Nov 2026: "same
     provider or model for both roles should still be allowed if only picked, but if multiple
     picked then from different."  So a subscription of a writer's lab keeps no payg reviewer
-    of another out, and a pick this leaves empty is made again without it (`ready_order`).
-    An executor's pick given `reviewed_by`, the reviewer marks of its run, leaves out the same
-    way every executor with no reviewer of them at `pair_tier` 0 that is not off, unready or
-    barred, while another has one: the pick is the one a run marking only those executors gets.
+    of another out, and a pick this leaves empty is made again of those it left out
+    (`ready_order`).  An executor's pick given `reviewed_by`, the reviewer marks of its run,
+    leaves out the same way every executor with no reviewer of them at `pair_tier` 0 that is
+    not off, unready or barred, while another has one: the pick is the one a run marking only
+    those executors gets.
     """
     return _takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)[:2]
 
@@ -390,17 +390,6 @@ def reviewer_order(cfg, writers, order):
     tiered = [(max((pair_tier(cfg, each, name, lineup) for each in names), default=0), name)
               for name in known(cfg, order)]
     return [name for _, name in sorted(tiered, key=lambda each: each[0])]
-
-
-def kept_reviewer(cfg, writers, order, held):
-    """Who reviews of `order`, a reviewer's pick beside `writers` (`ready_order`), where `held`
-    already holds the role: `held` while the pick names it and, while `held` shares a lab with
-    one of them, names none that shares none (`pair_tier` 0); else the first of those, else the
-    pick's first.  Only a pick made again names both.  Both are told by one lineup read."""
-    names, (lineup, _) = known(cfg, writers), matrix.listed()
-    far = [name for name in order if all(pair_tier(cfg, writer, name, lineup) == 0
-                                         for writer in names)]
-    return held if held in order and (held in far or not far) else (far or order)[0]
 
 
 def head_writers(state):
@@ -681,7 +670,7 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
     if not needs:
         order = reviewer_order(cfg, executor, review_order) if executor else review_order
         if order:
-            return executor, kept_reviewer(cfg, review_writers(state), order, reviewer)
+            return executor, reviewer if reviewer in order else order[0]
         raise turns.QuotaDry("no eligible reviewer; waiting for review")
     # one the config no longer defines (`config.as_launched`) is none to keep, and is refused by
     # that name below unless the run waits
