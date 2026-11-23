@@ -62,23 +62,24 @@ class ReviewersBesideWriters(Sandbox):
         self.assertEqual(self.logs, [])     # neither is left out of the pick returned
 
     def at_two_moments(self, listed):
-        """The pick of `listed` beside opus with astra refused until 10001: the first reading at
-        the sandbox's 10000, the second at 10002."""
+        """The pick of `listed` beside opus with astra refused until 10001, and how many picks
+        `pick_order` made: the first read at the sandbox's 10000, the second at 10002."""
         self.providers["beta"]["exhausted_until"] = 10001
-        pick_order, moments = usage.pick_order, iter((10000, 10002))
+        pick_order, read = usage.pick_order, []
 
         def at_the_next_moment(*args, **kwargs):
-            with patch.object(usage.time, "time", return_value=next(moments)):
+            read.append((10000, 10002)[len(read)])
+            with patch.object(usage.time, "time", return_value=read[-1]):
                 return pick_order(*args, **kwargs)
 
         with patch.object(usage, "pick_order", at_the_next_moment):
-            return self.pick(listed, ["opus"])
+            return self.pick(listed, ["opus"]), len(read)
 
     def test_one_on_another_provider_back_between_the_picks_is_not_in_the_second(self):
-        self.assertEqual(self.at_two_moments(["opus", "astra"]), ["opus"])
+        self.assertEqual(self.at_two_moments(["opus", "astra"]), (["opus"], 2))
 
     def test_an_empty_pick_the_rule_left_nobody_out_of_is_not_made_again(self):
-        self.assertEqual(self.at_two_moments(["astra"]), [])
+        self.assertEqual(self.at_two_moments(["astra"]), ([], 1))
 
     def test_a_first_pick_naming_a_payg_one_on_another_provider_is_returned_as_it_is(self):
         self.cfg["providers"]["beta"]["mode"] = "payg"
