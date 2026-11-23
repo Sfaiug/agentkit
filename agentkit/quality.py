@@ -113,11 +113,12 @@ def _error(values, column, kind, best):
 def rated(rows, role):
     """Each of `rows` ({"release", "effort", "values": {column: number}}) that has at least
     `FEWEST` of `role`'s measures measured or carried, as itself with its "quality" (100 less its
-    weighted mean points behind the best over the role's measures a row of the index has), its
-    "se", the root of squares of its error's parts by the score each comes from, its "cost"
-    (`COSTS` at its own effort, else None) and per measure {"points", "how", "parts"}, those
-    parts by score ({(release, effort, column): points}): measured, carried (with the effort it
-    is "from", its own part the shift's error) or missing (as its furthest-behind measure)."""
+    weighted mean points behind the best over the role's measures a row with the index has, of
+    every row where none has it), its "se", the root of squares of its error's parts by the
+    score each comes from, its "cost" (`COSTS` at its own effort, else None) and per measure
+    {"points", "how", "parts"}, those parts by score ({(release, effort, column): points}):
+    measured, carried (with the effort it is "from", its own part the shift's error) or missing
+    (as its furthest-behind measure)."""
     measures = ROLES[role]
     kinds = {column: kind for column, kind, _, _ in measures}
     weights = {column: weight for column, _, weight, _ in measures}
@@ -128,7 +129,8 @@ def rated(rows, role):
                                   if column.startswith(EVALUATION) and column.endswith(".score")}
                    for kind in [EVALUATION_KINDS.get(column[len(EVALUATION):-len(".score")],
                                                      "share")]}
-    indexed = [row for row in rows if INTEL in row["values"]]
+    # else, where the board stops publishing the index, no row would be rated
+    indexed = [row for row in rows if INTEL in row["values"]] or rows
     best = {column: SCALES[kind][0](found) for column, kind in kinds.items()
             for found in [[row["values"][column] for row in indexed if column in row["values"]]]
             if found}
