@@ -65,8 +65,11 @@ class QualityRatesEveryEffort(unittest.TestCase):
         self.assertEqual(points(self.rated, "dune-3", "medium")[W], (5, "carried"))
         self.assertEqual(points(self.rated, "dune-3", "max")[W], (0, "carried"))
 
-    def test_the_best_is_of_rows_with_the_index(self):
+    def test_the_best_is_of_rows_with_the_index_else_of_every_row(self):
         self.assertEqual(points(self.rated, "echo-1", "none")[F], (-30, "measured"))
+        unindexed = [dict(r, values={k: v for k, v in r["values"].items() if k != I}) for r in ROWS]
+        self.assertEqual(points(quality.rated(unindexed, "execute"), "echo-1", "none")[F],
+                         (0, "measured"))
 
     # ak rates every current model per effort and role on quality and cost alone;
     # speed is ak's to fix, subscriptions follow the choice. The check rates only
