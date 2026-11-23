@@ -29,10 +29,9 @@ from test_key_home_freezes_without_its_lease import now
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
 class AMachineAnswersWhetherItIsHome(unittest.TestCase):
     def machines(self, *names):
-        machines = Machines(*(names or ("acme-mini",)))
+        names = names or ("acme-mini",)
+        machines = Machines(*names, now=dict.fromkeys(names, now(0)))
         self.addCleanup(machines.close)
-        for machine in machines:
-            machine.env["AK_NOW"] = now(0)
         return machines
 
     def home(self, *names):

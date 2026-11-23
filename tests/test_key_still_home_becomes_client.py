@@ -47,10 +47,9 @@ class AStillHomeBecomesAClient(Firings, unittest.TestCase):
         """The machines acme-mini, keeping a record of acme-vm saying `takes` and, where `kill`,
         an empty `cgroup.kill` in its slice; and acme-vm, which fired at minute 0 and created the
         lease."""
-        machines = self.machines("acme-mini", "acme-vm")
+        names = "acme-mini", "acme-vm"
+        machines = self.machines(*names, now=dict.fromkeys(names, now(0)))
         mini, vm = machines
-        for machine in machines:
-            machine.env["AK_NOW"] = now(0)
         vm.write(RECORDS / "acme-mini", f"{now(0)}\nyes\n")
         self.runs(vm, now(0))
         self.assertIn(REF, vm.install.refs())
