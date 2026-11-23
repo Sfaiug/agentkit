@@ -29,10 +29,21 @@ var CronTagged = regexp.MustCompile(`#+[[:space:]]*agentkit[[:space:]]+watch([[:
 // After a move, the version it replaced decides whether the move stays, from outside the new
 // release, which may be what cannot start: so the line runs that keeper first, under the line's
 // PATH and into the tick's log, and then the tick, whatever the keeper did.
-func cron(sandboxed bool, out, errOut io.Writer) error {
-	if sandboxed {
-		fmt.Fprintln(out, "server: sandbox HOME, so the ak watch cron is not installed")
+//
+// record, the record of a server, goes only where the crontab holds the tick or no crontab is
+// ours to write: an install that leaves the table without it leaves a client, whose job runs the
+// install again, never a machine with no client job and no tick.  It goes before the line said
+// of it, so what printing meets decides nothing.
+func cron(sandboxed bool, record string, out, errOut io.Writer) error {
+	gone := func(to io.Writer, said string) error {
+		if err := os.Remove(record); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		fmt.Fprintln(to, said)
 		return nil
+	}
+	if sandboxed {
+		return gone(out, "server: sandbox HOME, so the ak watch cron is not installed")
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -48,8 +59,7 @@ func cron(sandboxed bool, out, errOut io.Writer) error {
 		" " + cronWord(config.Resolve(executable)) + " watch >>" + log + " 2>&1 " + cronTag
 	listed, err := exec.Command("crontab", "-l").Output()
 	if errors.Is(err, exec.ErrNotFound) {
-		fmt.Fprintln(errOut, "note: no crontab here; run `ak watch` every three minutes some other way")
-		return nil
+		return gone(errOut, "note: no crontab here; run `ak watch` every three minutes some other way")
 	}
 	// every crontab exits 1 for an account with no table yet; any other failure is a table it
 	// could not read, and writing would replace the owner's jobs with ak's line alone
@@ -67,16 +77,15 @@ func cron(sandboxed bool, out, errOut io.Writer) error {
 	}
 	table := strings.Join(append(wanted, line), "\n")
 	if table == current {
-		fmt.Fprintln(out, "server: the ak watch cron is already installed")
-		return nil
+		return gone(out, "server: the ak watch cron is already installed")
 	}
 	write := exec.Command("crontab", "-")
 	write.Stdin, write.Stdout, write.Stderr = strings.NewReader(table+"\n"), out, errOut
 	// a table crontab refuses is its own words, and the install goes on, as install.sh's does
-	if write.Run() == nil {
-		fmt.Fprintln(out, "server: ak watch runs every three minutes from cron")
+	if write.Run() != nil {
+		return nil
 	}
-	return nil
+	return gone(out, "server: ak watch runs every three minutes from cron")
 }
 
 // cronWord is text as one single-quoted word to the sh cron hands the line to, each % stepping
