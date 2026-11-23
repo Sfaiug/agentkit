@@ -59,8 +59,12 @@ def run(home, *args):
 
 
 def cron(row):
-    """A crontab `row`'s schedule, its first five fields, and what cron hands sh of the rest: a
-    backslash and the next character are a pair, \\% is a %, and the command ends at any other %."""
-    *schedule, rest = row.split(" ", 5)
-    kept = re.match(r"(?:\\.|[^\\%])*", rest)[0]
-    return schedule, re.sub(r"\\(.)", lambda pair: "%" if pair[1] == "%" else pair[0], kept)
+    """A crontab `row`'s schedule, its first five fields, then what cron hands sh of the rest and
+    the input it gives that, as cron's do_command reads them: in the command a backslash and the
+    next character are a pair, \\% a %, and the first other % ends it; in the input after that % a
+    \\% is a % and each other % a newline."""
+    *schedule, rest = row.split(None, 5)
+    command, given = re.fullmatch(r"((?:\\.|[^\\%])*\\?)(?:%(.*))?", rest, re.S).groups()
+    return (schedule, re.sub(r"\\(.)", lambda pair: "%" if pair[1] == "%" else pair[0], command,
+                             flags=re.S),
+            re.sub(r"\\?%", lambda found: "%" if found[0] == "\\%" else "\n", given or ""))

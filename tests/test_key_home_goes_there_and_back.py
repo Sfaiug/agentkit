@@ -55,10 +55,11 @@ class HomeGoesThereAndBack(Firings, unittest.TestCase):
         standby's, every three minutes, so a row that names no home, or another, fails here: it
         exits `code`."""
         row, = [row for row in self.rows(machine) if row.endswith(TAG)]
-        schedule, job = installer.cron(os.fsdecode(row))
+        schedule, job, given = installer.cron(os.fsdecode(row))
         self.assertEqual(schedule, ["*/3", "*", "*", "*", "*"])
         self.clock(machine, minute)
-        self.assertEqual(machine.run("/bin/sh", "-c", job, raw=True).code, code)
+        self.assertEqual(machine.run("/bin/sh", "-c", job, input=os.fsencode(given),
+                                     raw=True).code, code)
 
     def copies(self, machine, home, minute):
         """`machine`'s pass at `minute`, which ends well, its copy of `home`'s file reading as
