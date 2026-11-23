@@ -65,10 +65,10 @@ class Firings:
                 (machine.root / "cgroups" / SLICE / "cgroup.freeze").write_text(freezer)
         return machines
 
-    def record(self, home, takes):
-        """acme-vm's record on `home`, written as a pass that ended well at minute 0 leaves it:
+    def record(self, home, takes, machine="acme-vm"):
+        """`machine`'s record on `home`, written as a pass that ended well at minute 0 leaves it:
         its stamp, and whether it takes over."""
-        home.write(RECORDS / "acme-vm", f"{now(0)}\n{takes}\n")
+        home.write(RECORDS / machine, f"{now(0)}\n{takes}\n")
 
     def freezer(self, machine):
         """What `machine`'s freezer's file reads, None where it is not there."""
@@ -97,11 +97,11 @@ class Firings:
         `freezer`."""
         self.assertEqual(self.fire(machine, at), (0, freezer, True))
 
-    def home(self, home):
-        """`home` with acme-vm's record saying `yes`, whose firing at minute 0 created the lease
+    def home(self, home, machine="acme-vm"):
+        """`home` with `machine`'s record saying `yes`, whose firing at minute 0 created the lease
         and whose firing at minute 3 wrote it anew, each going on as any: the values of both
         kept, and returned, and the lease on the origin the one of minute 3."""
-        self.record(home, "yes")
+        self.record(home, "yes", machine)
         freezer = self.freezer(home)
         self.runs(home, now(0), freezer)
         created = home.install.refs().get(REF)

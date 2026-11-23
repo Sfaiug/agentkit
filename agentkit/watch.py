@@ -47,10 +47,10 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, handback,
-               history, host, lease, login_refusals, logins, look, notify, orch, owner, parsed,
-               pause, questions, seat_tokens, staffing, standby, statusbar, step_down, transitions,
-               turns, update, usage, versions, worker)
+from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, hand_back,
+               handback, history, host, lease, login_refusals, logins, look, notify, orch, owner,
+               parsed, pause, questions, seat_tokens, staffing, standby, statusbar, step_down,
+               transitions, turns, update, usage, versions, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
@@ -9139,8 +9139,9 @@ def main(argv):
         # before the lock: a tick that runs long holds that, and the lease must be written while
         # it does.  Whatever ends the turn, the next firing's turn reads what the remote holds.
         # So does one keeping a value it made, whatever its records say: `pause` holds it to
-        # its proof, which only its turns keep young.
-        if standby.takes_over() or lease.proof_age() is not None:
+        # its proof, which only its turns keep young.  None while a machine it gives home back
+        # to says it is steady: it stands still, and that machine's watch takes the lease.
+        if (standby.takes_over() or lease.proof_age() is not None) and not hand_back.due():
             with suppress(Exception):
                 lease._turn()
         # ... and one that has not known for long that it is the home stands still, none of the
