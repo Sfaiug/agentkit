@@ -39,12 +39,15 @@ def due():
     """Whether home goes back now: asked in the order of their names, by `ak standby --steady`
     there, a machine a record here that reads as a stamp says home goes back to (`back`) says it is
     steady within ASKED.  No where none does, so where no record says `back`, nobody asked."""
-    for path in sorted(standby._records()):
-        # whatever is raised is no, and the next such machine is asked
-        with contextlib.suppress(Exception):
-            if standby._record(path)[1] == "back" and subprocess.run(
-                    standby._home(path.name, "--steady"), stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    timeout=ASKED).returncode == 0:
-                return True
+    try:
+        for path in sorted(standby._records()):
+            # one slower than ASKED is not steady this firing, and the next such machine is asked
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                if standby._record(path)[1] == "back" and subprocess.run(
+                        standby._home(path.name, "--steady"), stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=ASKED).returncode == 0:
+                    return True
+    except Exception:   # whatever is raised is no
+        pass
     return False

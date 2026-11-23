@@ -52,10 +52,11 @@ def named(minute):
 class Firings:
     """A key's machines, a home's record on them and its firings, for a TestCase."""
 
-    def machines(self, *names, freezer="0"):
+    def machines(self, *names, freezer="0", now=None):
         """Machines of these names, each in ak's user manager by its cgroup file, with ak's slice
-        in its cgroup tree and its freezer's file reading `freezer`, or with no slice for None."""
-        machines = Machines(*(names or ("acme-mini",)))
+        in its cgroup tree and its freezer's file reading `freezer`, or with no slice for None,
+        and its clocks where `now` names them."""
+        machines = Machines(*(names or ("acme-mini",)), now=now)
         self.addCleanup(machines.close)
         for machine in machines:
             (machine.root / "membership").write_text(f"0::/{SERVICE}/app.slice/acme.service\n")

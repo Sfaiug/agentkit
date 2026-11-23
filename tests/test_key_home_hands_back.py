@@ -23,7 +23,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import LOG, boxable
 from test_key_ak_lease_creates_a_lease import REF
-from test_key_client_answers_steady import STAMP, steady
+from test_key_client_answers_steady import STAMP, UP, at, steady
 from test_key_home_freezes_without_its_lease import Firings, now
 
 
@@ -32,9 +32,9 @@ class AHomeHandsBack(Firings, unittest.TestCase):
     def pair(self, takes):
         """acme-mini, steady, and acme-vm, the home, its record of acme-mini saying `takes`; and
         the values the lease on the origin held, the last the one there."""
-        mini, vm = self.machines("acme-mini", "acme-vm")
+        mini, vm = self.machines("acme-mini", "acme-vm",
+                                 now={"acme-mini": at(UP), "acme-vm": now(0)})
         steady(mini)
-        vm.env["AK_NOW"] = now(0)
         held = self.home(vm, "acme-mini")
         self.record(vm, takes, "acme-mini")
         return mini, vm, held
