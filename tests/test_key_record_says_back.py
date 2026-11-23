@@ -1,9 +1,10 @@
 """A record may say `back`: `ak standby --copied HOST WALL SINCE BOOT back` keeps it as one saying
 `yes` or `no` is kept, the word `back` in it; `ak standby --takers` names its machine, which takes
 over as one saying `yes` does; and `ak standby` lists it in the line it gives one saying `yes`, and
-says more after it: that home goes back to that machine once it is steady.  Any other word is
-refused as misuse, exit 2, and leaves the record byte for byte.  Black-box, through
-tests/fixtures/akbin.py, with the home's clocks from AK_NOW (`wall seconds-since-boot boot`).
+says more after it: that home goes back to that machine once it is steady; its help names `back`
+among the words `--copied` takes.  Any other word is refused as misuse, exit 2, and leaves the
+record byte for byte.  Black-box, through tests/fixtures/akbin.py, with the home's clocks from
+AK_NOW (`wall seconds-since-boot boot`).
 """
 
 from pathlib import Path
@@ -50,6 +51,11 @@ class ARecordSaysBack(unittest.TestCase):
         self.assertEqual(self.told("yes").code, 0)
         yes = self.listed()
         self.assertTrue(back.startswith(yes) and len(back) > len(yes), (back, yes))
+
+    def test_the_help_names_back_among_the_words_copied_takes(self):
+        said = self.ak("--help")
+        self.assertEqual(said.code, 0, said.err)
+        self.assertIn("  ak standby --copied HOST WALL SINCE BOOT yes|no|back\n", said.out)
 
     def test_any_other_word_is_refused_and_leaves_the_record(self):
         self.assertEqual(self.told("back").code, 0)
