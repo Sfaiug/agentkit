@@ -1,13 +1,14 @@
 """A home standing still, its firing of the tick (`ak watch`) paused, asks each machine a record
 there says takes over from it whether it holds ak's lease (`ak standby --home`), and where one
 answers that it does, becomes that machine's client: it first leaves there a record saying it
-copies that machine and takes over from it, then writes `1` to the `cgroup.kill` of ak's slice,
-makes the standby's folder, adds the standby's job to its crontab, its other lines kept byte for
-byte, and installs itself as a client of that machine, which ends the asking: its firings after
-are a client's.  A machine that answers no, or nothing, ends nothing and changes nothing, nor
-does a home whose only record says `no`, standing still by a proof 20 minutes old, as that
-machine is not asked; and a slice with no `cgroup.kill` gets none, the record there kept and
-nothing past it done.
+copies that machine and, where its own record says `yes`, that home goes back to it, `back`, or,
+where it says `back`, that it takes over, `yes`; then writes `1` to the `cgroup.kill` of ak's
+slice, makes the standby's folder, adds the standby's job to its crontab, its other lines kept
+byte for byte, and installs itself as a client of that machine, which ends the asking: its
+firings after are a client's.  A machine that answers no, or nothing, ends nothing and changes
+nothing, nor does a home whose only record says `no`, standing still by a proof 20 minutes old,
+as that machine is not asked; and a slice with no `cgroup.kill` gets none, the record there kept
+and nothing past it done.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, given before its first command, with
@@ -83,14 +84,16 @@ class AStillHomeBecomesAClient(Firings, unittest.TestCase):
         self.assertFalse((mini.path / SERVER).exists())
         self.assertEqual(self.records(vm), records)
 
-    def test_a_home_standing_still_becomes_the_client_of_its_standby_that_is_home(self):
-        mini, vm = self.pair()
+    def stepped_down(self, takes, told):
+        """acme-mini, its record of acme-vm saying `takes`, standing still becomes acme-vm's
+        client, leaving there a record of itself saying `told`."""
+        mini, vm = self.pair(takes)
         vm.env["AK_NOW"] = now(1)
         self.paused(mini, now(1))
         self.assertEqual(self.kill(mini), b"1")
         self.assertTrue((mini.path / STANDBY).is_dir())
         self.assertEqual((mini.path / SERVER).read_text(), "acme-vm\n")
-        self.assertEqual((vm.path / RECORDS / "acme-mini").read_text(), f"{now(1)}\nyes\n")
+        self.assertEqual((vm.path / RECORDS / "acme-mini").read_text(), f"{now(1)}\n{told}\n")
         table, before = self.table(mini), TABLE.splitlines(keepends=True)
         lines = table.splitlines(keepends=True)
         self.assertIn(before, [lines[:at] + lines[at + 1:] for at in range(len(lines))])
@@ -101,6 +104,12 @@ class AStillHomeBecomesAClient(Firings, unittest.TestCase):
         self.assertEqual(self.table(mini), table)
         self.assertEqual((mini.path / SERVER).read_text(), "acme-vm\n")
         self.assertEqual(self.kill(mini), b"1")
+
+    def test_a_home_standing_still_becomes_the_client_of_its_standby_that_is_home(self):
+        self.stepped_down("yes", "back")
+
+    def test_a_home_whose_record_says_back_tells_its_standby_it_takes_over(self):
+        self.stepped_down("back", "yes")
 
     def test_a_standby_whose_proof_is_10_minutes_old_ends_nothing(self):
         mini, vm = self.pair()
@@ -136,7 +145,7 @@ class AStillHomeBecomesAClient(Firings, unittest.TestCase):
         self.assertIsNone(self.kill(mini))
         self.assertEqual(self.table(mini), TABLE)
         self.assertFalse((mini.path / SERVER).exists())
-        self.assertEqual((vm.path / RECORDS / "acme-mini").read_text(), f"{now(1)}\nyes\n")
+        self.assertEqual((vm.path / RECORDS / "acme-mini").read_text(), f"{now(1)}\nback\n")
 
 
 if __name__ == "__main__":

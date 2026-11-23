@@ -9,7 +9,7 @@ its wall clock set back an hour since the pass and ten minutes gone since boot, 
 minutes old.  A pass whose home did not answer exits non-zero and leaves the copy and its age
 going on, and one while a pass is under way copies nothing, though a pass that died holds none
 back.  Black-box, through tests/fixtures/twohomes.py, whose machine takes its clocks from AK_NOW
-(`wall seconds-since-boot boot`), one of its variables.
+(`wall seconds-since-boot boot`), one of its variables, given where `standby` builds it.
 """
 
 import os
@@ -29,6 +29,7 @@ TABLE = (b"# the owner's\n\n0 4 * * * /usr/bin/true # caf\xe9\n"
          b"0 5 * * * echo '# agentkit standby' is watched >/dev/null\n")
 STATE = ".agentkit/state/watch.json"     # the home's, which a pass copies
 PASSED = "1789000000 10000 acme-boot-1"      # this machine's clocks at its pass
+BEGAN = "1789000000 50000 acme-mini-boot-1"     # the home's clocks
 SET_BACK = "1788996400 10600 acme-boot-1"    # ten minutes on since boot, the wall an hour back
 FAILED = "1789000120 10120 acme-boot-1"      # two minutes after the pass
 LATER = "1789000600 10600 acme-boot-1"       # ten minutes after it
@@ -39,15 +40,24 @@ def minutes(count):
     return rf"(?<![\w-]){count}m(?![\w-])"
 
 
+def standby():
+    """acme-mini, a home holding STATE, and acme-vm, its client, each with its clocks, BEGAN and
+    PASSED, before any command runs on it; `close` ends them."""
+    machines = Machines("acme-mini", "acme-vm")
+    home, here = machines
+    home.env["AK_NOW"], here.env["AK_NOW"] = BEGAN, PASSED
+    here.client_of(home)
+    home.write(STATE, "the home's first")
+    return machines
+
+
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
 class AStandbysJobAndAge(unittest.TestCase):
     def setUp(self):
-        machines = Machines("acme-mini", "acme-vm")
+        machines = standby()
         self.addCleanup(machines.close)
         self.home, self.here = home, here = machines
         self.addCleanup(home.answer)
-        here.client_of(home)
-        home.write(STATE, "the home's first")
         self.table = here.root / "crontab"
         self.table.write_bytes(TABLE)
 

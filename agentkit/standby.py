@@ -55,8 +55,9 @@ there (`_copies`), and of which its tick pages the owner once its copy is GONE o
 asks the home for a stamp of its own where it takes its own (`_began`), and one that ends well
 hands it back as printed, last: a record dated by the seconds since the pass began would be dated
 younger than its copy by however late the request arrives, and one dated by the home's stamp never
-is.  Neither request is anything of the pass's own: what it prints, its exit and its copy are the
-same whatever the home answers, or whether it does.
+is; with it goes the word the records here give (`_told`).  Neither request is anything of the
+pass's own: what it prints, its exit and its copy are the same whatever the home answers, or
+whether it does.
 """
 
 import contextlib
@@ -461,6 +462,16 @@ def _takers():
     return 0
 
 
+def _told():
+    """The word another machine's record of this one shall say, by the words of the records here
+    that read as a stamp: `back` where one says `yes`, which the machine home first holds; else
+    `yes` where one says `back`, as home goes back to that machine, never to this one, which stood
+    in for it; else `no`.  No record is picked out: a machine is told by its ssh alias and its
+    record here is named by its host name, and nothing ties the two."""
+    said = {_record(path)[1] for path in _records()}
+    return "back" if "yes" in said else "yes" if "back" in said else "no"
+
+
 def tell():
     """Tell the owner of each machine whose copy of this one is GONE old, by the clock calling it
     younger: asked again at every firing of the tick, notify sends a page once for each record's
@@ -622,7 +633,7 @@ def main(argv):
         versions.final(time.time())
         if held:
             with contextlib.suppress(OSError, subprocess.SubprocessError):
-                subprocess.run(_home(alias, "--copied", *held, "no"), stdin=subprocess.DEVNULL,
+                subprocess.run(_home(alias, "--copied", *held, _told()), stdin=subprocess.DEVNULL,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                timeout=TIMEOUT)
     return 0
