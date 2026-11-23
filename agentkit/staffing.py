@@ -649,6 +649,14 @@ def run_reviewers(cfg, state):
     return run_workers(cfg, state)
 
 
+def refusal_backoff(state, now):
+    """The executor a short refusal keeps out of the run's picks until the moment it named
+    (`turns.RanDry.remember`): the tick's that resumes it and the resumed run's alike."""
+    retry = state.get("refusal_retry")
+    model, at = (retry.get("model"), retry.get("at")) if isinstance(retry, dict) else (None, None)
+    return (model,) if isinstance(model, str) and isinstance(at, (int, float)) and now < at else ()
+
+
 def resume_needs_executor(state):
     # Landing invalidates review before its fixer runs. That pending review is not
     # proof the executor finished: a refused rebase/final fixer still needs its fuel.
