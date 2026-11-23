@@ -21,9 +21,8 @@ does all it does on a real host, every tool it calls a fake.
 
 from pathlib import Path
 import shlex
-import sys
 
-from .akbin import AK, REFUSE
+from .akbin import AK
 
 CHECKOUT = Path(AK).parents[1]
 INSTALL = CHECKOUT / "install.sh"
@@ -40,10 +39,8 @@ exit 1
 
 
 def prepare(home):
-    python = shlex.quote(sys.executable)
     for name in HOST:
-        home.fake(name, REFUSE.format(python=python, name=name,
-                                      log=shlex.quote(str(home.log(name)))))
+        home.refuse(name)
     home.fake("hostname", "#!/bin/sh\necho acme-host\n")
 
 
