@@ -167,7 +167,7 @@ def roles(cfg):
             "SELECT run_id, executor, executor_effort, reviewer, (SELECT CASE WHEN "
             "COUNT(DISTINCT effort) = 1 THEN MIN(effort) END FROM reviews WHERE "
             "reviews.run_id = runs.run_id), counted_turns, turn, role, account, model, "
-            f"{{kept[turn_usage]}}, {', '.join(PRICES)} FROM runs "
+            f"{{added[turn_usage.listed_usd]}}, {', '.join(PRICES)} FROM runs "
             "LEFT JOIN turn_usage USING (run_id) "
             "WHERE kind = 'task' AND finished_at IS NOT NULL"):
         if turn is not None:
@@ -212,7 +212,7 @@ def roles(cfg):
             "AS runs FROM firsts JOIN runs ON runs.orchestrator = firsts.orchestrator AND "
             "orchestrator_effort = firsts.effort AND started_at >= first WHERE kind = 'task' "
             "GROUP BY 1, 2) SELECT orchestrator, effort, runs, account, "
-            f"model, {{kept[seat_usage]}}, {', '.join(PRICES)} FROM used "
+            f"model, {{added[seat_usage.listed_usd]}}, {', '.join(PRICES)} FROM used "
             "JOIN launched USING (orchestrator, effort)"):
         seats.setdefault((name, effort, runs), []).append((account, model, counts, listed_usd))
     for (name, effort, runs), rows in seats.items():
@@ -236,12 +236,13 @@ def _rows(account, since, until):
     counts summed; a row's dollars are those it kept, if any, a turn row's that share of them."""
     columns = ", ".join(PRICES)
     for event, model, tokens, kept, *counts in _select(
-            f"SELECT event, model, tokens, {{kept[seat_usage]}}, {columns} FROM seat_usage "
+            f"SELECT event, model, tokens, {{added[seat_usage.listed_usd]}}, {columns} "
+            "FROM seat_usage "
             "WHERE account = ? AND at >= ? AND at <= ?", account, since, until):
         yield event.split(":", 1)[0], model, tokens, counts, kept
     for turn, model, began, at, kept, *counts in _select(
-            f"SELECT turn, model, COALESCE(began, at), at, {{kept[turn_usage]}}, {columns} "
-            "FROM turn_usage "
+            "SELECT turn, model, COALESCE(began, at), at, {added[turn_usage.listed_usd]}, "
+            f"{columns} FROM turn_usage "
             "WHERE account = ? AND at >= ? AND COALESCE(began, at) <= ?", account, since, until):
         share = (min(at, until) - max(began, since)) / (at - began) if at > began else 1
         if not share:   # it only touches the time at an end: none of it was spent then
@@ -333,20 +334,24 @@ def _receipt(turn, name):
         return None
 
 
+# The columns a migration added that a query here reads as `{added[<table>.<column>]}`.
+ADDED = ("seat_usage.listed_usd", "turn_usage.listed_usd", "meter_readings.scope")
+
+
 def _select(query, *args):
     """What `query` finds in history.db; nothing where it cannot answer, as before a table is.
-    Its `{kept[<table>]}` is the dollars a usage table's row kept, `listed_usd`, or NULL in a
+    Its `{added[<table>.<column>]}` of a column ADDED names is that column, or NULL in a
     history.db no write has added it to yet, as a read connection adds no column.  Looked for in
     the query's own read: a write adding it and a row between a look and the query left that
-    row's dollars unread."""
+    row's column unread."""
     try:
         with contextlib.closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")     # one snapshot for the look and the query; in WAL no write waits
-            kept = {table: "listed_usd" if db.execute(
-                        "SELECT 1 FROM pragma_table_info(?) WHERE name = 'listed_usd'",
-                        (table,)).fetchone() else "NULL"
-                    for table in ("seat_usage", "turn_usage")}
-            return db.execute(query.format(kept=kept), args).fetchall()
+            added = {name: name.split(".")[1] if db.execute(
+                         "SELECT 1 FROM pragma_table_info(?) WHERE name = ?",
+                         name.split(".")).fetchone() else "NULL"
+                     for name in ADDED}
+            return db.execute(query.format(added=added), args).fetchall()
     except (OSError, sqlite3.Error):
         return []
 
