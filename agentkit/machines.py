@@ -69,7 +69,9 @@ def helpers():
 def work(name, cfg=None):
     """The work `name` takes; None names every rental, including one not rented yet.
 
-    Unwritten marks follow the old switch. A Mac's probe rules out turns even after migration.
+    Unwritten marks follow the old switch while config.toml holds it, else what the machine
+    last said it is: Linux without a battery takes turns too; a laptop, a Mac or one not
+    answered yet tests alone.  A Mac's probe rules out turns, written or not.
     """
     cfg = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}) if cfg is None else cfg
     config._work_in(cfg)
@@ -80,12 +82,14 @@ def work(name, cfg=None):
     table = (cfg.get("google_cloud") or {}) if rented else \
         named.get(name, {}) if isinstance(named, dict) else {}
     try:
-        said = (config._read_json(_path()) or {}).get(name, {}).get("said") if not rented else None
+        said = {} if rented else (config._read_json(_path()) or {}).get(name, {}).get("said") or {}
     except config.Error:
-        said = None
+        said = {}
+    turns = cfg["turns_on_machines"] is True if "turns_on_machines" in cfg else \
+        said.get("system") == "Linux" and not said.get("battery")
     marked = table["work"] if isinstance(table, dict) and "work" in table else \
-        (["turns"] if cfg.get("turns_on_machines") is True else []) + ["tests"]
-    return [word for word in marked if word != "turns" or (said or {}).get("system") != "macOS"]
+        (["turns"] if turns else []) + ["tests"]
+    return [word for word in marked if word != "turns" or said.get("system") != "macOS"]
 
 
 def known():
