@@ -2,10 +2,11 @@
 host name, as `hostname` and `socket.gethostname()` give it, is its name, whose root, HOME
 included, is at the one path every machine's is at, with a /tmp of its own, and whose `ssh`
 reaches every machine by its name and fails as ssh does, 255, for any other.  `homes` puts a
-machine's HOME at another path in its root, as a Mac's is under /Users.  Each has ak's
-install (tests/fixtures/akinstall.py), `install`, and runs its ak: ~/agentkit, a clone of one bare
-origin, which all machines share and no machine is, so it answers while any is off; that `ssh`
-serves git's fetch of it, and its push, too.
+machine's HOME at another path in its root, as a Mac's is under /Users, and `now` gives it its
+clocks, AK_NOW, before any command runs on it.  Each has ak's install
+(tests/fixtures/akinstall.py), `install`, and runs its ak: ~/agentkit, a clone of one bare origin,
+which all machines share and no machine is, so it answers while any is off; that `ssh` serves
+git's fetch of it, and its push, too.
 
     from fixtures.twohomes import Machines
     with Machines("acme-mini", "acme-vm") as (mini, vm):
@@ -67,15 +68,17 @@ with socket.socket(socket.AF_UNIX) as asked:
 
 
 class Machine(Home):
-    """A machine, `name`, with its root at `at`, its HOME at `home` in it, and its install a
-    clone of `origin`'s."""
+    """A machine, `name`, with its root at `at`, its HOME at `home` in it, its clocks `now`
+    where given, and its install a clone of `origin`'s."""
 
-    def __init__(self, name, at, origin, home="home"):
+    def __init__(self, name, at, origin, home="home", now=None):
         super().__init__(at=at)
         if self.path != self.root / home:   # before anything names it
             (self.root / home).parent.mkdir(parents=True, exist_ok=True)
             self.path = self.path.rename(self.root / home)
             self.env["HOME"] = str(self.at / home)
+        if now:     # before the install's first command on it
+            self.env["AK_NOW"] = now
         self.name = name
         self.down = None    # how ssh to it fails: "silent", or "hang"
         self.remote = (None, None)      # how its git calls to the origin fail: `break_remote`
@@ -160,13 +163,15 @@ class Machine(Home):
 
 
 class Machines(tuple):
-    """Machines of these names, each with its sshd and its install of their one origin, and its
-    HOME where `homes` names one for it, else at `home` in its root; `close` ends them all."""
+    """Machines of these names, each with its sshd and its install of their one origin, its
+    HOME where `homes` names one for it, else at `home` in its root, and its clocks where `now`
+    names them; `close` ends them all."""
 
-    def __new__(cls, *names, homes=None):
+    def __new__(cls, *names, homes=None, now=None):
         at = Path(tempfile.mkdtemp(prefix="akbin-")).resolve()
         origin = make(at)     # beside the machines' roots, in no machine
-        machines = super().__new__(cls, [Machine(name, at, origin, (homes or {}).get(name, "home"))
+        machines = super().__new__(cls, [Machine(name, at, origin, (homes or {}).get(name, "home"),
+                                                 (now or {}).get(name))
                                          for name in names])
         machines.sshds = []
         for machine in machines:
