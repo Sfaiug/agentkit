@@ -87,7 +87,8 @@ class ReviewersBesideWriters(Sandbox):
 
     def test_a_resume_held_by_one_on_the_writers_provider_gives_way_to_one_on_another_first(self):
         # fable wrote the work and opus, on its provider, holds the review
-        for listed, kept in ((["astra", "opus"], False), (["opus"], True), (["opus", "fable"], True)):
+        cases = ((["astra", "opus"], False), (["opus"], True), (["opus", "fable"], True))
+        for listed, kept in cases:
             state = dict(executor="fable", reviewer="opus", review_pending={"round": 1},
                          workers=["fable"], reviewers=listed)
             with self.two_moments():
