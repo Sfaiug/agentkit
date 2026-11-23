@@ -51,7 +51,8 @@ def own_home(home):
     """The Home is the account's own from now on; the crontab's table is `<root>/crontab`."""
     home.fake("id", ID)
     home.fake("npm", "#!/bin/sh\nexit 0\n")
-    home.fake("crontab", CRONTAB.format(table=shlex.quote(str(home.root / "crontab"))))
+    # where its commands find it: a machine's of tests/fixtures/twohomes.py too
+    home.fake("crontab", CRONTAB.format(table=shlex.quote(str(home.at / "crontab"))))
     home.env.update(USER="", LOGNAME="")
 
 

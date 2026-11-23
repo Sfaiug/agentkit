@@ -27,14 +27,18 @@ files newer than others, as any pass over a live home does within its own minute
 the home writes meanwhile is here as it held it at no one moment, a lock file of git's among it.
 The next that ends well evens it out.
 
-Before the pass, first of all under its lock, it watches its home's lease (`lease.watch`), whose
-record is the lease's, kept whatever the pass does.  It may take the lease only where the stamp,
-read before it, says a pass from this home has ended well: the machine that takes it carries on
-from its copy, and one holding none would from its own old state.  Then it keeps this machine's
-own job, which makes the pass again every three minutes, as the home's tick runs, after the keeper
-of a move of ak here, as the tick's line runs it (`back`), then sends again, as a tick does, each
-page of this machine's own the webhook did not take (`notify.retry_pending`), whether the home
-answers or not.
+Under its lock, first of all, it reads the record of a server again, as a pass that held the lock
+meanwhile may have made this machine a home, and asks whether ak's lease is this machine's own
+(`lease.ours`).  Where it is, the remote has said this machine is the home, whose state a copy of
+the old one would overwrite: the pass copies nothing and runs `install.sh --server`, exiting 0
+only where the install did, whose record of a server says whether this machine is a home after
+it.  Else it watches its home's lease (`lease.watch`), whose record is the lease's, kept whatever
+the pass does.  It may take the lease only where the stamp, read before it, says a pass from this
+home has ended well: the machine that takes it carries on from its copy, and one holding none
+would from its own old state.  Then it keeps this machine's own job, which makes the pass again
+every three minutes, as the home's tick runs, after the keeper of a move of ak here, as the tick's
+line runs it (`back`), then sends again, as a tick does, each page of this machine's own the
+webhook did not take (`notify.retry_pending`), whether the home answers or not.
 A pass that ends well stamps when it began, and from which home, then why ak here stayed where it
 was, if it did, and at its end does with the last move here what the end of a tick does on a home
 (`versions.final`): a pass of the version that move put live makes it final.
@@ -529,6 +533,19 @@ def _shown():
     return 0
 
 
+def _elsewhere(alias):
+    """Why a pass from `alias` is refused by the record of a server: one reason, or none where the
+    record names `alias`."""
+    return [f"this machine is not a client of {alias}"] * (config.server_alias() != alias)
+
+
+def _refused(reasons):
+    """Whether a pass is refused, saying so for each of `reasons`."""
+    for reason in reasons:
+        print(f"ak standby: refused: {reason}", file=sys.stderr)
+    return bool(reasons)
+
+
 def main(argv):
     if command_help.show("standby", argv):
         return 0
@@ -549,7 +566,7 @@ def main(argv):
         raise config.Error(command_help.COMMANDS["standby"][0])
     alias, home = argv[0], Path.home()
     copied = [*_harnesses(), str(config.CODE.relative_to(home))]
-    refused = [f"this machine is not a client of {alias}"] * (config.server_alias() != alias)
+    refused = _elsewhere(alias)
     # The home's ~/code would take the place of the ak running here.  realpath, as Python 3.11's
     # `Path.resolve` raises at a link here that loops.
     refused += [f"ak runs from {config.tilde(config.REPO)} here, under "
@@ -565,9 +582,7 @@ def main(argv):
               if config.HOME in part.parents}
     refused += [f"{config.tilde(part)} is a link here" for part in sorted(parts)
                 if part.is_symlink()]
-    for reason in refused:
-        print(f"ak standby: refused: {reason}", file=sys.stderr)
-    if refused:
+    if _refused(refused):
         return 1
     own = config.TMP / FOLDER
     own.mkdir(parents=True, exist_ok=True)
@@ -578,6 +593,17 @@ def main(argv):
             print("ak standby: a pass is under way already, so this one copies nothing",
                   file=sys.stderr)
             return 1
+        # again: a pass that held the lock may have made this machine a home since
+        if _refused(_elsewhere(alias)):
+            return 1
+        if lease.ours():
+            checkout = update.agentkit_dir()
+            code, said = versions.run([str(checkout / "install.sh"), "--server"], checkout,
+                                      **update.PINS)
+            if code:
+                print(f"{said}\nak standby: this machine holds ak's lease, and "
+                      f"{checkout / 'install.sh'} --server exited {code}", file=sys.stderr)
+            return 1 if code else 0
         lease.watch(_copied(alias)[0] is not None)
         if not _keep_job(alias):
             return 1
