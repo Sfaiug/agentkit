@@ -3,13 +3,14 @@ swap for the lease it has read unchanged for twenty minutes: a pass that reads t
 holds, first read 20 minutes before or more by whichever of the wall clock and the clock since boot
 calls it younger, on the boot that read it, makes a value, keeps it under `refs/made/` in its
 lease's repository, and sends it as a swap from the value read to `refs/agentkit/home` on the
-origin, where a pass from that home ended well before it began, by the stamp the last such pass
-left in `.agentkit/tmp/standby/copied`, whose second line names the home.  A standby none of whose
-passes ended well sends none, nor one whose stamp names another home; its first pass after one that
-ends well sends it.  One sooner by either clock, or of another boot, sends none; nor does one that
-reads another value, which is watched anew from that pass, or none, the origin unreachable, after
-which the next pass that reads the value watches it anew.  A swap the origin refused, another value
-written there between the read and the push, or whose answer was lost, is not sent again.
+origin, where a pass from that home ended well before it began, and under an hour before by both
+clocks, by the stamp the last such pass left in `.agentkit/tmp/standby/copied`, whose second line
+names the home.  A standby none of whose passes ended well sends none, nor one whose stamp names
+another home or is an hour old by either clock; its first pass after one that ends well sends it.
+One sooner by either clock, or of another boot, sends none; nor does one that reads another value,
+which is watched anew from that pass, or none, the origin unreachable, after which the next pass
+that reads the value watches it anew.  A swap the origin refused, another value written there
+between the read and the push, or whose answer was lost, is not sent again.
 `refs/seen` and every ref under `refs/made/` stay as they were; where the name for the pass's stamp
 is a symbolic ref, the first of a chain too long for git to follow among them, no value is kept and
 no swap sent.  The swap is sent whether the copy of the home that follows ends well or not, and the
@@ -70,6 +71,18 @@ class AStandbyTakesTheLease(unittest.TestCase):
         self.assertNotIn(value, self.leases)
         return value
 
+    def stays(self, at):
+        """The pass at `at`, which exits 0 and leaves the origin's refs and those of the standby's
+        lease repository as they were."""
+        before = refs(kept(self.standby))
+        self.leaves(at)
+        self.assertEqual(refs(kept(self.standby)), before)
+
+    def copied(self, at):
+        """The stamp of the last pass from the home that ended well, written by the key as one
+        taken at `at`."""
+        (self.standby.path / STAMP).write_text(f"{at}\nacme-mini\n")
+
     def watched(self):
         """The lease the home's firing at minute 0 created, which the standby's pass at minute 1
         first read."""
@@ -83,6 +96,21 @@ class AStandbyTakesTheLease(unittest.TestCase):
         taken = self.takes(now(21))
         self.assertEqual(refs(kept(self.standby))[SEEN], seen)
         self.assertEqual(self.fire(22), taken)
+
+    def test_a_copy_an_hour_old_sends_no_swap(self):
+        self.watched()
+        self.copied(on(1, 50))
+        self.stays(now(61))
+
+    def test_a_copy_an_hour_old_since_boot_sends_no_swap(self):
+        self.watched()
+        self.copied(on(50, 1))
+        self.stays(now(61))
+
+    def test_a_copy_under_an_hour_old_sends_the_swap(self):
+        self.watched()
+        self.copied(now(2))
+        self.takes(now(61))
 
     def test_a_lease_the_home_swapped_is_watched_anew(self):
         self.watched()
@@ -129,14 +157,18 @@ class AStandbyTakesTheLease(unittest.TestCase):
 
     def test_two_hours_by_the_wall_clock_and_five_minutes_since_boot_send_no_swap(self):
         self.watched()
+        self.copied(on(120, 5))
         self.leaves(on(121, 6))
 
     def test_five_minutes_by_the_wall_clock_and_two_hours_since_boot_send_no_swap(self):
         self.watched()
+        self.copied(on(5, 120))
         self.leaves(on(6, 121))
 
     def test_two_hours_on_at_another_boot_send_no_swap(self):
         self.watched()
+        # a minute old by the wall clock, the one clock read across a boot
+        self.copied(now(120))
         self.leaves(now(121, "acme-vm-boot-2", since=30.25))
 
     def test_a_lease_read_again_after_an_unreachable_origin_is_watched_anew(self):
@@ -166,9 +198,7 @@ class AStandbyTakesTheLease(unittest.TestCase):
                      *(f"refs/made/acme-{minute}-{n}" for n in range(links - 1)), "refs/heads/acme"]
             for link, target in zip(chain, chain[1:]):
                 _git(repo, "symbolic-ref", link, target)
-            before = refs(repo)
-            self.leaves(now(minute))
-            self.assertEqual(refs(repo), before)
+            self.stays(now(minute))
 
 
 if __name__ == "__main__":
