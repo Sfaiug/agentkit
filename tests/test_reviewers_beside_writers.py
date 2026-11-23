@@ -1,15 +1,14 @@
 """A reviewer's pick given the work's writers leaves out every reviewer of a writer's lab while
-one of another lab with usage left may review: with no lineup stored, as here, each provider is
-a lab.
+one of another lab may review: with no lineup stored, as here, each provider is a lab.
 
 The owner, 18 Nov 2026: "same provider or model for both roles should still be allowed if only
-picked, but if multiple picked then from different."; 22 Nov: "Own lab reviews when spent".
-`staffing.ready_order` narrows the list before `usage.pick_order` reads it, so the pick is the
-one a run marked with only the reviewers on other providers gets, and a subscription on the
-writer's provider keeps no payg reviewer on another out.  A reviewer that is spent, off, unready
-or barred, a list on the writer's provider alone, or a writer the config does not know leaves
-the pick as it is without writers; one spent beside one with usage is left out by its meter, and
-meters nobody could read spend nobody.
+picked, but if multiple picked then from different."  `staffing.ready_order` narrows the list
+before `usage.pick_order` reads it, so the pick is the one a run marked with only the reviewers
+on other providers gets, and one naming a payg reviewer on another keeps the subscription on the
+writer's provider out.  22 Nov: "Own lab reviews when spent": a pick that comes back empty is
+made again without the writers' providers left out, at its own moment, a reviewer on another
+provider first.  A reviewer that is off, unready or barred, a list on the writer's provider
+alone, or a writer the config does not know leaves the pick as it is without writers.
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
@@ -53,43 +52,29 @@ class ReviewersBesideWriters(Sandbox):
     def test_a_reviewer_on_another_provider_alone_is_picked_and_the_log_says_why(self):
         self.assertEqual(self.pick(), ["opus", "astra"])
         self.assertEqual(self.pick(writers=["opus"], log=self.logs.append), ["astra"])
-        self.assertIn("skipped opus: a reviewer of another lab than opus has usage left: astra",
-                      self.logs)
-
-    def test_a_spent_one_leaves_the_pick_as_without_writers(self):
-        self.providers = meters(acme=10, beta=100)
-        self.assertEqual(self.pick(writers=["opus"]), self.pick())
-        self.assertEqual(self.pick(), ["opus"])
-        self.assertEqual(self.pick(["astra"]), [])
-
-    def test_a_spent_one_beside_one_with_usage_is_left_to_its_meter(self):
-        self.cfg["providers"]["gamma"] = {}
-        self.cfg["models"]["nova"] = {**self.cfg["models"]["astra"], "model": "nova-1",
-                                      "provider": "gamma"}
-        self.providers = meters(acme=10, beta=70, gamma=100)
-        self.assertEqual(self.pick(["opus", "astra", "nova"], ["opus"], self.logs.append),
-                         ["astra"])
         self.assertEqual(self.logs,
-                         ["skipped opus: a reviewer of another lab than opus has usage left: astra"])
+                         ["skipped opus: a reviewer of another lab than opus is marked: astra"])
 
-    def test_a_refusal_ending_between_two_reads_of_one_pick_offers_one_lab(self):
-        self.providers["beta"]["exhausted_until"] = 10001       # the sandbox's clock reads 10000
-        pick_order = usage.pick_order
+    def test_with_the_one_on_another_provider_spent_the_pick_is_made_again_without_writers(self):
+        self.providers = meters(acme=10, beta=100)
+        self.assertEqual(self.pick(["astra"]), [])
+        self.assertEqual(self.pick(writers=["opus"], log=self.logs.append), self.pick())
+        self.assertEqual(self.pick(), ["opus"])
+        self.assertEqual(self.logs, [])     # opus is not left out of the pick returned
 
-        def after_it(*args, **kwargs):
-            with patch.object(usage.time, "time", return_value=10002):
+    def test_a_second_pick_holding_one_on_another_provider_names_it_first(self):
+        # astra's refusal ends between the two picks: the sandbox's clock reads 10000
+        self.providers["beta"]["exhausted_until"] = 10001
+        pick_order, moments = usage.pick_order, iter((10000, 10002))
+
+        def at_the_next_moment(*args, **kwargs):
+            with patch.object(usage.time, "time", return_value=next(moments)):
                 return pick_order(*args, **kwargs)
 
-        with patch.object(usage, "pick_order", after_it):
-            self.assertEqual(self.pick(writers=["opus"]), ["opus"])
+        with patch.object(usage, "pick_order", at_the_next_moment):
+            self.assertEqual(self.pick(writers=["opus"]), ["astra", "opus"])
 
-    def test_meters_nobody_could_read_spend_nobody(self):
-        self.providers = usage.Readings({})
-        self.assertEqual(self.pick(writers=["opus"]), ["astra"])
-        _, skip = staffing.takers(self.cfg, None, ["opus", "astra"], "reviewer", writers=["opus"])
-        self.assertEqual(list(skip), ["opus"])
-
-    def test_a_subscription_on_the_writers_provider_keeps_no_payg_one_out(self):
+    def test_a_first_pick_naming_a_payg_one_on_another_provider_is_returned_as_it_is(self):
         self.cfg["providers"]["beta"]["mode"] = "payg"
         self.assertEqual(self.pick(), ["opus"])
         self.assertEqual(self.pick(writers=["opus"]), ["astra"])

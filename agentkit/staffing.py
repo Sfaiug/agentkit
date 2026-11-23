@@ -103,17 +103,28 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_b
 
     Every pick a run makes -- executor, reviewer, spare, handover, the fixer's -- comes
     through here; `log`, on the one call of a pick that gives a role, says in one line why
-    each marked one is left out.
+    each marked one is left out of the pick returned.
+
+    A reviewer's pick that `writers`' lab rule (`takers`) leaves empty is made once more
+    without that rule, `pick_order`'s own at its own moment, and ordered beside the writers
+    (`reviewer_order`), so a reviewer of another lab whose window came back in between comes
+    first.  The owner, 22 Nov 2026: "Own lab reviews when spent".
     """
     from . import usage  # here, not at the top: usage imports staffing
-    role = kwargs.get("role", "executor")
-    workers, skip = takers(cfg, providers, workers, role, kwargs.get("reviewers"), writers,
-                           reviewed_by)
+    role, reviewers = kwargs.get("role", "executor"), kwargs.get("reviewers")
+    workers, skip = takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)
+    order = usage.pick_order(cfg, providers, workers, skip=skip, **kwargs)
+    if not order and writers:
+        kept = takers(cfg, providers, workers, role, reviewers)[1]
+        if kept.keys() != skip.keys():
+            skip = kept
+            order = reviewer_order(cfg, writers,
+                                   usage.pick_order(cfg, providers, workers, skip=skip, **kwargs))
     if log and skip:
-        for name in usage.marked(cfg, workers, role, kwargs.get("reviewers")):
+        for name in usage.marked(cfg, workers, role, reviewers):
             if name in skip:
                 log(f"skipped {name}: {skip[name]}")
-    return usage.pick_order(cfg, providers, workers, skip=skip, **kwargs)
+    return order
 
 
 def takers(cfg, providers, workers=None, role="executor", reviewers=None, writers=None,
@@ -128,13 +139,11 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
 
     A reviewer's pick given `writers`, every model that wrote part of the work, leaves out
     the same way every reviewer sharing a lab with one of them while another that is not
-    off, unready or barred shares none (`pair_tier` 0) and has usage left on `providers`
-    (`usage.model_exhausted`).  The owner, 18 Nov 2026: "same provider or model for both
-    roles should still be allowed if only picked, but if multiple picked then from
-    different."; 22 Nov: "Own lab reviews when spent".  So a subscription of a writer's lab
-    keeps no payg reviewer of another out, and while every reviewer of another lab is spent
-    the pick is the one a run marking none of them gets: the writer's lab's, by rank.  An
-    executor's pick given `reviewed_by`, the reviewer marks of its run, leaves out the same
+    off, unready or barred shares none (`pair_tier` 0).  The owner, 18 Nov 2026: "same
+    provider or model for both roles should still be allowed if only picked, but if multiple
+    picked then from different."  So a subscription of a writer's lab keeps no payg reviewer
+    of another out, and a pick this leaves empty is made again without it (`ready_order`).
+    An executor's pick given `reviewed_by`, the reviewer marks of its run, leaves out the same
     way every executor with no reviewer of them at `pair_tier` 0 that is not off, unready or
     barred, while another has one: the pick is the one a run marking only those executors gets.
     """
@@ -159,24 +168,13 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
         if writers:
             far = [name for name in ready(workers)
                    if all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)]
-            # Read once: while none of them has usage left the pick is a run's marking none of
-            # them, so one whose refusal ends before `pick_order` reads the meters again is not
-            # offered beside the writer's lab; beside one with room, a spent one is left to
-            # `pick_order`, which names its meter.  No meters, no reading: none is spent.
-            spent = {name: why for name in far
-                     if (why := usage.model_exhausted(cfg, name, providers or {})[1])}
-            room = [name for name in far if name not in spent]
-            why = (f"a reviewer of another lab than {', '.join(writers)} has usage left: "
-                   f"{', '.join(room)}")
-            if not room:
-                skip.update(spent)
+            why = f"a reviewer of another lab than {', '.join(writers)} is marked: {', '.join(far)}"
         else:
             reviews = [name for name in ready(reviewed_by) if not barred_reviewer(cfg, name)]
-            far = room = [name for name in ready(workers)
-                          if any(pair_tier(cfg, name, reviewer, lineup) == 0
-                                 for reviewer in reviews)]
+            far = [name for name in ready(workers)
+                   if any(pair_tier(cfg, name, reviewer, lineup) == 0 for reviewer in reviews)]
             why = f"a marked reviewer of another lab can review {', '.join(far)}"
-        if room:
+        if far:
             skip.update((name, why) for name in ready(workers) if name not in far)
     return workers, skip
 
