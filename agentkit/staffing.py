@@ -543,9 +543,8 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
     flaky provider's handover off a self-review pair: the flake usually answers after a wait,
     so only a provider that cannot run the work settles for one.  With review on, the
     executor is one the run's reviewers of another lab can review while one of its builders is
-    (`ready_order`'s `reviewed_by`), as at launch.  Where every builder that pick names is on a
-    provider in `dry`, it is made again of the builders on none, without `reviewed_by`; the
-    owner, 22 Nov 2026: "Own lab reviews when spent".  `log` hears the pick that gives the role.
+    (`ready_order`'s `reviewed_by`), as at launch.  Neither role's pick reads a name on a
+    provider in `dry`.  `log` hears the executor's pick.
     """
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     workers, review_list = config.pair_marks(cfg, workers, reviewers)
@@ -553,20 +552,13 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
     def taking(names):
         return [n for n in known(cfg, names) if config.model(cfg, n)["provider"] not in dry]
 
-    lines = []
-    picked = ready_order(cfg, providers, workers, lines.append, repo=repo, reviewers=reviewers,
-                         reviewed_by=None if reviewer is False else review_list)
-    order = taking(picked)
-    if picked and not order and reviewer is not False:
-        # of those that can take the work alone: a refused subscription keeps no payg one out
-        order = ready_order(cfg, providers, taking(workers), log, repo=repo, reviewers=reviewers)
-    elif log:
-        for line in lines:
-            log(line)
+    # before the picks read them: a refused subscription below pace keeps no payg one out
+    workers, review_list = taking(workers), taking(review_list)
+    order = ready_order(cfg, providers, workers, log, repo=repo, reviewers=reviewers,
+                        reviewed_by=None if reviewer is False else review_list)
     if reviewer is False and order:
         return order[0], None
-    review_order = [n for n in ready_order(cfg, providers, review_list, role="reviewer", repo=repo)
-                    if config.model(cfg, n)["provider"] not in dry]
+    review_order = ready_order(cfg, providers, review_list, role="reviewer", repo=repo)
     pair = best_pair(cfg, order, review_order, allow_self=allow_self)
     if pair is not None:
         return pair
