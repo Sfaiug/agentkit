@@ -7,9 +7,8 @@ slice, makes the standby's folder, adds the standby's job to its crontab, its ot
 byte for byte, and installs itself as a client of that machine, which ends the asking: its
 firings after are a client's.  A machine that answers no, or nothing, ends nothing and changes
 nothing, nor does a home whose only record says `no`, standing still by a proof 20 minutes old,
-as that machine is not asked, nor one whose record turns to `no` as that machine gives its stamp,
-as its pass may write it; and a slice with no `cgroup.kill` gets none, the record there kept and
-nothing past it done.
+as that machine is not asked; and a slice with no `cgroup.kill` gets none, the record there kept
+and nothing past it done.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, given before its first command, with
@@ -22,7 +21,6 @@ undecoded, and files: the crontab's bytes, the records, the record of a server a
 """
 
 from pathlib import Path
-import shlex
 import shutil
 import sys
 import unittest
@@ -138,22 +136,6 @@ class AStillHomeBecomesAClient(Firings, unittest.TestCase):
                      Install._git(repo, "commit-tree", tree, "-m", "acme"))
         self.unchanged(mini, vm, 1)
         self.assertEqual(self.freezer(mini), b"1")
-
-    def test_a_record_that_turns_to_no_as_the_standby_gives_its_stamp_ends_nothing(self):
-        mini, vm = self.pair()
-        vm.env["AK_NOW"] = now(1)
-        installed = vm.path / ".local/bin/ak"
-        installed.unlink()
-        # as acme-vm's pass would, acme-mini's record of it written anew saying `no`
-        told = shlex.join([".local/bin/ak", "standby", "--copied", "acme-vm", *now(0).split(),
-                           "no"])
-        installed.write_text(f"""#!/bin/sh
-[ "$2" != --began ] || ssh acme-mini '"$HOME"/'{shlex.quote(told)} >/dev/null || exit
-exec {shlex.quote(vm.install.ak)} "$@"
-""")
-        installed.chmod(0o755)
-        self.unchanged(mini, vm, 1)
-        self.assertEqual((mini.path / RECORDS / "acme-vm").read_text(), f"{now(0)}\nno\n")
 
     def test_a_slice_with_no_kill_file_gets_none_its_standby_told_it_copies_it(self):
         mini, vm = self.pair(kill=False)

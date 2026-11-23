@@ -1,7 +1,7 @@
 """A standby's pass that ends well hands its home back the stamp the home gave it when it began:
 where the pass takes its own stamp it asks the home's installed ak, ~/.local/bin/ak, over ssh for
-`ak standby --began`, and its last is `ak standby --copied HOST WALL SINCE BOOT no` there, HOST
-its own host name and the stamp as printed.  So the home's record of it is that stamp and `no`,
+`ak standby --began`, and its last is `ak standby --copied HOST WALL SINCE BOOT yes` there, HOST
+its own host name and the stamp as printed.  So the home's record of it is that stamp and `yes`,
 however late the request arrives and whatever the standby's clocks say, and `ak standby` there
 names it with its copy's age from that stamp.  A pass whose copy failed hands nothing back.  One
 whose home's ak is gone, or answered `--began` with anything but 0 and the line it prints, hands
@@ -104,7 +104,7 @@ class AStandbyTellsItsHome(unittest.TestCase):
         for arrives in ARRIVED:
             with self.subTest(arrives=arrives), self.pair() as (home, here):
                 self.ended(here, home, arrives=arrives)
-                self.assertEqual(self.records(home), {"acme-vm": self.began(home) + b"no\n"})
+                self.assertEqual(self.records(home), {"acme-vm": self.began(home) + b"yes\n"})
                 [line] = [line for line in self.shown(home, LATER).splitlines()
                           if "acme-vm" in line]
                 self.assertRegex(line, minutes(5))
@@ -113,7 +113,7 @@ class AStandbyTellsItsHome(unittest.TestCase):
         for now in OFF:
             with self.subTest(now=now), self.pair() as (home, here):
                 self.ended(here, home, now=now)
-                self.assertEqual(self.records(home), {"acme-vm": self.began(home) + b"no\n"})
+                self.assertEqual(self.records(home), {"acme-vm": self.began(home) + b"yes\n"})
 
     def test_a_pass_whose_copy_failed_leaves_the_record_as_it_was(self):
         with self.pair() as (home, here):

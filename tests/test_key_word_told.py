@@ -1,11 +1,11 @@
 """The word a standby's pass that ends well tells its home, that the home's record of it says
 after the home's stamp, is decided by the words of the standby's own records, whatever their
 names, so in a case of two the one not named after the home decides: `back` where one reads as a
-stamp and says `yes`; else `yes` where one reads as a stamp and says `back`; else `no`, for none,
-only `no`, or only records that cannot be read.  Black-box, through tests/fixtures/twohomes.py,
-acme-vm the standby of acme-mini as tests/test_key_standby_job_and_age.py builds one, each case its
-own machines; the key writes acme-vm's records itself.  What came back is the pass's exit, read
-undecoded, and the bytes of acme-mini's record of acme-vm.
+stamp and says `yes`; else `yes`, for one saying `back`, none, only `no`, or only records that
+cannot be read.  Black-box, through tests/fixtures/twohomes.py, acme-vm the standby of acme-mini
+as tests/test_key_standby_job_and_age.py builds one, each case its own machines; the key writes
+acme-vm's records itself.  What came back is the pass's exit, read undecoded, and the bytes of
+acme-mini's record of acme-vm.
 """
 
 from pathlib import Path
@@ -38,14 +38,14 @@ class AWordTold(unittest.TestCase):
             record = (home.path / RECORDS / here.name).read_bytes()
         self.assertEqual(record, f"{BEGAN}\n{word}\n".encode())
 
-    def test_no_record_tells_no(self):
-        self.told("no")
+    def test_no_record_tells_yes(self):
+        self.told("yes")
 
-    def test_a_record_saying_no_tells_no(self):
-        self.told("no", {"acme-mini": says("no")})
+    def test_a_record_saying_no_tells_yes(self):
+        self.told("yes", {"acme-mini": says("no")})
 
-    def test_a_record_of_one_line_that_is_no_stamp_tells_no(self):
-        self.told("no", {"acme-mini": "yes\n"})
+    def test_a_record_of_one_line_that_is_no_stamp_tells_yes(self):
+        self.told("yes", {"acme-mini": "yes\n"})
 
     def test_a_record_saying_yes_tells_back(self):
         self.told("back", {"acme-mini": says("yes")})
