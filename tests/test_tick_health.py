@@ -10,7 +10,6 @@ import io
 import json
 import os
 from pathlib import Path
-import re
 import shlex
 import subprocess
 import sys
@@ -24,6 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, job as jobs, orch, record, run, watch
+from fixtures import installer
 from fixtures.tick import only_passes
 from fixtures.sink import Sink
 from test_key_tick_time_is_visible import STAMP
@@ -377,10 +377,7 @@ class TickHealth(unittest.TestCase):
         program.chmod(0o755)
         (root / "tmp").mkdir()
         table, _ = self.install_cron("", root=root, repo=program.parents[1])
-        # what cron hands sh: a backslash and the next character are a pair, \% is a %, and
-        # the command ends at any other %
-        kept = re.match(r"(?:\\.|[^\\%])*", table.splitlines()[-1].split(" ", 5)[5])[0]
-        command = re.sub(r"\\(.)", lambda pair: "%" if pair[1] == "%" else pair[0], kept)
+        command = installer.cron(table.splitlines()[-1])[1]
         subprocess.run(["/bin/sh", "-c", command], check=True, timeout=10)
         self.assertEqual(program.with_name("ak.called").read_text().splitlines(),
                          [f"{root}/bin:{root}/bin:/usr/local/bin:/usr/bin:/bin", "watch"])

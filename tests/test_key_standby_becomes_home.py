@@ -41,6 +41,15 @@ NOTES = "code/notes"        # a file of the home's, which a pass copies
 REFUSING = '#!/bin/sh\n[ "$1" = -l ] && exec cat {table}\nexit 1\n'
 
 
+def own_install(machine):
+    """`machine`'s install.sh the checkout's own, the host's tools the fakes of
+    tests/fixtures/installer.py, its home the account's own and its `hostname` the machine's."""
+    shutil.copy(installer.INSTALL, machine.install.path / "install.sh")
+    installer.prepare(machine)
+    installer.own_home(machine)
+    (machine.bin / "hostname").unlink()     # the machine's own, which names it
+
+
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
 class AStandbyBecomesHome(unittest.TestCase):
     # each firing of the home, the takeover key's own
@@ -49,10 +58,7 @@ class AStandbyBecomesHome(unittest.TestCase):
     def setUp(self):
         taking.AStandbyTakesTheLease.setUp(self)     # the machines, the takeover key's own
         standby = self.standby
-        shutil.copy(installer.INSTALL, standby.install.path / "install.sh")
-        installer.prepare(standby)
-        installer.own_home(standby)
-        (standby.bin / "hostname").unlink()     # the machine's own, which names it
+        own_install(standby)
         (standby.root / "crontab").write_bytes(OWNER)
         self.home.write(NOTES, "notes\n")
         self.read = set()       # each value the key read as the origin's lease

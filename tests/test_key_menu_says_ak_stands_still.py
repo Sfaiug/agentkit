@@ -73,7 +73,7 @@ class TheMenuSaysAkStandsStill(Firings, unittest.TestCase):
 
     def test_a_home_not_paused_or_with_no_freezer_opens_the_menu_its_proof_however_old(self):
         # and a `1` that is not the whole reading, past the first 16 bytes: a firing reads it whole
-        for freezer in ("0", "1" + " " * 16 + "0", None, "a pipe"):
+        for freezer in (b"0", b"1" + b" " * 16 + b"0", None, "a pipe"):
             with self.subTest(freezer=freezer):
                 home, = self.machines(freezer=None if freezer == "a pipe" else freezer)
                 self.home(home)
