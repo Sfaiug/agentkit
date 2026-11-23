@@ -19,7 +19,6 @@ the crontab and the record of a server as bytes, and a file of the home's under 
 crontab's rows are what its bytes split into at each LF.  No output is compared.
 """
 
-from collections import Counter
 import os
 from pathlib import Path
 import shlex
@@ -97,16 +96,15 @@ class AStandbyBecomesHome(unittest.TestCase):
 
     def becomes_home(self, minute, before):
         """The pass at `minute`, which exits 0 and leaves no record of a server and a crontab of
-        the rows of `before`'s, each byte for byte, and one more, the tick's; the home's file not
-        copied."""
+        the rows of `before`'s, each byte for byte and in their order, and one more, the tick's;
+        the home's file not copied."""
         self.assertEqual(self.passes(minute), 0)
         record, table = self.kept()
         self.assertIsNone(record)
-        rows = Counter(table.split(b"\n"))
-        rows.subtract(before[1].split(b"\n"))
-        added = {row: count for row, count in rows.items() if count}
-        self.assertEqual(list(added.values()), [1], added)
-        self.assertTrue(next(iter(added)).endswith(TICK), added)
+        # the rows in their order, as an assignment in a crontab holds for the rows after it
+        rows = table.split(b"\n")
+        self.assertIn(before[1].split(b"\n"), [rows[:at] + rows[at + 1:] for at, row in
+                                                enumerate(rows) if row.endswith(TICK)], table)
         self.assertEqual(self.notes(), b"notes\n")
 
     def stays(self, minute, before):
@@ -124,7 +122,9 @@ class AStandbyBecomesHome(unittest.TestCase):
         self.lease()
         self.standby.env["AK_NOW"] = now(27)
         self.standby.tick(raw=True)
-        self.assertNotIn(self.home.install.refs().get(REF), self.read)
+        after = self.home.install.refs()
+        self.assertIn(REF, after, "the tick left no lease")
+        self.assertNotIn(after[REF], self.read)
 
     def test_an_install_that_fails_fails_the_pass_and_the_next_installs_again(self):
         before = self.took()
