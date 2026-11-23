@@ -41,7 +41,7 @@ from .handback import (announce, announce_safely, clear_delivery, join_session_p
 from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
     note_handover, pick_models, ready_order, refuse_outside_group,
     refuse_unready, replace_reviewer, resume_models, reviewer_order, run_refusal, run_workers,
-    same_model, started_round)
+    refusal_backoff, same_model, started_round)
 from .transitions import (change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, drop_error_retry, extra_round, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
@@ -366,12 +366,17 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     handed = None               # the model this resume took the work away from, if any
     if prior and state["executor"]:
         executor, reviewer = state["executor"], state.get("reviewer")
+        backoff = refusal_backoff(state, time.time())
         if not review_pass(state, cfg):
             saved = executor
-            executor, reviewer = resume_models(cfg, providers, state, log, repo=repo)
+            executor, reviewer = resume_models(cfg, providers, state, log, repo=repo, skip=backoff)
             if executor != saved:
-                spent, why = usage.model_exhausted(cfg, saved, providers)
-                gone = usage.unready(cfg, saved, providers) or "is no longer eligible"
+                if saved in backoff:
+                    # its refusal is why, read off no meter: the config may have dropped it since
+                    spent, why, gone = False, None, "refused"
+                else:
+                    spent, why = usage.model_exhausted(cfg, saved, providers)
+                    gone = usage.unready(cfg, saved, providers) or "is no longer eligible"
                 log(f"saved executor {saved} cannot run: {why or gone}")
                 handed = saved
                 note_handover(state, handed, "ran dry" if spent else gone,
@@ -399,7 +404,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                             better = best_pair(cfg, [executor], order)
                         else:
                             exec_order = ready_order(cfg, providers, workers, None, repo=repo,
-                                                     reviewers=reviewers, quiet=True)
+                                                     reviewers=reviewers, quiet=True,
+                                                     skip=backoff)
                             better = best_pair(cfg, exec_order, order)
                     except (config.Error, OSError, ValueError, KeyError, TypeError,
                             AttributeError):

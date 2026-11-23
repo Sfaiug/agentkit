@@ -7215,12 +7215,6 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 if (isinstance(last, (int, float)) and not isinstance(last, bool)
                         and 0 <= now - last < RESUME_EVERY):
                     continue  # a recent launch is still on its way, or a failure still throttled
-                retry = state.get("refusal_retry")
-                retry_model = retry.get("model") if isinstance(retry, dict) else None
-                retry_at = retry.get("at") if isinstance(retry, dict) else None
-                retry_waiting = (isinstance(retry_model, str)
-                                 and isinstance(retry_at, (int, float))
-                                 and now < retry_at)
                 wt = state.get("worktree")
                 if not wt or not Path(wt).is_dir():
                     if dry_run:
@@ -7255,7 +7249,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                     try:
                         chosen, reviewer = staffing.resume_models(
                             cfg, providers, state, skipped.append, workers=workers,
-                            skip=(retry_model,) if retry_waiting else ())
+                            skip=staffing.refusal_backoff(state, now))
                     except turns.QuotaDry:
                         continue
                     why = f"{config.model(cfg, chosen)['provider']} window refilled"
@@ -7270,9 +7264,6 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                     state["executor"], state["exec_session"] = chosen, None
                 if reviewer:
                     staffing.replace_reviewer(state, reviewer)
-                # Consume the one-shot refusal deadline before the child owns the run.  The
-                # stamp still travels into the queued receipt, so nothing is written after launch.
-                state.pop("refusal_retry", None)
                 state["exhausted_resume_at"] = now
             decided = dict(state)
             try:
