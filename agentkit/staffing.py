@@ -692,10 +692,9 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
             and not usage.unready(cfg, executor, providers))
 
     def executors(log=None, reviewed_by=None):
-        return [name for name in ready_order(cfg, providers, exec_list, log, quiet=True,
-                                             repo=repo, reviewers=reviewers,
-                                             reviewed_by=reviewed_by)
-                if name not in skip]
+        # out before the lab rule reads the list: an executor in its backoff leaves no other out
+        return ready_order(cfg, providers, [name for name in exec_list if name not in skip], log,
+                           quiet=True, repo=repo, reviewers=reviewers, reviewed_by=reviewed_by)
 
     # a pair picked anew takes its executor as a launch picking both roles does (`pick_models`)
     order = executors(log, None if kept else review_list)

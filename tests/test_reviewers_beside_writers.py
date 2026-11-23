@@ -11,8 +11,9 @@ is off, unready or barred, a list on the writer's provider alone, or a writer th
 not know leaves the pick as it is without writers.  An executor's pick given the run's reviewers
 leaves out the same way every executor no reviewer on another provider can review, and is made
 again the same way; a handover's is made again too where every executor it keeps is on a
-provider that refused the work (`staffing.next_executor`).  A launch whose pick is still empty
-waits without claiming a full meter it never read.
+provider that refused the work (`staffing.next_executor`), and a resume's leaves out the
+executor it skips before the rule reads the list (`staffing.resume_models`).  A launch whose
+pick is still empty waits without claiming a full meter it never read.
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
@@ -143,6 +144,15 @@ class ReviewersBesideWriters(Sandbox):
             staffing.pick_models(self.cfg, self.providers, None, None, self.logs.append,
                                  quiet=True, workers=["opus", "astra"], reviewers=["opus"])
         self.assertNotIn("100%", str(caught.exception))
+
+    def test_a_resume_skipping_the_one_another_provider_reviews_builds_on_opus(self):
+        self.providers = meters(acme=10, beta=10)
+        state = {"step": "executor", "executor": "astra", "reviewer": "opus",
+                 "workers": ["astra", "opus"], "reviewers": ["opus"]}
+        self.assertEqual(staffing.resume_models(self.cfg, self.providers, state),
+                         ("astra", "opus"))
+        self.assertEqual(staffing.resume_models(self.cfg, self.providers, state, skip=("astra",)),
+                         ("opus", "opus"))
 
     def test_a_refused_subscription_keeps_no_payg_one_out_of_the_handover_made_again(self):
         self.cfg["providers"]["acme"]["mode"] = "payg"
