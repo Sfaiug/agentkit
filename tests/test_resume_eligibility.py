@@ -1,7 +1,8 @@
 """Resume admits the ordinary pick's capacity and preserves an executor's login failure, but
 asks nothing of a saved executor that cannot run while a pair can, the reviewer's lab building
 while another lab's marked reviewer's executor is spent, and keeps an executor whose refusal names
-a moment still to come out of the tick's pick and the resumed round's alike."""
+a moment still to come out of the tick's pick, admission and the resumed round's alike, before any
+rule reads the list."""
 
 from contextlib import nullcontext
 from pathlib import Path
@@ -101,18 +102,38 @@ class ResumeEligibility(unittest.TestCase):
             with self.assertRaisesRegex(config.Error, "unknown model 'delta'"):
                 run.resume_models(self.cfg, self.providers(b=used), state)
 
-    def test_a_refused_executor_takes_no_turn_of_the_resume_before_its_moment(self):
+    def resumed_past_a_refusal(self, marks, ticked=None, then=None):
+        """The pairs the rounds run of a run alpha refused until ten minutes on, marked `marks`,
+        once a tick reading `ticked` resumes it on beta and the readings turn `then`."""
         directory = self.receipt("refused")
         state = record.read_state(directory)
-        state.update(workers=["alpha", "beta"], reviewers=["beta"], reviewer="beta",
-                     no_merge=True, base=None, branch=None, base_sha=None, findings="",
+        state.update(marks, no_merge=True, base=None, branch=None, base_sha=None, findings="",
                      refusal_retry={"model": "alpha", "at": self.now + 600})
         record.save_state(directory, state)
         with patch.object(run, "spawn_bg") as spawn, patch.object(run, "rounds") as rounds:
-            watch.resume_exhausted(self.cfg, self.readings, log=self.logs.append, now=self.now)
+            watch.resume_exhausted(self.cfg, ticked or self.readings, log=self.logs.append,
+                                   now=self.now)
             spawn.assert_called_once()
+            self.assertEqual(record.read_state(directory)["executor"], "beta")
+            self.readings.update(then or {})
             run.resume_run([directory.name])
-        self.assertEqual([call.args[0].executor for call in rounds.call_args_list], ["beta"])
+        return [(call.args[0].executor, call.args[0].reviewer) for call in rounds.call_args_list]
+
+    def test_a_refused_executor_takes_no_turn_of_the_resume_before_its_moment(self):
+        marks = {"workers": ["alpha", "beta"], "reviewers": ["beta"], "reviewer": "beta"}
+        self.assertEqual(self.resumed_past_a_refusal(marks), [("beta", "beta")])
+
+    def test_a_refused_subscription_keeps_no_payg_builder_out_of_the_resumed_round(self):
+        self.cfg["providers"]["b"]["mode"] = self.cfg["providers"]["c"]["mode"] = "payg"
+        marks = {"workers": ["alpha", "beta", "delta"], "reviewers": ["beta"], "reviewer": "beta"}
+        self.assertEqual(self.resumed_past_a_refusal(marks, ticked=self.providers(c=100)),
+                         [("delta", "beta")])
+
+    def test_admission_parks_before_a_slot_when_only_the_refused_executor_has_room(self):
+        self.assertEqual(self.resumed_past_a_refusal({"workers": ["alpha", "beta"]},
+                                                     then=self.providers(b=100)), [])
+        run.run_slot.assert_not_called()
+        self.assertEqual(record.read_state(config.RUNS / "refused")["state"], "exhausted")
 
 
 if __name__ == "__main__":

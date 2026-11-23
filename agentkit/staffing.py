@@ -98,12 +98,13 @@ def replace_reviewer(state, reviewer):
 
 
 def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_by=None,
-                **kwargs):
+                skip=(), **kwargs):
     """`usage.pick_order` over `takers`' list, less the names it leaves out.
 
     Every pick a run makes -- executor, reviewer, spare, handover, the fixer's -- comes
     through here; `log`, on the one call of a pick that gives a role, says in one line why
-    each marked one is left out of the pick returned.
+    each marked one is left out of the pick returned.  `skip` names those a caller leaves out
+    before any rule reads the list, so none of them keeps another out.
 
     A pick that comes back empty where `takers`' lab rule left names out is made once more of
     those names alone.  The owner, 22 Nov 2026: "Own lab reviews when spent".  So it never
@@ -111,6 +112,8 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_b
     """
     from . import usage  # here, not at the top: usage imports staffing
     role, reviewers = kwargs.get("role", "executor"), kwargs.get("reviewers")
+    if skip:
+        workers = [name for name in usage.marked(cfg, workers, role, reviewers) if name not in skip]
     marks, skip, by_lab = _takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)
     order = usage.pick_order(cfg, providers, marks, skip=skip, **kwargs)
     if by_lab and not order:
@@ -665,13 +668,15 @@ def resume_needs_executor(state):
         or state.get("review_pending"))
 
 
-def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, skip=()):
+def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, skip=None):
     """The pair a resume can actually run, shared by its admission and the tick.
 
     Keep the saved executor while eligible, otherwise hand over as mid-round. A
     refusal with no replacement parks before taking a slot, never on the saved model.
+    `skip` names executors it leaves out, by default the one a refusal keeps out now.
     """
     from . import usage
+    skip = refusal_backoff(state, time.time()) if skip is None else skip
     bound, reviewers = config.role_groups(cfg, run_workers(cfg, state), state.get("reviewers"))
     workers = bound if bound is not None else workers
     if record.review_off(state):
@@ -700,9 +705,8 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
             and not usage.unready(cfg, executor, providers))
 
     def executors(log=None, reviewed_by=None):
-        # out before the lab rule reads the list: an executor in its backoff leaves no other out
-        return ready_order(cfg, providers, [name for name in exec_list if name not in skip], log,
-                           quiet=True, repo=repo, reviewers=reviewers, reviewed_by=reviewed_by)
+        return ready_order(cfg, providers, exec_list, log, quiet=True, repo=repo,
+                           reviewers=reviewers, reviewed_by=reviewed_by, skip=skip)
 
     # a pair picked anew takes its executor as a launch picking both roles does (`pick_models`)
     order = executors(log, None if kept else review_list)
