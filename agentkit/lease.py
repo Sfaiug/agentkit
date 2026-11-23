@@ -1,7 +1,8 @@
 """`ak lease`: one turn creating the lease on ak's remote where the remote holds none, and
 swapping a new value in where it holds this machine's own.  This hides where the lease is, how it
-is read and written, what a machine keeps of the values it made, and what a standby keeps of the
-value it reads and when it sends a swap of its own (`watch`).
+is read and written, what a machine keeps of the values it made, whether the lease is its own
+(`ours`), and what a standby keeps of the value it reads and when it sends a swap of its own
+(`watch`).
 
 The lease says which machine is ak's home: `REF` in the repository at the push address of ak's
 checkout.  It changes only by compare-and-swap, so two machines never both create it and a swap
@@ -81,8 +82,7 @@ def _alone(git, env, address):
     """The turn at the lease at `address`, with no other under way."""
     read = _read(git, env, address)
     if read:
-        kept = [line.split(b" ", 1) for line in
-                git("for-each-ref", "--format=%(objectname) %(refname)", MADE).splitlines()]
+        kept = _kept(git)
         # this machine's own where a ref names it.  What is kept shrinks to the value read and the
         # one made next, or would grow a ref a turn; the value read stays, as it is the proof
         # (`proof_age`) till a turn reads the next.  Of another's, none is kept: the remote has
@@ -101,6 +101,26 @@ def _alone(git, env, address):
     if re.fullmatch(VALUE + b"\n", value):
         git("push", address, f"{value[:-1].decode()}:{REF}", f"--force-with-lease={REF}:",
             timeout=REMOTE, check=False)
+
+
+def ours():
+    """Whether the lease on ak's remote is this machine's own, as a turn tells it: under the turn's
+    lock, the lease read as a turn reads it and a ref under MADE naming the value read.  No where
+    another turn holds the lock, no lease is read, or anything is raised.  It writes no ref."""
+    try:
+        git, env = _checkout()
+        address = _address(git)
+        return bool(_locked(lambda: (read := _read(git, env, address))
+                            and any(value == read for value, _ in _kept(git))))
+    except Exception:   # whatever it was, no lease is known to be this machine's
+        return False
+
+
+def _kept(git):
+    """Each value this machine keeps and the name of its ref, by `git` in the lease's
+    repository."""
+    return [line.split(b" ", 1) for line in
+            git("for-each-ref", "--format=%(objectname) %(refname)", MADE).splitlines()]
 
 
 def _swap(git, address, read, stamp):
@@ -231,8 +251,8 @@ def _address(git):
 
 
 def _locked(then):
-    """`then()` with no other turn under way: under the lock on the lease's folder, made where it
-    is not there.  Where another holds it, nothing."""
+    """What `then()` gives, with no other turn under way: under the lock on the lease's folder,
+    made where it is not there.  Where another holds it, nothing, and None."""
     repo = _repo()
     repo.parent.mkdir(parents=True, exist_ok=True)
     folder = os.open(repo.parent, os.O_RDONLY | os.O_DIRECTORY)
@@ -241,7 +261,7 @@ def _locked(then):
     except BlockingIOError:     # another turn is under way, and the next firing takes its own
         pass
     else:
-        then()
+        return then()
     finally:
         os.close(folder)
 
