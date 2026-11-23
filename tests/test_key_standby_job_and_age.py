@@ -29,7 +29,7 @@ TABLE = (b"# the owner's\n\n0 4 * * * /usr/bin/true # caf\xe9\n"
          b"0 5 * * * echo '# agentkit standby' is watched >/dev/null\n")
 STATE = ".agentkit/state/watch.json"     # the home's, which a pass copies
 PASSED = "1789000000 10000 acme-boot-1"      # this machine's clocks at its pass
-BEGAN = "1789000000 50000 acme-mini-boot-1"     # the home's clocks
+BEGAN = "1789000000.5 50000.25 acme-mini-boot-1"    # the home's clocks, a stamp as printed
 SET_BACK = "1788996400 10600 acme-boot-1"    # ten minutes on since boot, the wall an hour back
 FAILED = "1789000120 10120 acme-boot-1"      # two minutes after the pass
 LATER = "1789000600 10600 acme-boot-1"       # ten minutes after it
@@ -43,9 +43,8 @@ def minutes(count):
 def standby():
     """acme-mini, a home holding STATE, and acme-vm, its client, each with its clocks, BEGAN and
     PASSED, before any command runs on it; `close` ends them."""
-    machines = Machines("acme-mini", "acme-vm")
+    machines = Machines("acme-mini", "acme-vm", now={"acme-mini": BEGAN, "acme-vm": PASSED})
     home, here = machines
-    home.env["AK_NOW"], here.env["AK_NOW"] = BEGAN, PASSED
     here.client_of(home)
     home.write(STATE, "the home's first")
     return machines
