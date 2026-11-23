@@ -1,7 +1,7 @@
 """A standby's pass that finds the lease on ak's remote is its own, `refs/agentkit/home` at a
 value a ref under `refs/made/` in its lease's repository names, as its swap the origin took leaves
 it (tests/test_key_standby_takes_the_lease.py), copies nothing and runs `install.sh --server` of
-~/agentkit, exiting 0 where that did and 1 where it did not.  The install adds the tick's row to
+~/agentkit, exiting what that exited.  The install adds the tick's row to
 the crontab, ending in `# agentkit watch`, the other rows kept byte for byte, and only then
 removes the record of a server, so the machine is a home: it holds the lease by its own word
 (`ak standby --home`), and its tick swaps the lease.  An install that exits 1, or a crontab that

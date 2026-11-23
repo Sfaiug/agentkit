@@ -30,15 +30,16 @@ The next that ends well evens it out.
 Under its lock, first of all, it reads the record of a server again, as a pass that held the lock
 meanwhile may have made this machine a home, and asks whether ak's lease is this machine's own
 (`lease.ours`).  Where it is, the remote has said this machine is the home, whose state a copy of
-the old one would overwrite: the pass copies nothing and runs `install.sh --server`, exiting 0
-only where the install did, whose record of a server says whether this machine is a home after
-it.  Else it watches its home's lease (`lease.watch`), whose record is the lease's, kept whatever
-the pass does.  It may take the lease only where the stamp, read before it, says a pass from this
-home has ended well: the machine that takes it carries on from its copy, and one holding none
-would from its own old state.  Then it keeps this machine's own job, which makes the pass again
-every three minutes, as the home's tick runs, after the keeper of a move of ak here, as the tick's
-line runs it (`back`), then sends again, as a tick does, each page of this machine's own the
-webhook did not take (`notify.retry_pending`), whether the home answers or not.
+the old one would overwrite: the pass copies nothing and runs `install.sh --server`, exiting what
+the install exited, whose record of a server says whether this machine is a home after it, and
+where it exited 0 tells the owner (`_took_over`).  Else it watches its home's lease
+(`lease.watch`), whose record is the lease's, kept whatever the pass does.  It may take the lease
+only where the stamp, read before it, says a pass from this home has ended well: the machine that
+takes it carries on from its copy, and one holding none would from its own old state.  Then it
+keeps this machine's own job, which makes the pass again every three minutes, as the home's tick
+runs, after the keeper of a move of ak here, as the tick's line runs it (`back`), then sends
+again, as a tick does, each page of this machine's own the webhook did not take
+(`notify.retry_pending`), whether the home answers or not.
 A pass that ends well stamps when it began, and from which home, then why ak here stayed where it
 was, if it did, and at its end does with the last move here what the end of a tick does on a home
 (`versions.final`): a pass of the version that move put live makes it final.
@@ -521,6 +522,17 @@ def _page(alias, why):
         print(f"ak standby: the owner could not be told: {said}", file=sys.stderr)
 
 
+def _took_over(alias, value):
+    """Tell the owner ak's home is this machine now, in place of `alias`, once for the lease of
+    `value` it took: a pass whose install left this machine a client asks again under the same key,
+    and notify sends a page once per key.  Not why, as the same pass follows a home that stopped
+    and one that handed home back.  Whatever paging meets, the pass's exit is the install's."""
+    with contextlib.suppress(Exception):
+        # red, as the page of ak going back from a version is
+        line = f"\U0001f534 ak's home is {socket.gethostname()} now: it took over from {alias}"
+        notify.page(f"home:{value.decode()}", "ak", line, line=line, happened=True)
+
+
 def _shown():
     """Show the home this machine copies and the copy's age, from the stamp of the last pass
     that ended well: 0 only for a stamp of that home.  On no home's client, what copies it."""
@@ -603,14 +615,16 @@ def main(argv):
         # again: a pass that held the lock may have made this machine a home since
         if _refused(_elsewhere(alias)):
             return 1
-        if lease.ours():
+        if taken := lease.ours():
             checkout = update.agentkit_dir()
             code, said = versions.run([str(checkout / "install.sh"), "--server"], checkout,
                                       **update.PINS)
             if code:
                 print(f"{said}\nak standby: this machine holds ak's lease, and "
                       f"{checkout / 'install.sh'} --server exited {code}", file=sys.stderr)
-            return 1 if code else 0
+                return code
+            _took_over(alias, taken)
+            return 0
         lease.watch(_copied(alias)[0] is not None)
         if not _keep_job(alias):
             return 1

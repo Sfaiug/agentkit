@@ -49,12 +49,11 @@ def home_now(minute):
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
 class AStandbyWatchesItsHomesLease(unittest.TestCase):
     def setUp(self):
-        machines = Machines("acme-mini", "acme-vm")
+        machines = Machines("acme-mini", "acme-vm",
+                            now={"acme-mini": home_now(0), "acme-vm": now(0)})
         self.addCleanup(machines.close)
         self.machines = machines
         self.home, self.standby = machines
-        self.home.env["AK_NOW"] = home_now(0)
-        self.standby.env["AK_NOW"] = now(0)
         self.standby.client_of(self.home)
         self.leases = set()     # each value the origin held as the lease in the case
 
