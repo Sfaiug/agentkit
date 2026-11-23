@@ -572,6 +572,9 @@ def main(argv):
     if argv == ["--home"]:
         from . import pause     # here, as pause imports this module
         return 0 if pause.holds() else 1
+    if argv == ["--steady"]:
+        from . import hand_back     # here, as it imports this module
+        return 0 if hand_back.steady() else 1
     flag, *said = argv
     if flag == "--copied" and _fits(said, (HOST, *STAMP, TAKES)):
         host, *stamp, takes = said

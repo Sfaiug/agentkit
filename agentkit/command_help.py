@@ -348,7 +348,7 @@ def asked(argv):
 
 # Each command's flags whose exit and lines are their whole answer: each takes no word, help
 # included, as help's 0 and lines after one would read as that answer.
-ANSWERS = {"standby": ("--home", "--takers")}
+ANSWERS = {"standby": ("--home", "--takers", "--steady")}
 
 
 def show(command, argv):
