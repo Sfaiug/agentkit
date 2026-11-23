@@ -104,14 +104,15 @@ def _alone(git, env, address):
 
 
 def ours():
-    """Whether the lease on ak's remote is this machine's own, as a turn tells it: under the turn's
-    lock, the lease read as a turn reads it and a ref under MADE naming the value read.  No where
-    another turn holds the lock, no lease is read, or anything is raised.  It writes no ref."""
+    """The value of the lease on ak's remote where it is this machine's own, as a turn tells it:
+    under the turn's lock, the lease read as a turn reads it and a ref under MADE naming the value
+    read.  False where another turn holds the lock, no lease is read, or anything is raised.  It
+    writes no ref."""
     try:
         git, env = _checkout()
         address = _address(git)
-        return bool(_locked(lambda: (read := _read(git, env, address))
-                            and any(value == read for value, _ in _kept(git))))
+        return _locked(lambda: (read := _read(git, env, address))
+                       and any(value == read for value, _ in _kept(git)) and read) or False
     except Exception:   # whatever it was, no lease is known to be this machine's
         return False
 
