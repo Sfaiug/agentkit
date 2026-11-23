@@ -300,6 +300,24 @@ def proof_age():
         return None
 
 
+def watching():
+    """Whether this machine only watches the lease: it keeps no value it made, as `proof_age` reads
+    one, a ref under MADE whose name holds a stamp, and its watch holds a record of the lease made
+    on this boot, SEEN giving a value and a stamp (`_seen`) whose boot is this one.  A pass that
+    cannot read the lease removes the record, so one there says this machine can.  No for whatever
+    is raised, a listing git refused among it, which `proof_age` reads as none kept.  It only reads,
+    by git in the lease's repository as `proof_age` runs it, and asks no remote."""
+    try:
+        local = _git("rev-parse", "--local-env-vars").split()
+        git = functools.partial(_git, env={**dict.fromkeys(map(os.fsdecode, local)),
+                                           "GIT_DIR": str(_repo())})
+        held = _seen(git)
+        return bool(held) and held[1].boot == pair_clock.now().boot \
+            and not any(_stamp(os.fsdecode(name)) for _, name in _kept(git))
+    except Exception:
+        return False
+
+
 def _git(*args, cwd=None, env=None, timeout=None, check=True, own=None):
     """git's output, as bytes, since text would lose a carriage return or a byte no UTF-8 holds;
     one that does not exit 0 raises, unless `check` is off."""
