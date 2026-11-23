@@ -87,9 +87,9 @@ class AStillHomeBecomesAClient(Firings, unittest.TestCase):
 
     def stepped_down(self, takes, told, rewritten=None):
         """acme-mini, its record of acme-vm saying `takes`, standing still becomes acme-vm's
-        client, leaving there a record of itself saying `told`; where `rewritten`, acme-vm, as it
-        gives its stamp, first writes acme-mini's record of it anew saying that, as its pass
-        would."""
+        client, leaving there a record of itself saying `told` and its own record of acme-vm as
+        its firing found it; where `rewritten`, acme-vm, as it gives its stamp, first writes that
+        record anew, dated minute 0 and saying `rewritten`, as its pass would."""
         mini, vm = self.pair(takes)
         if rewritten:
             installed = vm.path / ".local/bin/ak"
@@ -103,6 +103,8 @@ exec {shlex.quote(vm.install.ak)} "$@"
             installed.chmod(0o755)
         vm.env["AK_NOW"] = now(1)
         self.paused(mini, now(1))
+        self.assertEqual((mini.path / RECORDS / "acme-vm").read_text(),
+                         f"{now(0)}\n{rewritten or takes}\n")
         self.assertEqual(self.kill(mini), b"1")
         self.assertTrue((mini.path / STANDBY).is_dir())
         self.assertEqual((mini.path / SERVER).read_text(), "acme-vm\n")
