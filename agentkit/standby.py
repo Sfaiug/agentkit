@@ -51,14 +51,14 @@ that fails with a reason, once the copy is `SILENT` old by the clock calling it 
 that went out, and sends it once.  A pass's exit is its copy's alone: the copy is what a takeover
 needs first.
 
-A home keeps a record of each machine that says it copied it (`_keep`), which `ak standby` lists
-there (`_copies`), and of which its tick pages the owner once its copy is GONE old (`tell`).  A pass
-asks the home for a stamp of its own where it takes its own (`_began`), and one that ends well
-hands it back as printed, last: a record dated by the seconds since the pass began would be dated
-younger than its copy by however late the request arrives, and one dated by the home's stamp never
-is; with it goes the word the records here give (`_told`).  Neither request is anything of the
-pass's own: what it prints, its exit and its copy are the same whatever the home answers, or
-whether it does.
+A home keeps a record of each machine that says it copied it (`_keep`), which `ak standby` and the
+Machines page list there (`copies`), and of which its tick pages the owner once its copy is GONE old
+(`tell`).  A pass asks the home for a stamp of its own where it takes its own (`_began`), and one
+that ends well hands it back as printed, last: a record dated by the seconds since the pass began
+would be dated younger than its copy by however late the request arrives, and one dated by the
+home's stamp never is; with it goes the word the records here give (`_told`).  Neither request is
+anything of the pass's own: what it prints, its exit and its copy are the same whatever the home
+answers, or whether it does.
 """
 
 import contextlib
@@ -400,25 +400,44 @@ def _record(path):
     return (stamp, takes) if stamp else (None, None)
 
 
-def _copies():
-    """Show each machine that says it copied this one, from its record: how old its copy is and
-    whether it takes over when this one stops, and home goes back to it once it is steady; or
-    that none does."""
+def copies():
+    """Each machine a record here says copied this one, in the order of their names: its host
+    name, how old its copy is or why that cannot be said, and its record's word of TAKES; for a
+    record that cannot be read, that it cannot, and no word.  None on a client, which no machine
+    stands in for.  config.Error for a folder of records that cannot be listed, which may hold
+    one that takes over."""
+    if config.server_alias():
+        return []
     folder = config.TMP / COPIES
     try:
         hosts = sorted(name for name in os.listdir(folder) if re.fullmatch(HOST, name))
     except FileNotFoundError:
         hosts = []
-    if not hosts:
-        print("no machine copies this one")
+    except OSError as error:
+        raise config.Error(f"the records of the machines that copy this one cannot be read: "
+                           f"{error.strerror}") from None
+    found = []
     for host in hosts:
         stamp, takes = _record(folder / host)
+        try:
+            age = _age(stamp) if stamp else "its record cannot be read"
+        except OSError:     # no age is read across a boot Linux cannot say
+            age = "of an age unknown here, as this boot cannot be read"
+        found.append((host, age, takes))
+    return found
+
+
+def _copies():
+    """Show each machine that says it copied this one, from its record: how old its copy is and
+    whether it takes over when this one stops, and home goes back to it once it is steady; or
+    that none does."""
+    found = copies()
+    if not found:
+        print("no machine copies this one")
+    for host, age, takes in found:
         over = ", and it takes over as home when this one stops" * (takes in OVER)
         over += ", and home goes back to it once it is steady" * (takes == "back")
-        try:
-            said = f"its copy is {_age(stamp)}{over}" if stamp else "its record cannot be read"
-        except OSError:     # no age is read across a boot Linux cannot say
-            said = f"its copy is of an age unknown here, as this boot cannot be read{over}"
+        said = f"its copy is {age}{over}" if takes else age
         print(f"{host} copies this machine: {said}")
     return 0
 

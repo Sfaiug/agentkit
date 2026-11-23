@@ -5757,11 +5757,15 @@ def config_page(name, page, move=True):
         first, *rest = [(value, None)] if isinstance(value, str) else value
         return [*([(left, "dim", "left")] if near(-1) is not None else []), first,
                 *([(right, "dim", "right")] if near(1) is not None else []), *rest]
+    # A row as each draw knows it again: its label, and whether it only shows, as a machine ak
+    # uses may share its name with one that stands in, whose row only shows.
+    def who(row):
+        return row[0], row[2] is None
     while True:
-        label = rows[here[1]][0] if rows else None
+        was = who(rows[here[1]]) if rows else None
         rows, note = page()
         if not opened:                # a pick removed the last row: the highlight on the new last
-            here = ("row", next((number for number, row in enumerate(rows) if row[0] == label),
+            here = ("row", next((number for number, row in enumerate(rows) if who(row) == was),
                                  min(here[1], len(rows) - 1)))
         drawn = [(("row", number), label,
                   stepping(value, act[1]) if kind(act) == "step" and here == ("row", number)
@@ -5833,13 +5837,13 @@ def config_page(name, page, move=True):
         else:
             # typed in, the arrows move nothing: Enter saves what was typed
             opened, at = None, here[1]
-            field_label = rows[at][0]
+            field_row = who(rows[at])
             clock.forget()            # drawn off the clock: the page back is drawn as it is
             keys = terminal.keys("esc back", enter="save", move=False)
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
-                at = next(number for number, row in enumerate(rows) if row[0] == field_label)
+                at = next(number for number, row in enumerate(rows) if who(row) == field_row)
                 body, places = page_body([(("row", number), label, value)
                                           for number, (label, value, *_) in enumerate(rows)])
                 # under the row's last line, a value that wrapped included
@@ -6181,6 +6185,14 @@ def machine_value(machine, rented, cfg):
     return " · ".join([*words, work_words(machine.name, cfg)])
 
 
+def stand_in_value(age, takes):
+    """A machine that copies this one, from its record (standby.copies): its copy's age, or why
+    that cannot be said, and whether it takes over."""
+    return " · ".join(["stand-in", f"copy {age}" if takes else age,
+                       *["takes over when this one stops"] * (takes in standby.OVER),
+                       *["home goes back to it once it is steady"] * (takes == "back")])
+
+
 def work_words(name, cfg):
     """The marks as the overview names their work."""
     work = machines.work(name, cfg)
@@ -6191,7 +6203,9 @@ def work_words(name, cfg):
 
 
 def config_machines(cfg):
-    """Recorded machines; Enter opens their work marks, and the cloud's monthly cap.  Last,
+    """Recorded machines; Enter opens their work marks, and the cloud's monthly cap.  Under them,
+    each machine that copies this one (standby.copies), whose row, as this host's, opens nothing,
+    or under the rows why they cannot be read.  Last,
     `+ add a machine` takes an ssh address, or with none typed finds those that ran the line
     making a new machine one it adds (machines.join_line, under its field; machines.found), and
     writes each to config.toml once it answers (machines.add), else says why not."""
@@ -6277,10 +6291,15 @@ def config_machines(cfg):
         rows = [(machine.name, machine_value(machine, rented, cfg),
                  None if machine.name == machines.HERE else work_page(machine.name))
                 for machine in machines.known()]
+        try:
+            stand_ins, why = standby.copies(), ""
+        except config.Error as exc:
+            stand_ins, why = [], str(exc)
+        rows += [(host, stand_in_value(age, takes), None) for host, age, takes in stand_ins]
         return [*rows, ("Google Cloud", [(on, "accent") if active else (off, "dim"),
                                          (f"{google_cloud.summary()} · {work_words(None, cfg)}", None)],
                         ("mark", lambda: save("active", not active), work_page(None))),
-                ("+ add a machine", "", add_field)], ""
+                ("+ add a machine", "", add_field)], why
     config_page("machines", page)
 
 
