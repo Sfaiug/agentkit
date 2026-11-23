@@ -20,6 +20,7 @@ does all it does on a real host, every tool it calls a fake.
 """
 
 from pathlib import Path
+import re
 import shlex
 
 from .akbin import AK
@@ -55,3 +56,11 @@ def own_home(home):
 
 def run(home, *args):
     return home.run("bash", str(INSTALL), *args)
+
+
+def cron(row):
+    """A crontab `row`'s schedule, its first five fields, and what cron hands sh of the rest: a
+    backslash and the next character are a pair, \\% is a %, and the command ends at any other %."""
+    *schedule, rest = row.split(" ", 5)
+    kept = re.match(r"(?:\\.|[^\\%])*", rest)[0]
+    return schedule, re.sub(r"\\(.)", lambda pair: "%" if pair[1] == "%" else pair[0], kept)

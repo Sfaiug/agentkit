@@ -21,6 +21,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import installer
 from fixtures.akbin import boxable
 from test_key_ak_lease_creates_a_lease import REF
 from test_key_client_answers_steady import at
@@ -54,10 +55,10 @@ class HomeGoesThereAndBack(Firings, unittest.TestCase):
         standby's, every three minutes, so a row that names no home, or another, fails here: it
         exits `code`."""
         row, = [row for row in self.rows(machine) if row.endswith(TAG)]
-        *every, job = row.split(None, 5)
-        self.assertEqual(every, [b"*/3", b"*", b"*", b"*", b"*"])
+        schedule, job = installer.cron(os.fsdecode(row))
+        self.assertEqual(schedule, ["*/3", "*", "*", "*", "*"])
         self.clock(machine, minute)
-        self.assertEqual(machine.run("/bin/sh", "-c", os.fsdecode(job), raw=True).code, code)
+        self.assertEqual(machine.run("/bin/sh", "-c", job, raw=True).code, code)
 
     def copies(self, machine, home, minute):
         """`machine`'s pass at `minute`, which ends well, its copy of `home`'s file reading as
@@ -128,8 +129,8 @@ class HomeGoesThereAndBack(Firings, unittest.TestCase):
         self.assertEqual((mini.path / SERVER).read_bytes(), b"acme-vm\n")
         self.assertEqual([row for row in self.rows(mini) if not row.endswith(TAG)],
                          TABLE.split(b"\n"))
-        self.copies(mini, vm, 31)
         self.assertEqual(self.records(vm), {"acme-mini": f"{now(31)}\nback\n".encode()})
+        self.copies(mini, vm, 31)
 
         # 4. acme-mini's passes from acme-vm end well; up less than half an hour it is not steady,
         # and acme-vm's firings go on swapping the lease; up half an hour at 60, its pass at 57 of
