@@ -137,7 +137,7 @@ class AStillHomeBecomesAClient(Firings, unittest.TestCase):
         Install._git(repo, "update-ref", named(-19),
                      Install._git(repo, "commit-tree", tree, "-m", "acme"))
         self.unchanged(mini, vm, 1)
-        self.assertEqual(self.freezer(mini), "1")
+        self.assertEqual(self.freezer(mini), b"1")
 
     def test_a_record_that_turns_to_no_as_the_standby_gives_its_stamp_ends_nothing(self):
         mini, vm = self.pair()

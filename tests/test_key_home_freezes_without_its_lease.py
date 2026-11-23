@@ -52,7 +52,7 @@ def named(minute):
 class Firings:
     """A key's machines, a home's record on them and its firings, for a TestCase."""
 
-    def machines(self, *names, freezer="0", now=None):
+    def machines(self, *names, freezer=b"0", now=None):
         """Machines of these names, each in ak's user manager by its cgroup file, with ak's slice
         in its cgroup tree and its freezer's file reading `freezer`, or with no slice for None,
         and its clocks where `now` names them."""
@@ -63,7 +63,7 @@ class Firings:
             machine.env["AK_CGROUP_FILE"] = str(machine.at / "membership")
             if freezer is not None:
                 (machine.root / "cgroups" / SLICE).mkdir(parents=True)
-                (machine.root / "cgroups" / SLICE / "cgroup.freeze").write_text(freezer)
+                (machine.root / "cgroups" / SLICE / "cgroup.freeze").write_bytes(freezer)
         return machines
 
     def record(self, home, takes, machine="acme-vm"):
@@ -74,7 +74,7 @@ class Firings:
     def freezer(self, machine):
         """What `machine`'s freezer's file reads, None where it is not there."""
         try:
-            return (machine.root / "cgroups" / SLICE / "cgroup.freeze").read_text()
+            return (machine.root / "cgroups" / SLICE / "cgroup.freeze").read_bytes()
         except FileNotFoundError:
             return None
 
@@ -91,9 +91,9 @@ class Firings:
 
     def paused(self, machine, at):
         """A firing that exits 0 before the tick's lock, its slice frozen."""
-        self.assertEqual(self.fire(machine, at), (0, "1", False))
+        self.assertEqual(self.fire(machine, at), (0, b"1", False))
 
-    def runs(self, machine, at, freezer="0"):
+    def runs(self, machine, at, freezer=b"0"):
         """A firing that goes on as any: it exits 0, the tick's lock taken, its freezer's file at
         `freezer`."""
         self.assertEqual(self.fire(machine, at), (0, freezer, True))
@@ -224,7 +224,7 @@ class AHomeFreezesWithoutItsLease(Firings, unittest.TestCase):
                 self.unreachable(machines, home, 3, anew, swapped)
 
     def test_a_home_with_no_record_keeping_no_value_thaws_the_slice_and_holds_no_lease(self):
-        machines = self.machines(freezer="1")
+        machines = self.machines(freezer=b"1")
         home, = machines
         self.runs(home, now(0))
         machines.break_remote("unreachable")
@@ -238,19 +238,19 @@ class AHomeFreezesWithoutItsLease(Firings, unittest.TestCase):
         home, vm = machines
         _, anew = self.home(home)
         machines.break_remote("unreachable")
-        self.assertEqual(self.fire(home, now(10), dry=True), (0, "0", False))
+        self.assertEqual(self.fire(home, now(10), dry=True), (0, b"0", False))
         self.paused(home, now(10))
         # mended, a firing here swaps the lease from `anew`, keeping a proof 7 minutes old, and
         # thaws
         machines.mend_remote()
-        self.assertEqual(self.fire(home, now(10), dry=True), (0, "1", False))
+        self.assertEqual(self.fire(home, now(10), dry=True), (0, b"1", False))
         home.client_of(vm)      # the values it made as home kept
-        self.assertEqual(self.fire(home, now(10)), (0, "1", False))
+        self.assertEqual(self.fire(home, now(10)), (0, b"1", False))
         self.assertEqual(home.install.refs(), {REF: anew})
-        server, client = self.machines("acme-mini", "acme-vm", freezer="1")
+        server, client = self.machines("acme-mini", "acme-vm", freezer=b"1")
         client.client_of(server)
-        self.assertEqual(self.fire(server, now(0), dry=True), (0, "1", False))
-        self.assertEqual(self.fire(client, now(0)), (0, "1", False))
+        self.assertEqual(self.fire(server, now(0), dry=True), (0, b"1", False))
+        self.assertEqual(self.fire(client, now(0)), (0, b"1", False))
 
 
 if __name__ == "__main__":
