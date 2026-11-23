@@ -38,7 +38,7 @@ from .roundloop import (Loop, check_fix_on_tip, note, pin_checkout, pinned_head,
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
     start_followups, task_project, write_result)
-from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
+from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, kept_reviewer,
     note_handover, pick_models, ready_order, refuse_outside_group,
     refuse_unready, replace_reviewer, resume_models, reviewer_order, run_refusal, run_workers,
     same_model, started_round)
@@ -2790,8 +2790,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
             config.model(cfg, preset_rev)
     except config.Error:
         preset_rev = None
-    if preset_rev and preset_rev not in order:
-        preset_rev = None   # a saved reviewer keeps its identity; a stale one does not
+    if preset_rev:
+        # a saved reviewer keeps its identity; a stale one does not, nor one of a writer's lab
+        # where the pick names one of another (`kept_reviewer`)
+        preset_rev = kept_reviewer(cfg, writers, order, preset_rev) if order else None
     if opts["--review"]:
         config.model(cfg, opts["--review"])
         refuse_unready(cfg, providers, opts["--review"], "reviewer")

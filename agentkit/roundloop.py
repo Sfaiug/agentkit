@@ -1405,10 +1405,11 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
             offered = ready_reviewers(writers, providers, log=None)
             if not offered:
                 raise turns.QuotaDry("no eligible reviewer is left to review; waiting for review")
-            if lp.reviewer not in offered:
-                lp.log(f"reviewer {offered[0]} is of another lab: {lp.reviewer} does not review "
+            first = staffing.kept_reviewer(lp.cfg, writers, offered, lp.reviewer)
+            if first != lp.reviewer:
+                lp.log(f"reviewer {first} is of another lab: {lp.reviewer} does not review "
                        f"this round")
-                lp.reviewer, lp.review_sid = offered[0], None
+                lp.reviewer, lp.review_sid = first, None
                 name = f"reviewer-{lp.reviewer}"
                 lp.save()
 

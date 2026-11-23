@@ -6,7 +6,8 @@ picked, but if multiple picked then from different."  `staffing.ready_order` nar
 before `usage.pick_order` reads it, so the pick is the one a run marked with only the reviewers
 on other providers gets, so a subscription on the writer's provider keeps no payg reviewer on
 another out.  22 Nov: "Own lab reviews when spent": a pick that comes back empty is made again,
-at its own moment, without the writer's provider left out, a reviewer on another provider first.
+at its own moment, without the writer's provider left out, a reviewer on another provider first,
+and a resume's reviewer on the writer's gives way to it (`staffing.kept_reviewer`).
 A reviewer that is off, unready or barred, a list on the writer's provider alone, or a writer
 the config does not know leaves the pick as it is without writers.
 
@@ -62,9 +63,9 @@ class ReviewersBesideWriters(Sandbox):
         self.assertEqual(self.pick(), ["opus"])
         self.assertEqual(self.logs, [])     # opus is not left out of the pick returned
 
-    def at_two_moments(self, listed, between=lambda: None):
-        """The pick of `listed` beside opus with astra refused until 10001: its first reading at
-        the sandbox's 10000, any later one at 10002, `between` done after the first."""
+    def two_moments(self, between=lambda: None):
+        """Picks with astra refused until 10001: the first reading at the sandbox's 10000, any
+        later one at 10002, `between` done after each."""
         self.providers["beta"]["exhausted_until"] = 10001
         pick_order, moments = usage.pick_order, iter((10000, 10002))
 
@@ -74,11 +75,24 @@ class ReviewersBesideWriters(Sandbox):
             between()
             return order
 
-        with patch.object(usage, "pick_order", at_the_next_moment):
+        return patch.object(usage, "pick_order", at_the_next_moment)
+
+    def at_two_moments(self, listed, between=lambda: None):
+        """The pick of `listed` beside opus at `two_moments`."""
+        with self.two_moments(between):
             return self.pick(listed, ["opus"])
 
     def test_a_second_pick_holding_one_on_another_provider_names_it_first(self):
         self.assertEqual(self.at_two_moments(["opus", "astra"]), ["astra", "opus"])
+
+    def test_a_resume_held_by_one_on_the_writers_provider_gives_way_to_one_on_another_first(self):
+        # fable wrote the work and opus, on its provider, holds the review
+        for listed, kept in ((["astra", "opus"], False), (["opus"], True), (["opus", "fable"], True)):
+            state = dict(executor="fable", reviewer="opus", review_pending={"round": 1},
+                         workers=["fable"], reviewers=listed)
+            with self.two_moments():
+                _, reviewer = staffing.resume_models(self.cfg, self.providers, state)
+            self.assertEqual(reviewer, "opus" if kept else "astra", listed)
 
     def test_an_empty_pick_the_rule_left_nobody_out_of_is_not_made_again(self):
         self.assertEqual(self.at_two_moments(["astra"]), [])
