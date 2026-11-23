@@ -60,11 +60,13 @@ def run(home, *args):
 
 def cron(row):
     """A crontab `row`'s schedule, its first five fields, then what cron hands sh of the rest and
-    the input it gives that, as cron's do_command reads them: in the command a backslash and the
-    next character are a pair, \\% a %, and the first other % ends it; in the input after that % a
-    \\% is a % and each other % a newline."""
-    *schedule, rest = row.split(None, 5)
+    the input it gives that, as cron reads them: the fields parted by spaces and tabs; in the
+    command a backslash and the next character a pair, \\% a %, and the first other % its end; in
+    the input after that % a \\% a %, each other % a newline, and one more at its end where
+    its last character but backslashes is not one."""
+    *schedule, rest = re.split(r"[ \t]+", row.lstrip(" \t"), 5)
     command, given = re.fullmatch(r"((?:\\.|[^\\%])*\\?)(?:%(.*))?", rest, re.S).groups()
+    given = re.sub(r"\\?%", lambda found: "%" if found[0] == "\\%" else "\n", given or "")
     return (schedule, re.sub(r"\\(.)", lambda pair: "%" if pair[1] == "%" else pair[0], command,
                              flags=re.S),
-            re.sub(r"\\?%", lambda found: "%" if found[0] == "\\%" else "\n", given or ""))
+            given + "\n" if given.rstrip("\\")[-1:] not in ("", "\n") else given)
