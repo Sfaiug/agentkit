@@ -200,19 +200,15 @@ class Home:
         shutil.copy(REPO / "config.default.toml", self.path / ".agentkit" / "config.toml")
         self.write(".gitconfig", "[user]\n\tname = acme\n\temail = acme@example.com\n"
                                  "[init]\n\tdefaultBranch = main\n")
-        python = shlex.quote(sys.executable)
-        # each fake's log, where the commands that call it find it
-        logs = {name: shlex.quote(str(self.at / self.log(name).relative_to(self.root)))
-                for name in (*REFUSED, "tmux")}
         for name in REFUSED:
-            self.fake(name, REFUSE.format(python=python, name=name, log=logs[name]))
-        tmux = TMUX if tmux_log else "#!/bin/sh\n" + TMUX.removeprefix(LOG)
-        self.fake("tmux", tmux.format(python=python, log=logs["tmux"],
-                                      tmpdir=shlex.quote(str(self.tmux_dir)),
-                                      own=shlex.quote(str(self.tmux_dir / f"tmux-{os.getuid()}"
-                                                          / SOCKET)),
-                                      real=shlex.quote(REAL_TMUX)) if REAL_TMUX else
-                  REFUSE.format(python=python, name="tmux", log=logs["tmux"]))
+            self.refuse(name)
+        if REAL_TMUX:
+            tmux = TMUX if tmux_log else "#!/bin/sh\n" + TMUX.removeprefix(LOG)
+            self.refuse("tmux", tmux, tmpdir=shlex.quote(str(self.tmux_dir)),
+                        own=shlex.quote(str(self.tmux_dir / f"tmux-{os.getuid()}" / SOCKET)),
+                        real=shlex.quote(REAL_TMUX))
+        else:
+            self.refuse("tmux")
         self.env = {
             "HOME": str(self.at / "home"),
             "PATH": os.pathsep.join([str(self.at / "bin"), str(Path(sys.executable).parent),
@@ -253,6 +249,14 @@ class Home:
         path.write_text(script)
         path.chmod(0o755)
         return path
+
+    def refuse(self, name, script=REFUSE, **values):
+        """Put a fake `name` first on the program's PATH that logs each call (`calls`) and
+        refuses it, or else does what `script`, LOG's kind, does."""
+        return self.fake(name, script.format(
+            python=shlex.quote(sys.executable), name=name, **values,
+            # where the commands that call it find it: a machine's, tests/fixtures/twohomes.py's
+            log=shlex.quote(str(self.at / self.log(name).relative_to(self.root)))))
 
     def calls(self, name):
         """Each argv a logging fake was called with, oldest first."""
