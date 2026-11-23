@@ -36,9 +36,9 @@ def steady():
 
 
 def due():
-    """Whether home goes back now: asked in the order of their names, by `ak standby --steady` there,
-    a machine a record here that reads as a stamp says home goes back to (`back`) says it is steady
-    within ASKED.  No where none does, so where no record says `back`, and nobody is asked."""
+    """Whether home goes back now: asked in the order of their names, by `ak standby --steady`
+    there, a machine a record here that reads as a stamp says home goes back to (`back`) says it is
+    steady within ASKED.  No where none does, so where no record says `back`, nobody asked."""
     for path in sorted(standby._records()):
         # whatever is raised is no, and the next such machine is asked
         with contextlib.suppress(Exception):
