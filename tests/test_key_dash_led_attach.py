@@ -46,7 +46,12 @@ class RemoteHop(unittest.TestCase):
                 hops = len(self.home.calls("ssh"))
                 done = self.home.ak(*args)
                 self.assertEqual(done.code, 7, done.err)
-                self.assertEqual(self.home.calls("ssh")[hops:], [HOP])
+                calls = self.home.calls("ssh")[hops:]
+                # one hop, first: after it the home may be asked once, without a terminal, whom
+                # it names as taking over (tests/test_key_client_opens_a_named_taker.py)
+                self.assertEqual((calls[:1], [call for call in calls if "-t" in call]),
+                                 ([HOP], [HOP]))
+                self.assertLessEqual(len(calls), 2, calls)
 
     def test_help_after_a_dash_led_word_is_the_top_level_help(self):
         top = self.home.ak("--help")
