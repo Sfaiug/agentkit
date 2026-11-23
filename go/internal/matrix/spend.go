@@ -203,12 +203,13 @@ func measures(held *run.Object) (*Measures, error) {
 
 // plans is each login's Plan over each of windows, (since, until) each, Python's spend.weeks: per
 // provider, a plan's points and dollars are summed over every login's probe readings of its shared
-// week in the window, a reading kept with no plan its login's plan now.  A login's readings of one
-// plan and one week, by drift, are cut at each turn of unknown tokens (stretches), read once from
-// the earliest window, as a turn that ended before a window's first reading cuts nothing in it:
-// read for each of Checks's fourteen, they took the owner 9.4 s.  Each stretch rose from its
-// earliest reading to its highest, what the login spent (listed) from the earliest to the first at
-// the highest bought that rise, and one whose spend cannot be priced counts for nothing.
+// week in the window, a model's own cap of its name (scope) none, a reading kept with no plan its
+// login's plan now.  A login's readings of one plan and one week, by drift, are cut at each turn of
+// unknown tokens (stretches), read once from the earliest window, as a turn that ended before a
+// window's first reading cuts nothing in it: read for each of Checks's fourteen, they took the
+// owner 9.4 s.  Each stretch rose from its earliest reading to its highest, what the login spent
+// (listed) from the earliest to the first at the highest bought that rise, and one whose spend
+// cannot be priced counts for nothing.
 func (s *spend) plans(accounts []usage.Week, windows ...[2]float64) []map[usage.Week]usage.Plan {
 	type key struct {
 		window                  int
@@ -232,8 +233,8 @@ func (s *spend) plans(accounts []usage.Week, windows ...[2]float64) []map[usage.
 			if login.Meter == "" {
 				continue
 			}
-			for _, row := range s.db.Select("SELECT used, resets_at, at, plan FROM meter_readings WHERE provider = ? AND "+
-				"account = ? AND meter = ? AND source = 'probe' AND at >= ? AND at <= ? AND "+
+			for _, row := range s.db.Select("SELECT used, resets_at, at, plan FROM "+s.db.Migrated("meter_readings")+
+				" WHERE provider = ? AND account = ? AND meter = ? AND scope IS NULL AND source = 'probe' AND at >= ? AND at <= ? AND "+
 				"used IS NOT NULL AND resets_at IS NOT NULL ORDER BY resets_at",
 				login.Provider, cmp.Or(login.Account, config.DefaultAccount), login.Meter, span[0], span[1]) {
 				used, _ := row.Num("used")
