@@ -1393,21 +1393,20 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     if (not this_round and not named
             and any(staffing.pair_tier(lp.cfg, wrote, lp.reviewer) for wrote in writers)):
         # A round's review begins as a fallback picks: one of a writer's lab gives way while a
-        # marked reviewer of another can run here, and waits while none of those has room.  Only
-        # where the round's record is new, so no turn of this review has run and nothing it
-        # handed in is lost: one entered again is reviewed as its resume picked (`resume_models`).
-        # Only a reviewer of a writer's lab is left out beside them, so only then are the meters
-        # read; without the writers first, so a window resetting between the two widens the second.
+        # marked reviewer of another can run here with usage left.  Only where the round's
+        # record is new, so no turn of this review has run and nothing it handed in is lost: one
+        # entered again is reviewed as its resume picked (`resume_models`).  Only a reviewer of a
+        # writer's lab is left out beside them, so only then are the meters read; once for both
+        # reads, so one with room without the writers is picked beside them unless one of
+        # another lab is (`ready_order`), or a lineup refreshed between the reads leaves it out.
         providers = meters()
         if lp.reviewer in ready_reviewers(providers=providers, log=None):
             offered = ready_reviewers(writers, providers, log=None)
             if not offered:
-                raise turns.QuotaDry(f"reviewer {lp.reviewer} shares a lab with "
-                                     f"{', '.join(writers)} and no eligible reviewer of another "
-                                     f"is left to review; waiting for review")
+                raise turns.QuotaDry("no eligible reviewer is left to review; waiting for review")
             if lp.reviewer not in offered:
-                lp.log(f"reviewer {offered[0]} is of another lab: {lp.reviewer} does not review "
-                       f"this round")
+                lp.log(f"reviewer {offered[0]} reviews this round: the pick left out "
+                       f"{lp.reviewer}")
                 lp.reviewer, lp.review_sid = offered[0], None
                 name = f"reviewer-{lp.reviewer}"
                 lp.save()
@@ -1419,7 +1418,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         read now, so a reviewer passed over while its meter was spent is picked once it has
         refilled; only those that already failed this round stay out of it.  It is picked beside
         the run's writers (`review_writers`): while a marked reviewer of another lab than
-        theirs can run here, none of a writer's lab is, so one spent is waited for."""
+        theirs can run here with usage left, none of a writer's lab is."""
         failed = lp.state["review_pending"].setdefault("failed", [])
         if lp.reviewer not in failed:
             failed.append(lp.reviewer)

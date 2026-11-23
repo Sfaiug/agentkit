@@ -198,9 +198,9 @@ class SelfReviewLast(unittest.TestCase):
             self.assertEqual(run.review(lp, "Work done.", True, "passed"), "PASS")
         return calls
 
-    # A spare of another lab than the executor's is waited for while it can run here
-    # (tests/test_key_a_review_waits_for_another_provider.py): only one that cannot hands the
-    # review to the executor's lab, here its provider.
+    # A spare of another lab than the executor's is waited for while it can run here with usage
+    # left (tests/test_key_a_review_waits_for_another_provider.py): one that cannot hands the
+    # review to the executor's lab, here its provider, as a spent one does.
     def test_a_spare_that_cannot_run_falls_back_to_the_next_other_model_before_own(self):
         lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-one", "acme-two"])
         self.providers = self.cannot_run("beta-one")
@@ -261,8 +261,8 @@ class SelfReviewLast(unittest.TestCase):
         with patch.object(run, "collect_usage", side_effect=lambda cfg: self.providers), patch.object(staffing, "collect_usage", side_effect=lambda cfg: self.providers):
             self.assertEqual(preset(opts), "beta-one")
             self.providers = self.meters(beta=100)
-            # beta-one, of another lab, is marked: the pick waits for it, none of acme's reviews
-            self.assertIsNone(preset(opts))
+            # beta-one, of another lab, is spent: one of acme's reviews, the writer last
+            self.assertEqual(preset(opts), "acme-two")
             self.cfg["defaults"]["workers"] = ["acme-one", "acme-two"]
             self.assertEqual(preset(opts), "acme-two")
             self.cfg["defaults"]["workers"] = ["acme-one"]

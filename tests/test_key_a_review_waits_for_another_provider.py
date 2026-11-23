@@ -1,15 +1,13 @@
 """A task's review that loses its reviewer goes to a model of its writer's lab only while no
-marked reviewer of another lab can run here: with no lineup stored, as here, each provider is a
-lab.
+marked reviewer of another lab can run here with usage left: with no lineup stored, as here, each
+provider is a lab.
 
 The owner, 18 Nov 2026: "same provider or model for both roles should still be allowed if only
-picked, but if multiple picked then from different."  opus alone builds.  Where astra, on
-another provider, reviews and its window is spent by its turn, no reviewer turn runs on opus's
-harness: the run parks, and once astra's window resets the tick resumes it and astra reviews.
-Where the reviewer spent so is fable, on opus's provider, opus reviews its own work.  Where
-astra's harness is gone from the machine by its turn, opus reviews.  Black-box, staged as
-tests/test_key_writer_reviews_only_without_room.py stages it.  A shortage ends as a meter does:
-its window resets.
+picked, but if multiple picked then from different."; 22 Nov: "Own lab reviews when spent".
+opus alone builds.  Where astra, on another provider, reviews and its window is spent by its
+turn, opus reviews its own work, as it does where the reviewer spent so is fable, on opus's
+provider, and where astra's harness is gone from the machine by its turn.  Black-box, staged as
+tests/test_key_writer_reviews_only_without_room.py stages it.
 """
 
 import shlex
@@ -21,7 +19,6 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import fakeadapter, taskfile
-from fixtures.akbin import boxable
 from test_key_writer_reviews_only_without_room import (launched, meter, record, roles, staged,
                                                        until_true)
 
@@ -44,36 +41,23 @@ def launch(case):
     case.state = record(case.run_dir)
 
 
-@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
-class AnotherProvidersReviewerIsWaitedFor(unittest.TestCase):
+class AnotherProvidersReviewerIsSpent(unittest.TestCase):
     """opus and astra review; astra, picked at launch, is refused at its turn."""
 
     @classmethod
     def setUpClass(cls):
         week = [meter(10, time.time() + 86400)]
-        home = staged(cls, ["opus", "astra"], ["opus", "astra"], {"claude": week, "codex": week},
-                      claude="work", codex=[refused(SHORTAGE), "pass"])
+        staged(cls, ["opus", "astra"], ["opus", "astra"], {"claude": week, "codex": week},
+               claude=["work", "pass"], codex=refused(SHORTAGE))
         launch(cls)
-        cls.parked = cls.state
-        back = time.time() + SHORTAGE       # astra's turn was refused before the run ended
-        until_true(lambda: time.time() > back + 1)
-        cls.ticked = home.tick()
-        until_true(lambda: record(cls.run_dir).get("state") not in ("exhausted", "queued",
-                                                                    "running"), bound=300)
-        cls.state = record(cls.run_dir)
 
-    def test_no_reviewer_turn_runs_on_opus_s_harness_and_the_run_parks(self):
-        self.assertEqual(self.done.code, 1, self.done.out + self.done.err)
+    def test_with_the_other_labs_reviewer_spent_the_writers_lab_reviews(self):
+        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual(launched(self.done), ("opus", "astra"))
-        self.assertEqual((self.parked["state"], self.parked["reviewer"]), ("exhausted", "astra"))
-        self.assertEqual(roles(self.fakes["claude"]), ["executor"])
-
-    def test_after_the_window_reset_the_tick_resumes_it_and_astra_reviews(self):
-        self.assertEqual(self.ticked.code, 0, self.ticked.out + self.ticked.err)
-        self.assertIn(f"resumed {self.run_dir.name}: reviewer astra eligible again",
-                      self.ticked.out.splitlines())
-        self.assertEqual(roles(self.fakes["codex"]), ["reviewer", "reviewer"])
-        self.assertEqual(self.state["review"]["reviewer"], "astra")
+        self.assertEqual(roles(self.fakes["codex"]), ["reviewer"])
+        self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer"])
+        self.assertEqual((self.state["reviewer"], self.state["review"]["reviewer"]),
+                         ("opus", "opus"))
         self.assertEqual((self.state["state"], self.state["verdict"]), ("pass", "PASS"))
 
 
