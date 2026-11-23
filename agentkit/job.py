@@ -1032,8 +1032,8 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             workers, review_list = config.pair_marks(cfg, workers, reviewers)
             try:
                 # a reviewer mark the config holds no whole model for reviews nobody (`known`)
-                _, skip = staffing.takers(cfg, None, workers, reviewers=reviewers,
-                                          reviewed_by=staffing.known(cfg, review_list))
+                _, skip, _ = staffing.takers(cfg, None, workers, reviewers=reviewers,
+                                             reviewed_by=staffing.known(cfg, review_list))
             except config.Error:
                 # an adapter manifest ak cannot read refuses every reviewer pick, the rerun's
                 # launch too: the rotation goes on as before it

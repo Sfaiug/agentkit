@@ -46,7 +46,7 @@ class ReviewersBesideWriters(Sandbox):
         self.logs = []
 
     def pick(self, listed=("opus", "astra"), writers=None, log=None):
-        return staffing.ready_order(self.cfg, self.providers, list(listed), log,
+        return staffing.ready_order(self.cfg, self.providers, listed and list(listed), log,
                                     writers=writers, role="reviewer", quiet=True)
 
     def test_a_reviewer_on_another_provider_alone_is_picked_and_the_log_says_why(self):
@@ -62,17 +62,33 @@ class ReviewersBesideWriters(Sandbox):
         self.assertEqual(self.pick(), ["opus"])
         self.assertEqual(self.logs, [])     # opus is not left out of the pick returned
 
-    def test_a_second_pick_holding_one_on_another_provider_names_it_first(self):
-        # astra's refusal ends between the two picks: the sandbox's clock reads 10000
+    def at_two_moments(self, listed, between=lambda: None):
+        """The pick of `listed` beside opus with astra refused until 10001: its first reading at
+        the sandbox's 10000, any later one at 10002, `between` done after the first."""
         self.providers["beta"]["exhausted_until"] = 10001
         pick_order, moments = usage.pick_order, iter((10000, 10002))
 
         def at_the_next_moment(*args, **kwargs):
             with patch.object(usage.time, "time", return_value=next(moments)):
-                return pick_order(*args, **kwargs)
+                order = pick_order(*args, **kwargs)
+            between()
+            return order
 
         with patch.object(usage, "pick_order", at_the_next_moment):
-            self.assertEqual(self.pick(writers=["opus"]), ["astra", "opus"])
+            return self.pick(listed, ["opus"])
+
+    def test_a_second_pick_holding_one_on_another_provider_names_it_alone(self):
+        self.assertEqual(self.at_two_moments(["opus", "astra"]), ["astra"])
+
+    def test_an_empty_pick_the_rule_left_nobody_out_of_is_not_made_again(self):
+        self.assertEqual(self.at_two_moments(["astra"]), [])
+
+    def test_a_second_pick_reads_the_marks_as_they_are_then(self):
+        def unmark_opus():
+            self.cfg["defaults"]["workers"] = ["fable", "astra"]
+
+        self.providers = meters(acme=10, beta=100)
+        self.assertEqual(self.at_two_moments(None, unmark_opus), ["fable"])
 
     def test_a_first_pick_naming_a_payg_one_on_another_provider_is_returned_as_it_is(self):
         self.cfg["providers"]["beta"]["mode"] = "payg"

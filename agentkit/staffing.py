@@ -105,23 +105,22 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_b
     through here; `log`, on the one call of a pick that gives a role, says in one line why
     each marked one is left out of the pick returned.
 
-    A reviewer's pick that `writers`' lab rule (`takers`) leaves empty is made once more
-    without that rule, `pick_order`'s own at its own moment, and ordered beside the writers
-    (`reviewer_order`), so a reviewer of another lab whose window came back in between comes
-    first.  The owner, 22 Nov 2026: "Own lab reviews when spent".
+    A reviewer's pick that comes back empty where `takers`' lab rule left reviewers out is
+    made once more without that rule, a pick of its own of `workers` as given, at its own
+    moment, in `reviewer_order`'s order beside the writers.  The owner, 22 Nov 2026: "Own lab
+    reviews when spent".  The rule then holds of the names it gives: one of another lab whose
+    window came back in between is the pick, as it would have been the first's.
     """
     from . import usage  # here, not at the top: usage imports staffing
     role, reviewers = kwargs.get("role", "executor"), kwargs.get("reviewers")
-    workers, skip = takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)
-    order = usage.pick_order(cfg, providers, workers, skip=skip, **kwargs)
-    if not order and writers:
-        kept = takers(cfg, providers, workers, role, reviewers)[1]
-        if kept.keys() != skip.keys():
-            skip = kept
-            order = reviewer_order(cfg, writers,
-                                   usage.pick_order(cfg, providers, workers, skip=skip, **kwargs))
+    marks, skip, by_lab = takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)
+    order = usage.pick_order(cfg, providers, marks, skip=skip, **kwargs)
+    if role == "reviewer" and by_lab and not order:
+        again = reviewer_order(cfg, writers, ready_order(cfg, providers, workers, log, **kwargs))
+        out = takers(cfg, providers, again, role, reviewers, writers)[1]
+        return [name for name in again if name not in out]
     if log and skip:
-        for name in usage.marked(cfg, workers, role, reviewers):
+        for name in usage.marked(cfg, marks, role, reviewers):
             if name in skip:
                 log(f"skipped {name}: {skip[name]}")
     return order
@@ -130,8 +129,8 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_b
 def takers(cfg, providers, workers=None, role="executor", reviewers=None, writers=None,
            reviewed_by=None):
     """The list a pick for `role` reads, `workers` as given unless a rule below reads it
-    (`usage.marked`), and why each name a pick may not take is left out, before any budget rule
-    reads the list.
+    (`usage.marked`), why each name a pick may not take is left out, before any budget rule
+    reads the list, and the names the lab rule below left out.
 
     A worker whose harness is not installed or not logged in, as `providers` say, is left out,
     so a subscription nobody can run keeps no payg provider out; with no `providers` no harness
@@ -156,6 +155,7 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
     if role == "reviewer":
         skip.update((name, why) for name in offered if (why := barred_reviewer(cfg, name)))
     writers = known(cfg, writers) if role == "reviewer" else []
+    by_lab = []
     if writers or (role == "executor" and reviewed_by is not None):
         # read here, once: `pick_order` then reads only what the other role leaves of it
         workers = usage.marked(cfg, workers, role, reviewers)
@@ -175,8 +175,9 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
                    if any(pair_tier(cfg, name, reviewer, lineup) == 0 for reviewer in reviews)]
             why = f"a marked reviewer of another lab can review {', '.join(far)}"
         if far:
-            skip.update((name, why) for name in ready(workers) if name not in far)
-    return workers, skip
+            by_lab = [name for name in ready(workers) if name not in far]
+            skip.update((name, why) for name in by_lab)
+    return workers, skip, by_lab
 
 
 def barred_reviewer(cfg, name):
