@@ -7452,10 +7452,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
 # --- on a client ------------------------------------------------------------
 
 
-def client(alias, dry_run, hops):
-    """The menu of the home at `alias`, over ssh, told by one `--client` a hop how many hops it is
-    reached over: a client's client goes no further (`main`)."""
-    cmd = ["ssh", "-t", alias, "ak", *["--client"] * hops]
+def client(alias, dry_run, hops, options=()):
+    """The menu of the home at `alias`, over ssh given `options` first, told by one `--client` a
+    hop how many hops it is reached over: a client's client goes no further (`main`)."""
+    cmd = ["ssh", *options, "-t", alias, "ak", *["--client"] * hops]
     if dry_run:
         print(f"would run {shlex.join(cmd)}")
         return 0
@@ -7465,24 +7465,32 @@ def client(alias, dry_run, hops):
         raise config.Error(f"cannot run ssh: {exc}")
 
 
+ANSWERS = 10    # seconds a client's home has to name its takers, and each menu's ssh to connect
+
+
 def client_menu(home):
     """A client's own menu: its home's, and where ssh reached no machine there (its exit 255,
     which a connection broken midway exits too), that of the first ssh reaches of the machines
-    the home last named as taking over from it (`takers`), in their order, else 255.  A home that
-    answered is asked again whom it names, within ten seconds, connecting included: a slower one
-    leaves the older list.  The menu exits as the hop did, whatever the asking meets."""
-    code = client(home, False, 1)
+    the home last named as taking over from it (`takers`), in their order, else 255.  Where it
+    named any, each ssh, the home's too, has ANSWERS seconds to connect: a home without power
+    refuses nothing, and ssh waits on it as long as the system lets it, over a minute on a Mac.
+    A home that answered is asked again whom it names, within ANSWERS, connecting included: a
+    slower one leaves the older list.  The menu exits as the hop did, whatever the asking meets."""
+    names = takers.read()       # before the hop, which writes none where it exits 255
+    options = ["-o", f"ConnectTimeout={ANSWERS}"] if names else []
+    code = client(home, False, 1, options)
     if code != 255:
         try:
             asked = subprocess.run(standby._home(home, "--takers"), stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                   timeout=ANSWERS)
             if asked.returncode == 0:
                 takers.write(asked.stdout)
         except (OSError, subprocess.TimeoutExpired, KeyboardInterrupt):
             pass        # the list as it was, a Ctrl-C on a slow home's answer among them
         return code
-    for name in takers.read():
-        if (code := client(name, False, 1)) != 255:
+    for name in names:
+        if (code := client(name, False, 1, options)) != 255:
             break
     return code
 
