@@ -456,11 +456,10 @@ def _takers():
 def _told():
     """The word another machine's record of this one shall say, by the words of the records here
     that read as a stamp: `back` where one says `yes`, which the machine home first holds; else
-    `yes` where one says `back`, as home goes back to that machine, never to this one, which stood
-    in for it; else `no`.  No record is picked out: a machine is told by its ssh alias and its
-    record here is named by its host name, and nothing ties the two."""
-    said = {_record(path)[1] for path in _records()}
-    return "back" if "yes" in said else "yes" if "back" in said else "no"
+    `yes`, as home goes back to a machine a record here says `back` of, never to this one, which
+    stood in for it.  No record is picked out: a machine is told by its ssh alias and its record
+    here is named by its host name, and nothing ties the two."""
+    return "back" if "yes" in {_record(path)[1] for path in _records()} else "yes"
 
 
 def tell():

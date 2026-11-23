@@ -34,10 +34,9 @@ def where_another_is_home():
                      if standby._takes(path) and _asked(path.name, "--home")), None)
         # without this machine's name and that machine's stamp, no record of it is kept there
         held = standby._home_began(home) if home else []
-        # the records as the word is sent, which may say `no` by then, as a pass of that machine's
-        # may have written meanwhile: told so, it would keep no record of this one taking over
-        if (held and (told := standby._told()) in standby.OVER
-                and _asked(home, "--copied", *held, told)):
+        # the word read once the stamp is held: a pass of that machine's may write its record
+        # here meanwhile, as `back` where that machine's own record of this one says `yes`
+        if held and _asked(home, "--copied", *held, standby._told()):
             _kill()
             (config.TMP / standby.FOLDER).mkdir(parents=True, exist_ok=True)
             if standby._keep_job(home):

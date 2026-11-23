@@ -9,7 +9,7 @@ exit.  No output of a firing is compared: what a tick prints varies with the clo
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, each
 machine's clocks from AK_NOW (`wall seconds-since-boot boot`), and tests/fixtures/sink.py is the
 owner's webhook.  A record is written as a pass that ended well leaves it, by `ak standby
---began` and `--copied HOST WALL SINCE BOOT no`.  A refused page's retry is made due at once, as
+--began` and `--copied HOST WALL SINCE BOOT yes`.  A refused page's retry is made due at once, as
 its wait passing leaves it.
 """
 
@@ -54,7 +54,7 @@ class TheOwnerIsToldWhenAStandbyIsGone(unittest.TestCase):
         """HOST's record on `machine` at `minute`, as a pass that ended well leaves it."""
         self.at(machine, minute)
         began = machine.ak("standby", "--began")
-        kept = machine.ak("standby", "--copied", HOST, *began.out.split(), "no")
+        kept = machine.ak("standby", "--copied", HOST, *began.out.split(), "yes")
         self.assertEqual((began.code, kept.code), (0, 0), began.err + kept.err)
 
     def fires(self, machine, wall, since=None):

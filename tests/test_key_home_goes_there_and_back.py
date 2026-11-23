@@ -97,8 +97,7 @@ class HomeGoesThereAndBack(Firings, unittest.TestCase):
 
         # 1. acme-mini is the home, its firings holding the lease, as its record of acme-vm says
         # `yes`; acme-vm its client, its first pass started by hand, which keeps its row, and its
-        # passes copying acme-mini; then acme-mini's record of acme-vm says `yes` again, as a pass
-        # tells its home `no` today
+        # passes copying acme-mini
         self.record(mini, "yes")
         for minute in (0, 3):
             self.runs(mini, self.clock(mini, minute))
@@ -106,7 +105,6 @@ class HomeGoesThereAndBack(Firings, unittest.TestCase):
         self.clock(vm, 4)
         self.assertEqual(vm.ak("standby", "acme-mini", raw=True).code, 0)
         self.copies(vm, mini, 7)
-        self.record(mini, "yes")
 
         # 2. acme-mini fires no more; acme-vm's pass that has read the lease unchanged for 20
         # minutes, since its pass at 4, sends its swap, and the pass after it makes it the home
