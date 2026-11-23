@@ -3353,6 +3353,7 @@ cat >>"$CBIN/ssh" <<'SH'
 printf '%s\n' "$*" >>"$SSHLOG"
 case "$*" in
   "-t srv ak --client") exit 0 ;;
+  *" standby --takers") exit 0 ;;     # the home asked whom it names as taking over
   *) echo "fake ssh: unexpected $*" >&2; exit 9 ;;
 esac
 SH
@@ -3362,8 +3363,10 @@ CLIENT=0
 printf '\n' | HOME="$CHOME" PATH="$CBIN:$PATH" ak >"$WORK/client.log" 2>&1 || CLIENT=1
 HOME="$CHOME" ak --dry-run >"$WORK/client-dry.log" 2>&1 || CLIENT=1
 grep -q '^would run ssh -t srv ak --client$' "$WORK/client-dry.log" || CLIENT=1
-[ "$(cat "$SSHLOG")" = "-t srv ak --client" ] || CLIENT=1
-[ "$CLIENT" = 0 ] && ok "20b client: ak ran the menu over ssh -t srv ak --client once and came back" \
+# the hop, then the home asked whom it names as taking over, and nothing else
+[ "$(grep -c '' "$SSHLOG")" = 2 ] && [ "$(sed -n 1p "$SSHLOG")" = "-t srv ak --client" ] &&
+  sed -n 2p "$SSHLOG" | grep -q ' standby --takers$' || CLIENT=1
+[ "$CLIENT" = 0 ] && ok "20b client: ak ran the menu over ssh -t srv ak --client once, asked who takes over and came back" \
                 || { no "20b client menu"; sed 's/^/      ssh /' "$SSHLOG" | head -8; sed 's/^/      /' "$WORK/client.log" | head -6; }
 
 # --- 20d: finished-run receipts stay off the menu entirely (offline) --------
