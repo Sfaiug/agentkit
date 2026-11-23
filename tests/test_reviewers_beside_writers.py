@@ -4,11 +4,11 @@ one of another lab may review: with no lineup stored, as here, each provider is 
 The owner, 18 Nov 2026: "same provider or model for both roles should still be allowed if only
 picked, but if multiple picked then from different."  `staffing.ready_order` narrows the list
 before `usage.pick_order` reads it, so the pick is the one a run marked with only the reviewers
-on other providers gets, and one naming a payg reviewer on another keeps the subscription on the
-writer's provider out.  22 Nov: "Own lab reviews when spent": a pick that comes back empty is
-made again without the writers' providers left out, at its own moment, a reviewer on another
-provider first.  A reviewer that is off, unready or barred, a list on the writer's provider
-alone, or a writer the config does not know leaves the pick as it is without writers.
+on other providers gets, so a subscription on the writer's provider keeps no payg reviewer on
+another out.  22 Nov: "Own lab reviews when spent": a pick that comes back empty is made again,
+at its own moment, without the writer's provider left out, a reviewer on another provider first.
+A reviewer that is off, unready or barred, a list on the writer's provider alone, or a writer
+the config does not know leaves the pick as it is without writers.
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
