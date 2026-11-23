@@ -528,9 +528,13 @@ class MergeStep(unittest.TestCase):
                                  "usage limit reached", True)
             return 0, resolve(wt), session, False
 
+        def picked(cfg, providers, workers=None, **_kw):
+            # a fixed order, of the names the pick is handed alone, as the real pick keeps to them
+            return [name for name in ("opus", "astra", "spark") if workers is None or name in workers]
+
         with patch.object(model_turns, "call_retrying", side_effect=submitting(call)), \
                 patch.object(usage, "collect", return_value={}), \
-                patch.object(usage, "pick_order", return_value=["opus", "astra", "spark"]):
+                patch.object(usage, "pick_order", side_effect=picked):
             self.assertTrue(run.integrate(lp, "origin/main"))
         self.assertEqual([name for name, _ in asked], ["opus", lp.executor])
         self.assertNotEqual(lp.executor, "opus")              # handed over

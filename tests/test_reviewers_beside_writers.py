@@ -10,10 +10,11 @@ of the reviewers it left out alone, so it never names one on another provider.  
 is off, unready or barred, a list on the writer's provider alone, or a writer the config does
 not know leaves the pick as it is without writers.  An executor's pick given the run's reviewers
 leaves out the same way every executor no reviewer on another provider can review, and is made
-again the same way; a handover's is made again too where every executor it keeps is on a
-provider that refused the work (`staffing.next_executor`), and a resume's leaves out the
-executor it skips before the rule reads the list (`staffing.resume_models`).  A launch whose
-pick is still empty waits without claiming a full meter it never read.
+again the same way.  A handover's picks of both roles read nobody on a provider that refused
+the work (`staffing.next_executor`), so a refused subscription keeps no payg one out of either,
+and a resume's leaves out the executor it skips before the rule reads the list
+(`staffing.resume_models`).  A launch whose pick is still empty waits without claiming a full
+meter it never read.
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
@@ -160,6 +161,14 @@ class ReviewersBesideWriters(Sandbox):
         self.assertEqual(staffing.next_executor(self.cfg, self.providers, {"beta"}, "opus", None,
                                                 workers=["astra", "opus"], reviewers=["opus"]),
                          ("opus", "opus"))
+
+    def test_a_refused_subscription_keeps_no_payg_reviewer_out_of_the_handover(self):
+        self.cfg["models"]["opus"]["mode"] = "payg"
+        self.providers = meters(acme=10, beta=10)
+        self.assertEqual(staffing.next_executor(self.cfg, self.providers, {"beta"}, "astra", None,
+                                                workers=["astra", "fable"],
+                                                reviewers=["astra", "opus"]),
+                         ("fable", "opus"))
 
 
 if __name__ == "__main__":

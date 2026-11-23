@@ -170,7 +170,12 @@ class Limits(unittest.TestCase):
         self.stack.enter_context(patch.object(notify, "shaped",
                                               side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
-        self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
+
+        def picked(cfg, providers, workers=None, **_kw):
+            # a fixed order, of the names the pick is handed alone, as the real pick keeps to them
+            return [name for name in ("opus", "astra") if workers is None or name in workers]
+
+        self.stack.enter_context(patch.object(usage, "pick_order", side_effect=picked))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(gc, "schedule_gc"))
         # the retry backoff is minutes long and has nothing to do with what is under test here.
