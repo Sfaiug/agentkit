@@ -264,7 +264,8 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
             raise config.Error(f"{want_exec!r} is not a worker of {where}")
         refuse_unready(cfg, providers, want_exec)
     elif not order:
-        raise turns.QuotaDry("every worker has a gate meter at 100% used")
+        # a full meter and a provider's refusal leave a worker out alike; the pick says which
+        raise turns.QuotaDry("no eligible executor: no worker can execute now; waiting for one")
     executor = want_exec or order[0]
     if want_review is False:
         return executor, None

@@ -11,7 +11,8 @@ is off, unready or barred, a list on the writer's provider alone, or a writer th
 not know leaves the pick as it is without writers.  An executor's pick given the run's reviewers
 leaves out the same way every executor no reviewer on another provider can review, and is made
 again the same way; a handover's is made again too where every executor it keeps is on a
-provider that refused the work (`staffing.next_executor`).
+provider that refused the work (`staffing.next_executor`).  A launch whose pick is still empty
+waits without claiming a full meter it never read.
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
@@ -25,7 +26,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import staffing, usage
+from agentkit import staffing, turns, usage
 
 
 def meters(**used):
@@ -133,6 +134,15 @@ class ReviewersBesideWriters(Sandbox):
                          ["skipped opus: a marked reviewer of another lab can review astra"])
         self.logs.clear()
         self.assertEqual((handed({"beta"}), self.logs), (("opus", "opus"), []))
+
+    def test_a_launch_both_providers_refused_waits_without_claiming_a_full_meter(self):
+        self.providers = meters(acme=10, beta=10)
+        for provider in ("acme", "beta"):
+            self.providers[provider]["exhausted_until"] = 20000
+        with self.assertRaises(turns.QuotaDry) as caught:
+            staffing.pick_models(self.cfg, self.providers, None, None, self.logs.append,
+                                 quiet=True, workers=["opus", "astra"], reviewers=["opus"])
+        self.assertNotIn("100%", str(caught.exception))
 
     def test_a_refused_subscription_keeps_no_payg_one_out_of_the_handover_made_again(self):
         self.cfg["providers"]["acme"]["mode"] = "payg"
