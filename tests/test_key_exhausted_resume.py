@@ -133,8 +133,7 @@ class WindowRefills(unittest.TestCase):
 class AnotherWorker(unittest.TestCase):
     """Two runs with opus alone marked to build, both refused; then the owner marks astra alone,
     to build and to review, and a later run of the second's task merges: astra reviews its own
-    work.  Were opus still marked to build, astra, which no reviewer of another lab is marked to
-    review, would wait for it (tests/test_key_an_executor_has_another_labs_reviewer.py)."""
+    work."""
 
     @classmethod
     def setUpClass(cls):

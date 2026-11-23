@@ -8,7 +8,10 @@ on other providers gets, so a subscription on the writer's provider keeps no pay
 another out.  22 Nov: "Own lab reviews when spent": a pick that comes back empty is made again
 of the reviewers it left out alone, so it never names one on another provider.  A reviewer that
 is off, unready or barred, a list on the writer's provider alone, or a writer the config does
-not know leaves the pick as it is without writers.
+not know leaves the pick as it is without writers.  An executor's pick given the run's reviewers
+leaves out the same way every executor no reviewer on another provider can review, and is made
+again the same way; a handover's is made again too where every executor it keeps is on a
+provider that refused the work (`staffing.next_executor`).
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
@@ -107,6 +110,36 @@ class ReviewersBesideWriters(Sandbox):
 
     def test_a_writer_the_config_does_not_know_holds_nobody_back(self):
         self.assertEqual(self.pick(writers=["retired"]), self.pick())
+
+    def test_an_executors_pick_with_the_one_another_provider_reviews_spent_builds_on_opus(self):
+        def executors():
+            return staffing.ready_order(self.cfg, self.providers, ["opus", "astra"],
+                                        self.logs.append, reviewed_by=["opus"], quiet=True)
+
+        self.assertEqual(executors(), ["astra"])
+        self.assertEqual(self.logs,
+                         ["skipped opus: a marked reviewer of another lab can review astra"])
+        self.logs.clear()
+        self.providers = meters(acme=10, beta=100)
+        self.assertEqual((executors(), self.logs), (["opus"], []))
+
+    def test_a_handover_whose_kept_executors_provider_refused_it_builds_on_opus(self):
+        def handed(dry):
+            return staffing.next_executor(self.cfg, self.providers, dry, "opus", self.logs.append,
+                                          workers=["opus", "astra"], reviewers=["opus"])
+
+        self.assertEqual(handed(set()), ("astra", "opus"))
+        self.assertEqual(self.logs,
+                         ["skipped opus: a marked reviewer of another lab can review astra"])
+        self.logs.clear()
+        self.assertEqual((handed({"beta"}), self.logs), (("opus", "opus"), []))
+
+    def test_a_refused_subscription_keeps_no_payg_one_out_of_the_handover_made_again(self):
+        self.cfg["providers"]["acme"]["mode"] = "payg"
+        self.providers = meters(acme=10, beta=10)
+        self.assertEqual(staffing.next_executor(self.cfg, self.providers, {"beta"}, "opus", None,
+                                                workers=["astra", "opus"], reviewers=["opus"]),
+                         ("opus", "opus"))
 
 
 if __name__ == "__main__":

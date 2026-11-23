@@ -105,15 +105,15 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_b
     through here; `log`, on the one call of a pick that gives a role, says in one line why
     each marked one is left out of the pick returned.
 
-    A reviewer's pick that comes back empty where `takers`' lab rule left names out is made
-    once more of those names alone.  The owner, 22 Nov 2026: "Own lab reviews when spent".
-    So it never names one of another lab, and a caller choosing among it chooses as among any.
+    A pick that comes back empty where `takers`' lab rule left names out is made once more of
+    those names alone.  The owner, 22 Nov 2026: "Own lab reviews when spent".  So it never
+    names one the rule kept, and a caller choosing among it chooses as among any.
     """
     from . import usage  # here, not at the top: usage imports staffing
     role, reviewers = kwargs.get("role", "executor"), kwargs.get("reviewers")
     marks, skip, by_lab = _takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)
     order = usage.pick_order(cfg, providers, marks, skip=skip, **kwargs)
-    if role == "reviewer" and by_lab and not order:
+    if by_lab and not order:
         order = usage.pick_order(cfg, providers, by_lab, **kwargs)
         skip = {name: why for name, why in skip.items() if name not in by_lab}
     if log and skip:
@@ -138,11 +138,11 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
     off, unready or barred shares none (`pair_tier` 0).  The owner, 18 Nov 2026: "same
     provider or model for both roles should still be allowed if only picked, but if multiple
     picked then from different."  So a subscription of a writer's lab keeps no payg reviewer
-    of another out, and a pick this leaves empty is made again of those it left out
-    (`ready_order`).  An executor's pick given `reviewed_by`, the reviewer marks of its run,
+    of another out.  An executor's pick given `reviewed_by`, the reviewer marks of its run,
     leaves out the same way every executor with no reviewer of them at `pair_tier` 0 that is
     not off, unready or barred, while another has one: the pick is the one a run marking only
-    those executors gets.
+    those executors gets.  A pick either rule leaves empty is made again of those it left out
+    (`ready_order`).
     """
     return _takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)[:2]
 
@@ -539,14 +539,26 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
     flaky provider's handover off a self-review pair: the flake usually answers after a wait,
     so only a provider that cannot run the work settles for one.  With review on, the
     executor is one the run's reviewers of another lab can review while one of its builders is
-    (`ready_order`'s `reviewed_by`), as at launch: a refusal of the only such builder hands the
-    work to nobody, and the run waits for its window.
+    (`ready_order`'s `reviewed_by`), as at launch.  Where every builder that pick names is on a
+    provider in `dry`, it is made again of the builders on none, without `reviewed_by`; the
+    owner, 22 Nov 2026: "Own lab reviews when spent".  `log` hears the pick that gives the role.
     """
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     workers, review_list = config.pair_marks(cfg, workers, reviewers)
-    order = [n for n in ready_order(cfg, providers, workers, log, repo=repo, reviewers=reviewers,
-                                    reviewed_by=None if reviewer is False else review_list)
-             if config.model(cfg, n)["provider"] not in dry]
+
+    def taking(names):
+        return [n for n in known(cfg, names) if config.model(cfg, n)["provider"] not in dry]
+
+    lines = []
+    picked = ready_order(cfg, providers, workers, lines.append, repo=repo, reviewers=reviewers,
+                         reviewed_by=None if reviewer is False else review_list)
+    order = taking(picked)
+    if picked and not order and reviewer is not False:
+        # of those that can take the work alone: a refused subscription keeps no payg one out
+        order = ready_order(cfg, providers, taking(workers), log, repo=repo, reviewers=reviewers)
+    elif log:
+        for line in lines:
+            log(line)
     if reviewer is False and order:
         return order[0], None
     review_order = [n for n in ready_order(cfg, providers, review_list, role="reviewer", repo=repo)

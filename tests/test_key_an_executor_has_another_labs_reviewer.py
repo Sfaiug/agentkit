@@ -3,12 +3,10 @@ can review, while one of them can run here: with no lineup stored, as here, each
 
 The owner, 18 Nov 2026: "same provider or model for both roles should still be allowed if only
 picked, but if multiple picked then from different."  opus alone reviews.  Where opus and astra,
-on another provider, build and astra's window is spent from before the launch, no executor turn
-runs on opus's harness: the run waits, and once astra's window resets the tick starts it, astra
-builds and opus reviews.  Where the one spent so is fable, on opus's provider, opus builds and
-reviews its own work.  Black-box, on the fixtures of
-tests/test_key_a_review_waits_for_another_provider.py.  A shortage ends as a meter does: its
-window resets.
+on another provider, build and astra's window is spent from before the launch, the owner, 22 Nov
+2026: "Own lab reviews when spent": opus builds and reviews its own work.  So does it where the
+one spent so is fable, on opus's provider.  Black-box, on the fixtures of
+tests/test_key_a_review_waits_for_another_provider.py.
 """
 
 import sys
@@ -17,46 +15,30 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import boxable
 from test_key_a_review_waits_for_another_provider import launch
-from test_key_writer_reviews_only_without_room import (HOURS, SHORTAGE, launched, meter, record,
-                                                       roles, staged, until_true)
+from test_key_writer_reviews_only_without_room import (HOURS, SHORTAGE, launched, meter, roles,
+                                                       staged)
 
 
-@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
-class AnotherLabsExecutorIsWaitedFor(unittest.TestCase):
+class AnotherLabsExecutorIsSpent(unittest.TestCase):
     """opus and astra build; astra's window is spent from before the launch."""
 
     @classmethod
     def setUpClass(cls):
-        over, week = time.time() + SHORTAGE, time.time() + 86400
-        home = staged(cls, ["opus", "astra"], ["opus"],
-                      {"claude": [meter(10, week)],
-                       "codex": [meter(100, over, HOURS), meter(10, week)]},
-                      workers=["opus", "astra"], claude="work", codex="work")
+        week = time.time() + 86400
+        staged(cls, ["opus", "astra"], ["opus"],
+               {"claude": [meter(10, week)],
+                "codex": [meter(100, time.time() + 3600, HOURS), meter(10, week)]},
+               workers=["opus", "astra"], claude="work", codex="work")
         launch(cls)
-        cls.parked, cls.log = cls.state, (cls.run_dir / "log.txt").read_text()
-        cls.turns = roles(cls.fakes["claude"]), roles(cls.fakes["codex"])
-        until_true(lambda: time.time() > over + 1)
-        cls.ticked = home.tick()
-        until_true(lambda: record(cls.run_dir).get("state") not in ("exhausted", "queued",
-                                                                    "running"), bound=300)
-        cls.state = record(cls.run_dir)
 
-    def test_no_executor_turn_runs_on_opus_s_harness_and_the_run_waits(self):
-        self.assertEqual(self.done.code, 1, self.done.out + self.done.err)
-        self.assertEqual(self.turns, ([], []))
-        self.assertEqual(self.parked["state"], "exhausted")
-        self.assertIn("skipped opus: a marked reviewer of another lab can review astra", self.log)
-
-    def test_after_the_window_reset_the_tick_starts_it_astra_builds_and_opus_reviews(self):
-        self.assertEqual(self.ticked.code, 0, self.ticked.out + self.ticked.err)
-        self.assertIn(f"resumed {self.run_dir.name}: openai window refilled",
-                      self.ticked.out.splitlines())
-        self.assertEqual(roles(self.fakes["codex"]), ["executor"])
-        self.assertEqual(roles(self.fakes["claude"]), ["reviewer"])
+    def test_with_the_other_labs_executor_spent_the_reviewers_lab_builds(self):
+        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
+        self.assertEqual(launched(self.done), ("opus", "opus"))
+        self.assertEqual(roles(self.fakes["codex"]), [])
+        self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer"])
         self.assertEqual((self.state["executor"], self.state["review"]["reviewer"]),
-                         ("astra", "opus"))
+                         ("opus", "opus"))
         self.assertEqual((self.state["state"], self.state["verdict"]), ("pass", "PASS"))
 
 
