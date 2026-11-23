@@ -145,12 +145,14 @@ COPIES = "copies"
 # A record's age at which the home's tick pages the owner: a first pass after a long gap may take
 # half an hour, and no other pass begins while it runs, so an hour without one is no slow copy.
 GONE = 60 * 60
-# The words of `ak standby --copied HOST WALL SINCE BOOT yes|no`, each matched whole: a host name
-# of at most 64 characters, as Linux's, this machine's stamp as `--began` prints it, and whether
-# that host takes over.  Each clock in decimals, no sign or exponent, and a boot no dash begins, so
-# that no word is taken for a flag.
+# The words of `ak standby --copied HOST WALL SINCE BOOT yes|no|back`, each matched whole: a host
+# name of at most 64 characters, as Linux's, this machine's stamp as `--began` prints it, and
+# whether that host takes over: `back` as `yes` does, and home goes back to it once it is steady.
+# Each clock in decimals, no sign or exponent, and a boot no dash begins, so that no word is taken
+# for a flag.
 HOST = "[A-Za-z0-9][A-Za-z0-9.-]{0,63}"
-TAKES = "yes|no"
+TAKES = "yes|no|back"
+OVER = ("yes", "back")      # the words of a record whose machine takes over
 CLOCK = "[0-9]{1,12}(?:[.][0-9]{1,17})?"
 STAMP = (CLOCK, CLOCK, "[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 TAG = b"# agentkit standby"     # what the job's line in the crontab ends in
@@ -354,7 +356,7 @@ def _home_began(alias):
 
 
 def _keep(host, line, takes):
-    """Keep `host`'s record, whole or not at all: the stamp's `line`, and whether it `takes` over.
+    """Keep `host`'s record, whole or not at all: the stamp's `line`, and TAKES's word `takes`.
     0, or 1 for a record that cannot be written."""
     folder = config.TMP / COPIES
     try:
@@ -384,14 +386,14 @@ def _age(stamp):
 
 
 def _record(path):
-    """The stamp of the record at `path`, None for one that cannot be read, and whether its machine
-    takes over.  Opened without waiting, so that a named pipe there holds up neither `ak standby`
+    """The stamp of the record at `path` and its word of TAKES, both None for one that cannot be
+    read.  Opened without waiting, so that a named pipe there holds up neither `ak standby`
     nor the tick, and read only as a regular file."""
     try:
         opened = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
         try:
             if not stat.S_ISREG(os.fstat(opened).st_mode):
-                return None, False
+                return None, None
             os.set_blocking(opened, True)
             # A MiB at most, more than any record ak writes, whose boot from `pair_clock.NOW` Linux
             # keeps under 128 KiB: a damaged one may be any size.
@@ -402,13 +404,14 @@ def _record(path):
         line, takes = held.decode().splitlines() if len(held) <= 2**20 else (None, None)
     except (OSError, ValueError):     # one that may not be read, or not two lines of text
         line = takes = None
-    stamp = pair_clock.read(line) if takes in ("yes", "no") else None
-    return stamp, takes == "yes"
+    stamp = pair_clock.read(line) if re.fullmatch(TAKES, takes or "") else None
+    return (stamp, takes) if stamp else (None, None)
 
 
 def _copies():
     """Show each machine that says it copied this one, from its record: how old its copy is and
-    whether it takes over when this one stops; or that none does."""
+    whether it takes over when this one stops, and home goes back to it once it is steady; or
+    that none does."""
     folder = config.TMP / COPIES
     try:
         hosts = sorted(name for name in os.listdir(folder) if re.fullmatch(HOST, name))
@@ -418,7 +421,8 @@ def _copies():
         print("no machine copies this one")
     for host in hosts:
         stamp, takes = _record(folder / host)
-        over = ", and it takes over as home when this one stops" * takes
+        over = ", and it takes over as home when this one stops" * (takes in OVER)
+        over += ", and home goes back to it once it is steady" * (takes == "back")
         try:
             said = f"its copy is {_age(stamp)}{over}" if stamp else "its record cannot be read"
         except OSError:     # no age is read across a boot Linux cannot say
@@ -439,8 +443,7 @@ def _records():
 
 def _takes(path):
     """Whether the record at `path` reads as a stamp and says its machine takes over."""
-    stamp, takes = _record(path)
-    return bool(stamp) and takes
+    return _record(path)[1] in OVER
 
 
 def takes_over():
