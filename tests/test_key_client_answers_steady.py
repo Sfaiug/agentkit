@@ -27,6 +27,7 @@ from test_key_standby_watches_its_homes_lease import SEEN
 
 SERVER = ".agentkit/state/server"     # the record of a server, naming the home
 STAMP = ".agentkit/tmp/standby/copied"      # the stamp of the last pass that ended well
+REPO = LEASE / "repo"   # the lease's repository, where the watch keeps its record
 EMPTY = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"     # git's empty tree, which every repo has
 VALUE = "5" * 40    # the lease's value the watch read
 UP = 40     # minutes the machine has been up
@@ -39,29 +40,39 @@ def at(minutes, since=None, boot="acme-boot-1"):
     return f"{1789000000.5 + 60 * minutes} {60.0 * (minutes if since is None else since)} {boot}"
 
 
+def steady(home):
+    """`home` made acme-vm's client and steady, UP minutes into its boot: its record of a server,
+    its lease's repository, and `up`'s."""
+    home.write(SERVER, "acme-vm\n")
+    repo = home.path / REPO
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q", "--bare")
+    up(home, UP)
+
+
+def up(home, minutes):
+    """`home` `minutes` into its boot, its pass's stamp 5 minutes old and its watch's record 15."""
+    home.env["AK_NOW"] = at(minutes)
+    copied(home, at(minutes - 5))
+    seen(home, at(minutes - 15))
+
+
+def copied(home, line, alias="acme-vm"):
+    home.write(STAMP, f"{line}\n{alias}\n")
+
+
+def seen(home, line):
+    repo = home.path / REPO
+    commit = _git(repo, "commit-tree", EMPTY, "-m", f"{VALUE} {line}")
+    _git(repo, "update-ref", SEEN, commit)
+
+
 class AClientAnswersSteady(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
-        self.home.write(SERVER, "acme-vm\n")
-        self.repo = self.home.path / LEASE / "repo"
-        self.repo.mkdir(parents=True)
-        _git(self.repo, "init", "-q", "--bare")
-        self.up(UP)
-
-    def up(self, minutes):
-        """The machine `minutes` into its boot, its pass's stamp 5 minutes old and its watch's
-        record 15."""
-        self.home.env["AK_NOW"] = at(minutes)
-        self.copied(at(minutes - 5))
-        self.seen(at(minutes - 15))
-
-    def copied(self, line, alias="acme-vm"):
-        self.home.write(STAMP, f"{line}\n{alias}\n")
-
-    def seen(self, line):
-        commit = _git(self.repo, "commit-tree", EMPTY, "-m", f"{VALUE} {line}")
-        _git(self.repo, "update-ref", SEEN, commit)
+        steady(self.home)
+        self.repo = self.home.path / REPO
 
     def answer(self, *words):
         """The exit of `ak standby --steady` with `words`, which printed nothing."""
@@ -77,19 +88,19 @@ class AClientAnswersSteady(unittest.TestCase):
         self.assertEqual(self.answer(), 1)
 
     def test_one_up_29_minutes_is_not(self):
-        self.up(29)
+        up(self.home, 29)
         self.assertEqual(self.answer(), 1)
 
     def test_one_whose_copy_is_10_minutes_old_by_one_clock_is_not(self):
-        self.copied(at(UP - 10, since=UP - 5))
+        copied(self.home, at(UP - 10, since=UP - 5))
         self.assertEqual(self.answer(), 1)
 
     def test_one_whose_copy_is_of_another_boot_is_not(self):
-        self.copied(at(UP - 5, boot="acme-boot-0"))
+        copied(self.home, at(UP - 5, boot="acme-boot-0"))
         self.assertEqual(self.answer(), 1)
 
     def test_one_whose_copy_is_of_another_home_is_not(self):
-        self.copied(at(UP - 5), alias="acme-old")
+        copied(self.home, at(UP - 5), alias="acme-old")
         self.assertEqual(self.answer(), 1)
 
     def test_one_without_a_copy_is_not(self):
@@ -118,7 +129,7 @@ class AClientAnswersSteady(unittest.TestCase):
         self.assertEqual(self.answer(), 1)
 
     def test_one_whose_watch_holds_a_record_of_another_boot_is_not(self):
-        self.seen(at(UP - 15, boot="acme-boot-0"))
+        seen(self.home, at(UP - 15, boot="acme-boot-0"))
         self.assertEqual(self.answer(), 1)
 
     def test_one_without_a_lease_repository_is_not(self):
