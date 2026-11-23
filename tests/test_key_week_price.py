@@ -5,11 +5,12 @@ rises sum to under ten points or its spend to 0, infinite where 100 times its sp
 float's largest, with those two sums, `plan_points` and `plan_listed_usd`.
 
 A plan's sums are read from the last seven days of every login of its provider: the readings
-its probes kept of its shared week, a reading with no plan its login's plan now's, grouped by
-login, plan and week, a reading's `resets_at` within ten minutes of the one before it in the
-same week.  A group rose from its earliest reading to its highest, and the spend that bought
-that rise is the login's rows priced at listed prices from the earliest reading to the first at
-the highest; a group whose spend cannot be priced counts for nothing.
+its probes kept of its shared week, a model's own cap of that name (`scope`) none of them, a
+reading with no plan its login's plan now's, grouped by login, plan and week, a reading's
+`resets_at` within ten minutes of the one before it in the same week.  A group rose from its
+earliest reading to its highest, and the spend that bought that rise is the login's rows priced
+at listed prices from the earliest reading to the first at the highest; a group whose spend
+cannot be priced counts for nothing.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py on
 tests/fixtures/meters.py's harness, with an invented board, plans, readings and token rows
@@ -77,10 +78,11 @@ class WeekPrice(unittest.TestCase):
         self.seats.append((f"echo:event-{len(self.seats)}", "acme-repo", NOW - ago,
                            dollars * 1_000_000, account, model, dollars * 1_000_000, 0, 0, 0))
 
-    def read(self, account, used, ago, resets, *, plan, source="probe"):
-        """A reading of the login's shared week, kept with `plan`."""
+    def read(self, account, used, ago, resets, *, plan, source="probe", scope=None):
+        """A reading of the login's shared week, kept with `plan`, or of `scope`'s own cap of
+        its name."""
         self.readings.append(("acme", account, "weekly", used, resets, 7 * DAY, NOW - ago,
-                              source, plan))
+                              source, plan, scope))
 
     def weeks(self):
         """Each login's (plan, week_listed_usd, plan_points, plan_listed_usd), the rows written
@@ -88,8 +90,9 @@ class WeekPrice(unittest.TestCase):
         with closing(sqlite3.connect(self.home.path / ".agentkit/history.db")) as db, db:
             db.execute(SEAT_USAGE)
             db.execute(METER_READINGS)
+            db.execute("ALTER TABLE meter_readings ADD COLUMN scope TEXT")
             db.executemany(f"INSERT INTO seat_usage VALUES ({', '.join('?' * 10)})", self.seats)
-            db.executemany(f"INSERT INTO meter_readings VALUES ({', '.join('?' * 9)})",
+            db.executemany(f"INSERT INTO meter_readings VALUES ({', '.join('?' * 10)})",
                            self.readings)
         done = self.home.ak("usage", "--json")
         self.assertEqual(done.code, 0, done.out + done.err)
@@ -173,6 +176,16 @@ class WeekPrice(unittest.TestCase):
         weeks = self.weeks()
         self.assertWeek(weeks["default"], "Max", 25, 20, 5)
         self.assertWeek(weeks["second"], "Pro", None, 0, 0)
+
+    def test_a_models_own_cap_of_the_weeks_name_is_no_reading_of_it(self):
+        self.plans(default="Max")
+        # the shared week 10 -> 20 for $2, then Anvil's own cap of its name reads 50
+        self.read("default", 10, 40 * HOUR, WEEK, plan="Max")
+        self.spent("default", 2, 35 * HOUR)
+        self.read("default", 20, 30 * HOUR, WEEK, plan="Max")
+        self.spent("default", 3, 25 * HOUR)
+        self.read("default", 50, 20 * HOUR, WEEK, plan="Max", scope="Anvil")
+        self.assertWeek(self.weeks()["default"], "Max", 20, 10, 2)
 
     def test_a_plan_read_from_fewer_than_ten_points_holds_no_week(self):
         self.plans(default="Max", second="Pro")

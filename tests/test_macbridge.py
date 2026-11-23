@@ -749,7 +749,8 @@ class Mac(Sandbox):
             spawn.assert_not_called()
         with patch.object(macbridge, "start_background") as start, \
                 patch.object(config, "server_alias", return_value="myserver"), \
-                patch.object(menu, "client", return_value=0):
+                patch.object(menu, "client", return_value=0), \
+                patch.object(menu, "client_menu", return_value=0):
             menu.main(["--dry-run"])
             start.assert_not_called()
             menu.main([])

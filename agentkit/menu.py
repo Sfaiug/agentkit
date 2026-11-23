@@ -142,7 +142,7 @@ from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import done_check, google_cloud, logins, look, machines, open_runs, parsed, record
-from . import warm
+from . import standby, takers, warm
 from .harness import load as harness_plugin
 
 KEYS = "n new   c config   esc leave"
@@ -7465,6 +7465,28 @@ def client(alias, dry_run, hops):
         raise config.Error(f"cannot run ssh: {exc}")
 
 
+def client_menu(home):
+    """A client's own menu: its home's, and where ssh reached no machine there (its exit 255,
+    which a connection broken midway exits too), that of the first ssh reaches of the machines
+    the home last named as taking over from it (`takers`), in their order, else 255.  A home that
+    answered is asked again whom it names, within ten seconds, connecting included: a slower one
+    leaves the older list.  The menu exits as the hop did, whatever the asking meets."""
+    code = client(home, False, 1)
+    if code != 255:
+        try:
+            asked = subprocess.run(standby._home(home, "--takers"), stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+            if asked.returncode == 0:
+                takers.write(asked.stdout)
+        except (OSError, subprocess.TimeoutExpired, KeyboardInterrupt):
+            pass        # the list as it was, a Ctrl-C on a slow home's answer among them
+        return code
+    for name in takers.read():
+        if (code := client(name, False, 1)) != 255:
+            break
+    return code
+
+
 def update_first(live=None, updates=None):
     """Check and update in a detached process; a client's ssh starts without waiting for it.
 
@@ -7548,10 +7570,11 @@ def main(argv):
         print(still)
         return 1
     config.migrate_policy()
+    if home and flags["--dry-run"]:
+        return client(home, True, 1)
     if home:
-        if not flags["--dry-run"]:
-            update_first()
-        return client(home, flags["--dry-run"], 1)
+        update_first()
+        return client_menu(home)
     from . import watch
     messages = []     # a dry run's are what it would do, for the owner to read
     watch.resume_after_boot(config.load(), dry_run=flags["--dry-run"], log=messages.append

@@ -86,7 +86,11 @@ class AClientsMenuHopsOn(unittest.TestCase):
         self.ssh_exits(0)
         done, hops = self.ak()
         self.assertEqual(done.code, 0, done)
-        self.assertEqual(hops, [["-t", HOME, "ak", "--client"]])
+        # one hop, first: after it the home may be asked once, without a terminal, whom it names
+        # as taking over (tests/test_key_client_opens_a_named_taker.py)
+        hop = ["-t", HOME, "ak", "--client"]
+        self.assertEqual((hops[:1], [call for call in hops if "-t" in call]), ([hop], [hop]))
+        self.assertLessEqual(len(hops), 2, hops)
 
 
 class AHomeThatIsNoClient(unittest.TestCase):
