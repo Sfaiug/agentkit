@@ -108,8 +108,7 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_b
     A reviewer's pick that comes back empty where `takers`' lab rule left reviewers out is
     made once more without that rule, a pick of its own of `workers` as given, at its own
     moment, in `reviewer_order`'s order beside the writers.  The owner, 22 Nov 2026: "Own lab
-    reviews when spent".  So one of another lab whose window came back in between is first,
-    and a reviewer of theirs already given the role gives way to it (`keeps`).
+    reviews when spent".  So one of another lab whose window came back in between is first.
     """
     from . import usage  # here, not at the top: usage imports staffing
     role, reviewers = kwargs.get("role", "executor"), kwargs.get("reviewers")
@@ -392,18 +391,6 @@ def reviewer_order(cfg, writers, order):
     return [name for _, name in sorted(tiered, key=lambda each: each[0])]
 
 
-def keeps(cfg, writers, order, name):
-    """Whether a reviewer's pick `order` beside `writers` (`ready_order`) keeps `name`, which
-    already holds the role: it names it, and while `name` shares a lab with one of them, it
-    names none that shares none.  Only a pick made again names both."""
-    names, (lineup, _) = known(cfg, writers), matrix.listed()
-
-    def far(each):
-        return not any(pair_tier(cfg, writer, each, lineup) for writer in names)
-
-    return name in order and (far(name) or not any(far(each) for each in order))
-
-
 def head_writers(state):
     """Every model that wrote part of the head a review judges: a seat's own PR's orchestrator,
     the executor or fixer of the moment, and every model a turn was handed from or to
@@ -682,8 +669,7 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
     if not needs:
         order = reviewer_order(cfg, executor, review_order) if executor else review_order
         if order:
-            return executor, (reviewer if keeps(cfg, review_writers(state), order, reviewer)
-                              else order[0])
+            return executor, reviewer if reviewer in order else order[0]
         raise turns.QuotaDry("no eligible reviewer; waiting for review")
     # one the config no longer defines (`config.as_launched`) is none to keep, and is refused by
     # that name below unless the run waits

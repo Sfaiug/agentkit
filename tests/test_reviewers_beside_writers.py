@@ -6,8 +6,7 @@ picked, but if multiple picked then from different."  `staffing.ready_order` nar
 before `usage.pick_order` reads it, so the pick is the one a run marked with only the reviewers
 on other providers gets, so a subscription on the writer's provider keeps no payg reviewer on
 another out.  22 Nov: "Own lab reviews when spent": a pick that comes back empty is made again,
-at its own moment, without the writer's provider left out, a reviewer on another provider first,
-and one on the writer's that holds the role gives way to it (`staffing.keeps`).
+at its own moment, without the writer's provider left out, a reviewer on another provider first.
 A reviewer that is off, unready or barred, a list on the writer's provider alone, or a writer
 the config does not know leaves the pick as it is without writers.
 
@@ -80,12 +79,6 @@ class ReviewersBesideWriters(Sandbox):
 
     def test_a_second_pick_holding_one_on_another_provider_names_it_first(self):
         self.assertEqual(self.at_two_moments(["opus", "astra"]), ["astra", "opus"])
-
-    def test_one_on_the_writers_provider_holding_the_role_gives_way_to_it_alone(self):
-        for order, kept in ((["astra", "opus"], False), (["opus"], True), (["astra"], False)):
-            self.assertEqual(staffing.keeps(self.cfg, ["opus"], order, "opus"), kept)
-        self.assertTrue(staffing.keeps(self.cfg, ["opus"], ["astra", "opus"], "astra"))
-        self.assertTrue(staffing.keeps(self.cfg, [], ["astra", "opus"], "opus"))
 
     def test_an_empty_pick_the_rule_left_nobody_out_of_is_not_made_again(self):
         self.assertEqual(self.at_two_moments(["astra"]), [])
