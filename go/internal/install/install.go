@@ -192,12 +192,7 @@ func install(role, alias string, machine, sandboxed bool, out, errOut io.Writer)
 		fmt.Fprintf(out, "client: the server is `ssh %s`; `ak` runs the menu there\n", alias)
 		return os.WriteFile(record, []byte(alias+"\n"), 0o600)
 	}
-	if err := cron(sandboxed, out, errOut); err != nil {
-		return err
-	}
-	// the record of a server goes after the crontab: an install cut short before then leaves a
-	// client, whose job runs the install again, never a machine with no client job and no tick
-	if err := os.Remove(record); err != nil && !os.IsNotExist(err) {
+	if err := cron(sandboxed, record, out, errOut); err != nil {
 		return err
 	}
 	stamp := filepath.Join(ak, "state", "installed-at")

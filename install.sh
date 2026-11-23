@@ -702,11 +702,15 @@ case "$ROLE" in
     printf '%s\n' "$ALIAS" >"$AK/state/server"
     echo "client: the server is \`ssh $ALIAS\`; \`ak\` runs the menu there" ;;
   server)
-    # the record of a server goes after the crontab: an install cut short before then leaves a
-    # client, whose job runs the install again, never a machine with no client job and no tick
+    # the record of a server goes only where the crontab holds the tick or no crontab is ours to
+    # write: an install that leaves the table without it leaves a client, whose job runs the
+    # install again, never a machine with no client job and no tick.  It goes before the line
+    # said of it, so what printing meets decides nothing.
     if [ "$SANDBOX" = 1 ]; then
+      rm -f -- "$AK/state/server"
       echo "server: sandbox HOME, so the ak watch cron is not installed"
     elif ! have crontab; then
+      rm -f -- "$AK/state/server"
       note "no crontab here; run \`ak watch\` every three minutes some other way"
     # every crontab exits 1 for an account with no table yet; any other failure is a table it
     # could not read, and writing would replace the owner's jobs with ak's line alone
@@ -722,12 +726,13 @@ case "$ROLE" in
       wanted=$({ [ -z "$current" ] || printf '%s\n' "$current" | grep -vE -- "$CRON_MATCH" || true
                  printf '%s\n' "$cron_line"; })
       if [ "$current" = "$wanted" ]; then
+        rm -f -- "$AK/state/server"
         echo "server: the ak watch cron is already installed"
-      else
-        printf '%s\n' "$wanted" | crontab - && echo "server: ak watch runs every three minutes from cron"
+      elif printf '%s\n' "$wanted" | crontab -; then
+        rm -f -- "$AK/state/server"
+        echo "server: ak watch runs every three minutes from cron"
       fi
-    fi
-    rm -f -- "$AK/state/server" ;;
+    fi ;;
 esac
 
 if py_ok; then

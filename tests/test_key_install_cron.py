@@ -4,8 +4,9 @@ The tick is what moves every run, landing and stalled seat on the server, so eac
 install owns the one live line: every line carrying the tag goes first, a copy the owner
 commented out to pause the tick too, and the owner's other lines stay.  Every crontab exits 1
 for an account with no table yet, which then gets one; any other failure is a table that could
-not be read, and it stays as it is.  The record of a server goes after the crontab, so an install
-cut short before then leaves a client, whose job installs again.  Black-box: install.sh
+not be read, and it stays as it is.  The record of a server goes only once the table holds the
+tick, so an install cut short or refused before then leaves a client, whose job installs again.
+Black-box: install.sh
 of the checkout `AK_BIN` names runs from outside in a Home of tests/fixtures/akbin.py made the
 account's own by tests/fixtures/installer.py, so the install does what it does on a real host,
 every tool it calls a fake and the crontab a table on disk.
@@ -29,6 +30,13 @@ case "$1" in
   -) exec cat >{table} ;;
 esac
 """
+# a crontab that keeps its table and refuses, noting so, every table it is given
+REFUSING = """#!/bin/sh
+case "$1" in
+  -l) exec cat {table} ;;
+  -) echo refused >>{note}; exit 1 ;;
+esac
+"""
 # an account with no table yet whose crontab notes, at its write, whether the record is there
 NOTING = """#!/bin/sh
 case "$1" in
@@ -39,6 +47,10 @@ esac
 
 # A Mac install also loads a launch agent into the account's own launchd.
 linux = unittest.skipUnless(sys.platform.startswith("linux"), "a Linux host's install")
+
+
+def q(path):
+    return shlex.quote(str(path))
 
 
 def account(case):
@@ -106,18 +118,49 @@ class Listing(unittest.TestCase):
 
 @linux
 class Record(unittest.TestCase):
-    def test_the_record_of_a_server_goes_only_after_the_tick_is_written(self):
-        home = account(self)
-        record = home.path / ".agentkit/state/server"
-        home.write(".agentkit/state/server", "acme-mini\n")
-        table, note = home.root / "crontab", home.root / "note"
-        q = lambda path: shlex.quote(str(path))
-        home.fake("crontab", NOTING.format(record=q(record), note=q(note), table=q(table)))
-        done = installer.run(home, "--server")
+    def setUp(self):
+        self.home = account(self)
+        self.record = self.home.path / ".agentkit/state/server"
+        self.table, self.note = self.home.root / "crontab", self.home.root / "note"
+
+    def server(self, crontab):
+        """`install.sh --server`, which exits 0, on a machine with a record of a server."""
+        self.home.write(".agentkit/state/server", "acme-mini\n")
+        paths = dict(record=q(self.record), note=q(self.note), table=q(self.table))
+        self.home.fake("crontab", crontab.format(**paths))
+        done = installer.run(self.home, "--server")
         self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertTrue(table.read_text().endswith(" # agentkit watch\n"), table.read_text())
-        self.assertEqual(note.read_text(), "there\n")
-        self.assertFalse(record.exists())
+
+    def assertTicks(self):
+        self.assertTrue(self.table.read_text().endswith(" # agentkit watch\n"), self.table.read_text())
+
+    def test_the_record_of_a_server_goes_only_after_the_tick_is_written(self):
+        self.server(NOTING)
+        self.assertTicks()
+        self.assertEqual(self.note.read_text(), "there\n")
+        self.assertFalse(self.record.exists())
+
+    def test_a_refused_table_leaves_the_record_which_the_install_after_it_removes(self):
+        self.table.write_text(f"{MINE}\n")
+        self.server(REFUSING)
+        self.assertTrue(self.note.exists())
+        self.assertEqual(self.table.read_text(), f"{MINE}\n")
+        self.assertTrue(self.record.exists())
+        self.server(installer.CRONTAB)
+        self.assertTicks()
+        self.assertFalse(self.record.exists())
+
+    def test_a_table_that_cannot_be_read_leaves_the_record(self):
+        self.server(UNREADABLE)
+        self.assertFalse(self.table.exists())
+        self.assertTrue(self.record.exists())
+
+    def test_a_table_already_holding_the_tick_is_not_written_and_the_record_goes(self):
+        self.server(installer.CRONTAB)
+        self.assertTicks()
+        self.server(REFUSING)
+        self.assertFalse(self.note.exists())
+        self.assertFalse(self.record.exists())
 
 
 if __name__ == "__main__":
