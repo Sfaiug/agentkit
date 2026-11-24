@@ -12,7 +12,7 @@ import (
 func (s Screen) lookOf(word string) (style, string) {
 	rgb, own := strings.CutPrefix(word, "#")
 	if !own {
-		return styles[word], colourOf(word, s.theme)
+		return styles[word], s.colour(word)
 	}
 	tone := 30
 	for i, text := range channels(rgb) {
@@ -46,7 +46,7 @@ func (s Screen) faded(word string, amount float64) string {
 	if amount < 0 {
 		toward, amount = "text", -amount
 	}
-	to := channels(colourOf(toward, s.theme))
+	to := channels(s.colour(toward))
 	out := "#"
 	for i, text := range channels(rgb) {
 		value, _ := strconv.Atoi(text)

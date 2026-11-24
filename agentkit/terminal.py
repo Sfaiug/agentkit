@@ -51,6 +51,10 @@ KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
+# The terminal's own background as it answered, rrggbb, where the theme's dim text keeps READS
+# of contrast with it (WCAG's floor for large text): a screen is painted in it (`colour`), on
+# any other in the theme's.  The owner, 20 Nov 2026: the terminal's background "should be used".
+OWN, READS = None, 3
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
@@ -110,7 +114,18 @@ def colour(word, tmux=False):
     whichever process writes it: tmux shows it on a terminal ak never asks, and the
     menu's writes and the tick's never disagree."""
     role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
-    return ROLES[role][kept() if tmux else theme()]
+    rgb = ROLES[role][kept() if tmux else theme()]
+    if OWN and not tmux and role in ("background", "selection", "border") and colour_depth() == 24:
+        # what fills or rules is as far from the terminal's own background as from the theme's,
+        # so it shows there as on black or white (the owner, 22 Nov 2026: "Follow the terminal")
+        rgb = bytes(max(0, min(255, own + c - b)) for own, c, b in zip(*map(
+            bytes.fromhex, (OWN, rgb, ROLES["background"][THEME])))).hex()
+    return rgb
+
+
+def _luminance(rgb):    # WCAG's relative
+    return sum(share * (c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4) for share, c
+               in zip((0.2126, 0.7152, 0.0722), (b / 255 for b in bytes.fromhex(rgb))))
 
 
 def glyph(word):
@@ -206,6 +221,8 @@ def fade(text, amount):
                 rgb = None
             elif first == 38 and parts[:1] == [2]:
                 rgb, parts = parts[1:4], parts[4:]
+            elif first == 48:       # a background's own numbers, which are no code
+                parts = parts[4 if parts[:1] == [2] else 2:]
             elif first == 38 and parts[:1] == [5]:
                 n, parts = parts[1] - 16, parts[2:]
                 rgb = ((8 + 10 * (n - 216),) * 3 if n >= 216 else
@@ -1073,7 +1090,7 @@ def sense():
     `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
     back up in what it found (`_last_frame`), the hold it was given back under hiding the wait.
     """
-    global _RGB, THEME, _KEYED
+    global _RGB, THEME, OWN, _KEYED
     features = os.environ.get(FEATURES_ENV)
     if features is None and os.environ.get("TMUX"):
         try:
@@ -1100,11 +1117,14 @@ def sense():
     _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
     colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
                       found.group(1)) if found else None
-    THEME = None
+    THEME = OWN = None
     if colour:
         red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
         THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK  # luma
         _keep(THEME)
+        own = bytes(round(part * 255) for part in (red, green, blue)).hex()
+        low, high = sorted(map(_luminance, (own, ROLES["dim"][THEME])))
+        OWN = own if (high + 0.05) / (low + 0.05) >= READS else None
     _last_frame()
 
 

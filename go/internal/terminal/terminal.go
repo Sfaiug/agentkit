@@ -4,6 +4,7 @@
 package terminal
 
 import (
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -45,6 +46,71 @@ func colourOf(word string, in theme) string {
 		word = role
 	}
 	return roles[styles[word].colour][in]
+}
+
+// colour is a role's colour on this screen: its theme's, but where the terminal said its own
+// background (ownOf) and takes every colour, what fills or rules -- the background, the selection,
+// the border -- is as far from the terminal's own as from the theme's, as Python's terminal.colour.
+func (s Screen) colour(word string) string {
+	rgb, role := colourOf(word, s.theme), word
+	if _, ok := roles[word]; !ok {
+		if kind, ok := kinds[word]; ok {
+			word = kind
+		}
+		role = styles[word].colour
+	}
+	if s.own == "" || s.depth != 24 || (role != "background" && role != "selection" && role != "border") {
+		return rgb
+	}
+	out, base, own := "", channels(colourOf("background", s.theme)), channels(s.own)
+	for i, part := range channels(rgb) {
+		c, _ := strconv.Atoi(part)
+		b, _ := strconv.Atoi(base[i])
+		o, _ := strconv.Atoi(own[i])
+		out += fmt.Sprintf("%02x", max(0, min(255, o+c-b)))
+	}
+	return out
+}
+
+// luminance is WCAG's relative luminance of rgb.
+func luminance(rgb string) float64 {
+	var sum float64
+	for i, part := range channels(rgb) {
+		value, _ := strconv.Atoi(part)
+		c := float64(value) / 255
+		if c <= 0.03928 {
+			c /= 12.92
+		} else {
+			c = math.Pow((c+0.055)/1.055, 2.4)
+		}
+		sum += [3]float64{0.2126, 0.7152, 0.0722}[i] * c
+	}
+	return sum
+}
+
+// reads is the least contrast a theme's dim text keeps with a terminal's own background for a screen
+// to be painted in it (WCAG's floor for large text): on any other it is painted in its theme's.
+const reads = 3
+
+// ownOf is the background an answer names, rrggbb, where in's dim text reads on it; else "".
+func ownOf(answer string, in theme) string {
+	found := backgroundRGB.FindStringSubmatch(answer)
+	if found == nil {
+		return ""
+	}
+	own := ""
+	for _, part := range found[1:] {
+		value, _ := strconv.ParseUint(part, 16, 64)
+		own += fmt.Sprintf("%02x", int(math.Round(float64(value)/(math.Pow(16, float64(len(part)))-1)*255)))
+	}
+	low, high := luminance(own), luminance(colourOf("dim", in))
+	if low > high {
+		low, high = high, low
+	}
+	if (high+0.05)/(low+0.05) < reads {
+		return ""
+	}
+	return own
 }
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
@@ -100,6 +166,7 @@ type Screen struct {
 	depth, width, height int
 	ascii                bool
 	theme                theme
+	own                  string // the terminal's own background, where the screen is painted in it (ownOf)
 }
 
 // For is out as a screen that never asks its terminal what it is: in the shades kept (kept).

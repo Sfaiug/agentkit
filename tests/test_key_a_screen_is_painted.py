@@ -1,6 +1,8 @@
-"""A screen is painted in its theme: every cell of it, text or blank, on the theme's background,
-or a row the highlight is on whole on its selection (tests/test_key_one_highlight.py), text of
-no colour in the theme's text, and the terminal its own again once ak leaves.
+"""A screen is painted whole: every cell of it, text or blank, on its terminal's own background
+where the terminal says one the theme's dim text reads on (the owner, 20 Nov 2026), else on the
+theme's, or a row the highlight is on on a selection as far from that background as the theme's
+is from its own (22 Nov 2026), text of no colour in the theme's text, and the terminal its own
+again once ak leaves.
 
 The owner (12 Nov 2026): two themes, white and black, seen through everywhere ak is visual.
 Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour
@@ -27,6 +29,8 @@ from fixtures.akterm import SERVER, Terminal, forget
 DARK, LIGHT = "#203040", "#e8e4d8"     # terminals' own backgrounds, neither theme's
 # a theme's background, text and selection
 BLACK, WHITE = ("000000", "e2e8ef", "08305d"), ("ffffff", "181c22", "dcecff")
+# ... and on DARK and LIGHT: the terminal's own, the selection as far from it as the theme's
+ON_DARK, ON_LIGHT = ("203040", "e2e8ef", "28609d"), ("e8e4d8", "181c22", "c5d1d8")
 SIZE = (100, 30)
 OPENED = 1000.0     # the moment ak's motion stands at as a screen opens
 # a breath, which takes two seconds, in quarters, long after the screen opened: each a frame
@@ -89,12 +93,12 @@ class AScreenIsPainted(unittest.TestCase):
         self.assertEqual(set(look(rows, "delta", on="idle")) - ATTRIBUTES,
                          {sgr(theme[1]), sgr(theme[0], "48")})
 
-    def test_the_ak_screen_and_its_breath_are_on_black(self):
+    def test_the_ak_screen_and_its_breath_are_on_the_terminal_s_own(self):
         menu = self.open()
         self.rest(menu, "esc leave", OPENED + 10)
         rows = looks(menu.screen(colours=True, blank=True))
-        self.assert_painted(menu, BLACK, rows)
-        self.assert_named(rows, BLACK)
+        self.assert_painted(menu, ON_DARK, rows)
+        self.assert_named(rows, ON_DARK)
         for moment in MOMENTS:
             last = menu.screen(colours=True, blank=True)
             self.at(moment)
@@ -103,14 +107,14 @@ class AScreenIsPainted(unittest.TestCase):
                 self.assertLess(time.monotonic(), deadline, f"ak drew no frame at {moment}")
                 time.sleep(0.05)
             with self.subTest(moment=moment):
-                self.assert_painted(menu, BLACK, looks(shown))
+                self.assert_painted(menu, ON_DARK, looks(shown))
 
-    def test_c_and_subscriptions_are_on_black(self):
+    def test_c_and_subscriptions_are_on_the_terminal_s_own(self):
         menu = self.open()
         self.rest(menu, "esc leave", OPENED + 10)
         menu.keys("c")
         self.rest(menu, lambda text: "› " in text and "Subscriptions" in text, OPENED + 20)
-        self.assert_painted(menu, BLACK)
+        self.assert_painted(menu, ON_DARK)
 
         def pointed(text):    # the highlighted row
             return next((line for line in text.split("\n") if line.startswith("› ")), None)
@@ -119,21 +123,27 @@ class AScreenIsPainted(unittest.TestCase):
             menu.wait(lambda text: pointed(text) not in (None, row), 30)
         menu.keys("Enter")
         self.rest(menu, "+ add a subscription", OPENED + 30)
-        self.assert_painted(menu, BLACK)
+        self.assert_painted(menu, ON_DARK)
 
-    def test_the_popup_over_a_seat_is_on_black_its_padding_too(self):
+    def test_the_popup_over_a_seat_is_on_the_terminal_s_own_its_padding_too(self):
         popup = self.open("attach", "--overlay",
                           env={"AGENTKIT_SESSION": "acme", "AGENTKIT_PADDING": "1"})
         rows = self.rest(popup, "esc leave", OPENED + 10)
         self.assertEqual(plain(rows[0]).strip(), "")      # the padding, above the header
-        self.assert_painted(popup, BLACK)
+        self.assert_painted(popup, ON_DARK)
 
-    def test_on_a_light_terminal_it_is_on_white(self):
+    def test_on_a_light_terminal_it_is_on_the_terminal_s_own(self):
         menu = self.open(background=LIGHT)
         self.rest(menu, "esc leave", OPENED + 10)
         rows = looks(menu.screen(colours=True, blank=True))
-        self.assert_painted(menu, WHITE, rows)
-        self.assert_named(rows, WHITE)
+        self.assert_painted(menu, ON_LIGHT, rows)
+        self.assert_named(rows, ON_LIGHT)
+
+    def test_a_terminal_the_dim_text_would_not_read_on_is_on_black(self):
+        menu = self.open(background="#526274")
+        menu.wait("esc leave", 60)
+        self.assert_painted(menu, BLACK)
+        self.assert_named(looks(menu.screen(colours=True, blank=True)), BLACK)
 
     def test_a_screen_read_a_line_at_a_time_is_on_black(self):
         forget(self.home)       # it cannot ask: in the theme kept, black where none is
@@ -143,7 +153,7 @@ class AScreenIsPainted(unittest.TestCase):
         self.assert_painted(menu, BLACK)
         self.assert_named(looks(menu.screen(colours=True, blank=True)), BLACK)
 
-    def test_a_restart_on_a_light_terminal_puts_its_frame_back_on_white(self):
+    def test_a_restart_on_a_light_terminal_puts_its_frame_back_on_the_terminal_s_own(self):
         menu = self.open(background=LIGHT)
         self.rest(menu, "esc leave", OPENED + 10)
         drawn, sent = time.time(), self.home.root / "sent"      # it started before it drew
@@ -162,7 +172,7 @@ class AScreenIsPainted(unittest.TestCase):
                 break
             self.assertLess(time.monotonic(), deadline, "never took the screen again")
             time.sleep(0.05)
-        self.assert_named(looks(said[enter:release].decode()), WHITE)
+        self.assert_named(looks(said[enter:release].decode()), ON_LIGHT)
 
     def test_what_the_shell_writes_after_ak_is_in_the_terminal_s_own_colours(self):
         shell = self.open("-c", '"$0"; echo after ak', AK, program="sh")

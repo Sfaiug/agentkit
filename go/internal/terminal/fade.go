@@ -22,7 +22,7 @@ func (s Screen) Fade(text string, amount float64) string {
 	}
 	numbers := func(role string) []int {
 		var out []int
-		for _, part := range channels(colourOf(role, s.theme)) {
+		for _, part := range channels(s.colour(role)) {
 			n, _ := strconv.Atoi(part)
 			out = append(out, n)
 		}
@@ -51,6 +51,10 @@ func (s Screen) Fade(text string, amount float64) string {
 			switch first := number(i); {
 			case first == 0 || first == 39:
 				rgb = nil
+			case first == 48 && i+1 < len(parts): // a background's own numbers, which are no code
+				if i += 2; parts[i-1] == "2" {
+					i += 2
+				}
 			case first == 38 && i+4 < len(parts) && parts[i+1] == "2":
 				rgb, i = []int{number(i + 2), number(i + 3), number(i + 4)}, i+4
 			case first == 38 && i+2 < len(parts) && parts[i+1] == "5" && number(i+2) >= 16:

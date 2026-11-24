@@ -15,7 +15,7 @@ func (s Screen) Selected(line string, first, last int) string {
 	}
 	back, off := "7", "27"
 	if s.Moves() {
-		back, off = s.ink(colourOf("selection", s.theme), "48"), "49"
+		back, off = s.ink(s.colour("selection"), "48"), "49"
 	}
 	var out strings.Builder
 	at, on, past := 0, false, false
