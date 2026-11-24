@@ -1,12 +1,10 @@
 """Subscription meters, budget, and the model pick order.
 
 budget = fraction left / fraction of the window left, taking the minimum across the model's
-non-session gate meters. Above 1 means slack to spend; below 1 means ahead of pace. Among
-workers the matrix ranks alike, the highest budget goes first, unknown last. A provider the
-harness reports no meter for at all (`[usage] none`) is neutral at 1.0, ranked by the same
-rules and never last; only a failed probe is unknown. A usage-limit reset in hand adds nothing
-to budget or headroom: ak never spends one by itself, and one nobody spends is not usage ak can
-run on.
+non-session gate meters. Above 1 means slack to spend; below 1 means ahead of pace. It orders
+no pick. A provider the harness reports no meter for at all (`[usage] none`) is neutral at 1.0;
+only a failed probe is unknown. A usage-limit reset in hand adds nothing to budget or headroom:
+ak never spends one by itself, and one nobody spends is not usage ak can run on.
 
 pace = used% - elapsed% of the meter's window.  Positive means burning faster than the window
 refills.  A provider's pace is the max over its meters.  It no longer ranks anything: pace_margin
@@ -16,9 +14,9 @@ anything.
 Exhaustion is the one hard exclusion of usage, and it is not a knob: a meter is spent at 100%
 used and not one point earlier, because a subscription is bought to be used to the end.
 Beside it, a model off in the model list (`matrix.off`) is never picked.  The worker
-pick (`pick_order`) ranks whatever is left by `matrix.rank` for the role, budget only among
-models ranked alike or ranked by nothing; the orchestrator choice (`ak orch`) ignores every
-number and takes the default orchestrator while it still has something to spend.
+pick (`pick_order`) takes whatever is left in the order the role's marks list it; the
+orchestrator choice (`ak orch`) ignores every number and takes the default orchestrator while
+it still has something to spend.
 
 Credits an adapter reports (`"credits": <number left>`) are usage left past a spent window:
 such a provider is not spent, only ranked after every one with a window left (`on_credits`),
@@ -1921,27 +1919,21 @@ def marked(cfg, workers=None, role="executor", reviewers=None):
 
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
                repo=None, skip=(), reviewers=None):
-    """The workers for a role, the one the matrix ranks first for it first.
+    """The workers for a role in the order the role's marks list them (`marked`), a model on
+    credits (`on_credits`) after every one with a window left; nothing else orders them.  The
+    owner, 24 Nov 2026: "I want the user to have full controll."
 
-    The rank is `matrix.rank`'s for the role (`execute` for an executor, `review` for a
-    reviewer) among the candidates: the role's pick first, then the others by quality, off the lineup the models screen or `ak models` last
-    stored; a model no row of it is, or a lineup nobody stored yet, ranks after every ranked
-    model.  Among models ranked alike, budget decides:
-    the fraction unspent over the fraction of the window still to go, unknown readings after
-    every known one; a model on credits (`on_credits`) after every one with a window left;
-    equal on all of it keeps list order.  The exclusions are a model off in the model list
-    (`matrix.off`) and a gate meter at 100% used with no credits left; `skip` names models a
-    caller leaves out before any of this reads the list, as is a name the config no longer
-    offers (`config.offered`): a run's saved lists outlive the config, and a mark retired
-    since leaves the run the others it allowed.  payg providers are the exception:
-    they cost money, so they stay out while any subscription model is still below pace, and a
-    subscription model whose meters report nothing counts as below it.  Where the harness's
-    own config says what a model is paid from, that outranks the model's own `mode`, which
-    outranks its provider's.
+    The exclusions are a model off in the model list (`matrix.off`) and a gate meter at 100%
+    used with no credits left; `skip` names models a caller leaves out before any of this reads
+    the list, as is a name the config no longer offers (`config.offered`): a run's saved lists
+    outlive the config, and a mark retired since leaves the run the others it allowed.  payg
+    providers are the exception: they cost money, so they stay out while any subscription model
+    is still below pace, and a subscription model whose meters report nothing counts as below
+    it.  Where the harness's own config says what a model is paid from, that outranks the
+    model's own `mode`, which outranks its provider's.
 
-    Each role stays within its selection. ak's own run numbers never affect the order. JSON
-    output uses `quiet` because the providers already carry their unknown reasons as
-    structured fields.
+    Each role stays within its selection.  `quiet` keeps the exclusions off stderr for JSON
+    output, whose providers already carry them as structured fields.
     """
     offered = config.offered(cfg)
     tier_b = [n for n in marked(cfg, workers, role, reviewers) if n in offered and n not in skip]
@@ -1966,19 +1958,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     subs = [n for n in candidates if mode(n) != "payg"]
     if any(pace(n) is None or pace(n) <= limit for n in subs):
         candidates = subs
-    now = time.time()
-    budgets = {n: model_budget(cfg, n, providers, now) for n in candidates}
-    for name, (budget, reason) in budgets.items():
-        if reason is not None and not quiet:
-            provider = config.model(cfg, name)["provider"]
-            reason = reason.removeprefix("unknown: ")
-            print(f"pick {role}: {name} ({provider}) budget {budget:g} unknown: {reason}; "
-                  "after every known budget of its rank", file=sys.stderr)
-    ranks = matrix.rank(cfg, "review" if role == "reviewer" else "execute", candidates)
-    return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers),
-                                             ranks.get(n) is None,
-                                             *(ranks.get(n) or (0, 0, 0.0, 0.0)),
-                                             budgets[n][1] is not None, -budgets[n][0]))
+    return sorted(candidates, key=lambda n: on_credits(cfg, n, providers))
 
 
 # `resets` is when the shared week opens again, the same answer the menu row gives after that

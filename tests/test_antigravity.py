@@ -476,10 +476,10 @@ class Antigravity(unittest.TestCase):
         astra = {"provider": "openai", "meters": [
             {"name": "weekly", "used": 90, "window_secs": 604800, "resets_at": now + 302400}]}
         self.fake_endpoint("", live="dummy-access")
-        # Gemini's own window spent parks it; a sliver of it left only ranks it last, and the
+        # Gemini's own window spent parks it; a sliver of it left keeps it in, and the
         # Claude-and-GPT group spent does not touch it, since no gemini turn draws on it
         for group, left, picked in ((0, 0, ["astra"]), (0, 0.0004, ["astra", "gemini"]),
-                                    (1, 0, ["gemini", "astra"])):
+                                    (1, 0, ["astra", "gemini"])):
             summary = json.loads((FIXTURES / "antigravity-quota-summary.json").read_text())
             summary["groups"][group]["buckets"][0]["remainingFraction"] = left
             (self.fake / "retrieveUserQuotaSummary").write_text(f"200\n{json.dumps(summary)}")

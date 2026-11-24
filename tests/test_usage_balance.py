@@ -79,7 +79,7 @@ class WeeklyBalance(unittest.TestCase):
             meter["resets_at"] = self.now + 0.53 * 604800
         return usage._gate_flags(providers, self.now, self.cfg)
 
-    def test_v5b_long_window_ranks_below_week_with_more_slack(self):
+    def test_v5b_a_long_window_s_budget_orders_nothing(self):
         providers = self.providers(50, 50)
         month = self.meter("primary_window", 50, 30 * 86400)
         month["resets_at"] = self.now + 29 * 86400
@@ -91,9 +91,7 @@ class WeeklyBalance(unittest.TestCase):
         self.assertEqual(usage.model_budget(self.cfg, "opus", providers), (3.5, None))
         for role in ("executor", "reviewer"):
             self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"], role=role),
-                             ["opus", "astra"])
-        self.assertEqual(run.pick_models(self.cfg, providers, None, None, lambda _: None),
-                         ("opus", "spark"))
+                             ["astra", "opus"])
         self.assertEqual(orch.choose(self.cfg, providers)[0], "fable")
 
     def test_v5b_equal_fractions_and_windows_keep_worker_order(self):
@@ -102,24 +100,6 @@ class WeeklyBalance(unittest.TestCase):
         for workers in (self.workers, list(reversed(self.workers))):
             for role in ("executor", "reviewer"):
                 self.assertEqual(usage.pick_order(self.cfg, providers, workers, role=role), workers)
-
-    def test_v5b_unknown_ranks_last_and_logs_probe_reason(self):
-        for meters in ([], [self.meter("primary_window", 1)]):
-            with self.subTest(meters=meters), redirect_stderr(io.StringIO()) as err:
-                providers = self.providers(50, 50)
-                providers["openai"].update(meters=meters, error="probe timed out", resets=10)
-                self.assertEqual(usage.model_budget(self.cfg, "astra", providers),
-                                 (0.0, "probe timed out"))
-                self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"]),
-                                 ["opus", "astra"])
-                self.assertEqual(run.pick_models(self.cfg, providers, None, None, lambda _: None),
-                                 ("opus", "spark"))
-                self.assertIn("astra (openai) budget 0 unknown: probe timed out", err.getvalue())
-        providers["openai"].update(meters=[], error=None)
-        with redirect_stderr(io.StringIO()) as err:
-            self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"]),
-                             ["opus", "astra"])
-        self.assertIn("no weekly meter reported", err.getvalue())
 
     def test_v5b_full_meter_without_reset_is_excluded_until_new_reading(self):
         providers = self.providers(50, 50)
@@ -158,8 +138,6 @@ class WeeklyBalance(unittest.TestCase):
                 self.assertEqual(usage.model_budget(self.cfg, "astra", providers), (0.4, None))
                 self.assertEqual(providers["openai"]["headroom"], 0.4)
                 self.assertNotIn("budget_from_resets", providers["openai"])
-                self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"]),
-                                 ["opus", "astra"])
                 self.assertNotIn("in hand", usage.render(self.cfg, providers, ["opus", "astra"]))
 
     def test_v5h_a_spent_meter_holding_a_reset_is_still_excluded(self):
@@ -173,13 +151,13 @@ class WeeklyBalance(unittest.TestCase):
                 self.assertNotIn("astra", usage.pick_order(self.cfg, providers, self.workers,
                                                            role=role))
             self.assertIn("astra excluded: primary_window 100% used >= 100", err.getvalue())
-        # only the read that follows the spent reset -- a fresh week -- ranks on it
+        # only the read that follows the spent reset -- a fresh week -- picks it again
         providers["openai"]["meters"][0]["used"] = 0
         providers["openai"]["resets"] = 1
         usage._gate_flags(providers, self.now, self.cfg)
-        self.assertEqual(usage.pick_order(self.cfg, providers, self.workers)[0], "astra")
+        self.assertIn("astra", usage.pick_order(self.cfg, providers, self.workers))
 
-    def test_v5h_usage_shows_the_resets_held_and_ranks_without_them(self):
+    def test_v5h_usage_shows_the_resets_held(self):
         providers = self.owner_week(resets=2)
         with patch.object(usage, "collect", return_value=providers), \
                 patch.object(usage.terminal, "width", return_value=200), \
@@ -192,14 +170,14 @@ class WeeklyBalance(unittest.TestCase):
         self.assertEqual(row[held:].split()[0], "2")    # the count the owner spends from
         self.assertIn("0.5 ahead", row)
         self.assertNotIn("in hand", rendered)
-        self.assertIn("pick order: opus, spark, astra", rendered)
+        self.assertIn("pick order: opus, astra, spark", rendered)
         with patch.object(usage, "collect", return_value=providers), \
                 redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
             self.assertEqual(usage.main(["--json"]), 0)
         data = json.loads(out.getvalue())
         self.assertEqual(data["providers"]["openai"]["budget"], 0.492)
         self.assertEqual(data["providers"]["openai"]["resets"], 2)
-        self.assertEqual(data["pick_order"], ["opus", "spark", "astra"])
+        self.assertEqual(data["pick_order"], ["opus", "astra", "spark"])
 
     def test_v5h_usage_json_names_every_meter_reset_time(self):
         """`--json` promises `reset_at` on every meter, whatever wrote the cache it read."""
@@ -266,7 +244,7 @@ class WeeklyBalance(unittest.TestCase):
                         redirect_stdout(io.StringIO()) as output, redirect_stderr(output):
                     self.assertEqual(usage.main(["--json"]), 0)
                 data = json.loads(output.getvalue())
-                self.assertEqual(data["pick_order"], ["astra", "opus", "spark"])
+                self.assertEqual(data["pick_order"], ["opus", "astra", "spark"])
                 self.assertEqual(data["providers"]["anthropic"]["budget"], 0)
                 self.assertEqual(data["providers"]["meta"]["budget_reason"], "no usage endpoint")
                 self.assertEqual(data["providers"]["anthropic"]["budget_reason"],
@@ -304,25 +282,6 @@ class WeeklyBalance(unittest.TestCase):
         meter["used"] = 110
         self.assertEqual(usage.model_budget(self.cfg, "astra", providers), (0.0, None))
 
-    def test_v5b_unknown_budgets_keep_list_order_after_known_budgets(self):
-        providers = self.providers(80, 53)
-        providers["anthropic"]["error"] = "partial probe failed"
-        with redirect_stderr(io.StringIO()):
-            self.assertEqual(run.pick_models(self.cfg, providers, None, None, lambda _: None),
-                             ("astra", "spark"))
-        # Legacy readings may have allowance but no timing for any provider. All budgets
-        # are then unknown; keep the selected list order until a known budget exists.
-        providers["anthropic"]["error"] = None
-        for prov in providers.values():
-            for meter in prov["meters"]:
-                meter.pop("resets_at")
-        with redirect_stderr(io.StringIO()):
-            self.assertEqual(run.pick_models(self.cfg, providers, None, None, lambda _: None),
-                             ("opus", "astra"))
-            providers["openai"]["meters"][0]["resets_at"] = self.now + 302400
-            self.assertEqual(run.pick_models(self.cfg, providers, None, None, lambda _: None),
-                             ("astra", "opus"))
-
     def test_v5b_smallest_budget_binds_when_gate_reset_times_differ(self):
         providers = self.providers(30, 40)
         shared, scoped = providers["anthropic"]["meters"]
@@ -330,9 +289,6 @@ class WeeklyBalance(unittest.TestCase):
         scoped["resets_at"] = self.now + 86400
         self.assertAlmostEqual(usage.model_budget(self.cfg, "fable", providers)[0], 49 / 60)
         self.assertAlmostEqual(usage.provider_budget(providers["anthropic"])[0], 49 / 60)
-        for role in ("executor", "reviewer"):
-            self.assertEqual(usage.pick_order(self.cfg, providers, ["fable", "astra", "spark"],
-                                              role=role), ["astra", "spark", "fable"])
         usage._gate_flags(providers, self.now, self.cfg)
         self.assertEqual(providers["anthropic"]["budget"], 0.817)
         self.assertIn("0.8 ahead", usage.rows(self.cfg, providers)[0])
@@ -348,40 +304,15 @@ class WeeklyBalance(unittest.TestCase):
         self.assertEqual(budget, 0)
         self.assertIsNotNone(reason)
 
-    def test_v5b_partial_reviewer_probe_keeps_known_budget_first(self):
-        providers = self.providers(80, 53)
-        providers["openai"]["error"] = "unknown: one malformed meter"
-        providers["meta"]["meters"] = []
-        with redirect_stderr(io.StringIO()):
-            self.assertEqual(run.pick_models(self.cfg, providers, None, None, lambda _: None),
-                             ("opus", "astra"))
-
-    def test_v5b_pick_reason_has_one_unknown_prefix(self):
-        providers = self.providers(50, 50)
-        providers["meta"].update(meters=[], error="unknown: no usage endpoint")
-        with redirect_stderr(io.StringIO()) as err:
-            usage.pick_order(self.cfg, providers)
-        self.assertIn("budget 0 unknown: no usage endpoint; after every known budget of its rank", err.getvalue())
-        self.assertNotIn("unknown: unknown:", err.getvalue())
-
     def test_v5b_budget_label_agrees_with_rounded_number(self):
         for value, expected in ((0.94, "0.9 ahead"), (0.98, "1.0 in step"),
                                 (1.0, "1.0 in step"), (1.04, "1.0 in step"),
                                 (1.06, "1.1 slack")):
             with self.subTest(value=value):
                 self.assertEqual(usage._budget_label(value, None), expected)
-        # Display rounding must not turn a real budget difference into a ranking tie.
-        providers = self.providers(51, 51)
-        providers["openai"]["meters"][0]["used"] = 48
-        self.assertEqual(usage.pick_order(self.cfg, providers, ["opus", "astra"]),
-                         ["astra", "opus"])
 
     def test_requested_balance_cases(self):
-        for all_used, scoped, order in (
-            (80, 53, ["astra", "spark", "opus"]),
-            (40, 70, ["opus", "astra", "spark"]),
-            (60, 60, ["astra", "spark", "opus"]),
-        ):
+        for all_used, scoped in ((80, 53), (40, 70), (60, 60)):
             with self.subTest(all_used=all_used, scoped=scoped):
                 providers = self.providers(all_used, scoped)
                 prov = providers["anthropic"]
@@ -393,7 +324,7 @@ class WeeklyBalance(unittest.TestCase):
                 for name, used in (("opus", all_used), ("fable", max(all_used, scoped))):
                     self.assertEqual(usage.model_pace(self.cfg, name, providers)[0], used - 50)
                     self.assertFalse(usage.model_exhausted(self.cfg, name, providers)[0])
-                self.assertEqual(usage.pick_order(self.cfg, providers, self.workers), order)
+                self.assertEqual(usage.pick_order(self.cfg, providers, self.workers), self.workers)
                 self.assertEqual(orch.choose(self.cfg, providers)[0], "fable")
                 rendered = usage.render(self.cfg, providers, usage.pick_order(self.cfg, providers))
                 self.assertIn(f"weekly_all {100 - all_used}% left, weekly_scoped {100 - scoped}% left, "
@@ -470,7 +401,7 @@ class WeeklyBalance(unittest.TestCase):
                 entry["provider"] = "renamed"
         self.cfg["models"]["fable"]["meter"] = "private_week"
         prov["meters"][1]["name"] = "private_week"
-        self.assertEqual(usage.pick_order(self.cfg, providers)[0], "astra")
+        self.assertEqual(usage.pick_order(self.cfg, providers), self.workers)
         for missing in ("weekly_all", "private_week"):
             partial = {**prov, "meters": [m for m in prov["meters"] if m["name"] != missing]}
             self.assertIsNone(usage._split_week(self.cfg, "renamed", partial))
@@ -522,12 +453,12 @@ class WeeklyBalance(unittest.TestCase):
                 self.assertIn("gap 29", usage.render(self.cfg, cached, self.workers))
                 self.assertEqual(probe.call_count, 4)
 
-    def test_budget_alone_selects_executor_with_cross_provider_reviewer(self):
+    def test_the_first_mark_executes_beside_a_reviewer_of_another_lab(self):
         for session in (None, {"name": "fable-seat", "orchestrator": "fable",
                                "workers": self.workers},
                         {"name": "fable-seat", "orchestrator": "fable",
                          "workers": [*self.workers, "fable"]}):
-            for spent, executor in ((None, "astra"), ("openai", "spark"), ("meta", "astra")):
+            for spent, reviewer in ((None, "astra"), ("openai", "spark"), ("meta", "astra")):
                 with self.subTest(session=session, spent=spent), \
                         patch.object(config, "active_session", return_value=session):
                     providers = self.providers(80, 53)
@@ -535,11 +466,10 @@ class WeeklyBalance(unittest.TestCase):
                         providers[spent]["meters"][0]["used"] = 100
                         usage._gate_flags(providers, self.now, self.cfg)
                     pair = run.pick_models(self.cfg, providers, None, None, lambda _: None)
-                    expected = (executor, "spark" if spent is None else "opus")
-                    self.assertEqual(pair, expected)
+                    self.assertEqual(pair, ("opus", reviewer))
                     self.assertNotEqual(*run.review_providers(self.cfg, *pair))
 
-    def test_model_names_do_not_change_budget_order_or_meter_gates(self):
+    def test_model_names_do_not_change_the_order_or_meter_gates(self):
         providers = self.providers(80, 53)
         workers = [*self.workers, "fable"]
         for name in ("fable", "delta"):
@@ -549,10 +479,10 @@ class WeeklyBalance(unittest.TestCase):
             for role in ("executor", "reviewer"):
                 with self.subTest(name=name, role=role):
                     self.assertEqual(usage.pick_order(cfg, providers, selected, role=role),
-                                     ["astra", "spark", "opus", name])
+                                     selected)
                     spent = self.providers(80, 100)
                     self.assertEqual(usage.pick_order(cfg, spent, selected, role=role, quiet=True),
-                                     ["astra", "spark", "opus"])
+                                     self.workers)
 
     def test_behind_keeps_opus_selectable_for_normal_cross_provider_pick(self):
         providers = self.providers(80, 53)
@@ -566,20 +496,6 @@ class WeeklyBalance(unittest.TestCase):
                          ("fable", "opus"))
         self.assertEqual(run.pick_models(self.cfg, providers, "fable", "fable", lambda _: None),
                          ("fable", "fable"))
-
-    def test_scoped_meter_gap_never_overrides_budget(self):
-        for all_used, scoped, executor, reviewer in (
-            (40, 70, "opus", "astra"), (60, 60, "astra", "spark"),
-            (60, 59, "astra", "spark"), (60, 58, "astra", "spark"),
-        ):
-            for workers in (self.workers, [*self.workers, "fable"]):
-                with self.subTest(all_used=all_used, scoped=scoped, workers=workers), \
-                        patch.object(config, "active_session", return_value={
-                            "name": "fable-seat", "orchestrator": "fable", "workers": workers}):
-                    providers = self.providers(all_used, scoped)
-                    self.assertEqual(run.pick_models(self.cfg, providers, None, None, lambda _: None),
-                                     (executor, reviewer))
-        self.assertEqual(usage.pick_order(self.cfg, self.providers(60, 57.9))[0], "astra")
 
     def test_the_writers_provider_reviews_only_when_another_provider_cannot(self):
         for used in (100, None):
@@ -603,15 +519,15 @@ class WeeklyBalance(unittest.TestCase):
                         continue
                     self.assertEqual(usage.pick_order(self.cfg, providers)[0], "opus")
                     pair = run.pick_models(self.cfg, providers, None, None, lambda _: None)
-                    # meters that say nothing withhold no model, so another provider reviews
-                    # before fable, whose budget is known; spent, it gives way to fable
+                    # meters that say nothing withhold no model, so another lab reviews
+                    # before fable; spent, it gives way to fable
                     self.assertEqual(pair, ("opus", "fable" if used == 100 else "astra"))
                     self.assertEqual(run.review_providers(self.cfg, "opus", "fable"),
                                      ("anthropic", "anthropic"))
 
-    def test_budget_respects_worker_selection_payg_and_real_session_gate(self):
+    def test_the_pick_respects_worker_selection_payg_and_real_session_gate(self):
         providers = self.providers(80, 53)
-        self.assertEqual(usage.pick_order(self.cfg, providers, self.workers), self.workers[1:] + ["opus"])
+        self.assertEqual(usage.pick_order(self.cfg, providers, self.workers), self.workers)
         self.assertEqual(usage.pick_order(self.cfg, providers, ["fable", "opus"]), ["fable", "opus"])
         self.cfg["providers"]["meta"]["mode"] = "payg"
         providers["openai"]["meters"] = []
@@ -624,16 +540,16 @@ class WeeklyBalance(unittest.TestCase):
         usage._gate_flags(providers, self.now, self.cfg)
         self.assertNotIn("fable", usage.pick_order(self.cfg, providers))
 
-    def test_reviewers_keep_normal_order_when_fable_is_behind(self):
+    def test_reviewers_keep_the_order_marked_when_fable_is_behind(self):
         providers = self.providers(80, 53)
         for session in (None, {"name": "fable-seat", "orchestrator": "fable",
                                "workers": self.workers}):
             with self.subTest(session=session), \
                     patch.object(config, "active_session", return_value=session):
                 self.assertEqual(usage.pick_order(self.cfg, providers, role="reviewer"),
-                                 ["astra", "spark", "opus"])
+                                 self.workers)
                 self.assertEqual(run.pick_models(self.cfg, providers, "astra", None, lambda _: None),
-                                 ("astra", "spark"))
+                                 ("astra", "opus"))
 
     def test_fable_seat_resume_keeps_executor_after_meters_catch_up(self):
         session = {"name": "fable-seat", "orchestrator": "fable",
@@ -654,7 +570,7 @@ class WeeklyBalance(unittest.TestCase):
         providers = self.providers(80, 53)
         # Launching a seat can happen outside one or from a seat with another selection.
         for parent in (None, {"orchestrator": "astra", "workers": ["opus", "spark"]}):
-            for model, first in (("fable", "astra"), ("astra", "astra")):
+            for model in ("fable", "astra"):
                 with self.subTest(parent=parent, model=model), \
                         tempfile.TemporaryDirectory(prefix=".ak-test-usage-banner-", dir=REPO) as tmp, \
                         patch.object(config, "active_session", return_value=parent), \
@@ -669,11 +585,11 @@ class WeeklyBalance(unittest.TestCase):
                     self.assertNotIn("pick order:", out.getvalue())
                     rendered = usage.render(self.cfg, providers, usage.pick_order(
                         self.cfg, providers, self.workers, orchestrator=model))
-                    self.assertIn(f"pick order: {first},", rendered)
+                    self.assertIn("pick order: opus,", rendered)
                     self.assertNotIn("preferring Fable", rendered)
                     with patch.object(config, "active_session", return_value={
                             "name": "new-seat", "orchestrator": model, "workers": self.workers}):
-                        self.assertEqual(usage.pick_order(self.cfg, providers)[0], first)
+                        self.assertEqual(usage.pick_order(self.cfg, providers)[0], "opus")
 
     def test_split_meter_display_reports_facts_without_preferences(self):
         for reason in ("reviewers spent", "reviewers unknown", "session spent", "not selected"):
@@ -711,7 +627,8 @@ class WeeklyBalance(unittest.TestCase):
                 with patch.object(config, "active_session", return_value=session):
                     self.assertEqual(run.pick_models(self.cfg, providers, None, None,
                                                      lambda _: None),
-                                     ("fable", "fable" if reason.endswith("spent") else "astra"))
+                                     ("fable", "fable") if reason.endswith("spent") else
+                                     ("astra", "spark"))
 
 
 if __name__ == "__main__":

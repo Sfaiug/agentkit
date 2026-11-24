@@ -1,0 +1,92 @@
+"""The matrix the models screen reads is the one it or `ak models` last computed and stored in
+`state/matrix.json` (`matrix.refresh`), computed again only once a board answered anew or the
+config's models or the harnesses installed changed; a lineup an earlier build stored still
+matches the board's rows by their name until then.
+
+Offline: the boards answered by bytes, the catalogs and installed harnesses faked
+(tests/test_model_rows.py), or an invented lineup (tests/test_matrix_lineup.py's); a throwaway
+HOME.
+"""
+
+import json
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "tests"))
+from fixtures.sandbox import Sandbox
+from agentkit import boards, config, matrix
+import test_model_rows as rows_test
+from test_matrix_lineup import aa
+
+
+class MatrixStored(Sandbox):
+    def setUp(self):
+        super().setUp()
+        rows_test.prepare(self)
+
+    def test_the_lineup_is_stored_once_and_computed_again_only_on_news(self):
+        _, lineup = matrix.refresh(self.cfg, now=10000)
+        held = json.loads(matrix.cache_path().read_text())["matrix"]
+        self.assertEqual((held["computed_at"], held["lineup"]), (10000, lineup))
+        self.assertEqual(matrix.stored()["config"], matrix.config_key(self.cfg))
+        with patch.object(matrix, "lineup", side_effect=AssertionError("computed again")):
+            again = matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR - 1)
+        self.assertEqual(again[1], lineup)
+        # a board answering anew, or a model added, computes it again
+        matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR)
+        self.assertEqual(matrix.stored()["computed_at"], 10000 + boards.FRESH_FOR)
+        self.cfg["models"]["astra"]["effort"] = "max"
+        matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR + 1)
+        self.assertEqual(matrix.stored()["computed_at"], 10000 + boards.FRESH_FOR + 1)
+        # and so does a harness back from a moment missing in an upgrade swap, even one back
+        # while the catalogs were read
+        present, catalog = config.harness_present.side_effect, config.catalog.side_effect
+        opus = self.cfg["models"]["opus"]["harness"]
+        config.harness_present.side_effect = lambda harness: harness != opus and present(harness)
+        def back(harness, cfg=None):
+            config.harness_present.side_effect = present
+            return catalog(harness)
+        config.catalog.side_effect = back
+        matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR + 2)
+        config.catalog.side_effect = catalog
+        self.assertNotIn(opus, matrix.stored()["harnesses"])
+        matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR + 3)
+        self.assertIn(opus, matrix.stored()["harnesses"])
+
+
+# release, name, effort, the board's two shares, board dollars
+ROWS = [("claude-opus-5-5", "Claude Opus 5.5", "high", 0.60, 4.0),
+        ("claude-opus-5-5", "Claude Opus 5.5", "low", 0.50, 2.0),
+        ("gpt-6-astra", "GPT 6 Astra", "high", 0.58, 1.0),
+        ("bolt-2", "Bolt 2", "high", 0.59, 1.5)]
+OFFERS = {"claude": [{"id": "claude-opus-5-5", "efforts": ["low", "high"]},
+                     {"id": "claude-fable-5-1", "efforts": ["high"]}],
+          "codex": [{"id": "gpt-6-astra", "efforts": ["high"]}]}
+
+
+class AnEarlierBuildsLineup(Sandbox):
+    def setUp(self):
+        super().setUp()
+        for name in ("opus", "astra", "fable"):
+            self.cfg["models"][name]["effort"] = "high"
+        self.lineup = matrix.lineup({"artificialanalysis.ai": {"rows": [
+            aa(f"{release}-{effort}", name, effort, release, share, share, cost)
+            for release, name, effort, share, cost in ROWS]}}, OFFERS)
+
+    def test_a_lineup_an_earlier_build_stored_still_matches_by_the_boards_name(self):
+        # its `name` the board's and no `board_name`: Opus's dated release matches by name alone
+        old = [{**{key: value for key, value in row.items() if key != "board_name"},
+                "release": row["release"] + "-20261101", "name": row["board_name"]}
+               for row in self.lineup]
+        measured = ({}, {"opus": {"high": {"executor": (.01, 1, .01)}}})
+        found = matrix.answer(old, cfg=self.cfg, task_usage=measured)["execute"]
+        self.assertEqual([row["cost_rule"] for row in found["rated"] if row["release"] ==
+                          "claude-opus-5-5-20261101" and row["effort"] == "high"], ["measured"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,7 +1,7 @@
 """A model may review its own work, but only as the last choice.
 
 The reviewer is picked from the run's models in this order: a model of another lab,
-then another model of the executor's lab, budget order within each, then the
+then another model of the executor's lab, in the order marked within each, then the
 executor's own model; with no lineup stored, as here, each provider is a lab. Nothing refuses or parks a run only because the one
 reviewer left is the executor's own, and the launch line and `ak run status`
 say `self-reviewed` where a round was reviewed by the executor's own model.
@@ -95,7 +95,7 @@ class SelfReviewLast(unittest.TestCase):
                                             ["beta-one", "acme-one", "acme-two"]),
                          ["acme-one", "acme-two", "beta-one"])
         self.assertEqual(run.reviewer_order(self.cfg, "acme-one", ["acme-one"]), ["acme-one"])
-        # a review with no executor keeps budget order: nothing is anyone's own
+        # a review with no executor keeps the order given: nothing is anyone's own
         self.assertEqual(run.reviewer_order(self.cfg, None, order), order)
         # a writer since removed from the config holds no reviewer back
         self.assertEqual(run.reviewer_order(self.cfg, ["retired", "acme-one"], order),

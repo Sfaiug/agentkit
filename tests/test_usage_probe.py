@@ -286,25 +286,20 @@ class GentleProbe(unittest.TestCase):
         self.assertIs(prov["logged_in"], False)
         self.assertEqual(self.row().split(), ["—", "no", "login"])
 
-    def test_the_picker_ranks_on_the_last_known_budget_after_a_failed_probe(self):
-        # alpha has 60% of its week left and beta 40%, in the same window: alpha ranks first,
-        # and a rate limit on its meter must not be what hands every run to beta.
+    def test_the_last_known_budget_stands_after_a_failed_probe(self):
+        # a rate limit on alpha's meter leaves the week it last read known
         self.refused()
         providers = usage.collect(self.cfg)
         self.assertIsNone(providers["alpha"]["budget_reason"])
-        self.assertEqual(usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True),
-                         ["one", "two"])
-        # Six hours of refusals later nobody can say what it has left, and unknown ranks last.
+        # Six hours of refusals later nobody can say what it has left.
         self.now[0] = NOW + usage.PROBE_EVERY + usage.PROBE_TRUSTED_FOR + 1
         providers = usage.collect(self.cfg)
         self.assertEqual([m["used"] for m in providers["alpha"]["meters"]], [40])
         self.assertIn("429", providers["alpha"]["budget_reason"])
-        self.assertEqual(usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True),
-                         ["two", "one"])
 
     def test_the_week_a_reset_reads_back_ends_the_refusals_before_it(self):
         # Six hours of refusals leave alpha unknown.  The owner spends a credit inside the
-        # minute, and the week that spend read back is a fresh reading, ranked on at once.
+        # minute, and the week that spend read back is a fresh reading, known at once.
         manifest = self.fake / "fake.toml"
         manifest.write_text("[usage]\nreset = true\n")
         os.utime(manifest, (NOW, NOW))

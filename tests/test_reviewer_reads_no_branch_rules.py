@@ -44,7 +44,7 @@ class ReviewerReadsNoBranchRules(unittest.TestCase):
             "HOME": str(root), "AGENTKIT_ADAPTER_DIR": str(adapters), "AGENTKIT_SESSION": "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
-        # the rule-reading model has the most budget left, so only the bar keeps it from reviewing
+        # the rule-reading model is marked first, so only the bar keeps it from reviewing
         self.cfg = {"defaults": {"orchestrator": "acme-reads", "workers": ["acme-reads", "beta-plain"]},
                     "models": {"acme-reads": {"harness": "readsrules", "model": "reads", "effort": "high",
                                               "provider": "acme"},

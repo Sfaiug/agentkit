@@ -623,8 +623,8 @@ class QuotaDry(unittest.TestCase):
         # the run is handed over, never an error, and the reset it holds is never spent for it
         self.providers["meta"]["resets"] = 1
         self.plan({"spark": [{"code": 1, **REFUSALS["muse"]}]})
-        # astra is the cheaper executor now, so the cheapest legal pair is (astra, opus)
-        self.providers["openai"]["meters"] = [self.meter(5)]
+        # astra is marked first, so the round goes to (astra, opus)
+        self.eligible = ["astra", "opus", "spark", "fable"]
         code, _, state = self.launch("--exec", "spark", "--review", "opus", "--no-merge")
         self.assertEqual(code, 0)
         self.assertEqual(state["state"], "pass")
@@ -735,8 +735,8 @@ class QuotaDry(unittest.TestCase):
 
     def test_v5i_no_reset_parks_the_provider_and_hands_the_round_to_another(self):
         repo = self.repository()
-        # spark is the cheaper executor here: the cheapest legal pair hands it the round
-        self.providers["meta"]["meters"] = [self.meter(5)]
+        # spark is marked before opus: the pair handed the round is (spark, opus)
+        self.eligible = ["spark", "opus", "astra", "fable"]
         self.plan({"astra": [{"code": 1, **REFUSALS["codex"]}]})
         code, directory, state = self.launch("--exec", "astra", "--review", "opus", "--no-merge")
         self.assertEqual(code, 0)
@@ -748,7 +748,7 @@ class QuotaDry(unittest.TestCase):
         # and nothing picks openai again while the mark stands, in this run or any other
         self.assertTrue(usage.model_exhausted(self.cfg, "astra", self.collect(self.cfg))[0])
         self.assertNotIn("astra", usage.pick_order(self.cfg, self.collect(self.cfg)))
-        # the work went to the cheapest legal pair: spark executes, opus reviews
+        # the work went to the first legal pair as marked: spark executes, opus reviews
         self.assertEqual(state["executor"], "spark")
         self.assertEqual(state["reviewer"], "opus")
         self.assertEqual([row["model"] for row in self.calls()], ["astra", "spark", "opus"])
@@ -813,7 +813,7 @@ class QuotaDry(unittest.TestCase):
         self.assertEqual(state["executor"], "opus")
         self.assertTrue(run.needs_recovery(state) or state["state"] == "exhausted")
         # a meter refills; the resume must not put the work back on the model that ran dry.
-        # refilled spark is the cheaper executor, so the cheapest legal pair takes the round
+        # refilled spark is the one model left, so it takes the round
         self.providers["meta"]["meters"] = [self.meter(5)]
         self.assertEqual(run.cmd_resume([directory.name]), 0)
         state = record.read_state(directory)
@@ -910,13 +910,10 @@ class QuotaDry(unittest.TestCase):
 
     def test_v5i_two_models_that_shared_a_round_both_hold_it(self):
         """astra hands round 1 to spark, spark to opus, and a resume records all three."""
-        # One model per company: the refusals leave opus reviewing itself, then nothing.
-        self.eligible.remove("fable")
+        # One model per company, marked in the order they take the round: the refusals leave
+        # opus reviewing itself, then nothing.
+        self.eligible = ["astra", "spark", "opus"]
         self.repository()
-        # spark and then astra are the cheaper executors of their handovers, which is the
-        # pair the cheapest-legal-pair rule picks both times
-        self.providers["meta"]["meters"] = [self.meter(5)]
-        self.providers["openai"]["meters"] = [self.meter(5)]
         self.plan({"astra": [{"code": 1, **REFUSALS["codex"]}],
                    "spark": [{"code": 1, "final": "model failed: usage limit reached"}],
                    "opus": [{"code": 1, **REFUSALS["claude"]}]})

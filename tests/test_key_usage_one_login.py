@@ -1,11 +1,11 @@
-"""`ak usage` reads each one-login subscription's meters through its harness, ranks the models
+"""`ak usage` reads each one-login subscription's meters through its harness, orders the models
 and names the review pair.
 
 A provider that lists no accounts is one login: ak asks its harness for the usual login's
 meters and keeps what it reported, a spent gate meter spending the provider.  A harness that
 answers an error leaves that error, and its `auth` says whether the login works.  The pick
-order ranks the models with room, the most budget first and an unknown one last, a spent
-provider's left out, and `review` pairs the first of them with the first on another provider.
+order is the models with room in the order marked, a spent provider's left out, and `review`
+pairs the first of them with the first on another provider.
 A second read within five minutes asks no harness and answers the same, the reading kept in
 `~/.agentkit/state/usage.json`.
 
@@ -24,15 +24,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, meters
 from fixtures.akbin import Home
 
-# each model's provider, listed in an order the pick does not keep
+# each model's provider, in the order marked
 MODELS = {"bolt": "brine", "cask": "coral", "drum": "dune", "anvil": "acme", "easel": "acme"}
 PROVIDERS = sorted({*MODELS.values()})
 USED = {"acme": 40, "brine": 70, "dune": 100}    # each week's used%; coral's harness has none
 ERROR = "unknown: no meter scripted"    # what the meter fixture answers where no week is set
 REPORTED = ("name", "used", "resets_at", "window_secs")
-# acme's two by the list between them, brine's less budget after, coral's unknown one last
-ORDER = ["anvil", "easel", "bolt", "cask"]
-PAIR = {"executor": "anvil", "reviewer": "bolt"}     # easel is on anvil's own provider
+# as marked, whatever budget each has left; dune's, spent, left out
+ORDER = ["bolt", "cask", "anvil", "easel"]
+PAIR = {"executor": "bolt", "reviewer": "cask"}
 # the short headings `ak usage` prints where its full ones do not fit
 HEADINGS = ("model(s)", "left", "holds", "month", "resets", "elapsed", "session", "held",
             "room", "budget", "outlook")
@@ -100,7 +100,7 @@ class Json(unittest.TestCase):
         self.assertIs(self.answer["providers"]["coral"]["logged_in"], True)
         self.assertIn(("auth", "coral", "default"), self.meter.calls())
 
-    def test_the_pick_order_ranks_the_models_with_room_and_leaves_the_spent_one_out(self):
+    def test_the_pick_order_is_the_models_with_room_as_marked_less_the_spent_one(self):
         self.assertEqual(self.answer["pick_order"], ORDER)
 
     def test_review_names_the_pair_python_picks(self):

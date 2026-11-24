@@ -86,21 +86,6 @@ class OneProvider(unittest.TestCase):
 
     def test_two_providers_pick_the_reviewer_on_the_other_one(self):
         self.assertEqual(self.pick(), ("alpha", "gamma"))
-        self.providers = self.meters(a=70, b=10)
-        self.assertEqual(self.pick(), ("gamma", "alpha"))
-
-    def test_reviewers_keep_budget_order_within_a_tier(self):
-        self.cfg["models"]["gamma"]["meter"] = "smaller"
-        self.providers["b"]["meters"].append(
-            {**self.providers["b"]["meters"][0], "name": "smaller", "used": 95})
-        self.cfg["models"]["delta"]["meter"] = "weekly"
-        self.assertEqual(self.pick("alpha"), ("alpha", "delta"))
-        self.assertEqual(self.pick("beta"), ("beta", "delta"))
-        self.providers["a"] = self.providers["b"]
-        for name in ("gamma", "delta"):
-            self.cfg["models"][name]["provider"] = "a"
-        self.cfg["defaults"]["workers"] = ["alpha", "gamma", "delta"]
-        self.assertEqual(self.pick("alpha"), ("alpha", "delta"))
 
     def test_shipped_default_carries_no_review_opt_out(self):
         cfg = tomllib.loads((REPO / "config.default.toml").read_text())
@@ -308,8 +293,8 @@ class OneProvider(unittest.TestCase):
         self.cfg["providers"]["c"] = {}
         self.cfg["models"]["delta"]["provider"] = "c"
         self.providers = self.meters(a=100, b=10)
-        # delta is the cheaper executor, so the re-picked pair keeps gamma reviewing it
-        self.providers["c"] = self.meters(b=5)["b"]
+        # delta is marked before gamma, so the re-picked pair keeps gamma reviewing it
+        self.cfg["defaults"]["workers"] = ["alpha", "beta", "delta", "gamma"]
         with patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "delta")
         self.assertEqual((lp.reviewer, lp.review_sid), ("gamma", "existing-review"))

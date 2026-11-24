@@ -228,15 +228,13 @@ class ExhaustedResume(unittest.TestCase):
         row = next(line for line in out.getvalue().splitlines() if run_dir.name in line)
         self.assertIn("! needs you", row)
 
-    def test_v5r_handover_repicks_the_pair_by_budget(self):
-        # opus is dry; spark is the cheaper executor and was this run's reviewer, so the
-        # pair is re-picked by budget under the one-provider rule: spark executes and
-        # astra reviews, rather than keeping the reviewer and forcing a dearer executor.
+    def test_v5r_handover_repicks_the_pair_as_one(self):
+        # opus is dry; spark is marked before astra and was this run's reviewer, so the pair
+        # is re-picked as one under the one-provider rule: spark executes and astra reviews,
+        # rather than keeping the reviewer and handing the work to a later mark.
+        self.cfg["defaults"]["workers"] = ["opus", "spark", "astra"]
         run_dir = self.receipt("20260916-1212-spare-reviewer", executor="opus")
-        state = record.read_state(run_dir)
-        state["reviewer"] = "spark"
-        record.save_state(run_dir, state)
-        providers = self.providers(openai_used=10, anthropic_used=100, meta_used=5)
+        providers = self.providers(meta_used=10)
         calls = []
         with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                           calls.append((d, a, expected)) or 0):

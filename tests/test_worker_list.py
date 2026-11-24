@@ -6,8 +6,7 @@ adapter, pid or model call appears anywhere in here. What is pinned is that a ru
 its executor, its reviewer, every handover and every fixer only from the `workers` list
 its session held at launch -- never a wider list from the process's own seat, never one
 the session record grew later -- parks `exhausted` with the reason when that list holds
-nobody eligible, and re-picks both roles by budget on a handover so the cheapest legal
-pair runs.
+nobody eligible, and re-picks both roles as one pair on a handover, in the order marked.
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
@@ -139,7 +138,7 @@ class WorkerList(unittest.TestCase):
                                                                   role=role))
                     self.assertEqual(run.pick_models(self.cfg, providers, None, None,
                                                      self.logs.append, workers=bound),
-                                     ("beta", "delta"))
+                                     ("alpha", "beta"))
             # A wider current seat cannot admit a model the launch receipt omitted,
             # even as an explicit executor on resume.
             session["workers"] = [*workers, "fable"]
@@ -150,10 +149,10 @@ class WorkerList(unittest.TestCase):
                                         self.logs.append, workers=workers, resuming=resuming)
             lp = self.loop("beta", "delta", workers)
             with patch.object(staffing, "collect_usage", return_value=providers):
-                self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "delta")
-            self.assertEqual(lp.reviewer, "alpha")
+                self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "alpha")
+            self.assertEqual(lp.reviewer, "delta")
 
-    def test_lagging_fable_listed_ranks_by_budget_alone(self):
+    def test_lagging_fable_listed_takes_its_place_as_marked(self):
         providers = self.lagging_fable()
         workers = ["alpha", "beta", "delta", "fable"]
         session = {"name": "fable-seat", "orchestrator": "fable", "workers": workers}
@@ -162,7 +161,7 @@ class WorkerList(unittest.TestCase):
                 with self.subTest(bound=bound):
                     self.assertEqual(run.pick_models(self.cfg, providers, None, None,
                                                      self.logs.append, workers=bound),
-                                     ("beta", "delta"))
+                                     ("alpha", "beta"))
 
     def test_status_and_log_name_the_bound_workers(self):
         lp = self.loop("alpha", "gamma", ["alpha", "gamma"])
@@ -306,7 +305,7 @@ class WorkerList(unittest.TestCase):
 
     def test_a_resume_hands_a_saved_executor_that_cannot_run_within_its_provider(self):
         # gamma's harness is logged out, and only its harness: beta, on the same provider
-        # and another harness, is the cheapest model left and takes the work
+        # and another harness, is marked first and takes the work
         self.cfg["models"]["gamma"]["harness"] = "codex"
         self.why["codex"] = "codex is not logged in"
         run_dir = self.root / "resumed"
@@ -320,7 +319,7 @@ class WorkerList(unittest.TestCase):
                  "verdict": None, "executor": "gamma", "reviewer": "alpha", "rounds": 1,
                  "round_summaries": [], "repo": None, "worktree": str(workspace),
                  "branch": None, "base": None, "base_sha": None, "scratch": True,
-                 "no_merge": True, "findings": "", "workers": ["alpha", "beta", "gamma"]}
+                 "no_merge": True, "findings": "", "workers": ["beta", "alpha", "gamma"]}
         record.save_state(run_dir, state)
         calls = []
 
@@ -333,7 +332,7 @@ class WorkerList(unittest.TestCase):
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(run.worker, "call", side_effect=submitting(fake)), \
-                self.refused(usage.Readings(self.providers(b=5))), \
+                self.refused(usage.Readings(self.providers())), \
                 patch.object(notify, "shaped", return_value=0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
             run.drive(self.cfg, run_dir, opts, run.logger(run_dir), prior=state)
@@ -633,13 +632,13 @@ class WorkerList(unittest.TestCase):
         self.assertEqual(calls, ["alpha"])
         self.assertEqual(sent, [])
 
-    def test_a_handover_repicks_the_pair_by_budget(self):
-        # the 2026-09-22 repro in miniature: a refusal with the reviewer's own model the
-        # cheaper executor. Keeping the reviewer would force the dearer executor; both
-        # roles are re-picked instead, so the cheapest legal pair runs
+    def test_a_handover_repicks_the_pair_as_one(self):
+        # the 2026-09-22 repro in miniature: a refusal with the reviewer's own model the next
+        # marked. Keeping the reviewer would hand the work to a later mark; both roles are
+        # re-picked instead, so the first legal pair runs
         lp = self.loop("alpha", "gamma", ["alpha", "gamma", "delta"])
         lp.review_sid = "saved-review"
-        with patch.object(staffing, "collect_usage", return_value=self.providers(c=30)), \
+        with patch.object(staffing, "collect_usage", return_value=self.providers()), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "gamma")
         self.assertEqual((lp.executor, lp.reviewer), ("gamma", "delta"))

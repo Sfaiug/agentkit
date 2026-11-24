@@ -1,6 +1,6 @@
 """Every current model on the boards, a row per release and effort with the installed harnesses'
 models that are it (`lineup`), answered per role on quality and cost (`answer`), using
-`quality.pick`; `rank` places each configured model off it.  Only the models of your
+`quality.pick`.  Only the models of your
 companies you left on are compared (`compared`) or used (`off`): the owner, 5 Nov 2026.  ak's
 own run numbers stand beside, per configured model, the effort its runs recorded and role, with
 their count, and never rank (tests/test_matrix_live_column.py).
@@ -146,18 +146,6 @@ def _task_usage(cfg):
     return spend.roles(cfg)
 
 
-def _pricing(cfg):
-    """Only inputs to cached pricing: unrelated TOML values need no JSON representation."""
-    from . import usage
-    return {"models": {name: {key: cfg["models"][name][key]
-                              for key in ("harness", "model", "provider")}
-                       for name in config.offered(cfg)},
-            "providers": {name: {"maker": entry.get("maker")
-                                 if isinstance(entry.get("maker"), str) else None,
-                                 "price": usage.price(cfg, name)}
-                          for name, entry in cfg["providers"].items()}}
-
-
 def _costs(rated, lineup, cfg, logins, shares):
     """Prices the rows of each role of `rated` ({role: `quality.rated`'s rows}) and returns the
     one unit every role is in: `board_dollars`, the boards' price of their own task, before any
@@ -183,8 +171,8 @@ def _costs(rated, lineup, cfg, logins, shares):
     from . import usage
     rows = {(row["release"], row["effort"]): row for row in lineup}
     # matched as `lineup` matched, on the name the board spells, not the one ak says; a lineup
-    # an earlier build stored has only its `name`, the board's, and picks read it (`rank`) until
-    # the models screen computes it again
+    # an earlier build stored has only its `name`, the board's, and the models screen reads it
+    # until it computes it again
     index = _release_index({row["release"]: {"slug": row["release"],
                                              "name": row.get("board_name", row.get("name"))}
                             for row in lineup}.values())
@@ -513,8 +501,8 @@ def compared(cfg, reading=None):
 def off(cfg):
     """The configured models ak never uses: each running a listed release that is not on, or
     one `models_off` holds however the boards list it, as its owner said of a model off: "ak
-    never uses it".  The release a model runs is the one whose rows of the lineup last stored, as
-    `rank` reads it, hold its harness and model in their `yours`, scored or not; else, once no
+    never uses it".  The release a model runs is the one whose rows of the lineup last stored
+    hold its harness and model in their `yours`, scored or not; else, once no
     row holds it, a slug of `models_off` its own id (`config.model_id`) names (`found`).  A
     model running an unlisted release nobody turned off, or none, is not the list's to turn
     off: so one off through its company alone is on again once the boards rate its release no
@@ -667,14 +655,6 @@ def refresh(cfg, *, refresh=False, now=None):
     return boards, rows
 
 
-@functools.lru_cache(maxsize=1)
-def _answered(text, cfg, measures):
-    """`answer` over the lineup `text`, `state/matrix.json` as read, holds: rated once per
-    stored lineup and pricing measurements, however often a run picks."""
-    return answer((json.loads(text).get("matrix") or {}).get("lineup") or [],
-                  cfg=json.loads(cfg), task_usage=json.loads(measures))
-
-
 def row_of(rows, entry, effort):
     """The row of `rows` the model entry `entry` runs at `effort`, as `lineup` holds it: at that
     effort, else at none, the model however it is run, else, run at `none`, its one row."""
@@ -684,39 +664,16 @@ def row_of(rows, entry, effort):
                 held[0] if effort == "none" and len(held) == 1 else None)
 
 
-def rank(cfg, role, names, rated=None):
-    """Each of the configured models `names` sorted on this for `role`, off `rated`, the role's
-    rows as an `answer` in hand rated them, else the lineup as last stored and `answer` rated it:
-    the row it runs at the effort the config runs it at there (`row_of`). The role's pick among
-    these rows first, then the rest by quality; None for a model no row is, or a lineup nobody
-    stored.  A pick reads this and never the boards."""
-    if rated is None:
-        try:    # pricing a task (_task_usage) reads every login's week: seconds on a busy host
-            rated = _answered(cache_path().read_text(), json.dumps(_pricing(cfg)),
-                              json.dumps(_task_usage(cfg)))[role]["rated"]
-        except (OSError, ValueError):
-            rated = []
-    found = {name: row_of(rated, cfg["models"][name],
-                          config.role_effort(cfg["models"][name], CONFIG_ROLES[role]))
-             for name in names}
-    pick = quality.pick([row for row in found.values() if row], role)
-    return {name: None if row is None else
-            (int(row is not pick), False, 0.0, -row["quality"])
-            for name, row in found.items()}
-
-
 def uses(cfg, record, found):
     """{role: (model, effort, row)} seat `record`, or [defaults], uses off `found` (`answer`): its
-    orchestrator, named even once the config drops it, else its first mark as `rank` orders them,
-    None for none; the effort the seat runs it at; and its row (`row_of`)."""
+    orchestrator, named even once the config drops it, else its first mark the config holds, as
+    a pick takes the marks in their order, None for none; the effort the seat runs it at; and
+    its row (`row_of`)."""
     cfg, workers = config.at_efforts(cfg, record), record["workers"]
     used = {}
     for role, names in (("orchestrate", [record["orchestrator"]]), ("execute", workers),
                         ("review", record.get("reviewers", workers))):
-        known = [one for one in names if one in cfg["models"]]
-        places = rank(cfg, role, known, found[role]["rated"])
-        name = min(known, key=lambda one: (places[one] is None, places[one] or ()),
-                   default=next(iter(names), None))
+        name = next((one for one in names if one in cfg["models"]), next(iter(names), None))
         entry = cfg["models"].get(name)
         effort = entry and config.role_effort(entry, CONFIG_ROLES[role])
         used[role] = name, effort, entry and row_of(found[role]["rated"], entry, effort)

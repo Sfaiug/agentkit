@@ -1,5 +1,5 @@
 """`r recommended` on `c` says what each role uses: the row its seat, or [defaults], runs at its
-effort -- the orchestrator's model, else the first mark as the pick ranks them; a board row
+effort -- the orchestrator's model, else the first mark; a board row
 naming no effort, or a harness taking none, that row -- its quality and cost, `≈` before one no
 runs measured, under `quality` and the cost unit.  ↑↓ move `›`, ⏎ opens that row's why; on
 40 and 28 cells each role's lines still show its quality and cost whole; `ak models` prints a
@@ -30,7 +30,7 @@ ROWS = [("fast", "low", .70, 2), ("fast", "high", .80, 6), ("top", "low", .75, 3
 DEFAULTS = {"plain": None, "bare": "medium"}
 MODELS = {"fast": {"effort": "low"}, "top": {"effort": "low", "exec_effort": "high"},
           "plain": {"effort": "high"}, "bare": {"effort": "none"}}
-# New seats: Bare orchestrates, Top ranks over Plain to build, Plain reviews; only Top's is
+# New seats: Bare orchestrates, Top, marked before Plain, builds, Plain reviews; only Top's is
 # measured, its 0.2 points at $1.20 a point, $0.24, over $8, so every other row is 3 cents a
 # board dollar
 NEW_SEATS = {"orchestrate": ("orchestrator", "Acme Bare 1 medium", "70.0", "≈$0.03"),
@@ -69,7 +69,7 @@ def made(cleanup):
         for name in MODELS))
     akconfig.write(home, {name: {"harness": "claude", "model": f"acme-{name}-1", **entry}
                           for name, entry in MODELS.items()},
-                   orchestrator="bare", workers=["plain", "top"], reviewers=["plain"],
+                   orchestrator="bare", workers=["top", "plain"], reviewers=["plain"],
                    # $520 a month, so a week of it $120 and a point of that $1.20
                    providers={"anthropic": {"mode": "subscription", "price": 520}})
     held = boards()

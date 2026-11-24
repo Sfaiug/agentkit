@@ -1,6 +1,6 @@
 """Who executes and who reviews a run.
 
-The models a session marks for each role, ordered by the usage they have left,
+The models a session marks for each role, in the order marked,
 the pair a round gets and the refusals when none fits, the hand to the next
 executor when one spends its window, and the words a run waiting on a reviewer
 or an exhausted provider shows.
@@ -36,8 +36,8 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     """Hand a worker turn to the best pair on a provider that refused nothing yet.
 
     Returns the new executor, or None where none is eligible.  Both roles are re-picked
-    as one pair (`best_pair`), so tier beats budget and the pair is always a legal one --
-    a reviewer kept from before can be the very model now executing.  A refused provider
+    as one pair (`best_pair`), so tier beats the order marked and the pair is always a legal
+    one -- a reviewer kept from before can be the very model now executing.  A refused provider
     never gets the work back (that is how a handover becomes a circle); its reviewers
     are considered only when no pair forms without them.  Records the move
     in `executor_history` with the reason (`stalled`, `dry`); an attempt that finds nobody
@@ -129,7 +129,7 @@ def ready_order(cfg, providers, workers=None, log=None, writers=None, reviewed_b
 def takers(cfg, providers, workers=None, role="executor", reviewers=None, writers=None,
            reviewed_by=None):
     """The list a pick for `role` reads, `workers` as given unless a rule below reads it
-    (`usage.marked`), and why each name a pick may not take is left out, before any budget rule
+    (`usage.marked`), and why each name a pick may not take is left out, before any usage rule
     reads the list.
 
     A worker whose harness is not installed or not logged in, as `providers` say, is left out,
@@ -280,8 +280,8 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
         refuse_unready(cfg, providers, want_review, "reviewer")
         reviewer = want_review
         if want_exec is None:
-            # A named reviewer takes the best executor for it: tier first, then
-            # budget, through the same pair choice every automatic pick uses.
+            # A named reviewer takes the best executor for it: tier first, then the
+            # order marked, through the same pair choice every automatic pick uses.
             pair = best_pair(cfg, order, [reviewer])
             if pair is not None:
                 executor = pair[0]
@@ -530,11 +530,11 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
                   allow_self=True):
     """(executor, reviewer) for work whose provider has run dry, or turns.Exhausted when none is left.
 
-    Both roles are re-picked as one pair (`best_pair`), so tier beats budget: a review by
-    another model beats a self-review.  Keeping the current reviewer
-    instead would force a dearer executor on the run -- on 2026-09-22 a Grok refusal kept
+    Both roles are re-picked as one pair (`best_pair`), so tier beats the order marked: a
+    review by another model beats a self-review.  Keeping the current reviewer instead would
+    leave the executor only the models it can review -- on 2026-09-22 a Grok refusal kept
     reviewer Muse and pushed execution onto Claude, though executor Muse with reviewer Claude
-    was legal and cheaper.
+    was legal.
 
     `dry` is every provider that has already refused this piece of work, not just the last one:
     a refusal the meters cannot see is still a refusal, and handing the work back to a provider
