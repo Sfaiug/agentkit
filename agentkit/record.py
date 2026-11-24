@@ -49,12 +49,26 @@ def branch_gone(state):
                 or state.get("state") == "not_needed"
                 or state.get("merged") or state.get("branch_removed"))
 
+
+def _writable(value):
+    try:
+        str(value)
+    except ValueError:
+        return hex(value)
+    return value
+
+
 def record_limits(state):
     """Migrate old receipts without reviving task-specific time budgets."""
     for key in ("done_when_minutes", "turn_hours", "stall_minutes"):
         state.pop(key, None)
     if state.get("policy"):
-        config.rename_policy(state["policy"])
+        # json writes a number in decimal, which Python refuses past sys.get_int_max_str_digits,
+        # and a host's POLICY numbers have no top: one that long is kept in hex, as config.toml
+        # keeps it (config.whole), a string every reader of run.json parses; `kept_policy`
+        # reads it back.
+        state["policy"] = {key: _writable(value)
+                           for key, value in config.rename_policy(state["policy"]).items()}
     state.setdefault("silence_minutes", SILENCE_MINUTES)
     state.setdefault("ceiling_hours", CEILING_HOURS)
 
@@ -80,18 +94,25 @@ def read_state(run_dir, shared=False):
 FIRST_KEPT = ("review_rounds", "executor_lines", "orchestrator_lines")
 
 
+def kept_policy(state):
+    """The numbers the record keeps (`run.prepare`), none for a record from before: as numbers,
+    those `record_limits` kept in hex too."""
+    return {key: int(value, 16) if isinstance(value, str) and value.startswith("0x") else value
+            for key, value in (state.get("policy") or {}).items()}
+
+
 def policy_of(state):
     """The numbers a run holds to: those read as its directory was made (`run.prepare`), kept on
     its record because they do not change while it runs; a record from before that keeps none,
     and stays on the host's it was launched under for FIRST_KEPT.  A number a record is from
     before holds ak's default."""
-    kept = state.get("policy") or config.host_policy(keys=FIRST_KEPT)
+    kept = kept_policy(state) or config.host_policy(keys=FIRST_KEPT)
     return {**{key: default for key, (default, *_) in config.POLICY.items()}, **kept}
 
 
 def review_off(state):
     """Whether the launch captured zero review rounds: it picks no reviewer and has one round."""
-    return (state.get("policy") or {}).get("review_rounds") == 0
+    return kept_policy(state).get("review_rounds") == 0
 
 
 def no_review(state):

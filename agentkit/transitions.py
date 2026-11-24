@@ -476,7 +476,7 @@ def history_ending(state, cfg=None):
     rounds = len(rounds) if isinstance(rounds, list) else None
     # the record's own number, not policy_of's: none with review off, nor for a record from
     # before records kept their numbers
-    held = (state.get("policy") or {}).get("review_rounds")
+    held = run_record.kept_policy(state).get("review_rounds")
     ending = {"repo": state.get("repo"), "executor": state.get("executor"),
               "reviewer": state.get("reviewer"), "review_pair": pair, "rounds_used": rounds,
               "extra_rounds_used": rounds - held if held and rounds and rounds > held else None,
@@ -1518,7 +1518,7 @@ def rescope(state, count=None):
     if count is None:
         rows = state.get("round_summaries") or [{}]
         count = rows[-1].get("finding_count") or 0
-    number = (state.get("policy") or {}).get("rescope_findings", config.POLICY["rescope_findings"][0])
+    number = run_record.kept_policy(state).get("rescope_findings", config.POLICY["rescope_findings"][0])
     if (state.get("review_pr") and not state.get("own_pr")) or not 0 < number <= count:
         return None
     return (f"The review left {count} blocking finding{'s' * (count != 1)}, at or past "
