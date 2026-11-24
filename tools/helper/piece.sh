@@ -1,15 +1,16 @@
 #!/bin/bash
 # piece.sh SHARD BRANCH DEFAULT PROGRAMS COMMAND, one suite piece on the helper (mac.sh):
 # the host checkout's tree and origin branch (/in/heads), its harness programs as stand-ins,
-# then offline the command. The repository's history is /mirror's, borrowed, not copied.
+# then offline the command. The repository's history is /mirror's, borrowed, not copied. It
+# defines no function: bash would hand the command it in place of one the suite's image exports.
 shard=$1 branch=$2 default=$3 programs=$4 command=$5
-fail() { echo "ak helper: $*" >&2; exit 253; }
 read -r tree base </in/heads
 git init -q --bare ${default:+-b "$default"} /home/ak/origin.git &&
   echo /mirror/objects >/home/ak/origin.git/objects/info/alternates &&
   { [ -z "$default" ] || git -C /home/ak/origin.git update-ref "refs/heads/$default" "$base"; } &&
   git clone -q --no-checkout /home/ak/origin.git /home/ak/work && cd /home/ak/work &&
-  git checkout -q ${branch:+-B "$branch"} "$tree" || fail "the tree did not check out"
+  git checkout -q ${branch:+-B "$branch"} "$tree" ||
+  { echo "ak helper: the tree did not check out" >&2; exit 253; }
 git config --global user.name "ak helper"; git config --global user.email "helper@localhost"
 mkdir -p /home/ak/stand-ins
 for program in $programs; do   # the suite fakes every harness; it only looks for the program
@@ -26,35 +27,30 @@ for name in AK_TIMES AK_ONLY; do [ ! -f "/in/$name" ] || export "$name=/in/$name
 # A new network namespace holds 10 unread notes on a unix datagram socket whatever it starts in,
 # and a container's own is such a one, while a host systemd started holds 512: a suite whose
 # stand-in sent more than its test had read yet hung on 10 (17 Nov 2026). The sandbox holds what
-# it starts in, and 512 at least. One that does not, as under a read-only /proc/sys, runs nothing
-# and ends as `fail` does, the command's own too: the helper could not run the piece, which ak
-# then runs here, and its suite has not failed.
+# it starts in, and 512 at least, with no link but lo. One that does not, as under a read-only
+# /proc/sys, runs nothing and ends 253: the helper could not run the piece, which ak then runs
+# here, and its suite has not failed. The sandbox is the script's arguments, read by now: a name
+# for it could clash with one the suite exported, and reach the command.
 notes=$(cat /proc/sys/net/unix/max_dgram_qlen 2>/dev/null)
 [ "${notes:-0}" -ge 512 ] || notes=512
-offline() {
-  unshare --user --map-current-user --net --keep-caps sh -c \
-    'echo "$0" >/proc/sys/net/unix/max_dgram_qlen
-     ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen || exit 253
-     exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes" "$@"
-}
-# The sandbox builds, with no link but lo: asked before the command and after one that failed. The
-# question is the script's arguments, read by now: a name for it could reach the command, or clash.
-set -- sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]'
-offline "$@" || fail "the sandbox did not build"
-# Kills for memory: of the piece's own cgroup where it has one, as a container on a kernel other
-# pieces share does, else of its VM's kernel.
-oom() {
-  { cat /sys/fs/cgroup/memory.events 2>/dev/null || cat /proc/vmstat; } |
-    awk '$1 == "oom_kill" {print $2}'
-}
-before=$(oom)
-offline bash -c "$command"
+set -- unshare --user --map-current-user --net --keep-caps sh -c \
+  'echo "$0" >/proc/sys/net/unix/max_dgram_qlen
+   ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen &&
+     [ -z "$(ip -o link show | grep -v ": lo:")" ] || exit 253
+   exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes"
+# It builds: asked before the command and after one that failed.
+"$@" true || { echo "ak helper: the sandbox did not build" >&2; exit 253; }
+# Kills for memory, before the command's launch and after it: of the piece's own cgroup where it
+# has one, as a container on a kernel other pieces share does, else of its VM's kernel.
+before=$({ cat /sys/fs/cgroup/memory.events || cat /proc/vmstat; } 2>/dev/null | awk '/^oom_kill /')
+"$@" bash -c "$command"
 code=$?
 # The kernel killed a process for memory: the VM or container was too small for the piece, which
 # ak then runs here and gives a larger one next time (helper.short).
-[ "$(oom)" = "$before" ] || { echo "ak helper: the VM ran out of memory" >&2; exit 254; }
+[ "$({ cat /sys/fs/cgroup/memory.events || cat /proc/vmstat; } 2>/dev/null | awk '/^oom_kill /')" \
+  = "$before" ] || { echo "ak helper: the VM ran out of memory" >&2; exit 254; }
 # unshare ends 1 with nothing run where the sandbox stopped building since the first look: one
 # that no longer builds ends the piece as one the helper could not run, though its command may
 # have run.
-[ "$code" = 0 ] || offline "$@" || fail "the sandbox no longer builds"
+[ "$code" = 0 ] || "$@" true || { echo "ak helper: the sandbox no longer builds" >&2; exit 253; }
 exit "$code"

@@ -5,8 +5,8 @@ another.  A sandbox that does not hold them, as under a /proc/sys mounted read-o
 command and ends 253, the helper's code for a piece it could not run, which ak runs on its own
 host: at piece.sh's preflight, or at the command's launch where /proc/sys turned read-only after
 it; a command that starts ends its sandbox as it ends itself.  Real namespaces: piece.sh's own
-lines, `fail`, the sandbox's size, `offline` and its preflight, then the command's launch, run
-from a namespace of this test's own made to hold what a container or a larger host holds.
+lines, the sandbox's size, the sandbox and its preflight, then the command's launch, run from a
+namespace of this test's own made to hold what a container or a larger host holds.
 """
 
 import re
@@ -16,9 +16,9 @@ from pathlib import Path
 
 HELD = "/proc/sys/net/unix/max_dgram_qlen"
 PIECE = (Path(__file__).resolve().parents[1] / "tools/helper/piece.sh").read_text()
-# piece.sh's own lines: `fail`, from the sandbox's size to its preflight, and the command's launch.
-FAIL, SANDBOX, LAUNCH = (re.search(lines, PIECE, re.M).group(0) for lines in (
-    r"^fail\(\).*\n", r"^notes=(?s:.*?)^offline .*\n", r"^offline .*\$command.*\n"))
+# piece.sh's own lines: from the sandbox's size to its preflight, and the command's launch.
+SANDBOX, LAUNCH = (re.search(lines, PIECE, re.M).group(0) for lines in (
+    r'^notes=(?s:.*?)^"\$@" true.*\n', r'^"\$@" bash -c "\$command"\n'))
 # Of /proc/sys/net: remounting a bind of /proc/sys leaves a mount at /proc/sys/net writable.
 # Recursive: the kernel refuses a user namespace a plain bind with an inherited mount under it.
 READ_ONLY = "mount --rbind /proc/sys/net /proc/sys/net && mount -o remount,bind,ro /proc/sys/net"
@@ -30,7 +30,7 @@ def piece(outside, start="", launch=""):
     exits 42: its exit, what was printed and what was said."""
     proc = subprocess.run(
         ["unshare", "--user", "--map-current-user", "--net", "--mount", "--keep-caps", "bash",
-         "-c", f"echo {outside} >{HELD}\n{start}\n{FAIL}command='cat {HELD}; exit 42'\n{SANDBOX}"
+         "-c", f"echo {outside} >{HELD}\n{start}\ncommand='cat {HELD}; exit 42'\n{SANDBOX}"
                f"echo launching\n{launch}\n{LAUNCH}"],
         capture_output=True, text=True, timeout=60)
     return proc.returncode, proc.stdout.split(), proc.stderr
