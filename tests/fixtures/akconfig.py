@@ -73,8 +73,11 @@ def _keys(table):
 
 def _value(value):
     # A JSON string, number, boolean or list of them is the same value written in TOML; a dict
-    # is an inline table.
+    # is an inline table; a number past the digits Python writes in decimal is TOML's hex.
     if isinstance(value, dict):
         return "{" + ", ".join(f"{json.dumps(key)} = {_value(item)}"
                                for key, item in value.items()) + "}"
-    return json.dumps(value)
+    try:
+        return json.dumps(value)
+    except ValueError:
+        return hex(value)

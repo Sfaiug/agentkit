@@ -4,7 +4,8 @@ At the end of its `review_rounds` (three), a task's run whose last review left o
 finding goes on to a fixer round and a review as the rounds before did, and so does each
 extra round that ends the same way, `extra_rounds` (two) of them at most; two go on as one does
 (tests/test_key_two_findings_left_get_extra_rounds.py).  With three findings left, or
-`extra_rounds = 0`, the run ends FAIL after three, as it always did.  Other runs of the change
+`extra_rounds = 0`, the run ends FAIL after three, as it always did; numbers too long for
+decimal, which config.toml holds in hex, count as any other.  Other runs of the change
 count the rounds it spent: a relaunch from the branch of a run that spent five is refused, and
 so is its resume, naming the five.  A fourth round whose reviewer never answered is finished
 by the run's resume.  Black-box: the program `AK_BIN` names runs from outside through
@@ -136,6 +137,20 @@ class ExtraRoundsOff(unittest.TestCase):
         self.assertEqual(self.done.code, 1, self.done.out + self.done.err)
         self.assertEqual(rounds(self.state), [(1, "FAIL", 1), (2, "FAIL", 1), (3, "FAIL", 1)])
         self.assertEqual((self.state["state"], self.fakes["codex"].n), ("fail", 3))
+
+
+class NumbersTooLongForDecimal(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        held = 10 ** 4300       # a digit past Python's most in decimal (sys.get_int_max_str_digits)
+        run(cls, [WORK, DISPUTE, DISPUTE, FIX], [ONE, ONE, ONE, "pass"],
+            {"extra_rounds": held, "rescope_findings": held}, "--no-merge")
+
+    def test_one_finding_left_after_three_gets_a_fourth_round(self):
+        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
+        self.assertEqual(rounds(self.state), [(1, "FAIL", 1), (2, "FAIL", 1), (3, "FAIL", 1),
+                                              (4, "PASS", 0)])
+        self.assertEqual(self.state["state"], "pass")
 
 
 class FourthReviewNeverAnswered(unittest.TestCase):
