@@ -6819,24 +6819,15 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
             plan = state and dead_loop(state, run_dir, now)
             if not plan:
                 continue
-            left = _left(state)
-            if left:
-                if left != "gone" or state.get("dead_worktree_warned"):
-                    continue
-                wt = state["worktree"]
-                if dry_run:
-                    log(f"would leave {run_dir.name} alone: worktree {wt} is gone")
-                    continue
-                with run_record.record(run_dir) as state:
-                    if not state.get("dead_worktree_warned"):
-                        state["dead_worktree_warned"] = now
-                log(f"WARN {run_dir.name}: worktree {wt} is gone; "
-                    "leaving it for an explicit resume")
-                continue
-            role, rnd = _dead_where(state, run_dir)
-            action, deaths, reason = plan
             if dry_run:
-                if action == "park":
+                left = _left(state)
+                role, rnd = _dead_where(state, run_dir)
+                action, deaths, reason = plan
+                if left:
+                    if left == "gone" and not state.get("dead_worktree_warned"):
+                        log(f"would leave {run_dir.name} alone: "
+                            f"worktree {state['worktree']} is gone")
+                elif action == "park":
                     log(f"would park {run_dir.name}: loop died ({reason})")
                 elif action in ("resume", "resume-open"):
                     log(f"would resume {run_dir.name}: {_ended(deaths)} ({reason}); "
@@ -6846,16 +6837,23 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                 continue
             launch = False
             notice = False
-            line = ""
+            line = warn = ""
             with run_record.record(run_dir) as state:
-                # Both readings again: cleanup may have taken the worktree since the first
-                # one, and the next tick warns about a worktree that went.
+                # Decided under the lock alone: cleanup may take the worktree after the read
+                # above, and its WARN is owed now, as this tick's reap ends the run out of
+                # every later pass's sight.
                 plan = dead_loop(state, run_dir, now)
-                if not plan or _left(state):
+                if not plan:
                     continue
                 action, deaths, reason = plan
                 role, rnd = _dead_where(state, run_dir)
-                if action == "wait":
+                left = _left(state)
+                if left:
+                    if left == "gone" and not state.get("dead_worktree_warned"):
+                        state["dead_worktree_warned"] = now
+                        warn = (f"WARN {run_dir.name}: worktree {state['worktree']} is gone; "
+                                "leaving it for an explicit resume")
+                elif action == "wait":
                     # The hold is on the record, not only in this pass's head: reap reads
                     # `resume_after` and leaves the dead pid alone until it passes, so the
                     # ten quiet minutes are quiet whoever looks during them.
@@ -6876,6 +6874,8 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                     launch = True
                     line = (f"resumed {run_dir.name}: {_ended(deaths)} ({reason}); "
                             f"continuing {role} of round {rnd}")
+            if warn:
+                log(warn)
             if line:
                 _note_run(run_dir, line)
                 log(line)

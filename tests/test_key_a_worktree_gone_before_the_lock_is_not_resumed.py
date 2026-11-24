@@ -10,6 +10,7 @@ tests/fixtures/akbin.py.
 
 import fcntl
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -25,9 +26,12 @@ RUN = "20261124-1200-acme-api"
 
 
 def waited_on(lock):
-    """Whether a process waits for the flock this test holds on `lock`."""
-    inode = f":{lock.stat().st_ino} "
-    return any("->" in line and inode in line
+    """Whether a process waits for the flock this test holds on `lock`: /proc/locks names a
+    file by its device, major and minor in hex, and its inode, as an inode alone is one of
+    every filesystem."""
+    info = lock.stat()
+    held = f" {os.major(info.st_dev):02x}:{os.minor(info.st_dev):02x}:{info.st_ino} "
+    return any("->" in line and held in line
                for line in Path("/proc/locks").read_text().splitlines())
 
 
