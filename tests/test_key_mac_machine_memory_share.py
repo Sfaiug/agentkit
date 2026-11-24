@@ -6,11 +6,14 @@ Lima's own `limactl start --memory=<share>`: Lima writes the size into the machi
 starts a stopped machine with it, and leaves a running one running, to take it from its next
 start.  The install says so in one line naming both sizes.  A machine with its share or less gets
 no such call and no line, and cores, which come back to macOS whenever the machine idles, are
-left as they are.  Black-box on the Mac of fakes of tests/test_key_install_mac_linux_machine.py,
-a Mac mini of 10 cores and 64 GiB, whose machine was made by hand with all 10 cores; its
-`limactl` records each call and reports the machine's memory from `<root>/memory`.
+left as they are.  One Lima reports no memory for, failing or saying nothing or none, may hold
+more, so it is not started and the install fails.  Black-box on the Mac of fakes of
+tests/test_key_install_mac_linux_machine.py, a Mac mini of 10 cores and 64 GiB, whose machine was
+made by hand with all 10 cores; its `limactl` records each call and reports the machine's memory
+from `<root>/memory`.
 """
 
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -22,17 +25,24 @@ from test_key_install_mac_linux_machine import Mac
 
 
 class MadeByHand(Mac):
-    def __init__(self, memory, status):
+    def __init__(self, memory, status, said=None):
         super().__init__(cpus=10, memory_gib=64)
         root = self.home.root
         self.yaml = self.home.path / ".lima/ak/lima.yaml"
         self.yaml.parent.mkdir(parents=True)
         self.yaml.write_text(f"cpus: 10\nmemory: {memory}GiB\n")
         (self.yaml.parent / "ssh.config").write_text("Host lima-ak\n")
-        shutil.copy(root / "limactl", self.home.bin / "limactl")
+        if said is None:
+            shutil.copy(root / "limactl", self.home.bin / "limactl")
+        else:   # `said`, a shell command, is Lima's answer for the machine's memory
+            lima = shlex.quote(str(root / "limactl"))
+            self.home.fake("limactl", f'#!/bin/sh\ncase "$*" in *.Memory*) {said} ;;\n'
+                                      f'*) exec {lima} "$@" ;;\nesac\n')
         (root / "memory").write_text(str(memory))
         (root / "machine").write_text(status)
-        out = self.install().out
+        self.done = self.home.run("bash", str(self.script))
+        assert (self.done.code == 0) is (said is None), self.done.out + self.done.err
+        out = self.done.out
         for path, name in ((root, "<root>"), (installer.CHECKOUT, "<checkout>")):
             out = out.replace(str(path), name)
         self.sizes = [line for line in out.splitlines() if "GiB" in line]
@@ -81,6 +91,16 @@ class Held(unittest.TestCase):
     def test_its_cores_are_left_as_they_are(self):
         for mac in self.macs.values():
             self.assertEqual(mac.sized("--cpus"), [])
+
+
+class Unsaid(unittest.TestCase):
+    def test_one_lima_reports_no_memory_for_is_not_started(self):
+        for said in ("exit 1", "echo", "echo 0"):
+            with self.subTest(said=said):
+                mac = MadeByHand(56, "Stopped", said=said)
+                self.addCleanup(mac.close)
+                self.assertNotIn("start", [call[0] for call in mac.calls])
+                self.assertEqual((mac.home.root / "machine").read_text(), "Stopped")
 
 
 if __name__ == "__main__":
