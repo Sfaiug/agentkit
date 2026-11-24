@@ -7,9 +7,9 @@ the record spells them, and its failing exit fails the round.  Left out are a te
 before then, one the record times not, one whose file is gone and one the target is red on now by
 its landing line's record; one the target was red on and repaired runs, as that one does once the
 target has moved past its red.  A part the record times and its file no longer holds is handed, as
-the record keeps a time while its file exists: the run names it as not there and exits 1, its
-re-run, handed the rest, decides, and the record forgets it, so no later round hands it.  Failing
-by that part alone, it is no flake: a follow-up could fix nothing.
+the record keeps its time while its file exists: the run names it as not there and exits 1, and its
+re-run, handed the rest, decides.  Failing by that part alone, it is no flake: a follow-up could fix
+nothing.
 
 Owner, 16 Nov 2026: "Yes, this small set … And make sure this also happens for new repos we work
 on".
@@ -156,12 +156,12 @@ class ThreeRuns(unittest.TestCase):
 
     def test_a_red_test_runs_most_first_and_its_failing_exit_sends_the_round_back(self):
         # A suite the target runs uncut fits all, though it once ran in pieces: after the review,
-        # failing, its re-run handed all but the removed part failing, then, that part forgotten,
-        # passing after the next turn's review, the test the target is red on now left out.
+        # failing, its re-run handed all but the removed part failing, then passing after the
+        # next turn's review, the test the target is red on now left out.
         rest = "./tests/often.sh ./tests/sometimes.sh ./tests/repaired.sh"
         self.assertEqual(self.notes["two"],
-                         ["review", f"suite ./tests/parts.sh::removed {rest}", f"suite {rest}",
-                          "review", f"suite {rest}", "suite whole"])
+                         ["review", f"suite ./tests/parts.sh::removed {rest}", f"suite {rest}"] * 2
+                         + ["suite whole"])
         self.assertEqual([run["role"] for run in self.fakes["claude"].runs()],
                          ["executor", "executor", "fixer", "executor"])
         run_dir, state = self.states["two"]
@@ -175,10 +175,10 @@ class ThreeRuns(unittest.TestCase):
         self.assertEqual(self.notes["three"][:3],
                          ["review", f"suite ./tests/parts.sh::removed {rest}", f"suite {rest}"])
 
-    def test_a_part_its_file_no_longer_holds_is_no_flake_and_leaves_the_record(self):
+    def test_a_part_its_file_no_longer_holds_is_no_flake_and_keeps_its_time(self):
         for name in ("two", "three"):
             self.assertEqual(self.states[name][1].get("followups", []), [], name)
-        self.assertNotIn("./tests/parts.sh::removed", json.loads(
+        self.assertIn("./tests/parts.sh::removed", json.loads(
             (self.home.path / ".agentkit/state/test-times-0123456789ab.json").read_text()))
         with sqlite3.connect(self.home.path / ".agentkit/history.db") as connection:
             self.assertEqual(connection.execute(

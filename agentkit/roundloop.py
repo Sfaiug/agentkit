@@ -531,9 +531,8 @@ def chosen_tests(lp, named, head):
     turn, the line given just those tests (`AK_ONLY`), red by its exit, a pass that does not name
     each one as run among them (`gate.unnamed`), chosen from the time record (`chosen`): it keeps
     no times, and its re-run asks for no part its tree lacks, as on 18 Nov 2026 one removed on
-    7 Nov, still timed, failed six runs' rounds in a quarter of an hour; that part leaves the
-    record, as one removed on 12 Nov was chosen by every round to 24 Nov, each red on it first.
-    A stop in it leaves the review to ask again.
+    7 Nov, still timed, failed six runs' rounds in a quarter of an hour.  A stop in it leaves the
+    review to ask again.
     """
     from . import gate  # here, not at the top: it reaches run
     return gate.run_done_when(

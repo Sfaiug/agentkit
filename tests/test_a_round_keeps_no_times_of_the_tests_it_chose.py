@@ -1,8 +1,6 @@
 """The check of the tests a round chose from the time record, run once its reviewer passed it,
-keeps none of their times, so a resumed round chooses by the same times.  Its re-run, handed the
-tests less a part its tree lacks, measures the rest anew: kept, those times would change what fits
-in the piece.  That part leaves the record: kept while its file exists, every round chose it again
-and was red on it first, a red no change fixes (24 Nov 2026).
+keeps none of their times, so a resumed round chooses the same tests from the same record.  Its re-run, handed the tests less a part
+its tree lacks, measures the rest anew: kept, those times would change what fits in the piece.
 
 In-process on a sandbox HOME (tests/fixtures/sandbox.py), with real Git and a suite of its own;
 the landings' reds and the piece's seconds are injected.
@@ -26,8 +24,8 @@ grep -vx '.*::gone' "$AK_ONLY" >"$AK_RAN"
 sed 's/.*/PASS  & (3.0s)/' "$AK_RAN"
 ! [ -s "$AK_NOT_THERE" ]
 """
-# In a piece of 3 s, by landings: parts::gone and slow fit, then next does not; without
-# parts::gone next fits too, and would not beside slow timed at 3 s.
+# In a piece of 3 s, by landings: parts::gone and slow fit, then next does not; slow timed at 3 s,
+# next would.
 TIMES = "PASS  parts::gone (1.0s)\nPASS  slow (1.0s)\nPASS  next (2.0s)\n"
 REDS = {"parts::gone": {"landings": 3}, "slow": {"landings": 2}, "next": {"landings": 1}}
 
@@ -60,8 +58,8 @@ class ARound(Sandbox):
             ok, text = roundloop.chosen_tests(lp, chosen, head)
             self.assertTrue(ok, text)
             self.assertEqual(suite_times.read(suite_times.handed(repo)),
-                             {"slow": 1.0, "next": 2.0})
-            self.assertEqual(round_tests.chosen(lp)[1], ["slow", "next"])
+                             {"parts::gone": 1.0, "slow": 1.0, "next": 2.0})
+            self.assertEqual(round_tests.chosen(lp), chosen)
 
 
 if __name__ == "__main__":
