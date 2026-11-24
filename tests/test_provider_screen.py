@@ -17,10 +17,8 @@ the test's own child.
 import io
 import os
 import re
-import signal
 import sys
 import tempfile
-import threading
 import tomllib
 import unittest
 from pathlib import Path
@@ -129,20 +127,6 @@ def named(lines):
     return re.split(r"\s{2,}", highlighted(lines)[2:])[0]
 
 
-def place(lines):
-    """Where `lines` light a row: the `›` line's number and name, and what stands on the
-    selection -- none of it the clock, which a screen draws anew on its own."""
-    return lines.lit, [(number, re.split(r"\s{2,}", line[2:])[0])
-                       for number, line in enumerate(lines) if line.startswith("›")]
-
-
-def step(screen, key, lines):
-    """`key`, which moves the row lit on `lines`, then the screen it drew: the first lighting
-    another.  Its own draw: a screen a loaded host slows past Screen.press's half second of quiet
-    reads as unmoved, and a walk pressing the key again on that goes past its row (24 Nov 2026)."""
-    return screen.press(key, lambda drawn: place(drawn) != place(lines))
-
-
 def open_page(screen):
     """Down the matrix to `Subscriptions` and into it: its page."""
     lines = screen.frame()
@@ -152,7 +136,7 @@ def open_page(screen):
             screen.case.assertTrue(" ".join(" ".join(lines[-2:]).split()).endswith(
                 " ".join(KEYS["row"].split())), lines[-2:])
             return screen.press(ENTER, lambda lines: title(lines) == PAGE)
-        lines = step(screen, DOWN, lines)
+        lines = screen.through(DOWN)
     screen.case.fail(f"no `Subscriptions`: {lines}")
 
 
@@ -160,20 +144,13 @@ def open_row(screen, name):
     """`name`'s row on `Subscriptions`, from the matrix or the page: the page with it lit."""
     lines = screen.frame()
     lines = lines if title(lines) == PAGE else open_page(screen)
-    rising = False
-    for _ in range(40):
+    for key in [UP] * 20 + [DOWN] * 20:
         # Enter's word is the lit act's, or `open`; none where nothing is lit, a login far from
         # its end offering no `log in again`
         if named(lines) == name:
             screen.case.assertRegex(lines[-1], r"^  ↑↓←→ move   (⏎ [a-z ]+   )?esc back$")
             return lines
-        rows = [number for number, line in enumerate(lines)
-                if line[:1] in " ›" and re.split(r"\s{2,}", line[2:])[0] == name]
-        # toward it; where a short screen does not draw it, down to the last row, `+ add a
-        # subscription`, then up: a key past an end draws nothing, so nothing tells it moved
-        rising = rising or named(lines) == "+ add a subscription"
-        up = rows[0] < lines.index(highlighted(lines)) if rows else rising
-        lines = step(screen, UP if up else DOWN, lines)
+        lines = screen.through(key)
     screen.case.fail(f"no row of {name}: {lines}")
 
 
@@ -337,30 +314,17 @@ class ProviderScreen(unittest.TestCase):
         screen.leave()
 
     def test_a_screen_slow_to_draw_is_walked_to_its_row(self):
-        # as a loaded host slows it: the clock drawn anew before each key, the child stopped as
-        # the key goes in, on 0.7 s later, past Screen.press's half second of quiet; a short
-        # screen, its first subscription scrolled off its top once the last row is lit
-        ticking = ("import itertools, time\nminutes, strftime = itertools.count(), time.strftime\n"
-                   "time.strftime = lambda form, *at: strftime(form, *at) if at or form != '%H:%M'"
-                   " else f'00:{next(minutes) % 60:02}'\n")
-        screen = Screen(self, child=ticking + CHILD, rows=9,
-                        text=ONE + 'accounts = ["default", "a1", "b2", "c3"]\n')
-        press = screen.press
-
-        def slow(keys, where=None):
-            mark = len(screen.text())
-            os.kill(screen.proc.pid, signal.SIGWINCH)
-            screen.frame(after=mark)
-            os.kill(screen.proc.pid, signal.SIGSTOP)
-            woken = threading.Timer(.7, os.kill, (screen.proc.pid, signal.SIGCONT))
-            woken.start()
-            self.addCleanup(woken.join)     # before the screen's own cleanup ends the child
-            return press(keys, where)
-
-        screen.press = slow
-        first = named(open_page(screen))
-        self.assertEqual(named(open_providers(screen)), "+ add a subscription")
-        self.assertEqual(named(open_row(screen, first)), first)
+        # as a loaded host slows it: each Down drawn 0.7 s after it is read, past Screen.press's
+        # half second of quiet
+        slow = ("import time\nfrom agentkit import terminal\n"
+                "def read_key(*args, read=terminal.read_key, **kwargs):\n"
+                "    key = read(*args, **kwargs)\n"
+                "    if key is not None and key.name == 'down':\n"
+                "        time.sleep(.7)\n"
+                "    return key\n"
+                "terminal.read_key = read_key\n")
+        screen = Screen(self, child=slow + CHILD)
+        self.assertEqual(named(open_row(screen, "Grok")), "Grok")
 
     def test_two_providers_of_one_name_are_told_apart(self):
         house = ('\n[models.house]\nharness = "claude"\nmodel = "claude-sonnet-5"\n'

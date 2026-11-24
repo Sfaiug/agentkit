@@ -62,15 +62,26 @@ with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
 print("<left>", flush=True)
 """
+# A terminal's answer, to the child: no key (terminal.read_key), read only once the child is done
+# with every key before it.
+PROBE = b"\x1b]\x07"
 # Run before every child's own code: each page as drawn from its first frame, nothing fading, so
-# the frame read after a key is the page it drew, not the menu's next idle redraw or a fade.
+# the frame read after a key is the page it drew, not the menu's next idle redraw or a fade; and
+# PROBE, as it is read, said back after what the child drew (Screen.through).
 FADELESS = """
 import os, sys
 sys.path.insert(0, os.environ["MATRIX_REPO"])
-from agentkit import motion
+from agentkit import motion, terminal
 motion.FADE = 0
 motion.Clock.light = lambda clock, now, moves: None
-"""
+def _probed(fd, read=terminal._key):
+    key = read(fd)
+    if key is not None and key.name == "answer":
+        sys.stdout.flush()
+        os.write(sys.stdout.fileno(), %r)
+    return key
+terminal._key = _probed
+""" % PROBE
 HAIKU = """
 [models.haiku]
 harness = "claude"
@@ -193,6 +204,15 @@ class Screen:
         while where is None and len(self.text()) == mark and time.monotonic() < quiet:
             time.sleep(.01)
         return self.frame(where, after=mark if "\x1b[?2026h" in self.text()[mark:] else 0)
+
+    def through(self, keys):
+        """Keys, then the screen once the child is done with them, however slow it is to draw and
+        whatever they drew: nothing, at the end of a list.  Keys alone: a pointer's move is
+        answered after what follows it is read."""
+        mark = len(self.text())
+        os.write(self.master, keys + PROBE)
+        self.saw(PROBE.decode(), after=mark)
+        return self.frame()
 
     def click(self, col, row, where=None):
         """The left button down and up at `col`, `row`, as a terminal in mode 1006 reports it."""
