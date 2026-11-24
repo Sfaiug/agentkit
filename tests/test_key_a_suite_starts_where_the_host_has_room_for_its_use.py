@@ -6,6 +6,8 @@ on average since a reading a waiting pass kept, as the suite used in its last gr
 A mean is never taken over less than a minute: a pass that waits keeps its own reading of the
 host, or the one before it where that is younger than a minute and of the same start, or the host
 cannot be read.  The two compare exactly, and the waiting pass says the mean to one decimal.
+Landing's speed-up stops at this hold, the owner's decision of 24 Nov 2026, kept with its reason
+at `land._waits_for_company`.
 
 Black-box, as tests/test_key_a_line_waits_for_company_by_its_own_checks_length.py and with its
 fixtures: the program `AK_BIN` names checks a landing line through tests/fixtures/akline.py, on a

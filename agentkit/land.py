@@ -1349,6 +1349,10 @@ def _waits_for_company(turn, held, stacks, checks, suite, log):
     kept reading (`_idle_mean`): two lines held 64 hours from 17 to 20 Nov 2026 while their
     suites, using 3.8 and 5.3 processors, would have fitted in idle ones in four of five held
     minutes.
+    The owner, 24 Nov 2026: landing's speed-up stops at this hold.  A line still checks with its
+    whole suite, and a piece still counts `gate.HEAVY_CPUS` at least: only the tests a change can
+    reach would find a red late and put several merges back, and more pieces at once fail tests
+    on timing, either for minutes off a check of 20 to 26 (measured 22 and 23 Nov 2026).
     Lines ran their suites whole back to back, 19 to 32 runs a day a project, each for the few
     members that joined during the last, on a host loaded over twice its processors (13 to 16
     Nov 2026): one run now covers up to two hours of changes.  A run's end left a processor idle
