@@ -1331,8 +1331,14 @@ fs_size() {   # $1 blocks of $2 bytes: whole GiB where they make whole GiB, else
   local bytes=$(($1 * $2))
   if ((bytes % (1 << 30))); then echo "$((bytes >> 20)) MiB"; else echo "$((bytes >> 30)) GiB"; fi
 }
-if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ] &&
-   fs_dev=$(stat -L -c %d -- "$AK" 2>/dev/null) && whole "$fs_dev" &&
+if [ "$ROLE" != server ] || [ "$SANDBOX" = 1 ]; then
+  :   # a client and a sandbox touch no host
+elif ! sudo -n true 2>/dev/null; then
+  # a fresh server, which most needs the note, has none yet, so it hears what was not read;
+  # only the ext family has the journal read here, and the kernel names all three ext2/ext3
+  [ "$(stat -L -f -c %T -- "$AK" 2>/dev/null)" != ext2/ext3 ] ||
+    note "journal: no passwordless sudo, so the journal size of the filesystem holding $AK is not read; run \`sudo -v\` and re-run ./install.sh"
+elif fs_dev=$(stat -L -c %d -- "$AK" 2>/dev/null) && whole "$fs_dev" &&
    # the device's major and minor, as glibc's major() and minor() split its number
    fs_major=$((fs_dev >> 8 & 0xfff | fs_dev >> 32 & 0xfffff000)) &&
    fs_minor=$((fs_dev & 0xff | fs_dev >> 12 & 0xffffff00)) &&
