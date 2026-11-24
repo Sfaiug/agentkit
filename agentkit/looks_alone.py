@@ -35,9 +35,14 @@ SUFFIXES = {".css", ".scss", ".sass", ".less",
             ".woff", ".woff2", ".ttf", ".otf", ".eot",
             *change_rules.PROSE} - {".mdx"}
 PAGES = {".html", ".htm"}
+# A page holding one of these anywhere holds a template's logic, which html.parser cannot tell from
+# markup: a quoted `</style>` inside an expression, a character reference, a tag's name joined to
+# a conditional.  Such a page is never of looks alone, whatever its edit, a CSS selector `{#id`
+# or an opener inside a script's string among them.
+OPENERS = ("{{", "{%", "{#", "<%")
 # A page's words and styles, which `_markup` takes out: its text, what stands inside `style` and
-# these attributes' values; never text inside VERBATIM, nor text or a value holding a template's
-# logic (`_words`).
+# these attributes' values; never text inside VERBATIM, nor text or a value holding a `{` or `<%`
+# (`_words`).
 WORDY = {"style", "alt", "title", "placeholder", "aria-label"}
 VERBATIM = {"script", "template", "textarea", "option"}
 # A path calls itself a test by a directory of one of these names, or one of them a word of its
@@ -86,8 +91,10 @@ def _looks(repo, path, status, before, after):
 
 def _markup(repo, blob):
     """All `html.parser` reads in the page `blob` but its words and styles, in order: None where
-    it is not UTF-8 or html.parser cannot read it."""
+    it holds one of OPENERS, is not UTF-8 or html.parser cannot read it."""
     page, reader = gitcall.git_bytes(repo, "cat-file", "blob", blob), _Markup()
+    if any(opener in page for opener in OPENERS):
+        return None
     try:
         page.encode()   # `git_bytes` keeps a byte that is not UTF-8 as a surrogate
         reader.feed(page)
@@ -100,7 +107,8 @@ def _markup(repo, blob):
 
 
 def _words(text):
-    """Is `text` free of a template's logic (`{{ }}`, `{% %}`, `<% %>`)?"""
+    """Is `text`, its character references decoded, free of a `{` or `<%`, which could open a
+    template's logic OPENERS cannot find in the source (`${ }`, `&lt;%`)?"""
     return "{" not in text and "<%" not in text
 
 
