@@ -2952,6 +2952,15 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
         time.sleep(0.05)
     if hook_state(harness, hook_facts(name))[1] in failed:
         settle_account(cfg, session, lambda _: None, records)
+    # A limit menu drawn once another event's fact replaced the failed turn's stood until the
+    # tick's pass, three minutes at most, the seat `needs you` (measured 22 Nov 2026).  The owner,
+    # 19 Nov: "Should always pick stop and wait for limit to reset"; asked whether ak should check
+    # for it on every later event, 20 Nov: "Yes, build it".  So every look puts it away, its key
+    # only at this hook's own pane and only where that is the one ak launched the harness in: a
+    # pane the owner selected is not the harness's (20, 24 Nov).  The tick's pass settles the seat.
+    if any(rule["answer"] for rule in screen(harness)["rules"]) and orch.launch_pane(
+            name, orch.seat_socket(session)) == pane:
+        dismiss(dict(session, pane=pane), harness)
     answer = announce_state(session, cfg=cfg, look=True, number=number, records=records)
     # The tick's pass for this one seat: what it is owed goes in at the event that ends its
     # turn or answers its question, not at a tick minutes later, and a move before the
