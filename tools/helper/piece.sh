@@ -38,8 +38,9 @@ set -- unshare --user --map-current-user --net --keep-caps sh -c \
    ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen &&
      [ -z "$(ip -o link show | grep -v ": lo:")" ] || exit 253
    exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes"
-# It builds: asked before the command and after one that failed.
-"$@" true || { echo "ak helper: the sandbox did not build" >&2; exit 253; }
+# It builds, asked before the command and after one that failed by sh, which the sandbox runs
+# anyway: an image may hold no true program.
+"$@" sh -c : || { echo "ak helper: the sandbox did not build" >&2; exit 253; }
 # Kills for memory, before the command's launch and after it: of the piece's own cgroup where it
 # has one, as a container on a kernel other pieces share does, else of its VM's kernel.
 before=$({ cat /sys/fs/cgroup/memory.events || cat /proc/vmstat; } 2>/dev/null | awk '/^oom_kill /')
@@ -52,5 +53,5 @@ code=$?
 # unshare ends 1 with nothing run where the sandbox stopped building since the first look: one
 # that no longer builds ends the piece as one the helper could not run, though its command may
 # have run.
-[ "$code" = 0 ] || "$@" true || { echo "ak helper: the sandbox no longer builds" >&2; exit 253; }
+[ "$code" = 0 ] || "$@" sh -c : || { echo "ak helper: the sandbox no longer builds" >&2; exit 253; }
 exit "$code"
