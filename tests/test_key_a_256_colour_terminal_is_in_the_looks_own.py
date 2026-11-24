@@ -22,10 +22,11 @@ KEY = {"38;2;134;141;151"}      # the key line's `esc`, in the black theme's dim
 
 
 def drawn(term):
-    """How the menu on `term` draws `esc`, and the fixed colours anywhere on its screen."""
+    """How the menu on `term` draws `esc`, and the colours anywhere on its screen that are not
+    the look's own: a fixed one's or a basic one's."""
     screen = settled(term, "esc leave")
     return (ink(look(screen, "esc", on="esc leave")),
-            {c for c in colours(screen) if re.fullmatch(r"[34]8;5;\d+", c)})
+            {c for c in colours(screen) if not re.fullmatch(r"[34]8;2;[\d;]+", c)})
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -50,6 +51,7 @@ class LooksOwn(unittest.TestCase):
 
     def test_a_plain_xterm_draws_only_the_eight_basic_colours(self):
         screen = settled(Terminal(self.home, env={"TERM": "xterm"}), "esc leave")
+        self.assertEqual(ink(look(screen, "›")), {"1", "36"})     # the accent's basic cyan
         self.assertEqual({c for c in colours(screen) if not re.fullmatch(r"[34][0-7]", c)}, set())
 
 

@@ -48,8 +48,12 @@ func (s Screen) Fade(text string, amount float64) string {
 			switch first := number(i); {
 			case first == 0 || first == 39:
 				rgb = nil
-			case first == 38 && i+4 < len(parts) && parts[i+1] == "2":
-				rgb, i = []int{number(i + 2), number(i + 3), number(i + 4)}, i+4
+			case (first == 38 || first == 48) && i+4 < len(parts) && parts[i+1] == "2":
+				// a background's channels are read past whole: a 0 among them is no reset
+				if first == 38 {
+					rgb = []int{number(i + 2), number(i + 3), number(i + 4)}
+				}
+				i += 4
 			}
 		}
 		out.WriteString(text[at:code[1]] + tone(rgb))

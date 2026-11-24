@@ -41,7 +41,8 @@ class ColourDepth(unittest.TestCase):
     def test_xterm_256color_without_colorterm_draws_the_looks_own(self):
         screen = self.menu(TERM="xterm-256color")
         self.assertEqual(ink(look(screen, "›")), {"1", "38;2;77;163;255"})
-        self.assertEqual({c for c in colours(screen) if re.fullmatch(r"[34]8;5;\d+", c)}, set())
+        self.assertEqual({c for c in colours(screen) if not re.fullmatch(r"[34]8;2;[\d;]+", c)},
+                         set())
 
     def test_plain_xterm_draws_only_the_eight_basic_colours(self):
         screen = self.menu(TERM="xterm")

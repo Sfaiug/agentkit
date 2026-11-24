@@ -190,8 +190,9 @@ def fade(text, amount):
             first = parts.pop(0)
             if first in (0, 39):
                 rgb = None
-            elif first == 38 and parts[:1] == [2]:
-                rgb, parts = parts[1:4], parts[4:]
+            elif first in (38, 48) and parts[:1] == [2]:
+                # a background's channels are read past whole: a 0 among them is no reset
+                rgb, parts = (parts[1:4] if first == 38 else rgb), parts[4:]
         out += text[at:code.end()] + tone(rgb)
         at = code.end()
     return out + text[at:] + "\033[0m"

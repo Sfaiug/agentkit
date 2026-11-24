@@ -34,7 +34,7 @@ PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
 MARKS = "●○■□—"
 # the background the pointer lights a cell on, in the true colour a terminal of 256 takes, on the
 # dark one a pty answers with
-LIT = terminal.ink(themes.ROLES['selection'][themes.BLACK], "48") + "m"
+LIT = "48;2;" + ";".join(map(str, bytes.fromhex(themes.ROLES["selection"][themes.BLACK]))) + "m"
 
 # Completion is observed after the real clock's last frame, including a skipped animation.
 OBSERVE = r'''
