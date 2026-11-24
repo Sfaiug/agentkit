@@ -512,14 +512,23 @@ def _stamp(own, *lines):
     new.replace(own / COPIED)
 
 
-def _copied(alias):
-    """The stamp of the last pass from `alias` that ended well, and why ak here stayed where it
-    was, if it did; no stamp for none yet, one cut short or one of another home."""
+def _last():
+    """The stamp of the last pass that ended well, the home it copied, and why ak here stayed
+    where it was, if it did; no stamp nor home for none yet, one cut short or one whose first
+    line is no stamp, and no home for a name no pass takes, which ssh would read as an option."""
     try:
         line, of, *stayed = config.read_regular(config.TMP / FOLDER / COPIED).decode().splitlines()
     except (OSError, ValueError):     # none yet, or one cut short
-        return None, []
-    return pair_clock.read(line) if of == alias else None, stayed
+        return None, None, []
+    stamp = pair_clock.read(line)
+    return stamp, of if stamp and not of.startswith("-") else None, stayed
+
+
+def _copied(alias):
+    """The stamp of the last pass from `alias` that ended well, and why ak here stayed where it
+    was, if it did; no stamp for none yet, one cut short or one of another home."""
+    stamp, of, stayed = _last()
+    return stamp if of == alias else None, stayed
 
 
 def _page(alias, why):
