@@ -6848,8 +6848,10 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
             notice = False
             line = ""
             with run_record.record(run_dir) as state:
+                # Both readings again: cleanup may have taken the worktree since the first
+                # one, and the next tick warns about a worktree that went.
                 plan = dead_loop(state, run_dir, now)
-                if not plan:
+                if not plan or _left(state):
                     continue
                 action, deaths, reason = plan
                 role, rnd = _dead_where(state, run_dir)

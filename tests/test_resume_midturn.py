@@ -314,6 +314,24 @@ class ResumeMidturn(unittest.TestCase):
         self.assertNotIn("deaths", record.read_state(older))
         self.assertEqual(self.cards, [])
 
+    def test_a_worktree_cleanup_takes_before_the_lock_is_not_resumed(self):
+        directory = self.receipt("20260922-1304-cleaned")
+        work = Path(record.read_state(directory)["worktree"])
+        enter = record.record
+
+        def after_cleanup(run_dir):
+            if work.exists():
+                work.rmdir()
+            return enter(run_dir)
+
+        with patch.object(record, "record", after_cleanup):
+            watch.resume_dead_loops(dry_run=False, log=self.logs.append, now=self.now)
+        self.assertEqual(self.resumed, [])
+        self.assertNotIn("deaths", record.read_state(directory))
+        watch.resume_dead_loops(dry_run=False, log=self.logs.append, now=self.now)
+        self.assertTrue(record.read_state(directory).get("dead_worktree_warned"))
+        self.assertEqual(self.resumed, [])
+
     def test_executor_turn_resumes_its_session_into_the_next_attempt(self):
         directory = self.receipt("20260922-1304-executor")
         out = directory / "round-1" / "executor"
