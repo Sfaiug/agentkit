@@ -1,5 +1,5 @@
-"""The file sweep grows with memory and runs one file at a time during live CPU contention or
-as a piece of a sharded run.
+"""The file sweep grows with memory and runs one file at a time during live CPU contention, as
+a piece of a sharded run, or as a run of the tests ak names.
 
 Offline: injected readings, controlled futures and cgroup files in a temporary HOME.
 """
@@ -145,14 +145,17 @@ class EveryFilePool(unittest.TestCase):
         self.assertEqual(starts, list(range(1, 7)))
         self.assertIn(", 1 at once,", out)
 
-    def at_once(self, piece):
+    def at_once(self, piece, only=()):
         """The `N at once` line of the piece `piece` (AK_SHARD) of nine files on a calm host with
-        memory for many, a file ending only once the sweep waits without having started one."""
+        memory for many, a file ending only once the sweep waits without having started one;
+        with `only`, those the file AK_ONLY names list."""
         tests = self.root / "tests"
         tests.mkdir()
         (tests / "smoke.sh").write_text("#!/bin/bash\n")
         for n in range(9):
             (tests / f"test_acme_{n}.py").write_text('print("TESTS_RUN=1")\n')
+        listed = self.root / "only"
+        listed.write_text("".join(f"{test}\n" for test in only))
         files, fresh = [], []
 
         def submit(*_args, **_kw):
@@ -167,7 +170,7 @@ class EveryFilePool(unittest.TestCase):
             fresh.clear()
 
         out = io.StringIO()
-        with patch.dict(os.environ, {"AK_SHARD": piece}), \
+        with patch.dict(os.environ, {"AK_SHARD": piece, "AK_ONLY": str(listed) if only else ""}), \
                 patch.object(host, "host_readings", return_value=CALM), \
                 patch.object(every_file, "ThreadPoolExecutor") as pool, \
                 patch.object(every_file, "wait", side_effect=finish), redirect_stdout(out):
@@ -180,6 +183,11 @@ class EveryFilePool(unittest.TestCase):
 
     def test_a_whole_run_still_runs_as_many_at_once_as_memory_fits(self):
         self.assertEqual(self.at_once("1/1"), "9")
+
+    def test_a_run_of_the_tests_ak_names_runs_them_one_at_a_time(self):
+        # ak runs them beside others on no turn of their own: on 24 Nov 2026 six rounds' tests ran
+        # side by side, each of them 23 to 29 files at once, at ten times their seconds, and failed
+        self.assertEqual(self.at_once("1/1", [f"tests/test_acme_{n}.py" for n in range(9)]), "1")
 
     def test_an_empty_sweep_needs_no_host_readings(self):
         tests = self.root / "tests"

@@ -7,10 +7,10 @@ AGENTS.md runs this beside smoke.sh, so a file no task happened to list cannot g
 unseen.  It is no part of smoke.sh.  Each test runs once, its file in a process of its own from the
 checkout's root with no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file
 started from inside a run must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH,
-AK_PARENT_RUN ...).  A piece of a sharded run (AK_SHARD k/N, N above 1) runs one file at a
-time.  A whole run runs as many at once as live memory fits; waiting files can outnumber
-cores. Before each start it samples CPU pressure, running one file at a time while it is high,
-and rereads host and cgroup headroom.
+AK_PARENT_RUN ...).  A piece of a sharded run (AK_SHARD k/N, N above 1), or a run of the tests
+AK_ONLY lists, runs one file at a time.  A whole run runs as many at once as live memory fits;
+waiting files can outnumber cores. Before each start it samples CPU pressure, running one file
+at a time while it is high, and rereads host and cgroup headroom.
 The share is cut, and its files start longest first, by each test's last measured seconds,
 the record in the file AK_TIMES names (agentkit/suite_times.py), or one never measured by its size
 at the measured files' seconds per byte; a part, `<file>::<part>` (suite_shares.parts_of), at its
@@ -424,10 +424,12 @@ def main(root, others=None):
                           "runs again alone once the others end", flush=True)
             if path is not None:
                 # ak's places run as many pieces as the cores fit: pieces sizing their own pools
-                # read the same calm moment and widen together. Only a whole run decides alone.
+                # read the same calm moment and widen together. Only a whole run decides alone;
+                # ak runs AK_ONLY's tests, a round's among them, beside others on no turn.
                 # One start per sample lets its startup show in the next CPU reading;
                 # submitting every file at once would bypass later pressure and memory changes.
-                if len(running) < (1 if total > 1 else pool_limit(host.host_readings(
+                serial = total > 1 or only is not None
+                if len(running) < (1 if serial else pool_limit(host.host_readings(
                         slice_dir=orch.slice_cgroup, pressure_window=POLL, all_limits=True))):
                     if only is None:
                         name_failed(ids(path.relative_to(root), parts), "AK_RAN")
