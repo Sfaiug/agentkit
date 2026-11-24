@@ -38,8 +38,8 @@ offline() {
      exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes" "$@"
 }
 # The sandbox builds, with no link but lo: asked before the command, and after one that failed.
-look='[ -z "$(ip -o link show | grep -v ": lo:")" ]'
-offline sh -c "$look" || fail "the sandbox did not build"
+builds() { offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]'; }
+builds || fail "the sandbox did not build"
 # Kills for memory: of the piece's own cgroup where it has one, as a container on a kernel other
 # pieces share does, else of its VM's kernel.
 oom() {
@@ -55,5 +55,5 @@ code=$?
 # unshare ends 1 with nothing run where the sandbox stopped building since the first look: one
 # that no longer builds ends the piece as one the helper could not run, though its command may
 # have run.
-[ "$code" = 0 ] || offline sh -c "$look" || fail "the sandbox no longer builds"
+[ "$code" = 0 ] || builds || fail "the sandbox no longer builds"
 exit "$code"
