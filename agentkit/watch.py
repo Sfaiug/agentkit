@@ -2958,9 +2958,11 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
     # for it on every later event, 20 Nov: "Yes, build it".  So every look puts it away, its key
     # only at this hook's own pane and only where that is the one ak launched the harness in: a
     # pane the owner selected is not the harness's (20, 24 Nov).  The tick's pass settles the seat.
-    if any(rule["answer"] for rule in screen(harness)["rules"]) and orch.launch_pane(
-            name, orch.seat_socket(session)) == pane:
-        dismiss(dict(session, pane=pane), harness)
+    # A manifest somebody is in the middle of writing has no rule, as `live_state` reads it.
+    with suppress(config.Error):
+        if any(rule["answer"] for rule in screen(harness)["rules"]) and orch.launch_pane(
+                name, orch.seat_socket(session)) == pane:
+            dismiss(dict(session, pane=pane), harness)
     answer = announce_state(session, cfg=cfg, look=True, number=number, records=records)
     # The tick's pass for this one seat: what it is owed goes in at the event that ends its
     # turn or answers its question, not at a tick minutes later, and a move before the

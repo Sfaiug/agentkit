@@ -42,18 +42,19 @@ REFUSED = {"type": "assistant", "isApiErrorMessage": True, "apiError": "usage_li
            "message": {"role": "assistant", "content": [{"type": "text", "text":
                        "You've hit your weekly limit · resets Nov 21, 1am (Europe/Berlin)"}]}}
 # The seat's harness: it draws SCREEN, again whenever that file changes, keeps each key it gets
-# in TYPED, and once one is Esc draws its prompt, empty, as Claude Code does on that menu.  Each
-# frame titles the pane as akpane.py's do, which is how the seat knows its screen is drawn.
+# in TYPED, and once one is Esc draws its prompt, empty, as Claude Code does on that menu, until
+# SCREEN changes again.  Each frame titles the pane as akpane.py's do, which is how the seat
+# knows its screen is drawn.
 HARNESS = r"""
 import os, re, select, sys, tty
 from pathlib import Path
 sys.path.insert(0, FIXTURES)
 from akpane import stamp
-typed, drawn = b"", None
+typed, given, screen, drawn = b"", None, None, None
 tty.setraw(0)
 while True:
-    escaped = re.search(rb"\x1b(?!\[)", typed)
-    screen = Path(FIXTURES, "claude-prompt-pane.txt" if escaped else sys.argv[1]).read_bytes()
+    if given != (now := Path(sys.argv[1]).read_bytes()):
+        given = screen = now
     if drawn != (screen, len(typed)):
         drawn = screen, len(typed)
         frame = screen.decode().rstrip("\n").replace("\n", "\r\n")
@@ -66,6 +67,8 @@ while True:
     typed += got
     with open(sys.argv[2], "ab") as keep:
         keep.write(got)
+    if re.search(rb"\x1b(?!\[)", got):
+        screen = Path(FIXTURES, "claude-prompt-pane.txt").read_bytes()
 """
 
 
@@ -121,16 +124,17 @@ class LimitSeat:
         self.assertEqual(fired.code, 0, fired)
 
     def tick(self):
+        if not boxable():
+            self.skipTest("no bwrap able to box a tick here")
         done = self.home.ak("watch", boxed=True, env={"AK_HOST_READINGS": json.dumps(FINE)})
         self.assertEqual(done.code, 0, done.out + done.err)
 
     def word(self):
-        why = self.home.ak("orch", "why", "acme")
-        self.assertEqual(why.code, 0, why.err)
-        return why.out.splitlines()[0].split(None, 1)[1]
+        """The word ak last published for the seat, as its record holds it: no look again."""
+        return json.loads((self.home.path / ".agentkit/state/seat-acme.json").read_text())["word"]
 
 
-@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ALimitMenuIsDismissed(LimitSeat, unittest.TestCase):
     def test_a_failed_turns_hook_dismisses_it_and_a_login_with_room_takes_the_seat(self):
         seat = self.seat(MENU, second=True)
