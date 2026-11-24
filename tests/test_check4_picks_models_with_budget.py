@@ -68,9 +68,9 @@ class Check4PicksModelsWithBudget(unittest.TestCase):
     def test_the_reviewer_comes_from_the_other_provider(self):
         self.assertEqual(self.pair({"anthropic": reading(10), "openai": reading(70)}),
                          "opus astra\n")
-        # the executor is whoever has the most budget now
+        # the executor is the first marked, whoever has more left
         self.assertEqual(self.pair({"anthropic": reading(70), "openai": reading(10)}),
-                         "astra opus\n")
+                         "opus astra\n")
 
     def test_everything_spent_prints_nothing(self):
         self.assertEqual(self.pair({"anthropic": reading(100), "openai": reading(100)}), "")

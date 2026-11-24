@@ -1,12 +1,12 @@
 """A model may review its own work, but only as the last choice.
 
 The reviewer is picked from the run's models in this order: a model of another lab,
-then another model of the executor's lab, budget order within each, then the
+then another model of the executor's lab, in the order marked within each, then the
 executor's own model; with no lineup stored, as here, each provider is a lab. Nothing refuses or parks a run only because the one
 reviewer left is the executor's own, and the launch line and `ak run status`
 say `self-reviewed` where a round was reviewed by the executor's own model.
 
-Offline: invented models on two invented providers, fake budgets, fake worker
+Offline: invented models on two invented providers, fake meters, fake worker
 turns, a temporary HOME. No real adapter, pid or model call appears anywhere.
 """
 
@@ -90,19 +90,19 @@ class SelfReviewLast(unittest.TestCase):
         order = ["acme-two", "beta-one", "acme-one"]
         self.assertEqual(run.reviewer_order(self.cfg, "acme-one", order),
                          ["beta-one", "acme-two", "acme-one"])
-        # the incoming (budget) order is kept within a tier
+        # the order given is kept within a tier
         self.assertEqual(run.reviewer_order(self.cfg, "beta-one",
                                             ["beta-one", "acme-one", "acme-two"]),
                          ["acme-one", "acme-two", "beta-one"])
         self.assertEqual(run.reviewer_order(self.cfg, "acme-one", ["acme-one"]), ["acme-one"])
-        # a review with no executor keeps budget order: nothing is anyone's own
+        # a review with no executor keeps the order given: nothing is anyone's own
         self.assertEqual(run.reviewer_order(self.cfg, None, order), order)
         # a writer since removed from the config holds no reviewer back
         self.assertEqual(run.reviewer_order(self.cfg, ["retired", "acme-one"], order),
                          ["beta-one", "acme-two", "acme-one"])
 
     def test_first_pick_reviews_itself_only_when_nothing_else_is_left(self):
-        # beta-one is on another provider: it reviews though acme-two has more budget
+        # beta-one is on another provider: it reviews though acme-two is marked before it
         self.assertEqual(self.pick(), ("acme-one", "beta-one"))
         self.assertEqual(self.pick("acme-one"), ("acme-one", "beta-one"))
         self.providers = self.meters(beta=100)
@@ -119,7 +119,7 @@ class SelfReviewLast(unittest.TestCase):
                                          self.logs.append, reviewers=["acme-one"]),
                          ("acme-one", "acme-one"))
 
-    def test_best_pair_weighs_tier_then_executor_then_reviewer_budget(self):
+    def test_best_pair_weighs_tier_then_executor_then_reviewer_order(self):
         executors = ["acme-one", "acme-two", "beta-one"]
         self.assertEqual(run.best_pair(self.cfg, executors, ["acme-one"]),
                          ("beta-one", "acme-one"))
@@ -234,7 +234,7 @@ class SelfReviewLast(unittest.TestCase):
         self.assertEqual((state["executor"], state["reviewer"]), ("beta-one", "beta-one"))
 
     # beta-one reviews too, so another lab reviews every builder and the first pick names them
-    def test_a_handover_prefers_a_better_tier_over_a_cheaper_self(self):
+    def test_a_handover_prefers_a_better_tier_over_a_self_marked_first(self):
         lp = self.loop(executor="beta-one", reviewer="beta-one")
         lp.state["workers"] = ["acme-one", "acme-two", "beta-one"]
         lp.state["reviewers"] = ["acme-one", "beta-one"]
@@ -252,7 +252,7 @@ class SelfReviewLast(unittest.TestCase):
 
     # beta-one reviews too: with acme-one alone, beta-one is the one builder another lab
     # reviews, and its stall hands the build to nobody (`staffing.handover_executor`)
-    def test_a_stall_handover_prefers_a_better_tier_over_a_cheaper_self(self):
+    def test_a_stall_handover_prefers_a_better_tier_over_a_self_marked_first(self):
         state = {"executor": "beta-one", "reviewer": "beta-one",
                  "workers": ["acme-one", "acme-two", "beta-one"],
                  "reviewers": ["acme-one", "beta-one"]}

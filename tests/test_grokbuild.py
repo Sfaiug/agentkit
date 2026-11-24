@@ -329,7 +329,7 @@ fi
         self.assertIn("no meter", data["none"])
 
     def test_usage_without_a_login_is_a_failed_probe(self):
-        # no login is an error, never none: an unauthenticated xai must rank last like
+        # no login is an error, never none: an unauthenticated xai fails its probe like
         # claude and codex do, not neutrally, or the run parks waiting_login on it.  The
         # error rides JSON on exit 0, so usage.py asks the `auth` verb, whose no is what
         # puts `no login` on the menu row.
@@ -451,8 +451,8 @@ fi
 
     def test_usage_with_an_expired_login_is_a_failed_probe(self):
         # A refused billing probe is an expired login, not a missing meter: it fails
-        # the probe like a missing login, so the provider ranks last instead of
-        # reading neutral and parking the run waiting_login on it.
+        # the probe like a missing login instead of reading neutral and parking the run
+        # waiting_login on it.
         shutil.copy(FIX / "grok-auth-expired.json", self.grok_home / "auth.json")
         self.answer(401, '{"error":"expired"}')
         proc = self.adapter("usage")
@@ -635,41 +635,17 @@ class NoMeterPicker(GrokSandbox):
                        "none_reason": "no meter", "error": None},
         }
 
-    def test_picker_ranks_a_meterless_provider_neutrally(self):
+    def test_a_meterless_provider_reads_neutral_and_stays_in_the_pick(self):
         cfg = config.load()
-        # every model works but Fable, whose scoped meter this fixture does not report
-        cfg["defaults"]["workers"] = [n for n in config.offered(cfg) if n != "fable"]
+        # the meterless grok beside the metered opus, the failed probes spark and astra with
+        # them, each where it is marked
+        cfg["defaults"]["workers"] = ["spark", "opus", "grok", "astra"]
         providers = self.providers()
         budget, reason = usage.model_budget(cfg, "grok", providers, NOW)
         self.assertEqual((budget, reason), (1.0, None))
         self.assertEqual(usage._budget_label(budget, reason), "1.0 in step")
-        order = usage.pick_order(cfg, providers, quiet=True)
-        # neutral outranks a provider burning ahead of pace, and a failed probe ranks last
-        self.assertEqual(order[0], "grok")
-        self.assertEqual(order[-2:], ["astra", "spark"])
-        self.assertIn("opus", order)
-
-    def test_picker_ranks_a_failed_meterless_probe_last(self):
-        cfg = config.load()
-        cfg["defaults"]["workers"] = [n for n in config.offered(cfg) if n != "fable"]
-        half_week = 302400
-        providers = {
-            "anthropic": {"provider": "anthropic", "meters": [
-                {"name": "weekly_all", "used": 10, "pace": -40.0, "elapsed": 50.0,
-                 "window_secs": 604800, "resets_at": NOW + half_week}]},
-            "openai": {"provider": "openai", "meters": [
-                {"name": "weekly", "used": 10, "pace": -40.0, "elapsed": 50.0,
-                 "window_secs": 604800, "resets_at": NOW + half_week}]},
-            "meta": {"provider": "meta", "meters": [
-                {"name": "weekly", "used": 10, "pace": -40.0, "elapsed": 50.0,
-                 "window_secs": 604800, "resets_at": NOW + half_week}]},
-            "xai": {"provider": "xai", "meters": [], "logged_in": False,
-                    "error": "unknown: no ~/.grok/auth.json; run 'grok login' once"},
-            "google": {"provider": "google", "meters": [], "none": True,
-                       "none_reason": "no meter", "error": None},
-        }
-        order = usage.pick_order(cfg, providers, quiet=True)
-        self.assertEqual(order[-1], "grok")
+        self.assertEqual(usage.pick_order(cfg, providers, quiet=True),
+                         ["spark", "opus", "grok", "astra"])
 
 
 class MeterlessNeverDry(GrokSandbox):

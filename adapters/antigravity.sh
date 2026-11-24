@@ -236,7 +236,7 @@ usage)
   # a spent one must not park Flash; the Claude-and-GPT group is a quota of its own that no
   # gemini turn draws on, and a spent one must not park Gemini.  No login -- an API key
   # included, which has no windows -- is a failed probe, not a missing meter: an
-  # unauthenticated google read as neutral would be picked ahead of logged-in ones, only for
+  # unauthenticated google read as neutral would stay in the pick, only for
   # the turn to fail authentication.
   command -v agy >/dev/null || err "agy is not installed"
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"

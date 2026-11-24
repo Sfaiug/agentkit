@@ -17,12 +17,11 @@ too.  Nothing reads or writes the owner's ~/.agentkit or OpenCode's own home.
 
 import re
 import unittest
-from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, ESC, Screen, highlighted
 from test_provider_screen import (ADD, GIVE, ONE, PAGE, SHIPPED, TAKE, back, open_providers, pick,
                                   providers, subscriptions, title)
-from agentkit import matrix, usage
+from agentkit import usage
 
 FAKE = r"""#!/usr/bin/env bash
 echo "opencode $1 ${AGENTKIT_PROVIDER-}" >> "$HOME/verbs.log"
@@ -209,10 +208,8 @@ class AddOpenCodeProvider(unittest.TestCase):
             "harness": "opencode", "model": "anthropic/lyra-1", "effort": "high",
             "provider": "anthropic", "mode": "payg"})
         self.assertEqual(saved["models"]["vega"]["mode"], "payg")
-        # so neither is picked while a subscription runs behind pace; no rank is read off disk
-        with mock.patch.object(matrix, "rank", return_value={}):
-            self.assertEqual(usage.pick_order(saved, {}, list(saved["models"]), quiet=True),
-                             ["opus"])
+        # so neither is picked while a subscription runs behind pace
+        self.assertEqual(usage.pick_order(saved, {}, list(saved["models"]), quiet=True), ["opus"])
         back(screen)
         screen.leave()
 

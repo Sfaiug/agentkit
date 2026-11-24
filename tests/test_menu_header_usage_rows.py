@@ -157,7 +157,7 @@ class UsageRow(Sandbox):
             self.cache()
             self.assertEqual(said(self.cfg)["Claude"],
                              f"{left}% left · resets Sun 00:00 · {note} · 5h spent until 00:00")
-            # and `ak usage` says the same week (the picker ranks each model on its own gates)
+            # and `ak usage` says the same week (the picker reads each model's own gates)
             table = {"anthropic": {"meters": [{**m, "elapsed": 50, "pace": 0} for m in meters]}}
             self.assertEqual(usage.rows(self.cfg, table)[0][2], f"{left}%")
         # a provider whose every readable week is one model's own cap has no shared week at

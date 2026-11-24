@@ -1259,8 +1259,8 @@ ok "0 the suite cannot reach another tmux server: every kill goes through a test
 # dies twice on a transient fault before doing the work, `work` does it first time,
 # `mergework` does it and leaves a merge commit behind, `pass` reviews everything as PASS,
 # `dead` is spent and never comes back, `meterless` works and reports the [usage] none form
-# the real grokbuild and opencode adapters answer, so the sandbox ranks those providers
-# neutrally instead of last. They live here, not in the repo tree.  A seat one opens shows an
+# the real grokbuild and opencode adapters answer, so the sandbox reads those providers
+# neutral, not unknown. They live here, not in the repo tree.  A seat one opens shows an
 # empty composer, the only one ak types a line into, and keeps each line entered in
 # <dir>/<seat>.typed.lines (tests/fixtures/akpane.py).
 fakeadapter() {   # fakeadapter <dir> <harness> <flaky|work|mergework|pass|dead|meterless>
@@ -1346,9 +1346,9 @@ Nothing: the fake adapters do the work.
 test -f retry.txt
 \`\`\`
 MD
-# The pick-order and fallback checks from here on rank spark and grok too, which the shipped
+# The pick-order and fallback checks from here on take spark and grok too, which the shipped
 # defaults do not name as workers: their HOMEs take the shipped config with every model but
-# fable and gemini working.  These HOMEs borrow no agy login, so gemini could only rank last.
+# fable and gemini working.  These HOMEs borrow no agy login, so gemini's probe could only fail.
 wideworkers() {   # wideworkers <home>
   mkdir -p -- "$1/.agentkit"
   python3 - "$REPO/config.default.toml" "$1/.agentkit/config.toml" <<'PY'
@@ -1376,8 +1376,6 @@ with open(sys.argv[1], "w") as fh:
 PY
     fi
     fakeadapter "$D" claude "$2"; fakeadapter "$D" codex "$3"; fakeadapter "$D" muse pass
-    # no grokbuild or opencode fake here on purpose: every meter in this sandbox errors by
-    # design, and a neutral meterless harness would steal check 9b's pinned fallback to spark
     R=$(newrepo "repo-$1")
     # Distinct titles: the run id is the minute plus the slug, and these two start
     # together.  One shared id would make either run's sweep signal the other's turn.
@@ -2342,7 +2340,7 @@ KEYMODE=$(stat -c %a "$PHONE/.ssh/authorized_keys" 2>/dev/null ||
 [ "$NRC7E" = 0 ] && ok "7e install.sh: the phone-termius key now forces \`ak attach\`, the other key untouched, mode $KEYMODE" \
                  || no "7e install.sh on authorized_keys: $(grep phone-termius "$PHONE/.ssh/authorized_keys" | cut -c1-60)"
 
-# --- 8: pace ranking and orch selection, offline on a hand-written usage cache ---
+# --- 8: the pick order and orch selection, offline on a hand-written usage cache ---
 # A fake HOME puts a fresh state/usage.json in front of `ak`, so these make no model calls
 # and never touch the real cache. fixture <weekly_all used,pace> <weekly_scoped used,pace>
 # <openai used,pace> [<5h session used>]; meta stays meterless.
@@ -2384,8 +2382,8 @@ pickof() {   # pickof <log> <session name>
   grep '^orch:' "$1" | head -1
 }
 
-# 8a: openai, with less of its week left than opus has (0.37 meters against 0.48),
-# is ranked behind opus and not dropped -- and opus, the default orchestrator, at 94% used
+# 8a: openai, with less of its week left than opus has (0.37 meters against 0.48) and ahead of
+# pace, keeps its place as marked and is not dropped -- and opus, the default orchestrator, at 94% used
 # still runs the seat, where the old 100 - pace_margin ceiling would have skipped it
 fixture 52 -34.3  94 7.7  63 18.2
 ORDER=$(orderof)
@@ -2394,7 +2392,7 @@ LINE=$(pickof "$WORK/orch-94.log" smoke-pace-94)
 if [ "$ORDER" = '["opus","astra","spark","grok"]' ] &&
    grep -q '^orch: opus (weekly_all 94\.0% used < 100' <<<"$LINE" &&
    ! grep -q WARN <<<"$LINE" && grep -q '^rc=0$' "$WORK/orch-94.log"; then
-  ok "8a pick order ranks openai (0.4 meters left) after opus (0.5) instead of dropping it ($ORDER), and opus at 94% used still runs the seat: $LINE"
+  ok "8a pick order keeps openai (0.4 meters left) as marked, after opus (0.5), instead of dropping it ($ORDER), and opus at 94% used still runs the seat: $LINE"
 else
   no "8a pick order got $ORDER expected [\"opus\",\"astra\",\"spark\",\"grok\"]; orch: $LINE"
 fi
@@ -2464,14 +2462,15 @@ balancecheck() {   # balancecheck <named check> <test script>
     no "$label"; tail -30 "$log"
   fi
 }
-balancecheck "8o-a weekly meters select executors and reviewers by live budget" \
+balancecheck "8o-a weekly meters keep spent executors and reviewers out of the pick" \
   test_usage_balance.py
 balancecheck "8o-j review contracts bind worker roles and resume listed executors" \
   test_audit_enforce_review_contract.py
-balancecheck "8o-k worker lists bind every role and listed models rank by budget alone" \
+balancecheck "8o-k worker lists bind every role, their models taken in the order marked" \
   test_worker_list.py
 
-# 8f: budget ranks workers, and the resets held count in neither it nor headroom (offline, fakes)
+# 8f: the resets held count in neither budget nor headroom, and the pick keeps the order marked
+# (offline, fakes)
 # No cache and no network: four adapters of the suite's own answer `usage`, and the codex one
 # also speaks `reset-status`/`reset` off a counter file, so the resets are read where the real
 # ones are -- beside the meters, on the probe that fetches them -- and none is ever spent.
@@ -2492,7 +2491,7 @@ used=$(cat "$S.used"); half=$(( $(date +%s) + 302400 ))   # half the week still 
 case "${1:-}" in
 usage)
   [ "$used" = none ] && { printf '{"meters":[],"error":"unknown: no usage endpoint"}\n'; exit 0; }
-  # meterless is the [usage] none form grokbuild and opencode answer, neutral in the picker.
+  # meterless is the [usage] none form grokbuild and opencode answer, neutral, never unknown.
   # The provider name in this JSON is ignored: the probe records its own.
   [ "$used" = meterless ] && { printf '{"provider":"xai","meters":[],"error":null,"none":"no meter: smoke fake"}\n'; exit 0; }
   printf '{"meters":[{"name":"weekly","used":%s,"resets_at":%s,"window_secs":604800}]}\n' \
@@ -2524,9 +2523,9 @@ headroomadapter "$HD" opencode meterless
 HEAD=0
 headroom >"$WORK/headroom-resets.json"
 # At half a week remaining, 20% used has budget 1.6 and 60% used 0.8, two resets held or not:
-# one nobody spends is not usage, so anthropic goes first, the meterless grok's neutral 1.0
-# next, and the provider that reports nothing still sorts last. Nothing spent either.
-jq -e '.pick_order == ["opus", "grok", "astra", "spark"] and .providers.openai.headroom == 0.4
+# one nobody spends is not usage. The pick is in the order marked, whatever each has left, the
+# provider that reports nothing in its place. Nothing spent either.
+jq -e '.pick_order == ["opus", "astra", "spark", "grok"] and .providers.openai.headroom == 0.4
        and (.providers.openai.budget | . > 0.79 and . < 0.81)
        and (.providers.anthropic.budget | . > 1.59 and . < 1.61)
        and (.providers.openai | has("budget_from_resets") | not)
@@ -2536,9 +2535,9 @@ jq -e '.pick_order == ["opus", "grok", "astra", "spark"] and .providers.openai.h
 # and a spent meter is still the one hard exclusion, resets or no resets
 headroomadapter "$HD" claude 100
 headroom >"$WORK/headroom-exhausted.json"
-jq -e '.providers.anthropic.exhausted == true and .pick_order == ["grok", "astra", "spark"]' \
+jq -e '.providers.anthropic.exhausted == true and .pick_order == ["astra", "spark", "grok"]' \
   "$WORK/headroom-exhausted.json" >/dev/null || HEAD=1
-[ "$HEAD" = 0 ] && ok "8f budget: anthropic at 20% used (1.6) outranks openai at 60% used with 2 resets held (0.8, 0.4 meters of headroom), none spent, unknown stays last, and 100% is excluded" \
+[ "$HEAD" = 0 ] && ok "8f budget: anthropic at 20% used 1.6, openai at 60% used with 2 resets held 0.8 (0.4 meters of headroom), none spent, the pick in the order marked, and 100% is excluded" \
                 || { no "8f headroom and resets"; for f in resets exhausted; do
                        jq -c '{pick_order, headroom: [.providers | to_entries[] | {(.key): (.value.headroom)}]}' \
                          "$WORK/headroom-$f.json" 2>/dev/null | sed "s/^/      $f /"; done; }
@@ -2646,9 +2645,8 @@ providers = {
     "openai": prov("openai", "codex", "astra", [meter("primary_window", 40.0, now + 3600)]),
     "meta": prov("meta", "muse", "spark", [meter("quota", 100.0, now - 60)]),
     # xai and mimo were read before and have no window to roll over, so the fresh cache
-    # serves them as-is and no probe runs: a missing subscription provider would rank last,
-    # never neutrally.  mimo is payg, so while any subscription is at or behind pace it
-    # stays out of the order below; the none mark is what keeps that rank when it is in.
+    # serves them as-is and no probe runs.  mimo is payg, so while any subscription is at or
+    # behind pace it stays out of the order below.
     "xai": {**prov("xai", "grokbuild", "grok", []), "none": True,
             "none_reason": "no meter: smoke fixture"},
     "mimo": {**prov("mimo", "opencode", "mimo", []), "none": True,
@@ -2662,7 +2660,7 @@ expiredcache
 HOME="$EHOME" ak usage --json >"$WORK/usage-expired.json" 2>&1
 if [ "$(jq -r '.providers.meta.meters | length' "$WORK/usage-expired.json" 2>/dev/null)" = 0 ] &&
    [ "$(jq -r '.providers.meta.exhausted' "$WORK/usage-expired.json" 2>/dev/null)" = false ] &&
-   [ "$(jq -rc '.pick_order' "$WORK/usage-expired.json" 2>/dev/null)" = '["opus","astra","grok","spark"]' ] &&
+   [ "$(jq -rc '.pick_order' "$WORK/usage-expired.json" 2>/dev/null)" = '["opus","astra","spark","grok"]' ] &&
    jq -e '.providers.anthropic.meters[0].used == 40' "$WORK/usage-expired.json" >/dev/null 2>&1 &&
    [ -s "$ECACHE" ] && jq -e '.providers.meta.meters | length == 0' "$ECACHE" >/dev/null 2>&1; then
   ok "11a usage cache: a meta meter 60s past its reset reads as meta unknown and spark is back in the pick order, cache kept and healed"
@@ -4294,7 +4292,7 @@ PRR=0
 [ "$PRC" = 0 ] || PRR=1
 [ "$(jq -r '.verdict' "$PJSON" 2>/dev/null)" = PASS ] || PRR=1
 [ "$(jq -r '.executor' "$PJSON" 2>/dev/null)" = null ] || PRR=1
-[ "$(jq -r '.reviewer' "$PJSON" 2>/dev/null)" = astra ] || PRR=1
+[ "$(jq -r '.reviewer' "$PJSON" 2>/dev/null)" = opus ] || PRR=1
 [ "$(jq -r '.review_pr' "$PJSON" 2>/dev/null)" = "https://github.com/smokeowner/$PREPO/pull/7" ] || PRR=1
 [ "$(jq -r '.review_posted' "$PJSON" 2>/dev/null)" = true ] || PRR=1
 [ "$(jq -r '.head_sha' "$PJSON" 2>/dev/null)" = "$PHEAD" ] || PRR=1
@@ -4314,7 +4312,7 @@ grep -q "message: Needs you . $INBOX: PR #7 by bob: Add contrib. Merge? yes/no" 
 jq -e '.kind == "needs" and .text == "PR #7 by bob: Add contrib. Merge? yes/no"' \
   "$PH/.agentkit/state/notify-$INBOX.json" >/dev/null 2>&1 || PRR=1
 tm kill-session -t "=$INBOX" 2>/dev/null
-[ "$PRR" = 0 ] && ok "25 ak run --review-pr: astra reviews despite Fable lagging 80/53, PR head checked out, tests: run, PASS posted as a comment, smoke-inbox seat asked to merge --match-head-commit ${PHEAD:0:12}, user pinged" \
+[ "$PRR" = 0 ] && ok "25 ak run --review-pr: opus, marked first, reviews despite Fable lagging 80/53, PR head checked out, tests: run, PASS posted as a comment, smoke-inbox seat asked to merge --match-head-commit ${PHEAD:0:12}, user pinged" \
              || { no "25 ak run --review-pr: exit=$PRC verdict=$(jq -r .verdict "$PJSON" 2>/dev/null)"; sed 's/^/      /' "$WORK/prreview.log" | tail -8; }
 
 # --- 25b: a review that cannot be posted is an error, not a PASS (offline) ---
@@ -5373,7 +5371,7 @@ grep -q -- '--rules ' "$WORK/grok-orch.log" || GROKRC=1
 grep -q -- '--trust --always-approve --model grok-4.7 --reasoning-effort xhigh' \
   "$WORK/grok-orch.log" || GROKRC=1
 [ ! -e "$GHOME/.agentkit/state/session-smoke-grok.json" ] || GROKRC=1
-# (b) its provider is neutral, never last, and says `no meter` where the menu draws it
+# (b) its provider is neutral, never unknown, and says `no meter` where the menu draws it
 HOME="$GHOME" ak usage --json >"$WORK/grok-usage.json" 2>&1 || GROKRC=1
 jq -e '.providers.xai.none == true and .providers.xai.error == null
        and .providers.xai.budget == 1.0
@@ -5496,8 +5494,8 @@ tail -1 "$WORK/oc-out/events.jsonl" 2>/dev/null | \
   jq -e '.type == "result" and .usage.input_tokens == 10 and .usage.output_tokens == 5' \
   >/dev/null || OCHRC=1
 # (c) a configured key and no meter is neutral: none, budget 1.0, `no meter` on the row.
-# mimo is payg, so while any subscription reports no pace it stays out of the order;
-# the neutral budget is what puts it in once every subscription is ahead of pace.
+# mimo is payg, so while any subscription reports no pace it stays out of the order, and it
+# comes in once every subscription is ahead of pace.
 akoc usage --json >"$WORK/oc-usage.json" 2>&1 || OCHRC=1
 jq -e '.providers.mimo.none == true and .providers.mimo.error == null
        and .providers.mimo.budget == 1.0' "$WORK/oc-usage.json" >/dev/null || OCHRC=1

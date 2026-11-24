@@ -521,20 +521,17 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(history.get("r1")["reviewer_tokens"], 850)
         self.assertIsNone(history.get("r1")["executor_tokens"])
 
-    def test_picker_keeps_budget_ties_in_list_order_for_every_role(self):
+    def test_picker_keeps_list_order_for_every_role(self):
         entry = {"harness": "x", "model": "x", "effort": "x", "meter": None}
         cfg = {"models": {
             "slow": {**entry, "provider": "p"}, "fast": {**entry, "provider": "q"}},
             "providers": {"p": {}, "q": {}}}
         for role in ("executor", "reviewer", "orchestrator"):
-            for budget in (.8, .95, 1.0):
-                with self.subTest(role=role, budget=budget), \
-                        patch.object(usage, "model_exhausted", return_value=(False, None)), \
-                        patch.object(usage, "model_pace", return_value=(None, "provider meters")), \
-                        patch.object(usage, "model_budget", side_effect=lambda _c, name, _p, _n:
-                                     (1.0 if name == "slow" else budget, None)):
-                    self.assertEqual(usage.pick_order(cfg, {"p": {}, "q": {}}, ["slow", "fast"],
-                                                      role=role, repo="project"), ["slow", "fast"])
+            with self.subTest(role=role), \
+                    patch.object(usage, "model_exhausted", return_value=(False, None)), \
+                    patch.object(usage, "model_pace", return_value=(None, "provider meters")):
+                self.assertEqual(usage.pick_order(cfg, {"p": {}, "q": {}}, ["slow", "fast"],
+                                                  role=role, repo="project"), ["slow", "fast"])
 
     def test_usage_render_omits_model_success_rates(self):
         history.start_run("r1", repo="project", executor="opus", reviewer="astra",

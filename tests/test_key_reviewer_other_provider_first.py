@@ -2,8 +2,8 @@
 another marked model of the writer's lab, then the writer itself.  No lineup is stored, so each
 provider is a lab (tests/test_key_a_lab_is_a_models_maker.py).
 
-opus builds alone.  fable shares its provider and, listed first with the most budget left,
-ranks first among the reviewers; astra is on another provider.  Black-box: the program `AK_BIN`
+opus builds alone.  fable shares its provider and, listed first, comes first among the
+reviewers; astra is on another provider.  Black-box: the program `AK_BIN`
 names runs from outside through tests/fixtures/akbin.py, with harnesses from fakeadapter.py
 whose meters the test sets, on the bare origin of gitrig.py.
 """

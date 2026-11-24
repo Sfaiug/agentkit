@@ -324,10 +324,10 @@ usage)
   # meter-shaped answer wins.  Only when every source was tried and none
   # answered does the verb fall to none with the reason, naming each source
   # and what it said, so [usage] none keeps the logged-in provider neutral
-  # instead of ranking it last like a failed probe.  The caller's probe timeout
+  # instead of unknown like a failed probe.  The caller's probe timeout
   # is 30s: past 20s the sources still untried are noted, not tried, so a slow
   # console still answers neutral instead of timing the probe out -- which would
-  # rank the provider last, the outcome the none exists to prevent.
+  # read the provider unknown, the outcome the none exists to prevent.
   API="https://platform.xiaomimimo.com/api/v1"
   CONSOLE="https://platform.xiaomimimo.com/console/plan-manage"
   HOST="platform.xiaomimimo.com"

@@ -99,17 +99,17 @@ class RoleGroups(unittest.TestCase):
         config.save(self.cfg)
         self.assertEqual(config.load()["defaults"]["reviewers"], ["seat"])
 
-    def test_each_group_ranks_by_budget_and_the_reviewer_is_another_model(self):
+    def test_each_group_keeps_its_order_marked_and_the_reviewer_is_another_model(self):
         self.groups()
-        self.assertEqual(self.pick(), ("beta", "delta"))
+        self.assertEqual(self.pick(), ("alpha", "gamma"))
         self.assertEqual(usage.pick_order(self.cfg, self.providers(), role="reviewer"),
                          ["gamma", "delta"])
-        # The executor's own model is the one reviewer that comes last: alpha reviews beta.
-        self.wide["reviewers"] = ["beta", "alpha"]
-        self.assertEqual(self.pick(), ("beta", "alpha"))
-        # A reviewer on another provider beats the executor's budget: alpha executes, though
-        # beta has more left, so gamma, on beta's provider, reviews another provider's work.
-        self.wide["reviewers"] = ["gamma"]
+        # The executor's own model is the one reviewer that comes last: beta reviews alpha.
+        self.wide["reviewers"] = ["alpha", "beta"]
+        self.assertEqual(self.pick(), ("alpha", "beta"))
+        # A reviewer on another provider beats the order marked: alpha executes, though beta
+        # is marked first, so gamma, on beta's provider, reviews another provider's work.
+        self.wide.update(workers=["beta", "alpha"], reviewers=["gamma"])
         self.assertEqual(self.pick(), ("alpha", "gamma"))
         self.cfg["models"]["gamma"]["reviews_own_provider"] = False
         self.assertEqual(self.pick(), ("alpha", "gamma"))
@@ -199,8 +199,9 @@ class RoleGroups(unittest.TestCase):
             self.assertNotIn("reviewers", state)
 
     def test_legacy_review_flag_alone_steps_past_its_own_model(self):
+        self.cfg["defaults"]["workers"] = ["delta", "alpha", "beta", "gamma"]
         with patch.object(config, "active_session", return_value=None):
-            self.assertEqual(self.pick(reviewer="delta"), ("beta", "delta"))
+            self.assertEqual(self.pick(reviewer="delta"), ("alpha", "delta"))
 
     def test_legacy_task_review_override_names_the_sessions_workers(self):
         self.wide["workers"] = ["alpha", "beta"]
@@ -288,7 +289,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "collect_usage", return_value=self.providers(c=0)) as collect, patch.object(staffing, "collect_usage", return_value=self.providers(c=0)), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             state = run.loop(self.cfg, directory, task, opts, self.logs.append)
-            self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "delta"))
+            self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "gamma"))
             collect.return_value = self.providers(a=100, c=0)
             state = run.loop(self.cfg, directory, task, opts, self.logs.append, prior=state)
             self.assertEqual((state["executor"], state["reviewer"]), ("beta", "delta"))
@@ -313,7 +314,7 @@ class RoleGroups(unittest.TestCase):
                 if quota:
                     self.assertEqual((saved["executor"], saved["reviewer"]), ("beta", "delta"))
                 else:
-                    self.assertIn(f"resumed {directory.name}: reviewer delta eligible again",
+                    self.assertIn(f"resumed {directory.name}: reviewer gamma eligible again",
                                   self.logs)
 
     def test_tick_resumes_a_seats_own_pr_on_the_model_that_wrote_it(self):
@@ -334,7 +335,7 @@ class RoleGroups(unittest.TestCase):
         saved = run_record.read_state(directory)
         self.assertEqual((saved["executor"], saved["reviewer"]), ("seat", "gamma"))
 
-    def test_tick_handover_prefers_a_better_tier_over_a_cheaper_self(self):
+    def test_tick_handover_prefers_a_better_tier_over_a_self_marked_first(self):
         directory = config.RUNS / "20260928-0000-recovery-tier"
         directory.mkdir()
         state = {"run_id": directory.name, "state": "exhausted", "executor": "delta",
@@ -556,13 +557,13 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "post_review", return_value=True), \
                 patch.object(run, "review", return_value="FAIL") as review, patch.object(run, "restore_review_checkout"), redirect_stdout(io.StringIO()):
             self.assertEqual(run.preset_review_model(
-                self.cfg, opts, reviewers=["gamma", "delta"]), "delta")
+                self.cfg, opts, reviewers=["gamma", "delta"]), "gamma")
             with self.assertRaisesRegex(config.Error, "not a reviewer"):
                 run.preset_review_model(self.cfg, {**opts, "--review": "alpha"},
                                        reviewers=["gamma", "delta"])
             self.wide["reviewers"] = ["alpha"]
             state = run.review_pr(self.cfg, directory, url, opts, self.logs.append)
-            self.assertEqual(state["reviewer"], "delta")
+            self.assertEqual(state["reviewer"], "gamma")
             with self.assertRaisesRegex(config.Error, "not a reviewer"):
                 run.review_pr(self.cfg, directory, url, {**opts, "--review": "alpha"},
                               self.logs.append)

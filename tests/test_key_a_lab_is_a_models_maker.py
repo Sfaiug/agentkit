@@ -3,11 +3,11 @@ lab than the writer's where one is marked (the owner, 18 Nov 2026).  A model's l
 the lineup last stored names for it; a model no lineup holds is of its provider's.
 
 nova, Acme's, builds on claude's provider.  Two reviewers have room: dart, another model of
-Acme's on codex's provider, listed first with the most budget left, and bolt, Bolt's, on nova's
+Acme's on codex's provider, listed first, and bolt, Bolt's, on nova's
 provider.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, with harnesses from fakeadapter.py whose meters the test sets, on the
 bare origin of gitrig.py, and the lineup a `ak models` stores written as it stores it, its rows
-without scores so it ranks or turns off none of them.
+without scores so it turns off none of them.
 """
 
 import json

@@ -1,4 +1,4 @@
-"""Review pairs with one subscription, fake budgets and no model calls."""
+"""Review pairs with one subscription, fake meters and no model calls."""
 
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import io
@@ -86,21 +86,6 @@ class OneProvider(unittest.TestCase):
 
     def test_two_providers_pick_the_reviewer_on_the_other_one(self):
         self.assertEqual(self.pick(), ("alpha", "gamma"))
-        self.providers = self.meters(a=70, b=10)
-        self.assertEqual(self.pick(), ("gamma", "alpha"))
-
-    def test_reviewers_keep_budget_order_within_a_tier(self):
-        self.cfg["models"]["gamma"]["meter"] = "smaller"
-        self.providers["b"]["meters"].append(
-            {**self.providers["b"]["meters"][0], "name": "smaller", "used": 95})
-        self.cfg["models"]["delta"]["meter"] = "weekly"
-        self.assertEqual(self.pick("alpha"), ("alpha", "delta"))
-        self.assertEqual(self.pick("beta"), ("beta", "delta"))
-        self.providers["a"] = self.providers["b"]
-        for name in ("gamma", "delta"):
-            self.cfg["models"][name]["provider"] = "a"
-        self.cfg["defaults"]["workers"] = ["alpha", "gamma", "delta"]
-        self.assertEqual(self.pick("alpha"), ("alpha", "delta"))
 
     def test_shipped_default_carries_no_review_opt_out(self):
         cfg = tomllib.loads((REPO / "config.default.toml").read_text())
@@ -128,7 +113,7 @@ class OneProvider(unittest.TestCase):
         self.cfg["defaults"]["workers"] = ["beta", "gamma"]
         self.assertEqual(self.pick("gamma"), ("gamma", "beta"))
 
-    def test_auto_pair_executes_cheapest_with_same_company_review(self):
+    def test_auto_pair_executes_the_first_mark_with_same_company_review(self):
         self.providers = self.meters(b=100)
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
         self.assertEqual(self.pick(), ("alpha", "beta"))
@@ -172,7 +157,7 @@ class OneProvider(unittest.TestCase):
                 self.assertEqual(self.pick("alpha"), ("alpha", "beta"))
                 self.assertNotIn("gamma", run.ready_order(self.cfg, self.providers,
                                                           role="reviewer"))
-                # the ranking itself keeps it; only a pick leaves it out
+                # the order itself keeps it; only a run's pick leaves it out
                 self.assertIn("gamma", usage.pick_order(self.cfg, self.providers))
                 self.assertEqual(self.logs, [f"skipped gamma: other is {words}",
                                              f"skipped delta: other is {words}"] * 2)
@@ -240,7 +225,7 @@ class OneProvider(unittest.TestCase):
                                for harness in ("codex", "muse", "grokbuild")}
         providers["anthropic"] = {"resets": 0, "meters": [
             {**meter, "name": "weekly_all"}, {**meter, "name": "weekly_scoped"}]}
-        # two Anthropic models left execute and review, cheapest first
+        # two Anthropic models left execute and review, as marked
         self.assertEqual(run.pick_models(cfg, providers, None, None, self.logs.append),
                          ("opus", "fable"))
         self.assertEqual(self.logs, ["skipped astra: codex is not logged in",
@@ -285,7 +270,7 @@ class OneProvider(unittest.TestCase):
         self.assertIsNone(saved["review_session"])
         self.assertTrue(any("reviewer re-picked" in line for line in self.logs))
 
-    def test_handover_repicks_the_cheapest_pair(self):
+    def test_handover_repicks_the_first_legal_pair(self):
         lp = self.loop(reviewer="gamma")
         self.providers = self.meters(a=100, b=10)
         self.cfg["models"]["delta"]["reviews_own_provider"] = False
@@ -308,8 +293,8 @@ class OneProvider(unittest.TestCase):
         self.cfg["providers"]["c"] = {}
         self.cfg["models"]["delta"]["provider"] = "c"
         self.providers = self.meters(a=100, b=10)
-        # delta is the cheaper executor, so the re-picked pair keeps gamma reviewing it
-        self.providers["c"] = self.meters(b=5)["b"]
+        # delta is marked before gamma, so the re-picked pair keeps gamma reviewing it
+        self.cfg["defaults"]["workers"] = ["alpha", "beta", "delta", "gamma"]
         with patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "delta")
         self.assertEqual((lp.reviewer, lp.review_sid), ("gamma", "existing-review"))
@@ -327,7 +312,7 @@ class OneProvider(unittest.TestCase):
             self.assertEqual(run.pick_models(self.cfg, self.providers, "seat", "alpha",
                                              self.logs.append, resuming=True), ("seat", "alpha"))
 
-    def test_budget_order_and_display_use_same_company_pair_policy(self):
+    def test_the_pick_order_and_display_use_same_company_pair_policy(self):
         cfg = tomllib.loads((REPO / "config.default.toml").read_text())
         # the fixture below answers for three companies, so the default workers are scoped
         # to them and the scenario stays what it says
