@@ -37,7 +37,9 @@ offline() {
      ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen || exit 253
      exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes" "$@"
 }
-offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]' || fail "the sandbox did not build"
+# The sandbox builds, with no link but lo: asked before the command, and after one that failed.
+look='[ -z "$(ip -o link show | grep -v ": lo:")" ]'
+offline sh -c "$look" || fail "the sandbox did not build"
 # Kills for memory: of the piece's own cgroup where it has one, as a container on a kernel other
 # pieces share does, else of its VM's kernel.
 oom() {
@@ -50,4 +52,8 @@ code=$?
 # The kernel killed a process for memory: the VM or container was too small for the piece, which
 # ak then runs here and gives a larger one next time (helper.short).
 [ "$(oom)" = "$before" ] || { echo "ak helper: the VM ran out of memory" >&2; exit 254; }
+# unshare ends 1 with nothing run where the sandbox stopped building since the first look: one
+# that no longer builds ends the piece as one the helper could not run, though its command may
+# have run.
+[ "$code" = 0 ] || offline sh -c "$look" || fail "the sandbox no longer builds"
 exit "$code"
