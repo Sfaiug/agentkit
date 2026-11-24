@@ -24,7 +24,7 @@ import os
 from pathlib import Path
 import time
 
-from . import gitcall, history, suite_times
+from . import config, gitcall, history, suite_times
 
 # The landings looked back over: a ceiling on what a round spends, never a target, so a project
 # whose landings were red on fewer tests runs fewer.
@@ -40,13 +40,13 @@ def _now():
 
 def chosen(lp):
     """(the target's `tests:` line, the tests of it the round runs), or None where the round has
-    none to run or does not answer for this change: it answers for a task run or the review of a
-    seat's own PR (`own_pr`) with a checkout of its own (`worktrees.checkout_removable`), never
-    for scratch, another's PR or `--no-worktree`.  A record's `./tests/a.py` is git's
-    `tests/a.py`."""
+    none to run or does not answer for this change: it answers for a task run and for the review
+    of a seat's own PR (`own_pr`) with a checkout of its own (`worktrees.checkout_removable`),
+    never for scratch or another's PR, and for a `--no-worktree` task run only where git reads its
+    target's tree.  A record's `./tests/a.py` is git's `tests/a.py`."""
     from . import deliver, gate, land, worktrees    # here, not at the top: they reach roundloop
-    if (lp.scratch or not worktrees.checkout_removable(lp.state)
-            or (lp.state.get("review_pr") and not lp.state.get("own_pr"))):
+    own = worktrees.checkout_removable(lp.state)
+    if lp.scratch or (lp.state.get("review_pr") and not (lp.state.get("own_pr") and own)):
         return None
     line = gitcall.declared_suite(lp.wt, lp.upstream, ref=lp.state.get("target_sha"))
     times = suite_times.read(suite_times.handed(lp.wt)) if line else {}
@@ -56,9 +56,17 @@ def chosen(lp):
     tests = sorted({file for file in (test.partition("::")[0] for test in times)
                     if os.path.normpath(file) in changed})
     reds, piece, _ = history.test_audit(Path(lp.state["repo"]).name, _now() - WINDOW)
-    held = {name for test in land.red_tests(deliver.turn_path(lp, lp.upstream), gitcall.git(
-        lp.wt, "rev-parse", f"{lp.state.get('target_sha') or lp.upstream}^{{tree}}"))
-        for name in (test, test.partition("::")[0])}
+    try:
+        tree = gitcall.git(lp.wt, "rev-parse",
+                           f"{lp.state.get('target_sha') or lp.upstream}^{{tree}}")
+    except config.Error:
+        if own:
+            raise
+        # A run in the repository itself may aim at a branch origin has none of: with no tree,
+        # what the target is red on now cannot be left out, so the round runs none.
+        return None
+    held = {name for test in land.red_tests(deliver.turn_path(lp, lp.upstream), tree)
+            for name in (test, test.partition("::")[0])}
     # One piece of the suite, a ceiling as WINDOW is: a suite cut finer runs fewer.  One the
     # target runs uncut, whatever it ran as before, or no landing ran whole in pieces yet, the
     # whole.
