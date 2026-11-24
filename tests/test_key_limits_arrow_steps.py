@@ -1,18 +1,19 @@
 """On `config · limits`, ← and → move the limit the pointer is on one step down or up, saved to
 config.toml at once: `Review rounds` 0 to 5, `Max lines per executor task` 0 to 1000 in hundreds
 then `no limit`, `Max lines per orchestrator task` 0 to 200 in 25s then `no limit`,
-`Extra rounds with one or two findings left` 0 to 3.  A value between steps, as written by hand,
-moves to the next step in the arrow's direction, and neither arrow moves past an end.  The
-pointed row shows its value as `◂ value ▸`, a side's arrow left out at that end, a click on one
-moving it as its key does, and the key line reads `↑↓ limit   ←→ value   esc back`.  With the
-pointer off every row, the first ← or → only brings the highlight back, as Enter and Space do.
-A pointed value too wide beside its label, as on 40 cells, folds under it whole, never an arrow
-parted from it, and a label too wide for its line wraps at its words.
+`Extra rounds with one or two findings left` by one from 0 with no top, past the most digits
+Python writes in decimal too.  A value between steps, as written by hand, moves to the next step
+in the arrow's direction, and neither arrow moves past an end.  The pointed row shows its value
+as `◂ value ▸`, a side's arrow left out at that end, a click on one moving it as its key does,
+and the key line reads `↑↓ limit   ←→ value   esc back`.  With the pointer off every row, the
+first ← or → only brings the highlight back, as Enter and Space do.  A pointed value too wide
+beside its label, as on 40 cells, folds under it whole, never an arrow parted from it, and a
+label too wide for its line wraps at its words.
 
-The owner's design of 5 Nov 2026.  Black-box: the program `AK_BIN` names, in a person's
-terminal (tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py,
-judged by the screen and config.toml.  The terminal has no colour (NO_COLOR).  This test fails
-against `/bin/false`.
+The owner's design of 5 Nov 2026; 22 Nov 2026: "Let the page count on."  Black-box: the program
+`AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its harnesses the fakes of
+tests/fixtures/fakeadapter.py, judged by the screen and config.toml.  The terminal has no colour
+(NO_COLOR).  This test fails against `/bin/false`.
 """
 
 import sys
@@ -26,12 +27,13 @@ from fixtures.akterm import SERVER, Terminal
 
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
           "astra": {"harness": "codex", "effort": "high"}}
-# each row's name: its key in config.toml, its steps and ak's default
+# each row's name: its key in config.toml, its steps, `...` last where they go on with no top,
+# and ak's default
 LIMITS = {"Review rounds": ("review_rounds", list(range(6)), 3),
           "Max lines per executor task": ("executor_lines", [*range(0, 1001, 100), "no limit"], 300),
           "Max lines per orchestrator task": ("orchestrator_lines", [*range(0, 201, 25), "no limit"],
                                               50),
-          "Extra rounds with one or two findings left": ("extra_rounds", list(range(4)), 2)}
+          "Extra rounds with one or two findings left": ("extra_rounds", [0, 1, 2, 3, 4, ...], 2)}
 NAMES = list(LIMITS)
 WIDE = max(map(len, NAMES))
 KEY_LINE = "  ↑↓ limit   ←→ value   esc back"
@@ -58,11 +60,11 @@ class ArrowSteps(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         fakeadapter.install(cls.home, claude="pass", codex="pass")
 
-    def limits(self, settings=None, width=100):
-        """`config · limits` from `c`, in a window `width` cells wide of its own, over a
-        config.toml setting `settings`."""
+    def limits(self, settings=None, size=(100, 40)):
+        """`config · limits` from `c`, in a window of its own `size` cells, over a config.toml
+        setting `settings`."""
         akconfig.write(self.home, MODELS, settings=settings)
-        term = Terminal(self.home, size=(width, 40), env={"NO_COLOR": "1"})
+        term = Terminal(self.home, size=size, env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")
@@ -104,10 +106,12 @@ class ArrowSteps(unittest.TestCase):
             with self.subTest(name=name):
                 term = self.limits({key: 0})
                 self.point(term, name, 0, down=False)
-                path = [*range(1, len(steps)), *range(len(steps) - 2, -1, -1)]
+                numbers = [step for step in steps if step is not ...]
+                path = [*range(1, len(numbers)), *range(len(numbers) - 2, -1, -1)]
                 for at, before in zip(path, [0, *path]):
                     term.keys("Right" if at > before else "Left")
-                    self.pointed(term, name, steps[at], down=at > 0, up=at < len(steps) - 1)
+                    self.pointed(term, name, numbers[at], down=at > 0,
+                                 up=at < len(numbers) - 1 or steps[-1] is ...)
 
     def test_a_value_between_steps_moves_to_the_next_step_each_way(self):
         for name, held, arrow, value in ((NAMES[1], 250, "Right", 300), (NAMES[1], 250, "Left", 200),
@@ -130,6 +134,8 @@ class ArrowSteps(unittest.TestCase):
                 self.point(term, name, 0, down=False)
                 term.keys("Left", "Right")      # ← at the bottom moves nothing: → takes the next
                 self.pointed(term, name, steps[1])
+                if steps[-1] is ...:
+                    continue                    # no top: the walk up passes its last number
                 # → past the top moves nothing: ← takes the one under it.  The top is waited for
                 # before ←, as the climb shows that one too: a wait met there would leave keys
                 # unread, saving config.toml over the next subtest's.
@@ -137,6 +143,19 @@ class ArrowSteps(unittest.TestCase):
                 self.pointed(term, name, steps[-1], up=False)
                 term.keys("Left")
                 self.pointed(term, name, steps[-2])
+
+    def test_past_the_most_digits_written_in_decimal_the_count_goes_on(self):
+        # 4300, Python's own most (sys.get_int_max_str_digits) in the program's environment,
+        # built from nothing; this test's own has none, whatever its caller's holds
+        sys.set_int_max_str_digits(0)
+        held = 10 ** 4300 - 1
+        # tall enough for every row whole: on a page taller than the window, ↓ pages it first
+        term = self.limits({"extra_rounds": held}, size=(140, 100))
+        term.keys(*["j"] * 3)
+        term.wait(f"› {NAMES[3]}")
+        for arrow, value in (("Right", held + 1), ("Left", held)):
+            term.keys(arrow)
+            term.wait(lambda _: akconfig.read(self.home)["extra_rounds"] == value)
 
     def test_a_click_on_an_arrow_moves_the_value_as_its_key_does(self):
         term = self.limits()
@@ -154,7 +173,7 @@ class ArrowSteps(unittest.TestCase):
 
     def test_on_40_cells_a_value_too_wide_beside_its_label_folds_under_it_whole(self):
         # five cells beside the label once held `◂ 300`, its `▸` alone on the line under it
-        term = self.limits(width=40)
+        term = self.limits(size=(40, 40))
         # each label's lines, one too wide for the line wrapped at its words
         for label, value in (([NAMES[1]], "◂ 300 ▸"), ([NAMES[2]], "◂ 50 ▸"),
                              (["Extra rounds with one or two findings", "left"], "◂ 2 ▸")):
