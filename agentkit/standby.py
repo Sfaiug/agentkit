@@ -132,8 +132,10 @@ while folders:
             sys.stdout.buffer.write(entry.path + b"\\0")
 """.encode()
 # Seconds of silence from the home that fail a pass: fewer where a key sets AK_STANDBY_TIMEOUT,
-# so one can wait out a machine that stalls.
-TIMEOUT = int(os.environ.get("AK_STANDBY_TIMEOUT", 300))
+# so one can wait out a machine that stalls; what is no whole number past 0 leaves 300, and no
+# value fails an import of this module, which the tick makes before it reads ak's lease.
+TIMEOUT = int((re.fullmatch(r"[1-9][0-9]*", os.environ.get("AK_STANDBY_TIMEOUT", ""))
+               or ["300"])[0])
 # The copy's age at which a failed pass pages the owner: on a Mac, ak's own check starts a dead
 # Linux machine again after 10 minutes without an answer, and 20 leave it the time to come back.
 SILENT = 20 * 60
