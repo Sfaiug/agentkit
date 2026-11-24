@@ -131,7 +131,9 @@ while folders:
         elif entry.is_file(follow_symlinks=False) and not os.access(entry.path, os.R_OK):
             sys.stdout.buffer.write(entry.path + b"\\0")
 """.encode()
-TIMEOUT = 300   # seconds of silence from the home that fail a pass
+# Seconds of silence from the home that fail a pass: fewer where a key sets AK_STANDBY_TIMEOUT,
+# so one can wait out a machine that stalls.
+TIMEOUT = int(os.environ.get("AK_STANDBY_TIMEOUT", 300))
 # The copy's age at which a failed pass pages the owner: on a Mac, ak's own check starts a dead
 # Linux machine again after 10 minutes without an answer, and 20 leave it the time to come back.
 SILENT = 20 * 60
