@@ -55,6 +55,7 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
         stack.enter_context(patch.object(machine_turn, "_program",
                                          return_value=("acme/1.2.3/acme", {})))
         stack.enter_context(patch.object(machine_turn, "_lend", return_value=["login"]))
+        stack.enter_context(patch.object(machine_turn, "_room_here", return_value=False))
         self.start = stack.enter_context(patch.object(helper, "start", return_value=(None, "")))
 
     def asks_a_machine(self, cwd=None):

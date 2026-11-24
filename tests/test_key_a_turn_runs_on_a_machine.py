@@ -1,5 +1,6 @@
-"""A model turn runs on a machine with room once config.toml says `turns_on_machines = true`, its
-results back here when it ends; with the switch off or no room there, it runs here.
+"""A model turn runs on a machine with room once config.toml says `turns_on_machines = true` and
+this host has none, its results back here when it ends; with the switch off or no room there, it
+runs here.
 
 Black-box, on the machine of tests/fixtures/akmachine.py, which has both harnesses' programs at
 the versions here and whose containers have `container=docker` in their environment: each
@@ -52,7 +53,7 @@ class ATurnRunsOnAMachine(unittest.TestCase):
             (machine / "home/.agentkit-helper/suite").mkdir()
             (machine / "home/.agentkit-helper/suite/reserved").write_text(str(held))
         task = taskfile.write(home, rig.path, done_when=("test -f left.txt && test ! -e gone.txt",))
-        done = home.ak("run", str(task), timeout=300)
+        done = home.ak("run", str(task), env={"AK_HOST_READINGS": akmachine.CROWDED}, timeout=300)
         self.assertEqual(done.code, 0, done.out + done.err)
         run = taskfile.only_run(home)
         state = json.loads((run / "run.json").read_text())

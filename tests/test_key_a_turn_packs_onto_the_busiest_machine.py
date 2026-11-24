@@ -1,6 +1,6 @@
-"""A model turn goes to the machine with the least room that still takes it, passing over one ak
-rents that Google ends within the hour a turn is lent a login for, and placing it asks Google
-nothing; a suite still goes to the machine with the most room.
+"""A model turn this crowded host hands on goes to the machine with the least room that still takes
+it, passing over one ak rents that Google ends within the hour a turn is lent a login for, and
+placing it asks Google nothing; a suite still goes to the machine with the most room.
 
 Black-box, as tests/test_key_a_turn_runs_on_a_machine.py is, on machines with
 tests/fixtures/akmachine.py's programs and CPUs of their own, each a directory a fake ssh reaches by
@@ -87,7 +87,8 @@ class ATurnPacksOntoTheBusiestMachine(unittest.TestCase):
                 self.assertEqual(done.code, 0, done.out + done.err)
         asked = len(google.asked)
         task = taskfile.write(home, rig.path, done_when=("test -f x.txt",))
-        done = home.ak("run", str(task), env=env, timeout=300)
+        done = home.ak("run", str(task), env={**env, "AK_HOST_READINGS": akmachine.CROWDED},
+                       timeout=300)
         self.assertEqual(done.code, 0, done.out + done.err)
         turns = {name: [root.name.endswith("-turn") for root in
                         (machines / name / "docker/roots").glob("*")] for name in cpus}

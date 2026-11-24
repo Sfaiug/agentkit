@@ -94,7 +94,8 @@ class AMachineFetchesTheHarness(unittest.TestCase):
         for harness in no_fetch:
             text = fakes[harness].manifest.read_text()
             fakes[harness].manifest.write_text(re.sub(r"(?ms)^\[fetch\]\n.*?(?=^\[|\Z)", "", text))
-        done = home.ak("run", str(taskfile.write(home, rig.path)), timeout=300)
+        done = home.ak("run", str(taskfile.write(home, rig.path)), timeout=300,
+                       env={"AK_HOST_READINGS": akmachine.CROWDED})
         self.assertEqual(done.code, 0, done.out + done.err)
         run = taskfile.only_run(home)
         state = json.loads((run / "run.json").read_text())

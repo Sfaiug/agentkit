@@ -82,7 +82,7 @@ class ATurnOnAMachineKeepsItsDeclaredTimeout(unittest.TestCase):
         self.assertEqual(state["state"], "interrupted", state)
         (run / "run.json").write_text(json.dumps({**state, "silence_minutes": SILENCE_MINUTES}))
         akconfig.write(home, ["opus", "astra"], settings={**settings, "turns_on_machines": True})
-        resumed = home.spawn("run", "resume", run.name)
+        resumed = home.spawn("run", "resume", run.name, env={"AK_HOST_READINGS": akmachine.CROWDED})
         deadline = time.monotonic() + 120
         while resumed.poll() is None and not record(run).get("transient_wait"):
             self.assertLess(time.monotonic(), deadline, record(run))
