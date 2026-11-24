@@ -30,7 +30,7 @@ from fixtures.akterm import SERVER, Terminal
 
 TESTS = Path(__file__).resolve().parent
 DAY = 86400
-LOGINS = ["default", "second", "third", "fourth"]           # Claude I to Claude IV
+LOGINS = ["default", "second", "third", "fourth", "fifth"]  # Claude I to Claude V
 EMAIL = "reef@acme.test"
 METER = re.compile(r"[━╸─]+  \d+% left")
 # `c`'s meters, the highlight on the first, the logins changed to sys.argv[2] by another
@@ -67,9 +67,10 @@ def login(email, ends=60 * DAY):
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AHoveredMeterNamesItsAccount(unittest.TestCase):
     def open(self, ends=60 * DAY, size=(120, 40)):
-        """The menu over Claude I to IV, each holding a reset and a week resetting in two days:
+        """The menu over Claude I to V, each holding a reset and a week resetting in two days:
         Claude I's login `EMAIL`'s, ending `ends` seconds from now; Claude II's email kept as a
-        number, Claude III's as spaces, and nothing kept of Claude IV's."""
+        number, Claude III's as spaces, nothing kept of Claude IV's, and Claude V's holding a
+        lone surrogate, which JSON keeps and UTF-8 cannot write."""
         self.home = Home()
         self.addCleanup(self.home.close)
         akconfig.write(self.home, {"fable": "claude"}, providers={
@@ -83,11 +84,12 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "anthropic": {**reading, "accounts": {name: reading for name in LOGINS}}}})
         self.home.write(".agentkit/state/logins.json", {"anthropic": {
-            "default": login(EMAIL, ends), "second": login(5), "third": login(" \t ")}})
+            "default": login(EMAIL, ends), "second": login(5), "third": login(" \t "),
+            "fifth": login("ops\ud800@acme.test")}})
         self.term = Terminal(self.home, size=size, env={"TZ": "UTC", "COLORTERM": "truecolor"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
-        self.term.wait(lambda screen: "Claude IV" in screen and METER.search(screen))
+        self.term.wait(lambda screen: "Claude V" in screen and METER.search(screen))
 
     def hovered(self, label):
         """The line under the grid once the pointer is on `label`'s meter."""
@@ -105,16 +107,16 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
     def said(self):
         """Each meter's line under the grid, the pointer on it, as {label: what follows it}."""
         return {label: self.hovered(label).removeprefix(f"  {label}  ")
-                for label in ("Claude I", "Claude II", "Claude III", "Claude IV")}
+                for label in ("Claude I", "Claude II", "Claude III", "Claude IV", "Claude V")}
 
     def assert_names_its_account(self):
         said = self.said()
         # nothing kept of Claude IV's login: it reads as before, its reset and the one in hand
         self.assertRegex(said["Claude IV"], r"\Aresets \w{3} \d\d:\d\d · 1 reset in hand\Z")
         self.assertEqual(said["Claude I"], f"{EMAIL} · {said['Claude IV']}")
-        # kept as a number or only spaces, there is no email to say
-        self.assertEqual(said["Claude II"], said["Claude IV"])
-        self.assertEqual(said["Claude III"], said["Claude IV"])
+        # kept as a number, only spaces or what UTF-8 cannot write, there is no email to say
+        for label in ("Claude II", "Claude III", "Claude V"):
+            self.assertEqual(said[label], said["Claude IV"], label)
         self.hovered("Claude I")
 
         def dim(rows):           # the email in the look of the notes after it
@@ -149,12 +151,12 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
             drawn = {}
             for line in rows:
                 text = plain(line)
-                for label in re.findall(r"Claude I+V?(?=  )", text) if METER.search(text) else ():
+                for label in re.findall(r"Claude [IV]+(?=  )", text) if METER.search(text) else ():
                     drawn[label] = ink(line[text.index("━", text.index(label + "  "))][1])
             note = next((line for line in rows if plain(line).startswith("  Claude I  login")),
                         None)
             amber = note and ink(note[plain(note).index(EMAIL)][1])
-            return len(drawn) == 4 and drawn["Claude I"] == amber and all(
+            return len(drawn) == 5 and drawn["Claude I"] == amber and all(
                 shown != amber for label, shown in drawn.items() if label != "Claude I")
         self.settled(only_its_own)
 
