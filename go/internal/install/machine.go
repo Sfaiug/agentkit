@@ -98,7 +98,7 @@ func machineUp(name string, out, errOut io.Writer) error {
 	// held 24 (24 Nov 2026), the Mac ran out, compressed the machine's memory faster than its
 	// cores read it back and stood still until its watchdog restarted it.  What macOS does not use
 	// of its share caches the machine's disk, which it otherwise compresses the machine to do.
-	// One whose size Lima does not say is not started, as it may hold more.
+	// One Lima reports no memory for, as it may after an error, is not started: it may hold more.
 	memory, err := reading(0, 0, "sysctl", "-n", "hw.memsize")
 	if err != nil {
 		return err
@@ -130,6 +130,8 @@ func machineUp(name string, out, errOut io.Writer) error {
 		fmt.Fprintf(out, "linux: this Mac's Linux machine has %d cores, %d GiB of memory and %d GiB of disk\n", cpus, mem, disk)
 	} else if had, err := reading(0, 0, "limactl", "list", "--format", "{{.Memory}}", machineName); err != nil {
 		return err
+	} else if had < 1 {
+		return errors.New("Lima reports no memory for it")
 	} else if had > mem<<30 {
 		when := "now"
 		if status() == "Running" {

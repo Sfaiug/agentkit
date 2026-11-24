@@ -46,7 +46,7 @@ linux_machine_up() {
   # held 24 (24 Nov 2026), the Mac ran out, compressed the machine's memory faster than its
   # cores read it back and stood still until its watchdog restarted it.  What macOS does not use
   # of its share caches the machine's disk, which it otherwise compresses the machine to do.
-  # One whose size Lima does not say is not started, as it may hold more.
+  # One Lima reports no memory for, as it may after an error, is not started: it may hold more.
   mem=$(linux_share $(($(sysctl -n hw.memsize) / gib)) 24) || return 1
   if [ ! -f "$dir/lima.yaml" ]; then
     # Cores are shared with macOS as it runs, so a quarter left to it is room to schedule, and
@@ -66,7 +66,9 @@ linux_machine_up() {
     limactl create --tty=false --name="$LINUX_INSTANCE" --cpus="$cpus" --memory="$mem" \
       --disk="$disk" --mount-none --set "$settings" template:debian || return 1
     echo "linux: this Mac's Linux machine has $cpus cores, ${mem} GiB of memory and ${disk} GiB of disk"
-  elif ! had=$(limactl list --format '{{.Memory}}' "$LINUX_INSTANCE"); then
+  elif ! had=$(limactl list --format '{{.Memory}}' "$LINUX_INSTANCE") ||
+    ! [ "$had" -gt 0 ] 2>/dev/null; then
+    echo "linux: Lima reports no memory for this Mac's Linux machine" >&2
     return 1
   elif [ "$had" -gt $((mem * gib)) ]; then
     when=now
