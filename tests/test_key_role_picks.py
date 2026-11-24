@@ -42,7 +42,11 @@ class RolePicks(unittest.TestCase):
                 akconfig.write(home, models, settings=settings)
                 done = home.ak("models", "--json", env=ENV)
                 self.assertEqual(done.code, 0, done.err)
-                answers.append(json.loads(done.out))
+                answer = json.loads(done.out)
+                # the tasks by team span the moment each call asked
+                # (tests/test_key_models_json_counts_tasks_by_team.py)
+                answer.pop("runs", None)
+                answers.append(answer)
             self.assertEqual(*answers)
             picks = {role: next(row["release"] for row in answers[0][role]["front"]
                                 if "pick" in row["notes"])
