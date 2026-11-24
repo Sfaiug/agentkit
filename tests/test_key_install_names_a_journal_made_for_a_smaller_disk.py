@@ -52,17 +52,12 @@ exit {code}
 """
 # A sudo that asks for a password, as an account nobody has set up yet has.
 NO_SUDO = "#!/bin/sh\necho 'sudo: a password is required' >&2\nexit 1\n"
-# `stat -f -c %T` names the filesystem's type {kind}, as the kernel does: -f an option, before
-# any `--`, and %T the format; every other call is the real stat's.
+# The installer's question of ak's home `{home}`, `stat -L -f -c %T -- {home}`, gets the type
+# {kind}, as the kernel names it; every other call is the real stat's.
 STAT = """#!/bin/sh
-fs= format= last=
-for word; do
-  [ "$word" = -- ] && break
-  [ "$word" = -f ] && fs=1
-  [ "$last" = -c ] && format=$word
-  last=$word
-done
-if [ "$fs" = 1 ] && [ "$format" = %T ]; then echo {kind}; exit 0; fi
+if [ $# = 6 ] && [ "$1 $2 $3 $4 $5" = "-L -f -c %T --" ] && [ "$6" = {home} ]; then
+  echo {kind}; exit 0
+fi
 exec {real} "$@"
 """
 GERMAN = "de_DE.UTF-8"
@@ -207,7 +202,9 @@ class JournalNote(unittest.TestCase):
         real = shutil.which("stat", path=self.home.env["PATH"])
         for kind, notes in (("ext2/ext3", 1), ("xfs", 0)):
             with self.subTest(kind=kind):
-                self.home.fake("stat", STAT.format(kind=kind, real=shlex.quote(real)))
+                self.home.fake("stat", STAT.format(
+                    home=shlex.quote(str(self.home.path / ".agentkit")), kind=kind,
+                    real=shlex.quote(real)))
                 said = self.notes()
                 self.assertEqual(len(said), notes, said)
                 for note in said:
