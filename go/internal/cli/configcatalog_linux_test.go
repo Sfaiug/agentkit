@@ -48,7 +48,7 @@ for page, colour, size in (("config", False, (100, 30)), ("models", False, (100,
                           "printf 'm1\\tModel One\\tlow high\\n'\nelse\nexec " +
                           shlex.quote(str(real)) + ' "$@"\nfi\n')
         script.chmod(0o755)
-        env = {"AGENTKIT_SESSION": "acme", **({"COLORTERM": "truecolor"} if colour else {"NO_COLOR": "1"})}
+        env = {"AGENTKIT_SESSION": "acme", **({} if colour else {"NO_COLOR": "1"})}
         term = Terminal(home, "attach", "--overlay", size=size, env=env)
         term.wait("esc leave", bound=10)
         try:

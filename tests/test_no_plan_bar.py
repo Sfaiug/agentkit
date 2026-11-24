@@ -29,8 +29,7 @@ class NoPlanBar(Sandbox):
         super().setUp()
         os.environ.pop("NO_COLOR")
         self.stack.enter_context(patch.dict(os.environ, {
-            "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm-256color",
-            "COLORTERM": "truecolor"}))
+            "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm-256color"}))
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
 
@@ -69,7 +68,7 @@ class NoPlanBar(Sandbox):
         self.assertEqual(terminal.plain(menu.last_column("working", 0, 0, 30)), "─" * 18 + " no plan yet")
         self.assertEqual(terminal.cells(menu.last_column("working", 0, 0, 30)),
                          terminal.cells(menu.last_column("working", 3, 8, 30)))
-        with patch.dict(os.environ, {"LANG": "C", "LC_ALL": "", "COLORTERM": "", "TERM": "dumb"}):
+        with patch.dict(os.environ, {"LANG": "C", "LC_ALL": "", "TERM": "dumb"}):
             self.assertEqual(terminal.plain(menu.last_column("working", 0, 0, 30)), "-" * 18 + " no plan yet")
         # a room too narrow for both: the words alone
         self.assertEqual(terminal.plain(menu.last_column("working", 0, 0, 11, narrow=True)),

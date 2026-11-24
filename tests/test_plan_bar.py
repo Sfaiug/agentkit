@@ -73,16 +73,6 @@ class PlanBar(Sandbox):
         self.assertEqual(set(inks), {";".join(str(int(WORKING[at:at + 2], 16)) for at in (0, 2, 4))})
         self.assertTrue(terminal.plain(line).endswith(" 4 of 8"))
 
-    def test_eight_colours_draw_the_whole_line_in_the_words_own_tone(self):
-        # they hold no tone between the word's and the background, so nothing fades
-        for light in (False, True):
-            with self.subTest(light=light), patch.object(terminal, "THEME", terminal.WHITE if light else terminal.BLACK), \
-                    patch.object(terminal, "colour_depth", return_value=8):
-                line = terminal.plan_bar(4, 8, 28, 8, "working")
-            self.assertEqual(set(re.findall(r"\x1b\[(\d+)m[━╸]", line)),
-                             {terminal.STATE_STYLES["working"][3]})
-            self.assertTrue(terminal.plain(line).endswith(" 4 of 8"))
-
     def test_without_colour_or_utf8_it_reads_in_plain_characters(self):
         self.assertEqual(menu.last_column("working", 3, 7, 20), "━━━━━╸─────── 3 of 7")
         with patch.dict(os.environ, {"LANG": "C", "LC_ALL": ""}):
@@ -180,7 +170,7 @@ class PlanBar(Sandbox):
                 "count": "working", "word": "working", "sentence": "", "bar": (1, 9), "runs": []}
         asks = dict(info, count="needs you", word="needs you", sentence="Merge #75 first?")
         for width in (60, 61, 62, 63, 70):
-            for depth in (0, 8, 256, 24):
+            for depth in (0, 24):
                 with self.subTest(width=width, depth=depth), \
                         patch.object(terminal, "colour_depth", return_value=depth):
                     bar, ask = menu.v5o_seat_blocks([info, asks], width)
@@ -247,7 +237,7 @@ class PlanBar(Sandbox):
         for width, done, total in ((22, 127, 143), (24, 4999, 9999), (30, 3, 7), (40, 3, 7)):
             info = {"number": "1", "name": "acme", "orchestrator": "sol", "count": "working",
                     "word": "working", "sentence": "", "bar": (done, total), "solo": True}
-            for depth in (0, 8, 256, 24):
+            for depth in (0, 24):
                 with self.subTest(width=width, depth=depth), \
                         patch.object(terminal, "colour_depth", return_value=depth):
                     block = menu.v5o_seat_blocks([info], width)[0]

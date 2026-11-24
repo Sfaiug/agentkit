@@ -36,7 +36,7 @@ class AddASubscriptionPage(unittest.TestCase):
         self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
         akconfig.write(self.home, {"fable": "claude", "astra": "codex"}, providers={
             "anthropic": {"mode": "subscription", "accounts": ["default", "two"]}})
-        self.term = Terminal(self.home, size=(100, 40), env={"COLORTERM": "truecolor"})
+        self.term = Terminal(self.home, size=(100, 40))
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
         self.term.wait("esc leave")

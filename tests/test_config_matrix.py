@@ -86,7 +86,7 @@ OPEN_KEYS = "  ↑↓←→ move   ⏎ open   r recommended   esc back"   # on a
 NEW_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"   # new seats'
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
-             "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLORTERM", "COLUMNS", "LINES")
+             "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
 
 
 class Lines(list):
@@ -95,8 +95,8 @@ class Lines(list):
     lit = None
 
 
-# what a draw puts on the selection, at the 256 colours the child's terminal has
-SELECTED = re.compile(r"\x1b\[48;5;\d+m(.*?)\x1b\[49m")
+# what a draw puts on the selection
+SELECTED = re.compile(r"\x1b\[48;2;\d+;\d+;\d+m(.*?)\x1b\[49m")
 
 
 class Screen:

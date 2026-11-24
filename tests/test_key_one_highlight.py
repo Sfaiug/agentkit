@@ -3,8 +3,8 @@ nothing else.
 
 The owner (10 Nov 2026): every screen feels and is operated the same way; each theme (12 Nov)
 has a colour for what is lit, `selection`.  A seat's row, the keys' or the pointer's, is on it
-from its `›` to the layout's last column, bold behind the `›` as before, and no other row is;
-where the terminal draws fewer than 256 colours the row has its `›` alone.  A cell -- a mark on
+from its `›` to the layout's last column, bold behind the `›` as before, and no other row is.
+A cell -- a mark on
 `c` as wide as its column, set or not, a subscription's meter as wide as its cell, an act on a
 subscription's line or a list's answer with a cell before and after it, an act bracketed with
 no colour -- is on it over its whole width, the same from the keys and the pointer, and its row
@@ -129,13 +129,13 @@ class OneHighlight(unittest.TestCase):
 
     def config(self):
         """`c` over acme, from the ak screen, the keys on Fable's first mark."""
-        self.main(COLORTERM="truecolor")
+        self.main()
         self.term.keys("c")
         return self.calm(lambda shown: starts(shown, "› Fable 5.1")
                          and any("esc back" in plain(line) for line in shown))
 
     def test_a_seat_is_on_the_selection_from_its_mark_to_the_layouts_last_column(self):
-        shown = self.main(COLORTERM="truecolor")
+        shown = self.main()
         (_, acme), (number, beta) = self.row(shown, "1  acme"), self.row(shown, "2  beta")
         self.assertEqual(lit_rows(shown), {acme: list(range(1, WIDTH + 1))})
         self.assertLessEqual(grounds(shown), {None, BLACK, SELECTION})
@@ -216,7 +216,7 @@ class OneHighlight(unittest.TestCase):
         # ChatGPT's meter, holding a reset, on the ak screen and then on `c`: lit under the
         # pointer over its whole cell, blanks past its last word too, and a click on its first
         # or last lit cell lists its acts, `ACT` among them, as Enter on it does
-        self.main(COLORTERM="truecolor")
+        self.main()
         for screen, keys in (("the ak screen", MAIN_KEYS), ("c", "esc back")):
             with self.subTest(screen):
                 if screen == "c":
@@ -303,7 +303,7 @@ class OneHighlight(unittest.TestCase):
     def test_a_lists_answer_is_lit_over_its_text_and_a_cell_each_side(self):
         # the stop card, asked in acme's popup: each answer a cell, its row no band
         self.term = Terminal(self.home, "attach", "--overlay", size=(WIDTH, 40),
-                             env={"AGENTKIT_SESSION": "acme", "COLORTERM": "truecolor"})
+                             env={"AGENTKIT_SESSION": "acme"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
         self.rest(lambda shown: any("x stop" in plain(line) for line in shown))
@@ -321,7 +321,7 @@ class OneHighlight(unittest.TestCase):
         clock, new = self.home.root / "clock", self.home.root / "new"
         new.write_text("1000")
         new.replace(clock)
-        shown = self.main(COLORTERM="truecolor", AK_MOTION_CLOCK=str(clock))
+        shown = self.main(AK_MOTION_CLOCK=str(clock))
         acme = self.row(shown, "1  acme")[1]
         band, backs = lit_rows(shown)[acme], []
         for moment in ("1010", "1010.1", "1010.15", "1010.2"):
@@ -343,7 +343,7 @@ class OneHighlight(unittest.TestCase):
             Seat(self.home, f"crew-{n}", model="fable")
         clock, raw = self.home.root / "clock", self.home.root / "raw"
         clock.write_text("1000")
-        shown = self.main(COLORTERM="truecolor", AK_MOTION_CLOCK=str(clock))
+        shown = self.main(AK_MOTION_CLOCK=str(clock))
         acme, (number, beta) = self.row(shown, "1  acme")[1], self.row(shown, "2  beta")
         piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane, f"cat >>{raw}",
                                server=SERVER)
@@ -388,7 +388,7 @@ class OneHighlight(unittest.TestCase):
         self.home.write(".agentkit/state/seat-crew.json", {
             "stopped_at": time.time() - 9000, "closed_by_owner": True})
         self.term = Terminal(self.home, "attach", "--overlay", size=(WIDTH, 40),
-                             env={"AGENTKIT_SESSION": "acme", "COLORTERM": "truecolor",
+                             env={"AGENTKIT_SESSION": "acme",
                                   "AK_MOTION_CLOCK": self.tick("1000")})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
@@ -414,9 +414,6 @@ class OneHighlight(unittest.TestCase):
         self.rest(lambda shown: starts(shown, "  × Apply"))
         self.term.keys("Enter")
         self.rest(lambda shown: starts(shown, "› × Apply"))
-
-    def test_in_sixteen_colours_a_seat_has_its_mark_alone(self):
-        self.assertEqual(grounds(self.main(TERM="xterm-16color")), {None})
 
 
 if __name__ == "__main__":

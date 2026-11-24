@@ -58,9 +58,8 @@ SEATS = {"fix-api": "needs you", "web-portal": "done"}
 
 
 def menu_child(case, **size):
-    """The main menu in a child on a pty, in true colour: `test_close_and_info.Menu`'s."""
-    with patch.object(test_close_and_info, "CHILD", CHILD), \
-            patch.dict(os.environ, {"COLORTERM": "truecolor"}):
+    """The main menu in a child on a pty: `test_close_and_info.Menu`'s."""
+    with patch.object(test_close_and_info, "CHILD", CHILD):
         return test_close_and_info.Menu(case, SEATS, **size)
 
 

@@ -50,7 +50,7 @@ class EveryRoleNamesItsEffort(unittest.TestCase):
             "workers": ["opus", "fable"], "reviewers": ["fable", "opus", "haiku"],
             "efforts": {"opus": {"effort": "xhigh", "exec_effort": "medium",
                                  "review_effort": "low"}}})
-        menu = Terminal(home, size=(100, 30), env={"TERM": "xterm"})
+        menu = Terminal(home, size=(100, 30))
         menu.wait(lambda screen: "fix-api" in screen, bound=OPENS)
         menu.keys("j")          # the first row's line opens only once the highlight has moved
         cls.row, cls.under = opened(menu.wait(

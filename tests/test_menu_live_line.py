@@ -88,7 +88,7 @@ class MenuLiveLine(Sandbox):
 
     def test_c_the_orchestrator_column_is_grey_at_rest(self):
         os.environ.pop("NO_COLOR", None)
-        with patch.dict(os.environ, {"TERM": "xterm-256color", "COLORTERM": "truecolor"}):
+        with patch.dict(os.environ, {"TERM": "xterm-256color"}):
             infos = [menu.v5o_seat_info(self.cfg, n, seat, [], {}, None, NOW)
                      for n, seat in enumerate(self.seats, 1)]
             row = menu.v5o_seat_blocks(infos, 100)[0][0]

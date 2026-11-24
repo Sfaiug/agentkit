@@ -22,9 +22,6 @@ func TestShareLineDrawsItsShareInEachDepth(t *testing.T) {
 	if got, want := (Screen{depth: 24}).ShareLine(1, 2, "#a6adc8"), "\x1b[38;2;166;173;200m━\x1b[0m\x1b[38;2;166;173;200m━\x1b[0m"; got != want {
 		t.Errorf("24-bit: %q, want %q", got, want)
 	}
-	if got, want := (Screen{depth: 8}).ShareLine(1, 2, "#a6adc8"), "\x1b[37m━━\x1b[0m"; got != want {
-		t.Errorf("8 colours: %q, want %q", got, want)
-	}
 }
 
 func TestEffortCellsAreALevelOfMany(t *testing.T) {

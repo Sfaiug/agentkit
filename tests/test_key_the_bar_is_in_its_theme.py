@@ -71,7 +71,7 @@ class TheBarIsInItsTheme(unittest.TestCase):
         home.fake("claude", "#!/bin/sh\nexec sleep 600\n")
         done = home.ak("orch", "beta", "--model", "opus", "--workers", "opus", tty=True)
         assert done.code == 0, done.err
-        cls.term = Terminal(home, "orch", "acme", size=SIZE, env={"COLORTERM": "truecolor"})
+        cls.term = Terminal(home, "orch", "acme", size=SIZE)
         cls.addClassCleanup(home.tmux, "kill-session", "-t", cls.term.pane, server=SERVER)
 
     def drawn(self, theme):
@@ -143,7 +143,7 @@ class TheBarIsInItsTheme(unittest.TestCase):
         done = self.home.tmux("set-option", "-g", "window-style", f"bg={background}",
                               server=SERVER)
         self.assertEqual(done.code, 0, done.err)
-        menu = Terminal(self.home, size=(100, 40), env={"COLORTERM": "truecolor"})
+        menu = Terminal(self.home, size=(100, 40))
         self.addCleanup(self.home.tmux, "kill-session", "-t", menu.pane, server=SERVER)
         menu.wait("esc leave", 60)
 

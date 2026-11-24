@@ -177,7 +177,7 @@ class EffortCells(unittest.TestCase):
         screen = Screen(self, env={"NO_COLOR": "1"})
         lines = screen.frame()
         self.assertEqual(row(lines, "opus")[1].split()[-2:], ["━━━━─", "xhigh"])
-        # with no colour to reverse, the effort is the highlighted row's cell with no mark bracketed
+        # with no colour to light it, the effort is the highlighted row's cell with no mark bracketed
         screen.press(DOWN + RIGHT * 5, lambda lines: row(lines, "opus")[1].startswith("›")
                      and "[" not in row(lines, "opus")[1])
         self.assertEqual(moved(screen, SPACE), [])
@@ -185,7 +185,7 @@ class EffortCells(unittest.TestCase):
         screen.leave()
 
     def test_a_cell_takes_100_ms_and_the_light_450(self):
-        with patch.object(terminal, "colour_depth", return_value=256), \
+        with patch.object(terminal, "colour_depth", return_value=24), \
                 patch.object(terminal, "utf8", return_value=True):
             fill, until = motion.filling(True, 10.0)
             self.assertEqual(until, 10.1)
@@ -223,7 +223,7 @@ class EffortCells(unittest.TestCase):
             self.assertEqual(menu.effort_levels(entry, None), ["none"])
 
     def test_a_wide_word_shimmers_whole_from_its_first_cell(self):
-        with patch.object(terminal, "colour_depth", return_value=256):
+        with patch.object(terminal, "colour_depth", return_value=24):
             clock = motion.Clock()
             start = menu._effort_moves(["low", "最高"], "最高", None, False, 20, None)
             start(clock, 5, time.monotonic(), "low")

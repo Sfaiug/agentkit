@@ -150,8 +150,8 @@ def no_frame_passes():
     return patch.object(terminal.motion, "FRAME", 60.0)
 
 
-def run(screen, *keys, cols=100, rows=40, depth=256):
-    """`screen()` read off `keys` on a taken keyboard in `depth` colours: what it answered, each
+def run(screen, *keys, cols=100, rows=40):
+    """`screen()` read off `keys` on a taken keyboard in true colour: what it answered, each
     whole screen it wrote -- the writes from one top-left to the next -- played (`played`).
 
     The first of `keys` is on the pipe whole before the screen reads, the way one read finds a
@@ -180,7 +180,7 @@ def run(screen, *keys, cols=100, rows=40, depth=256):
                            _KEYED=b"", _PRESSED=False, _POINTER=None, _SPOTS={},
                            _POINTED=terminal.Spot(), _MOVED=0.0, _NEXT=None, _HELD=None,
                            _AWAY=False, _ASKED=False), \
-            patch.object(terminal, "colour_depth", return_value=depth), \
+            patch.object(terminal, "colour_depth", return_value=24), \
             patch.object(motion.Clock, "light", lambda clock, now, moves: None), \
             patch.dict(os.environ, {"COLUMNS": str(cols), "LINES": str(rows),
                                     "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}):
@@ -546,8 +546,6 @@ class Screens(Sandbox):
         screens = run(screen, move(*keys), move(1, 1), ESC)[1]
         self.assertEqual(len(screens), 3)
         self.assertEqual(marked(screens[-1], "lit"), {})    # and one off it puts it out
-        last = run(screen, move(*keys), ESC, depth=8)[1][-1]
-        self.assertEqual(marked(last, "reverse"), {keys[1]: "esc back"})    # eight colours
 
     def test_a_key_at_the_key_lines_end_is_lit_within_the_terminal(self):
         # each key ends its line on the terminal's last column, `esc back` after another and

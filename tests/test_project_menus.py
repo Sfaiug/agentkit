@@ -331,18 +331,13 @@ class Projects(Sandbox):
                 self.assertEqual(out.getvalue(), "")
                 self.assertFalse(config.session_path("invalid").exists())
 
-    def test_g_glyph_and_colour_truecolor_256_8_no_color_dumb_non_tty_and_c_locale(self):
-        with patch.object(sys.stdout, "isatty", return_value=True), patch("curses.setupterm"), \
-                patch("curses.tigetnum", return_value=256) as colours:
-            for setting in ("truecolor", "24bit"):
-                with patch.dict(os.environ, {"TERM": "xterm", "COLORTERM": setting}, clear=True):
+    def test_g_glyph_and_colour_true_colour_no_color_dumb_non_tty_and_c_locale(self):
+        with patch.object(sys.stdout, "isatty", return_value=True):
+            for name in ("xterm", "xterm-256color"):    # its entry counts eight colours, and 256
+                with patch.dict(os.environ, {"TERM": name}, clear=True):
                     self.assertEqual(terminal.styled("! needs you", "needs you"),
                                      "\033[1;38;2;215;146;0m! needs you\033[0m")
             with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
-                self.assertEqual(terminal.styled("working", "working"), "\033[38;5;75mworking\033[0m")
-                colours.return_value = 8
-                with patch.dict(os.environ, {"TERM": "xterm-8color"}):
-                    self.assertEqual(terminal.styled("FAIL", "FAIL"), "\033[31mFAIL\033[0m")
                 for env in ({"NO_COLOR": ""}, {"TERM": "dumb"}):
                     with patch.dict(os.environ, env):
                         self.assertEqual(terminal.styled("working", "working"), "working")

@@ -5,7 +5,6 @@ import re
 import select
 import shutil
 import signal as signals     # `signal` is an effort's bars, below
-import subprocess
 import sys
 import tempfile
 import termios
@@ -16,45 +15,40 @@ from collections import namedtuple
 from functools import lru_cache, wraps
 from itertools import groupby
 
-from . import config, guard, motion, warm
+from . import config, motion, warm
 from .themes import BLACK, KEPT, ROLES, WHITE, fits
 
-# glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
+# glyph, ASCII glyph, role of the theme, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
 # table, its colour the role's in the theme in force (`theme`), and that colour alone: a faint
-# cell is drawn darker than its colour, one of neither theme.  Eight colours hold no grey of the
-# theme's, so there what is dim is faint, in its tone.
+# cell is drawn darker than its colour, one of neither theme.
 # The five words a session reads, and the presentation-only kinds the screens ask for by name:
 # `dim` for a note beside a row, `FAIL` for a verdict, which is no session state, and the
 # roles of text no state's colour is, `muted`, `border` and `info` (docs/cli-design.md, Colour).
 STATE_STYLES = {
-    "needs you": ("!", "!", "warning", "33", "1"),
-    "working": ("●", "*", "accent", "36", ""),
-    "done": ("✓", "v", "success", "32", ""),
+    "needs you": ("!", "!", "warning", "1"),
+    "working": ("●", "*", "accent", ""),
+    "done": ("✓", "v", "success", ""),
     # nothing running, asked or owed: quiet, as the eye should pass over it
-    "idle": ("○", "o", "dim", "2;37", ""),
+    "idle": ("○", "o", "dim", ""),
     # its subscriptions are spent: an error, as nothing moves until usage comes back or the owner
     # moves it, and idle's open circle says it comes back by itself
-    "out of usage": ("○", "o", "error", "31", ""),
-    "FAIL": ("×", "x", "error", "31", ""),
-    "dim": ("·", ".", "dim", "2", ""),
+    "out of usage": ("○", "o", "error", ""),
+    "FAIL": ("×", "x", "error", ""),
+    "dim": ("·", ".", "dim", ""),
     # No session word: a run parked on something that lifts by itself says what it waits for
     # instead of a word, and the open circle is what says nobody has to act on it.
-    "waiting": ("○", "o", "dim", "2;37", ""),
-    # at eight colours, plain; a line faint, as a note is; what ak says cyan
-    "muted": ("", "", "muted", "39", ""),
-    "border": ("", "", "border", "2", ""),
-    "info": ("", "", "info", "36", ""),
+    "waiting": ("○", "o", "dim", ""),
+    "muted": ("", "", "muted", ""),
+    "border": ("", "", "border", ""),
+    "info": ("", "", "info", ""),
 }
 # The kinds a screen asks `styled` for by what they mean, and the word whose colour each is.
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
          "good": "done", "spent": "out of usage"}
-_RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
-FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
-LEVELS = (0, 95, 135, 175, 215, 255)   # each channel's steps in xterm's 6x6x6 colour cube
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
 _ATTRIBUTES = re.compile(rb"\x1b\[\?[0-9;]*c")   # ... and to DA1, which follows it
@@ -123,58 +117,27 @@ def state_label(word):
 
 
 def colour_depth():
-    return _depth(sys.stdout.isatty, os.environ.get("TERM", ""), os.environ.get("COLORTERM", ""),
-                  "NO_COLOR" in os.environ, _RGB)
+    """24, true colour, where a screen is coloured, and 0 where none is: off a terminal, on a dumb
+    one and under NO_COLOR.
+
+    No terminal is asked how many colours it takes: each is taken for one that draws true colour,
+    as a seat's tmux is told of every client (`orch.tmux_conf`), so the menu in the whole window
+    and the one over a seat draw one terminal alike.  What a terminal says of itself is no
+    answer: over ssh its name (TERM) arrives and COLORTERM does not, and a name's entry counts
+    256 colours for a terminal that draws them all.
+    """
+    return _depth(sys.stdout.isatty, os.environ.get("TERM", ""), "NO_COLOR" in os.environ)
 
 
 @lru_cache(maxsize=8)
-def _depth(isatty, term, colorterm, no_colour, rgb):
-    # Once per terminal: a frame asks for every cell it moves, a system call each, and setting up
-    # curses each time where the colours come from there.
-    if not isatty() or not term or term == "dumb" or no_colour:
-        return 0
-    if colorterm.lower() in ("truecolor", "24bit") or rgb:
-        return 24
-    try:
-        import curses
-        curses.setupterm(term=term)
-        colours = curses.tigetnum("colors")
-        # as tmux reads a session's client (its RGB feature), so the menu over a seat and the one
-        # in the whole window draw one terminal alike; ssh carries TERM and not COLORTERM
-        if curses.tigetflag("Tc") == 1 or curses.tigetflag("RGB") == 1 or (
-                curses.tigetstr("setrgbf") and curses.tigetstr("setrgbb")):
-            return 24
-        return 256 if colours >= 256 else 8 if colours >= 8 else 0
-    except ImportError:
-        return 0
-    except curses.error:
-        return 0
-
-
-@lru_cache(maxsize=None)
-def xterm_colour(rgb):
-    """Nearest fixed xterm colour, the lower number on a tie; the first sixteen depend on the
-    user's palette.  A fade asks for a new colour each frame, so none is searched for: in the
-    cube each channel is nearest on its own, and the nearest grey is the one nearest the
-    channels' mean."""
-    wanted = [int(rgb[i:i + 2], 16) for i in (0, 2, 4)]
-    steps = [min(range(6), key=lambda n: abs(LEVELS[n] - value)) for value in wanted]
-    grey = min(range(24), key=lambda n: abs(3 * (8 + 10 * n) - sum(wanted)))
-    return min((16 + 36 * steps[0] + 6 * steps[1] + steps[2], [LEVELS[n] for n in steps]),
-               (232 + grey, [8 + 10 * grey] * 3),
-               key=lambda item: sum((a - b) ** 2 for a, b in zip(wanted, item[1])))[0]
+def _depth(isatty, term, no_colour):
+    # Once per terminal: a frame asks for every cell it moves, a system call each.
+    return 24 if isatty() and term and term != "dumb" and not no_colour else 0
 
 
 def ink(rgb, ground="38"):
-    """`rgb` as the code that draws it nearest above eight colours: the text's, or with `ground`
-    48 the background's."""
-    return (f"{ground};2;" + ";".join(map(str, bytes.fromhex(rgb))) if colour_depth() == 24
-            else f"{ground};5;{xterm_colour(rgb)}")
-
-
-def basic_colour(rgb):
-    """Nearest of the eight basic colours: each channel on where it is nearer full than off."""
-    return str(30 + sum(1 << i for i in range(3) if int(rgb[2 * i:2 * i + 2], 16) >= 128))
+    """`rgb` as the code that draws it: the text's, or with `ground` 48 the background's."""
+    return f"{ground};2;" + ";".join(map(str, bytes.fromhex(rgb)))
 
 
 def faded(word, amount):
@@ -192,8 +155,7 @@ def fade(text, amount):
     the one `faded` lights toward -- `amount` (0 to 1) of the way to the background: a popup's
     content coming up out of it (`motion.Clock.rise`).  Where colour cannot move it is as it is.
     """
-    depth = colour_depth()
-    if amount <= 0 or depth <= 8:
+    if amount <= 0 or not colour_depth():
         return text
     back, fore = bytes.fromhex(colour("background")), bytes.fromhex(colour("text"))
 
@@ -211,10 +173,6 @@ def fade(text, amount):
                 rgb = None
             elif first == 38 and parts[:1] == [2]:
                 rgb, parts = parts[1:4], parts[4:]
-            elif first == 38 and parts[:1] == [5]:
-                n, parts = parts[1] - 16, parts[2:]
-                rgb = ((8 + 10 * (n - 216),) * 3 if n >= 216 else
-                       (LEVELS[n // 36], LEVELS[n // 6 % 6], LEVELS[n % 6]))
         out += text[at:code.end()] + tone(rgb)
         at = code.end()
     return out + text[at:] + "\033[0m"
@@ -236,8 +194,7 @@ class _Screen:
     ends in the terminal's own colours: every cell a draw, a frame or a clear touches is on the
     background and text of no colour is the theme's, whichever helper drew it, and the terminal is
     its own again between writes, for whatever has it next -- a program ak starts, a signal, the
-    shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at
-    eight colours, whose tones read on any background.
+    shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`).
 
     Each place a screen writes at, and the start of each line it begins, is moved in by the
     padding, and painted it too: a place on the first column takes the padding to its left, and
@@ -260,7 +217,7 @@ class _Screen:
             return to + ("" if column > 1 else "\033[1J" if place.group().endswith("H")
                          and row == 1 else "\033[1K")
         out = self.PLACES.sub(moved, text) if _PAD else text
-        self.stream.write(_painted(out) if out and not _GIVEN and colour_depth() > 8 else out)
+        self.stream.write(_painted(out) if out and not _GIVEN and colour_depth() else out)
         return len(text)
 
 
@@ -416,21 +373,15 @@ def wrap(text, room):
 
 
 def styled(text, kind):
-    depth = colour_depth()
-    if not depth or not text:
+    if not colour_depth() or not text:
         return text
     word = KINDS.get(kind, kind)
     if kind == "bold":
         code = "1"
+    elif kind.startswith("#"):      # `#RRGGBB` is a fade's colour (`faded`)
+        code = ink(kind[1:])
     else:
-        # `#RRGGBB` is a fade's colour (`faded`), and takes the nearest the terminal has, as a
-        # state's colour does
-        own = kind.startswith("#") and kind[1:]
-        tone, emphasis = (basic_colour(own), "") if own else STATE_STYLES[word][3:]
-        rgb = own or colour(word)
-        code = ink(rgb) if depth > 8 else tone
-        if emphasis:
-            code = emphasis + ";" + code
+        code = ";".join(filter(None, (STATE_STYLES[word][3], ink(colour(word)))))
     return f"\033[{code}m{text}\033[0m"
 
 
@@ -659,8 +610,6 @@ def share_line(share, size, word="working", tmux=False):
     if tmux:
         return "".join(f"#[fg=#{colour(kind, tmux)}]{text}"
                        for kind, text in ((word, cells), ("border", rest)) if text) + "#[default]"
-    if colour_depth() <= 8:   # nothing breathes there
-        return styled(cells, word) + styled(rest, "border")
     # a cell at a time, so the tip is found to breathe (`menu.tips`)
     return "".join(styled(char, word) for char in cells) + styled(rest, "border")
 
@@ -1065,12 +1014,8 @@ def _last_frame():
 
 
 def sense():
-    """What the terminal is, asked once per menu start on a keyboard `Keyboard.take` has taken.
-
-    True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
-    (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in -- as the popup was
-    handed them (FEATURES_ENV), else as tmux says, which takes a process.  And whether the
-    background is light, from the terminal's answer to OSC 11 within a second, kept (`_keep`); no
+    """What the terminal is, asked once per menu start on a keyboard `Keyboard.take` has taken:
+    whether its background is light, from its answer to OSC 11 within a second, kept (`_keep`); no
     answer by then is the kept one.  Its attributes are asked for after it (DA1), which every
     terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
     is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
@@ -1078,17 +1023,7 @@ def sense():
     `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
     back up in what it found (`_last_frame`), the hold it was given back under hiding the wait.
     """
-    global _RGB, THEME, _KEYED
-    features = os.environ.get(FEATURES_ENV)
-    if features is None and os.environ.get("TMUX"):
-        try:
-            features = subprocess.run([guard.real("tmux"), "display", "-p",
-                                       "#{client_termfeatures}"],
-                                      stdin=subprocess.DEVNULL, capture_output=True,
-                                      text=True, timeout=1).stdout
-        except (OSError, subprocess.SubprocessError):
-            pass
-    _RGB = bool({"RGB", "Tc"} & set((features or "").strip().split(",")))
+    global THEME, _KEYED
     fd = sys.stdin.fileno()
     os.write(sys.stdout.fileno(), b"\033]11;?\033\\\033[c")
     heard, until = b"", time.monotonic() + 1     # a busy host takes most of one to pass it on
@@ -1341,7 +1276,7 @@ def step(key):
 def highlight(line, mark=True, band=True):
     """The keys' row: `›` in the accent colour in its first column, its text bright, and with
     `band`, as a row Enter or a click acts on as a whole (a seat), on the theme's selection
-    from its first column to the layout's last where the terminal draws 256 colours or more.
+    from its first column to the layout's last.
     The row of a lit cell -- a mark on `c`, a list's answer (`choose`) -- has no band.
 
     Every row a list draws starts with a space, so the mark takes it and no column moves; a
@@ -1350,9 +1285,7 @@ def highlight(line, mark=True, band=True):
     if mark:
         line = styled("›" if utf8() else ">", "accent") + line[1:]
     line = bright(line)
-    if band and colour_depth() > 8:
-        return backed(line, colour("selection"), 1, layout_width())
-    return line
+    return backed(line, colour("selection"), 1, layout_width()) if band else line
 
 
 def bright(text):
@@ -1366,9 +1299,8 @@ def bright(text):
 
 def selected(line, first, last):
     """`line` with its cells `first` to `last`, counted from 1, lit: a cell the keys or the
-    pointer are on (`toggle`, `lit`), on the theme's selection, reversed at eight colours and as
-    it is with none."""
-    return backed(line, colour("selection"), first, last) if colour_depth() else line
+    pointer are on (`toggle`, `lit`), on the theme's selection."""
+    return backed(line, colour("selection"), first, last)
 
 
 def key_spans(line):
@@ -1529,22 +1461,19 @@ def cell_texts(line):
 
 @lru_cache(maxsize=256)
 def _grounds(line):
-    """The background each cell of a drawn `line` is on, as the SGR parameters that set it --
-    `7` for reverse, a lit cell's at eight colours (`selected`) -- "" where none is: a frame asks
-    for the screen's every row it moves a cell on."""
+    """The background each cell of a drawn `line` is on, as the SGR parameters that set it, ""
+    where none is: a frame asks for the screen's every row it moves a cell on."""
     grounds, back = [], ""
     for token in re.findall(f"{ANSI.pattern}|.", line, re.S):
         if not token.startswith("\033"):
             grounds += [back] * cells(token)
         elif token.endswith("m"):
-            # the background each code leaves: none after a reset, a `48`'s colour, reverse
+            # the background each code leaves: none after a reset, a `48`'s colour
             parts = token[2:-1].split(";")
             while parts:
                 part = parts.pop(0)
-                if part in ("", "0", "49", "27"):
+                if part in ("", "0", "49"):
                     back = ""
-                elif part == "7":
-                    back = part
                 elif part in ("38", "48") and parts[:1] in (["2"], ["5"]):
                     size = 4 if parts[0] == "2" else 2
                     back = ";".join([part, *parts[:size]]) if part == "48" else back
@@ -1562,16 +1491,16 @@ def backed_as(text, line, cell):
 
 def backed(line, rgb, first, last):
     """`line` with its cells `first` to `last`, counted from 1, on the background `rgb`, every
-    style in them kept and any past its end blank; reversed at eight colours."""
-    return _on(line, ink(rgb, "48") if colour_depth() > 8 else "7", first, last)
+    style in them kept and any past its end blank; as it is where nothing is coloured."""
+    return _on(line, ink(rgb, "48"), first, last) if colour_depth() else line
 
 
 def _on(line, back, first, last):
-    """`line` with its cells `first` to `last` on `back`, the SGR parameters of a background or
-    of reverse (`7`), every style in them kept and any past its end blank, and the cells after
-    them on what they were: the pointer's cell inside the keys' lights none of it off."""
+    """`line` with its cells `first` to `last` on `back`, the SGR parameters of a background,
+    every style in them kept and any past its end blank, and the cells after them on what they
+    were: the pointer's cell inside the keys' lights none of it off."""
     after = _grounds(line)[last:last + 1]
-    off = after[0] if after and after[0] else "27" if back == "7" else "49"
+    off = after[0] if after and after[0] else "49"
     out, at, on = "", 0, None      # on: None before the cell, True in it, False past it
     for token in re.findall(f"{ANSI.pattern}|.", line, re.S):
         if on is None and at + 1 >= first:

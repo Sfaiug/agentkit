@@ -63,8 +63,7 @@ class Listing(unittest.TestCase):
         self.assertEqual(sorted(named), sorted(VERBS))
 
     def test_a_pipe_gets_no_colour_even_from_a_colour_terminal_type(self):
-        done = self.home.ak("--help", env={"NO_COLOR": None, "TERM": "xterm-256color",
-                                           "COLORTERM": "truecolor"})
+        done = self.home.ak("--help", env={"NO_COLOR": None, "TERM": "xterm-256color"})
         self.assertEqual(done.code, 0, done.err)
         self.assertNotIn("\x1b", done.out)
         self.assertEqual(done.out, LISTING)

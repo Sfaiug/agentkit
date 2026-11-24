@@ -34,8 +34,8 @@ from test_key_models_on import MODELS
 HALF = 0.075    # seconds: half the 0.15 a screen takes to come up (motion.FADE)
 UPDATE = "\x1b[?2026l"      # a synchronized update's end: what it wrote shows at once
 SIZES = (100, 40), (100, 41)    # the terminal's, a resize from one to the other
-ENV = {**{name: value for name, value in ENV.items() if name != "NO_COLOR"},
-       "COLORTERM": "truecolor"}      # every colour as it is, and no network but a dead proxy
+# every colour as it is, and no network but a dead proxy
+ENV = {name: value for name, value in ENV.items() if name != "NO_COLOR"}
 
 
 def inks(out, text):

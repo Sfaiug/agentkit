@@ -1,12 +1,12 @@
 """A working session's dot breathes, every one in step, and nothing else on the screen moves
 but the light going round each one's line with no plan yet (tests/test_no_plan_bar.py).
 
-`menu.loop` on a scripted wait over a true-colour terminal with two working seats and one that
+`menu.loop` on a scripted wait over a terminal with two working seats and one that
 needs you: between draws only the two working `●` are rewritten, each frame both in one colour,
 the colour easing between `working`'s and a dimmer tone of it; at most twenty frames a second;
 a key pressed mid-animation has its frame out within 100 ms; the dots breathe on through the
 wait for a second digit and under the stop question, and a resize as a frame falls due draws
-the whole screen instead.  From a pipe, under NO_COLOR and at eight colours the wait is the
+the whole screen instead.  From a pipe and under NO_COLOR the wait is the
 plain TICK and no frame is drawn.  Offline, in a throwaway HOME: the probe is never started,
 opening a seat is a line saying so, the keyboard is a stand-in, and the menu's clock moves only
 as the stand-in's waits run, so a loaded host draws no slower on it and the stop card's run
@@ -53,14 +53,13 @@ class Keyboard:
 
 
 class MainScreen(Sandbox):
-    """`menu.loop` on a true-colour terminal and a clock that moves only as its waits run."""
+    """`menu.loop` on a terminal and a clock that moves only as its waits run."""
 
     def setUp(self):
         super().setUp()
         os.environ.pop("NO_COLOR")
         self.stack.enter_context(patch.dict(os.environ, {
-            "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm-256color",
-            "COLORTERM": "truecolor"}))
+            "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm-256color"}))
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
         self.words = dict(WORDS)
@@ -241,17 +240,14 @@ class Breathing(MainScreen):
         self.assertEqual(waits[7][2][:3], "\033[H")      # drawn again, not a frame at old cells
         self.assert_breathing(waits[7][2], waits[8:])
 
-    def test_a_pipe_no_color_and_eight_colours_draw_no_frames(self):
+    def test_a_pipe_and_no_color_draw_no_frames(self):
         reader, writer = os.pipe()
         self.addCleanup(os.close, writer)
         pipe = os.fdopen(reader)
         self.addCleanup(pipe.close)
         stills = {"pipe": (patch.object(sys, "stdin", pipe), patch.object(
                       terminal, "Keyboard", TERMINAL)),
-                  "NO_COLOR": (patch.dict(os.environ, {"NO_COLOR": "1"}),),
-                  "eight colours": (patch.dict(os.environ, {"COLORTERM": ""}),
-                                    patch("curses.setupterm"),
-                                    patch("curses.tigetnum", return_value=8))}
+                  "NO_COLOR": (patch.dict(os.environ, {"NO_COLOR": "1"}),)}
         for still, patches in stills.items():
             with self.subTest(still), ExitStack() as stack:
                 for each in patches:

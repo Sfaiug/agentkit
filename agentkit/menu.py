@@ -71,8 +71,8 @@ reading younger than `usage.PROBE_EVERY` is fresh, so the probe asks an adapter 
 minute -- the cadence is the host's and not this screen's -- and never blocks a keypress or a
 draw; Muse's adapter keeps its own ten-minute cache, because its probe is a billed request.
 Those ten seconds hold whatever stdin is, a script's half-written line included, and a key typed
-during a draw is read by the next wait.  At rest one thing moves: on a terminal of 256 colours or
-more each working seat's `●` breathes, all in one phase, on `motion`'s clock (`moving`); and
+during a draw is read by the next wait.  At rest one thing moves: where colour is drawn
+each working seat's `●` breathes, all in one phase, on `motion`'s clock (`moving`); and
 news seen while the menu is up moves once on it -- a `!` pulses, a `✓` settles, a usage bar
 glides -- then is still.  A seat's `c` follows its record within a second; other sub-screens
 are read once, like any other question, except a project's feature switches, which draw again
@@ -1130,10 +1130,10 @@ def line_at(line):
 def tips(line):
     """Plain-text offset of the rendered progress tip, if one breathes.
 
-    Read its working-colour span before highlighting: draft glyphs are plain.  At 256 colours
-    several bar cells can share the tip's colour, so only the last one breathes.
+    Read its working-colour span before highlighting: draft glyphs are plain.  Several bar
+    cells share the tip's colour, so only the last one breathes.
     """
-    if terminal.colour_depth() <= 8:
+    if not terminal.colour_depth():
         return []
     tip = max(line.rfind(terminal.styled(char, "working")) for char in ("━", "╸"))
     return [len(terminal.ANSI.sub("", line[:tip]))] if tip >= 0 else []
@@ -7220,7 +7220,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         live.said.extend(said)
         if keyboard.take():
-            terminal.sense()              # true colour and the background, once, before a draw
+            terminal.sense()              # the background, once, before a draw
         live.watch(last)                  # read once, now: the first draw has nothing else
         back = False                      # back from a seat, or the screen that opens one
         newborn = None                    # the seat `n` is typing the name of (`born`)

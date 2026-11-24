@@ -100,7 +100,7 @@ def tinted(glyph, word, amount, bright=False):
     where `amount` is below 0: bold where the word is, and `bright` on the highlighted row,
     where every cell is."""
     text = terminal.styled(glyph, terminal.faded(word, amount))
-    bold = bright or terminal.STATE_STYLES[word][4] == "1"
+    bold = bright or terminal.STATE_STYLES[word][3] == "1"
     return terminal.bright(text) if bold else text
 
 
@@ -373,9 +373,9 @@ def moment():
 
 def movable():
     """Whether anything moves on the screen up (terminal.on_screen): not where colour cannot --
-    off a terminal, under NO_COLOR, at eight colours -- nor on a screen as tall as the terminal,
+    off a terminal, under NO_COLOR -- nor on a screen as tall as the terminal,
     which scrolls it, no row left where it was drawn (terminal.written)."""
-    return terminal.colour_depth() > 8 and len(terminal.on_screen()) < terminal.height()
+    return terminal.colour_depth() > 0 and len(terminal.on_screen()) < terminal.height()
 
 
 def spinning(began):

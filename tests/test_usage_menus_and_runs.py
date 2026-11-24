@@ -138,12 +138,11 @@ class UsageLeft(Sandbox):
 
     def test_colours_and_terminal_fallbacks(self):
         with patch.object(sys.stdout, "isatty", return_value=True), \
-                patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
-                patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
+                patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
             lines = menu.usage_lines(self.cfg, 100)
-            # eight colours or more: the empty cells dim and no other colour
-            self.assertIn("━━\033[2m────────\033[0m", lines[0])
-            self.assertNotIn("\033[31m", "\n".join(lines))
+            # where colour is drawn: the empty cells in the border's, and no error's on a spent row
+            self.assertIn("━━\033[38;2;58;63;70m────────\033[0m", lines[0])
+            self.assertNotIn("38;2;254;117;111", "\n".join(lines))
             plain = [terminal.plain(line) for line in lines]
             for env in ({"TERM": "dumb"}, {"TERM": "xterm-256color", "NO_COLOR": ""}, {}):
                 with patch.dict(os.environ, env, clear=True):
@@ -151,9 +150,6 @@ class UsageLeft(Sandbox):
                     self.assertNotIn("\033", "\n".join(rendered))
                     self.assertEqual([terminal.plain(line) for line in rendered], plain)
             with patch.object(sys.stdout, "isatty", return_value=False):
-                self.assertNotIn("\033", "\n".join(menu.usage_lines(self.cfg, 100)))
-            with patch("curses.tigetnum", return_value=0), \
-                    patch.dict(os.environ, {"TERM": "xterm-mono"}):
                 self.assertNotIn("\033", "\n".join(menu.usage_lines(self.cfg, 100)))
 
     def test_missing_corrupt_or_unreadable_usage_keeps_every_provider_row(self):
@@ -210,8 +206,7 @@ class UsageLeft(Sandbox):
             self.providers["meta"]["meters"][0]["used"] = used
             self.cache()
             with patch.object(sys.stdout, "isatty", return_value=True), \
-                    patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
-                    patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
+                    patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
                 grid = "\n".join(menu.usage_lines(self.cfg, 100))
                 self.assertIn("1% left" if shown else
                               terminal.styled("empty until Thu 22:00", "dim"), grid)

@@ -52,9 +52,10 @@ class UsageRowAge(Sandbox):
         self.cache({"meters": [self.meter()], "fetched_at": OLD})
         self.assertRegex(self.row(), r"60% left · resets \w+ \d\d:\d\d · as of 01:46$")
         self.assertNotRegex(self.row(), "rate limited|unavailable")
-        with patch.object(terminal, "colour_depth", return_value=8):
+        with patch.object(terminal, "colour_depth", return_value=24):
             line = menu.usage_detail(self.cfg, number(self.cfg, "Acme"))
-        self.assertIn("\033[2mas of 01:46\033[0m", line)   # the age note is dim, like each note
+        # the age note is dim, like each note
+        self.assertIn("\033[38;2;134;141;151mas of 01:46\033[0m", line)
         # `ak usage` says the same words under its table.
         self.assertRegex(self.rendered({"meters": [self.meter()], "fetched_at": OLD}),
                          r"note: Acme as of 01:46")
@@ -153,9 +154,9 @@ class UsageRowAge(Sandbox):
 
     def test_the_ak_usage_age_note_is_dim(self):
         prov = {"meters": [self.meter()], "fetched_at": OLD}
-        with patch.object(terminal, "colour_depth", return_value=8):
+        with patch.object(terminal, "colour_depth", return_value=24):
             rendered = self.rendered(prov)
-        self.assertIn("\033[2mnote: Acme as of 01:46\033[0m", rendered)
+        self.assertIn("\033[38;2;134;141;151mnote: Acme as of 01:46\033[0m", rendered)
 
 
 if __name__ == "__main__":
