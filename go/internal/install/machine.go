@@ -93,12 +93,16 @@ func machineUp(name string, out, errOut io.Writer) error {
 		}
 	}
 	// Memory is a reservation: the Mac never gets back what the machine has once touched, so a
-	// machine holding more than its share, as one made by hand may, is held to it.
+	// machine holding more than its share, as one made by hand may, is held to it.  macOS keeps
+	// 24 GiB at least: beside a machine of 48 on a Mac of 64, macOS, its programs and one render
+	// held 24 (24 Nov 2026), the Mac ran out, compressed the machine's memory faster than its
+	// cores read it back and stood still until its watchdog restarted it.  What macOS does not use
+	// of its share caches the machine's disk, which it otherwise compresses the machine to do.
 	memory, err := reading(0, 0, "sysctl", "-n", "hw.memsize")
 	if err != nil {
 		return err
 	}
-	mem := share(memory>>30, 4) // bytes, in GiB
+	mem := share(memory>>30, 24) // bytes, in GiB
 	if _, err := os.Stat(filepath.Join(dir, "lima.yaml")); err != nil {
 		// Cores are shared with macOS as it runs, so a quarter left to it is room to schedule, and
 		// a machine made with more keeps them: they come back to macOS whenever it idles.

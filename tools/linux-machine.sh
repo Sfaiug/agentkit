@@ -41,8 +41,12 @@ linux_machine_up() {
     else brew install lima || return 1; fi
   fi
   # Memory is a reservation: the Mac never gets back what the machine has once touched, so a
-  # machine holding more than its share, as one made by hand may, is held to it.
-  mem=$(linux_share $(($(sysctl -n hw.memsize) / gib)) 4) || return 1
+  # machine holding more than its share, as one made by hand may, is held to it.  macOS keeps
+  # 24 GiB at least: beside a machine of 48 on a Mac of 64, macOS, its programs and one render
+  # held 24 (24 Nov 2026), the Mac ran out, compressed the machine's memory faster than its
+  # cores read it back and stood still until its watchdog restarted it.  What macOS does not use
+  # of its share caches the machine's disk, which it otherwise compresses the machine to do.
+  mem=$(linux_share $(($(sysctl -n hw.memsize) / gib)) 24) || return 1
   if [ ! -f "$dir/lima.yaml" ]; then
     # Cores are shared with macOS as it runs, so a quarter left to it is room to schedule, and
     # a machine made with more keeps them: they come back to macOS whenever it idles.
