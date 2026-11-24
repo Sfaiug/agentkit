@@ -1,9 +1,11 @@
 """`config · limits` holds `rescope_findings`
 (tests/test_key_many_findings_end_a_run_for_rescoping.py) on a row after `Extra rounds with one or
 two findings left`, drawn as that row is: on a fresh home `Findings that end a run for rescoping`
-at 6, its meaning under it, ← and → stepping it from 0 to 12, saved to config.toml at once.
+at 6, its meaning under it, ← and → stepping it by one from 0 with no top, saved to config.toml
+at once.
 
-The owner's ask of 20 Nov 2026: "The user can choose how many findings should force a rescope."
+The owner's ask of 20 Nov 2026: "The user can choose how many findings should force a rescope.";
+22 Nov 2026: "Let the page count on."
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its
 harnesses the fakes of tests/fixtures/fakeadapter.py, judged by the screen and config.toml.  The
 terminal has no colour (NO_COLOR).  This test fails against `/bin/false`.
@@ -80,12 +82,23 @@ class RescopeFindings(unittest.TestCase):
         self.shows(term, "◂ 7 ▸ default 6")
         self.assertEqual(akconfig.read(self.home)["rescope_findings"], 7)
 
-    def test_left_from_1_saves_0(self):
+    def test_from_20_left_saves_19_and_right_then_20(self):
+        term = self.pointed({"rescope_findings": 20})
+        self.shows(term, "◂ 20 ▸ default 6")
+        for arrow, value in (("Left", 19), ("Right", 20)):
+            term.keys(arrow)
+            self.shows(term, f"◂ {value} ▸ default 6")
+            self.assertEqual(akconfig.read(self.home)["rescope_findings"], value)
+
+    def test_left_from_1_saves_0_and_there_moves_nothing(self):
         term = self.pointed({"rescope_findings": 1})
         self.shows(term, "◂ 1 ▸ default 6")
         term.keys("Left")
         self.shows(term, "off ▸ default 6")
         self.assertEqual(akconfig.read(self.home)["rescope_findings"], 0)
+        term.keys("Left", "Right")      # ← at 0 moves nothing: → takes 1
+        self.shows(term, "◂ 1 ▸ default 6")
+        self.assertEqual(akconfig.read(self.home)["rescope_findings"], 1)
 
 
 if __name__ == "__main__":

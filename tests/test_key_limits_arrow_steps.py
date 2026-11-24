@@ -1,18 +1,18 @@
 """On `config · limits`, ← and → move the limit the pointer is on one step down or up, saved to
 config.toml at once: `Review rounds` 0 to 5, `Max lines per executor task` 0 to 1000 in hundreds
 then `no limit`, `Max lines per orchestrator task` 0 to 200 in 25s then `no limit`,
-`Extra rounds with one or two findings left` 0 to 3.  A value between steps, as written by hand,
-moves to the next step in the arrow's direction, and neither arrow moves past an end.  The
-pointed row shows its value as `◂ value ▸`, a side's arrow left out at that end, a click on one
-moving it as its key does, and the key line reads `↑↓ limit   ←→ value   esc back`.  With the
-pointer off every row, the first ← or → only brings the highlight back, as Enter and Space do.
-A pointed value too wide beside its label, as on 40 cells, folds under it whole, never an arrow
-parted from it, and a label too wide for its line wraps at its words.
+`Extra rounds with one or two findings left` by one from 0 with no top.  A value between steps,
+as written by hand, moves to the next step in the arrow's direction, and neither arrow moves past
+an end.  The pointed row shows its value as `◂ value ▸`, a side's arrow left out at that end, a
+click on one moving it as its key does, and the key line reads `↑↓ limit   ←→ value   esc back`.
+With the pointer off every row, the first ← or → only brings the highlight back, as Enter and
+Space do.  A pointed value too wide beside its label, as on 40 cells, folds under it whole, never
+an arrow parted from it, and a label too wide for its line wraps at its words.
 
-The owner's design of 5 Nov 2026.  Black-box: the program `AK_BIN` names, in a person's
-terminal (tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py,
-judged by the screen and config.toml.  The terminal has no colour (NO_COLOR).  This test fails
-against `/bin/false`.
+The owner's design of 5 Nov 2026; 22 Nov 2026: "Let the page count on."  Black-box: the program
+`AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its harnesses the fakes of
+tests/fixtures/fakeadapter.py, judged by the screen and config.toml.  The terminal has no colour
+(NO_COLOR).  This test fails against `/bin/false`.
 """
 
 import sys
@@ -26,12 +26,13 @@ from fixtures.akterm import SERVER, Terminal
 
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
           "astra": {"harness": "codex", "effort": "high"}}
-# each row's name: its key in config.toml, its steps and ak's default
+# each row's name: its key in config.toml, its steps, `...` last where they go on with no top,
+# and ak's default
 LIMITS = {"Review rounds": ("review_rounds", list(range(6)), 3),
           "Max lines per executor task": ("executor_lines", [*range(0, 1001, 100), "no limit"], 300),
           "Max lines per orchestrator task": ("orchestrator_lines", [*range(0, 201, 25), "no limit"],
                                               50),
-          "Extra rounds with one or two findings left": ("extra_rounds", list(range(4)), 2)}
+          "Extra rounds with one or two findings left": ("extra_rounds", [0, 1, 2, 3, 4, ...], 2)}
 NAMES = list(LIMITS)
 WIDE = max(map(len, NAMES))
 KEY_LINE = "  ↑↓ limit   ←→ value   esc back"
@@ -104,10 +105,12 @@ class ArrowSteps(unittest.TestCase):
             with self.subTest(name=name):
                 term = self.limits({key: 0})
                 self.point(term, name, 0, down=False)
-                path = [*range(1, len(steps)), *range(len(steps) - 2, -1, -1)]
+                numbers = [step for step in steps if step is not ...]
+                path = [*range(1, len(numbers)), *range(len(numbers) - 2, -1, -1)]
                 for at, before in zip(path, [0, *path]):
                     term.keys("Right" if at > before else "Left")
-                    self.pointed(term, name, steps[at], down=at > 0, up=at < len(steps) - 1)
+                    self.pointed(term, name, numbers[at], down=at > 0,
+                                 up=at < len(numbers) - 1 or steps[-1] is ...)
 
     def test_a_value_between_steps_moves_to_the_next_step_each_way(self):
         for name, held, arrow, value in ((NAMES[1], 250, "Right", 300), (NAMES[1], 250, "Left", 200),
@@ -130,6 +133,8 @@ class ArrowSteps(unittest.TestCase):
                 self.point(term, name, 0, down=False)
                 term.keys("Left", "Right")      # ← at the bottom moves nothing: → takes the next
                 self.pointed(term, name, steps[1])
+                if steps[-1] is ...:
+                    continue                    # no top: the walk up passes its last number
                 # → past the top moves nothing: ← takes the one under it.  The top is waited for
                 # before ←, as the climb shows that one too: a wait met there would leave keys
                 # unread, saving config.toml over the next subtest's.
