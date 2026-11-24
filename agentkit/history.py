@@ -1469,6 +1469,25 @@ def ended_runs(since, until):
         return []
 
 
+def changes_since(since):
+    """Every run, whatever its state, of each change a run of which ended at or after `since`,
+    read as plain mappings; none of a suite's (`suite_run`)."""
+    _ensure_tokens_recounted()
+    change = "COALESCE(NULLIF(\"change\", ''), run_id)"
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    f"SELECT * FROM runs WHERE {change} IN (SELECT {change} FROM runs "
+                    "WHERE finished_at >= ?) AND NOT suite_run(run_id, repo)", (since,))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
 def conflict_rows(since, until):
     """Real conflicts by date, plus earlier conflicts on changes merged in the range."""
     try:

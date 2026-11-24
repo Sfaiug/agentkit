@@ -1,6 +1,7 @@
 """`ak models --json` counts the tasks of the last 30 days by the team that did them (`runs`): a
-task is a run of kind `task` judged in the window with every later run of its change, of the
-team of its first run, its orchestrator, executor and reviewer each a model at an effort (the
+task is a run of kind `task` judged in the window with every later run of its change, stopped
+or running too, of the team of its first run (the run its change is named for, whatever start a
+relaunch ties with), its orchestrator, executor and reviewer each a model at an effort (the
 reviewer's its first review's).  Per team: its tasks, those merged on their first run, those
 merged on any, and the hours every run of them spent.  A follow-up, a seat's own pull request and
 a task whose first run ended before the window count nowhere, nor do its relaunches.
@@ -23,7 +24,7 @@ from fixtures.akbin import Home
 from test_key_models_answer import ENV, NOW, boards
 
 DAY = 86400
-# Each run of team A: an hour of build, half of review, a quarter of checks and an hour waiting,
+# Each run: an hour of build, half of review, a quarter of checks and an hour waiting,
 # a part of it in each of the four waits
 RUN = {"run_id": "", "repo": "acme", "kind": "task", "change": None,
        "orchestrator": "nova", "orchestrator_effort": "high", "executor": "bolt",
@@ -33,6 +34,8 @@ RUN = {"run_id": "", "repo": "acme", "kind": "task", "change": None,
        "slot_wait_seconds": 360, "suite_wait_seconds": 720, "merge_wait_seconds": 1080,
        "lander_wait_seconds": 1440}
 FAILED = {"final_state": "fail", "verdict": "FAIL", "changed_lines": None}
+STOPPED = {"final_state": "stopped", "verdict": None, "changed_lines": None}
+RUNNING = {**STOPPED, "final_state": "running", "finished_at": None}
 
 
 def run(run_id, days_ago, **fields):
@@ -42,17 +45,20 @@ def run(run_id, days_ago, **fields):
 
 RUNS = [
     run("fix-api", 5),                                  # merged on its first run
-    run("fix-cache", 4, **FAILED),                      # failed, merged launched again from its
-    run("fix-cache-again", 3, change="fix-cache", executor="crux"),     # branch by another
+    run("write-cache", 4, **FAILED),                    # failed, merged launched again from its
+    run("finish-cache", 3, change="write-cache", executor="crux",   # branch by another, started
+        started_at=NOW - 4 * DAY - 600),                # when it was
     run("fix-docs", 2, **FAILED),                       # failed
-    run("fix-login", 1, executor_effort="low"),         # team B's
+    run("fix-login", 1, executor_effort="low", **FAILED),       # team B's, failed, launched again
+    run("fix-login-again", 0.5, change="fix-login", **STOPPED),     # and stopped, and again now
+    run("fix-login-now", 0.25, change="fix-login", **RUNNING),
     run("fix-api-again", 1, kind="follow-up"),          # none is a task
     run("acme-pr", 1, kind="seat PR", change="acme/acme#7"),
     run("fix-old", 31),                                 # ended before the window, and so its
     run("fix-old-again", 1, change="fix-old"),          # relaunch
 ]
 # the effort of each first run's first review; fix-api's second round is at another
-REVIEWS = [("fix-api", 1, "medium"), ("fix-api", 2, "high"), ("fix-cache", 1, "medium"),
+REVIEWS = [("fix-api", 1, "medium"), ("fix-api", 2, "high"), ("write-cache", 1, "medium"),
            ("fix-docs", 1, "medium"), ("fix-login", 1, "medium"), ("fix-old", 1, "medium")]
 
 
@@ -88,7 +94,7 @@ class ModelsJsonCountsTasksByTeam(unittest.TestCase):
         runs = json.loads(done.out)["runs"]
         self.assertEqual(runs["until"] - runs["since"], 30 * DAY)
         self.assertTrue(NOW <= runs["until"] <= time.time())
-        self.assertCountEqual(runs["teams"], [team("max", 3, 1, 2, 4.0), team("low", 1, 1, 1, 1.0)])
+        self.assertCountEqual(runs["teams"], [team("max", 3, 1, 2, 4.0), team("low", 1, 0, 0, 3.0)])
 
 
 if __name__ == "__main__":

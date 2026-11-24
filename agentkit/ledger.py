@@ -2,10 +2,10 @@
 task, the executor that built it and the reviewer that reviewed it, each a model at an effort.
 It hides which runs are a task, and how one launched again counts once: a task is a run of kind
 `task` that ended with a verdict of the work (`record.JUDGED`), together with every later run of
-its change (a relaunch from its kept branch carries the change on, `runs.change`), one task of
-the team of its first run, counted where that run ended.  A run of another kind (a follow-up, a
-repair, a seat's own pull request) is no task, and a task rewritten under a new title is a new
-one: ak keeps no link between the two.
+its change, however it ended or while it runs (a relaunch from its kept branch carries the
+change on, `runs.change`), one task of the team of its first run, counted where that run ended.
+A run of another kind (a follow-up, a repair, a seat's own pull request) is no task, and a task
+rewritten under a new title is a new one: ak keeps no link between the two.
 """
 
 import time
@@ -22,22 +22,25 @@ HOURS = {"build": ("executor_seconds",), "review": ("reviewer_seconds",),
          "waiting": tuple(f"{wait}_wait_seconds" for wait in history.WAITS)}
 
 
-def by_team(now=None):
+def by_team():
     """{"since", "until", "teams"}: the window, and per team, most tasks first, each role's
     {"name", "effort"} as its first run's row names them (the reviewer's effort its first
     review's), its tasks, those whose first run merged (`history.merged`), those any of whose
-    runs merged, and the hours every run of them spent (`HOURS`), merged or not."""
-    until = time.time() if now is None else now
+    runs merged, and the hours every run of them spent (`HOURS`), however it ended or while it
+    runs."""
+    until = time.time()
     since = until - WINDOW
     changes = {}
-    for row in sorted(history.ended_runs(0, until),
-                      key=lambda row: (row.get("started_at") or 0, row["run_id"])):
+    for row in history.changes_since(since):
         changes.setdefault(row.get("change") or row["run_id"], []).append(row)
     reviewed = history.first_review_efforts()
     teams = {}
-    for runs in changes.values():
-        # the whole history is read, so a task whose first run ended before the window takes
-        # its relaunches out with it
+    for change, runs in changes.items():
+        # the run a change is named for began it, whatever start a relaunch ties with; a change
+        # comes whole, so a task whose first run ended before the window takes its relaunches
+        # out with it
+        runs.sort(key=lambda row: (row["run_id"] != change, row.get("started_at") or 0,
+                                   row["run_id"]))
         start = next((at for at, row in enumerate(runs) if row.get("kind") == "task"
                       and row["final_state"] in record.JUDGED), None)
         if start is None or runs[start]["finished_at"] < since:
