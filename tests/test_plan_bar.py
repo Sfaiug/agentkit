@@ -180,7 +180,7 @@ class PlanBar(Sandbox):
                 "count": "working", "word": "working", "sentence": "", "bar": (1, 9), "runs": []}
         asks = dict(info, count="needs you", word="needs you", sentence="Merge #75 first?")
         for width in (60, 61, 62, 63, 70):
-            for depth in (0, 8, 256, 24):
+            for depth in (0, 8, 24):
                 with self.subTest(width=width, depth=depth), \
                         patch.object(terminal, "colour_depth", return_value=depth):
                     bar, ask = menu.v5o_seat_blocks([info, asks], width)
@@ -247,7 +247,7 @@ class PlanBar(Sandbox):
         for width, done, total in ((22, 127, 143), (24, 4999, 9999), (30, 3, 7), (40, 3, 7)):
             info = {"number": "1", "name": "acme", "orchestrator": "sol", "count": "working",
                     "word": "working", "sentence": "", "bar": (done, total), "solo": True}
-            for depth in (0, 8, 256, 24):
+            for depth in (0, 8, 24):
                 with self.subTest(width=width, depth=depth), \
                         patch.object(terminal, "colour_depth", return_value=depth):
                     block = menu.v5o_seat_blocks([info], width)[0]

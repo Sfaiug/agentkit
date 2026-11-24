@@ -108,8 +108,8 @@ class Lines(list):
     lit = None
 
 
-# what a draw puts on the selection, at the 256 colours the child's terminal has
-SELECTED = re.compile(r"\x1b\[48;5;\d+m(.*?)\x1b\[49m")
+# what a draw puts on the selection, in the true colour the child's terminal of 256 takes
+SELECTED = re.compile(r"\x1b\[48;2;\d+;\d+;\d+m(.*?)\x1b\[49m")
 
 
 class Screen:

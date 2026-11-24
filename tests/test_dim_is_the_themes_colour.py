@@ -19,7 +19,6 @@ from agentkit import config, menu, terminal
 from agentkit.themes import ROLES
 
 SGR = re.compile(r"\x1b\[([\d;]*)m")
-NEAREST = {"6f757e": 243, "868d97": 245}     # each theme's dim, the nearest of xterm's 256
 
 
 def faint(text):
@@ -45,13 +44,12 @@ class DimIsTheThemesColour(Screens):
 
     def test_above_eight_colours_dim_is_its_colour_alone_and_needs_you_still_bold(self):
         def check(dim):
-            for depth, ink in ((24, "38;2;" + ";".join(map(str, bytes.fromhex(dim)))),
-                               (256, f"38;5;{NEAREST[dim]}")):
-                with patch.object(terminal, "colour_depth", return_value=depth):
-                    for kind in ("dim", "idle", "waiting"):
-                        self.assertEqual(terminal.styled("a note", kind),
-                                         f"\033[{ink}ma note\033[0m", (depth, kind))
-                    self.assertTrue(terminal.styled("!", "needs you").startswith("\033[1;"))
+            ink = "38;2;" + ";".join(map(str, bytes.fromhex(dim)))
+            with patch.object(terminal, "colour_depth", return_value=24):
+                for kind in ("dim", "idle", "waiting"):
+                    self.assertEqual(terminal.styled("a note", kind), f"\033[{ink}ma note\033[0m",
+                                     kind)
+                self.assertTrue(terminal.styled("!", "needs you").startswith("\033[1;"))
         self.themes(check)
 
     def test_at_eight_colours_a_note_is_faint_as_before(self):

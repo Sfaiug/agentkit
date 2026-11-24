@@ -1130,8 +1130,8 @@ def line_at(line):
 def tips(line):
     """Plain-text offset of the rendered progress tip, if one breathes.
 
-    Read its working-colour span before highlighting: draft glyphs are plain.  At 256 colours
-    several bar cells can share the tip's colour, so only the last one breathes.
+    Read its working-colour span before highlighting: draft glyphs are plain.  Every full cell
+    shares the tip's colour, so only the last one breathes.
     """
     if terminal.colour_depth() <= 8:
         return []

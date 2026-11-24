@@ -54,7 +54,6 @@ THEME = None       # the theme the terminal's answer fits (`sense`), None where 
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
-LEVELS = (0, 95, 135, 175, 215, 255)   # each channel's steps in xterm's 6x6x6 colour cube
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
 _ATTRIBUTES = re.compile(rb"\x1b\[\?[0-9;]*c")   # ... and to DA1, which follows it
@@ -130,7 +129,9 @@ def colour_depth():
 @lru_cache(maxsize=8)
 def _depth(isatty, term, colorterm, no_colour, rgb):
     # Once per terminal: a frame asks for every cell it moves, a system call each, and setting up
-    # curses each time where the colours come from there.
+    # curses each time where the colours come from there.  An entry of 256 colours is true colour:
+    # ssh drops COLORTERM, and a seat's tmux tells every terminal it takes true colour
+    # (`orch.tmux_conf`), so the menu over a seat and the one in the whole window draw it alike.
     if not isatty() or not term or term == "dumb" or no_colour:
         return 0
     if colorterm.lower() in ("truecolor", "24bit") or rgb:
@@ -139,32 +140,17 @@ def _depth(isatty, term, colorterm, no_colour, rgb):
         import curses
         curses.setupterm(term=term)
         colours = curses.tigetnum("colors")
-        return 256 if colours >= 256 else 8 if colours >= 8 else 0
+        return 24 if colours >= 256 else 8 if colours >= 8 else 0
     except ImportError:
         return 0
     except curses.error:
         return 0
 
 
-@lru_cache(maxsize=None)
-def xterm_colour(rgb):
-    """Nearest fixed xterm colour, the lower number on a tie; the first sixteen depend on the
-    user's palette.  A fade asks for a new colour each frame, so none is searched for: in the
-    cube each channel is nearest on its own, and the nearest grey is the one nearest the
-    channels' mean."""
-    wanted = [int(rgb[i:i + 2], 16) for i in (0, 2, 4)]
-    steps = [min(range(6), key=lambda n: abs(LEVELS[n] - value)) for value in wanted]
-    grey = min(range(24), key=lambda n: abs(3 * (8 + 10 * n) - sum(wanted)))
-    return min((16 + 36 * steps[0] + 6 * steps[1] + steps[2], [LEVELS[n] for n in steps]),
-               (232 + grey, [8 + 10 * grey] * 3),
-               key=lambda item: sum((a - b) ** 2 for a, b in zip(wanted, item[1])))[0]
-
-
 def ink(rgb, ground="38"):
-    """`rgb` as the code that draws it nearest above eight colours: the text's, or with `ground`
-    48 the background's."""
-    return (f"{ground};2;" + ";".join(map(str, bytes.fromhex(rgb))) if colour_depth() == 24
-            else f"{ground};5;{xterm_colour(rgb)}")
+    """`rgb` as the code that draws it above eight colours: the text's, or with `ground` 48 the
+    background's."""
+    return f"{ground};2;" + ";".join(map(str, bytes.fromhex(rgb)))
 
 
 def basic_colour(rgb):
@@ -206,10 +192,6 @@ def fade(text, amount):
                 rgb = None
             elif first == 38 and parts[:1] == [2]:
                 rgb, parts = parts[1:4], parts[4:]
-            elif first == 38 and parts[:1] == [5]:
-                n, parts = parts[1] - 16, parts[2:]
-                rgb = ((8 + 10 * (n - 216),) * 3 if n >= 216 else
-                       (LEVELS[n // 36], LEVELS[n // 6 % 6], LEVELS[n % 6]))
         out += text[at:code.end()] + tone(rgb)
         at = code.end()
     return out + text[at:] + "\033[0m"

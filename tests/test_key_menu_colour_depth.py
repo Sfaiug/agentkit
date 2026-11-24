@@ -1,9 +1,9 @@
-"""The menu draws in as many colours as the terminal takes, and in none under NO_COLOR.
+"""The menu draws in the look's own colours or the eight basic ones, and in none under NO_COLOR.
 
-True colour only where COLORTERM or tmux says so; otherwise the terminal's own count:
-xterm-256color takes the nearest of its 256 fixed colours and a plain xterm the eight basic ones,
-so no cell of any frame is drawn in a colour the terminal would show as some other.  NO_COLOR
-turns colour off everywhere,
+The look's own where COLORTERM or tmux says so, or where the terminal's entry counts 256 colours
+or more, as xterm-256color's does: no fixed colour of 256 is drawn anywhere.  Where the entry
+counts eight, as a plain xterm's does, the eight basic colours, in every frame.  NO_COLOR turns
+colour off everywhere,
 even on a true-colour terminal, the help included, and the menu still reads by its shapes: the
 rule under its header, the `›` on the highlighted row and the key line.  Black-box: ak runs
 through tests/fixtures/akterm.py, and each cell is judged by how it looks
@@ -38,11 +38,10 @@ class ColourDepth(unittest.TestCase):
         self.addCleanup(self.home.tmux, "kill-session", "-t", menu.pane, server=SERVER)
         return settled(menu, lambda text: "! needs you" in text and "esc leave" in text)
 
-    def test_xterm_256color_without_colorterm_draws_only_fixed_colours(self):
+    def test_xterm_256color_without_colorterm_draws_the_looks_own(self):
         screen = self.menu(TERM="xterm-256color")
-        self.assertEqual(ink(look(screen, "›")), {"1", "38;5;75"})
-        drawn = colours(screen)
-        self.assertEqual({c for c in drawn if not re.fullmatch(r"[34]8;5;\d+", c)}, set())
+        self.assertEqual(ink(look(screen, "›")), {"1", "38;2;77;163;255"})
+        self.assertEqual({c for c in colours(screen) if re.fullmatch(r"[34]8;5;\d+", c)}, set())
 
     def test_plain_xterm_draws_only_the_eight_basic_colours(self):
         screen = self.menu(TERM="xterm")
@@ -61,7 +60,7 @@ class ColourDepth(unittest.TestCase):
         self.assertEqual({c for c in colours(screen) if not re.fullmatch(r"[34][0-7]", c)}, set())
 
     def test_true_colour_tmux_reports_is_drawn_though_colorterm_does_not_say_it(self):
-        screen = self.menu(TERM="xterm-256color", AGENTKIT_TERMFEATURES="RGB")
+        screen = self.menu(TERM="xterm", AGENTKIT_TERMFEATURES="RGB")
         self.assertEqual(ink(look(screen, "›")), {"1", "38;2;77;163;255"})
 
     def test_no_color_draws_no_colour_even_on_a_true_colour_terminal(self):

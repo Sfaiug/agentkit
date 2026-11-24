@@ -2,8 +2,8 @@
 
 The listing's rows are the verbs a seat uses; the verbs ak runs for itself share one line, drawn
 dim so the eye passes over it.  The dim is the black theme's own colour alone, never faint as
-well, at whatever depth the terminal says it takes: true colour when COLORTERM says so, else the
-nearest of 256, else the plain faint of eight colours, and none at all under NO_COLOR.
+well, at whatever depth the terminal says it takes: true colour when COLORTERM says so or its
+entry counts 256, else the plain faint of eight colours, and none at all under NO_COLOR.
 Black-box: the program `AK_BIN` names runs on a terminal from tests/fixtures/akterm.py, whose
 screen is read cell by cell, colours and all.
 """
@@ -21,7 +21,6 @@ DIM = "\x1b[2m"
 RESET = "\x1b[0m"
 COLOURED = "\x1b[39m"   # the terminal ends a line in a colour alone by ending the colour alone
 GREY = "\x1b[38;2;134;141;151m"      # the black theme's dim, #868d97
-GREY_256 = "\x1b[38;5;245m"          # ... and the nearest of xterm's 256 to it
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -43,8 +42,8 @@ class OnATerminal(unittest.TestCase):
     def test_true_colour_draws_the_internal_line_in_the_palette_grey(self):
         self.assertEqual(self.styled_lines(COLORTERM="truecolor"), [GREY + INTERNAL + COLOURED])
 
-    def test_256_colours_draw_it_in_the_nearest_grey_they_have(self):
-        self.assertEqual(self.styled_lines(COLORTERM=""), [GREY_256 + INTERNAL + COLOURED])
+    def test_256_colours_draw_it_in_the_palette_grey_too(self):
+        self.assertEqual(self.styled_lines(COLORTERM=""), [GREY + INTERNAL + COLOURED])
 
     def test_eight_colours_draw_it_plain_dim(self):
         self.assertEqual(self.styled_lines(TERM="xterm", COLORTERM=""), [DIM + INTERNAL + RESET])
