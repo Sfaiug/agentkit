@@ -1,4 +1,4 @@
-"""Review pairs with one subscription, fake budgets and no model calls."""
+"""Review pairs with one subscription, fake meters and no model calls."""
 
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import io
@@ -157,7 +157,7 @@ class OneProvider(unittest.TestCase):
                 self.assertEqual(self.pick("alpha"), ("alpha", "beta"))
                 self.assertNotIn("gamma", run.ready_order(self.cfg, self.providers,
                                                           role="reviewer"))
-                # the ranking itself keeps it; only a pick leaves it out
+                # the order itself keeps it; only a run's pick leaves it out
                 self.assertIn("gamma", usage.pick_order(self.cfg, self.providers))
                 self.assertEqual(self.logs, [f"skipped gamma: other is {words}",
                                              f"skipped delta: other is {words}"] * 2)
@@ -312,7 +312,7 @@ class OneProvider(unittest.TestCase):
             self.assertEqual(run.pick_models(self.cfg, self.providers, "seat", "alpha",
                                              self.logs.append, resuming=True), ("seat", "alpha"))
 
-    def test_budget_order_and_display_use_same_company_pair_policy(self):
+    def test_the_pick_order_and_display_use_same_company_pair_policy(self):
         cfg = tomllib.loads((REPO / "config.default.toml").read_text())
         # the fixture below answers for three companies, so the default workers are scoped
         # to them and the scenario stays what it says

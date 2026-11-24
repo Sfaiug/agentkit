@@ -175,11 +175,11 @@ class WorkerList(unittest.TestCase):
         self.assertIn("  workers: alpha, gamma", status.status_details(lp.run_dir, lp.state))
 
     def test_a_handover_never_leaves_the_workers_list(self):
-        # delta tops every budget and sits in this process's session, but the run's own
-        # list left it out: the stalled turn's handover lands inside the list all the same
+        # delta sits in this process's session, but the run's own list left it out: the
+        # stalled turn's handover lands inside the list all the same
         lp = self.loop("alpha", "gamma", ["alpha", "gamma", "beta"])
         state = {**lp.state, "review_session": "saved-review"}
-        with patch.object(staffing, "collect_usage", return_value=self.providers(a=100, c=0)), \
+        with patch.object(staffing, "collect_usage", return_value=self.providers(a=100)), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "gamma")
         self.assertIn(state["executor"], ["alpha", "gamma", "beta"])
@@ -208,7 +208,7 @@ class WorkerList(unittest.TestCase):
 
     def test_a_fixer_never_leaves_the_workers_list(self):
         # the fixer's turn refuses and hands over mid-fix: the model that finishes the
-        # fix is the cheapest in the list, never delta from outside it
+        # fix is the next marked in the list, never delta from outside it
         lp = self.loop("alpha", "gamma", ["alpha", "gamma", "beta"])
         calls, fake = self.turn({"alpha": (1, "usage limit reached", "s-alpha", False)})
         bodies = {}
@@ -218,7 +218,7 @@ class WorkerList(unittest.TestCase):
             return fake(cfg, name, body, workspace, out_dir, role, session, env=env, limit=limit)
 
         with patch.object(run.worker, "call", side_effect=remember), \
-                self.refused(self.providers(c=0)), \
+                self.refused(self.providers()), \
                 patch.object(run.time, "sleep",
                              side_effect=AssertionError("quota waits on nothing")), \
                 redirect_stderr(io.StringIO()):
@@ -230,14 +230,14 @@ class WorkerList(unittest.TestCase):
         self.assertIn("Fix every finding.", bodies["gamma"])
 
     def test_a_fixer_never_hands_over_to_a_harness_it_cannot_run(self):
-        # delta tops every budget, but its harness is logged out: the fix goes on with the
-        # cheapest model that can run, and delta is given no role at all
+        # delta is marked, but its harness is logged out: the fix goes on with the next
+        # mark that can run, and delta is given no role at all
         lp = self.loop("alpha", "gamma", ["alpha", "gamma", "beta", "delta"])
         calls, fake = self.turn({"alpha": (1, "usage limit reached", "s-alpha", False)})
         self.cfg["models"]["delta"]["harness"] = "codex"
         self.why["codex"] = "codex is not logged in"
         with patch.object(run.worker, "call", side_effect=fake), \
-                self.refused(usage.Readings(self.providers(c=0))), \
+                self.refused(usage.Readings(self.providers())), \
                 patch.object(run.time, "sleep",
                              side_effect=AssertionError("quota waits on nothing")), \
                 redirect_stderr(io.StringIO()):
@@ -343,7 +343,7 @@ class WorkerList(unittest.TestCase):
                       (run_dir / "log.txt").read_text())
 
     def test_the_tick_never_hands_a_waiting_run_to_a_harness_that_cannot_run(self):
-        # delta tops every budget, but its harness is logged out: the tick's resume of a run
+        # delta is marked, but its harness is logged out: the tick's resume of a run
         # waiting on a window picks the provider whose models can run
         self.cfg["models"]["delta"]["harness"] = "codex"
         self.why["codex"] = "codex is not logged in"
@@ -356,7 +356,7 @@ class WorkerList(unittest.TestCase):
                                  "worktree": str(workspace),
                                  "workers": ["alpha", "beta", "gamma", "delta"]})
         logs = []
-        watch.resume_exhausted(self.cfg, usage.Readings(self.providers(a=100, c=0)),
+        watch.resume_exhausted(self.cfg, usage.Readings(self.providers(a=100)),
                                dry_run=True, log=logs.append, now=self.now)
         self.assertIn(f"would resume {run_dir.name}: b window refilled", logs)
         self.assertFalse((run_dir / "log.txt").exists())
@@ -364,7 +364,7 @@ class WorkerList(unittest.TestCase):
         # tick, still inside the resume's throttle, picks nothing and says nothing
         with patch.object(run, "spawn_bg") as spawn:
             for _ in range(2):
-                watch.resume_exhausted(self.cfg, usage.Readings(self.providers(a=100, c=0)),
+                watch.resume_exhausted(self.cfg, usage.Readings(self.providers(a=100)),
                                        log=logs.append, now=self.now)
         spawn.assert_called_once()
         lines = (run_dir / "log.txt").read_text().splitlines()
@@ -566,8 +566,8 @@ class WorkerList(unittest.TestCase):
         usage.harness_unready.assert_not_called()
 
     def test_a_stall_handover_logs_its_skips_in_the_run(self):
-        # a stalled worker turn is handed over by the tick; delta, logged out, tops every
-        # budget, and the run's own log -- not the tick's -- says it was passed over
+        # a stalled worker turn is handed over by the tick; delta, marked and logged out, is
+        # passed over, and the run's own log -- not the tick's -- says so
         self.cfg["models"]["delta"]["harness"] = "codex"
         self.why["codex"] = "codex is not logged in"
         run_dir = config.RUNS / "20260924-0000-stalled"
@@ -579,7 +579,7 @@ class WorkerList(unittest.TestCase):
                                  "workers": ["alpha", "beta", "gamma", "delta"]})
         logs = []
         with patch.object(usage, "collect",
-                          return_value=usage.Readings(self.providers(a=50, c=0))), \
+                          return_value=usage.Readings(self.providers(a=50))), \
                 patch.object(record, "process_active", return_value=True), \
                 patch.object(host, "frozen_cgroup", return_value=None), \
                 patch.object(watch, "stall_clock", return_value=0), \

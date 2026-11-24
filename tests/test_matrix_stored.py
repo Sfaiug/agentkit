@@ -1,16 +1,18 @@
 """The matrix the models screen reads is the one it or `ak models` last computed and stored in
 `state/matrix.json` (`matrix.refresh`), computed again only once a board answered anew or the
 config's models or the harnesses installed changed; a lineup an earlier build stored still
-matches the board's rows by their name until then.
+matches the board's rows by their name until then.  The model list (`matrix.off`) rates one
+stored lineup once, however often a run picks, and the pick keeps the order marked.
 
 Offline: the boards answered by bytes, the catalogs and installed harnesses faked
-(tests/test_model_rows.py), or an invented lineup (tests/test_matrix_lineup.py's); a throwaway
-HOME.
+(tests/test_model_rows.py), or an invented lineup (tests/test_matrix_lineup.py's); fake meters,
+a throwaway HOME.
 """
 
 import json
 from pathlib import Path
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -18,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import boards, config, matrix
+from agentkit import boards, config, matrix, quality, usage
 import test_model_rows as rows_test
 from test_matrix_lineup import aa
 
@@ -68,9 +70,10 @@ OFFERS = {"claude": [{"id": "claude-opus-5-5", "efforts": ["low", "high"]},
           "codex": [{"id": "gpt-6-astra", "efforts": ["high"]}]}
 
 
-class AnEarlierBuildsLineup(Sandbox):
+class AStoredLineup(Sandbox):
     def setUp(self):
         super().setUp()
+        self.stack.enter_context(patch.object(config, "active_session", return_value=None))
         for name in ("opus", "astra", "fable"):
             self.cfg["models"][name]["effort"] = "high"
         self.lineup = matrix.lineup({"artificialanalysis.ai": {"rows": [
@@ -86,6 +89,20 @@ class AnEarlierBuildsLineup(Sandbox):
         found = matrix.answer(old, cfg=self.cfg, task_usage=measured)["execute"]
         self.assertEqual([row["cost_rule"] for row in found["rated"] if row["release"] ==
                           "claude-opus-5-5-20261101" and row["effort"] == "high"], ["measured"])
+
+    def test_the_model_list_rates_a_stored_lineup_once_however_often_a_run_picks(self):
+        matrix.cache_path().write_text(json.dumps({"matrix": {"lineup": self.lineup}}))
+        week = {"name": "weekly_all", "pace": 0, "elapsed": 50, "window_secs": 604800,
+                "resets_at": time.time() + 302400}
+        providers = {"anthropic": {"meters": [{**week, "used": 50}], "resets": 0},
+                     "openai": {"meters": [{**week, "used": 10}], "resets": 0}}
+        with patch.object(quality, "rated", wraps=quality.rated) as rated:
+            matrix._listed.cache_clear()
+            for _ in range(2):
+                # Astra rated above Opus, with more of its week left: still after it, as marked
+                self.assertEqual(usage.pick_order(self.cfg, providers, ["opus", "astra"],
+                                                  quiet=True), ["opus", "astra"])
+        self.assertEqual(rated.call_count, len(quality.ROLES))
 
 
 if __name__ == "__main__":

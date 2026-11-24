@@ -197,7 +197,7 @@ interactive)
       "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$resume" "$rules" "$1" "$2" "$first" ;;
 usage)
   # No login is a failed probe, not a missing meter: without one an unauthenticated xai
-  # would read as a neutral 1.0 provider and be picked ahead of logged-in ones, only for
+  # would read as a neutral 1.0 provider and stay in the pick, only for
   # the turn to raise LoginExpired and park the run waiting_login without asking any other
   # provider.  So the probe answers the error first -- usage.py prefers it over none --
   # as JSON on exit 0, the way claude.sh and codex.sh do: usage.py only asks the
@@ -345,7 +345,7 @@ usage)
       | all(. == null)' <<<"$body" >/dev/null 2>&1 ||
     err "no billing reading from cli-chat-proxy.grok.com/v1/billing (HTTP ${code:-000})"
   # A meterless billing answer and a cache with no subscription_usage are a real no meter.
-  # [usage] none keeps the provider neutral in the picker, unlike a failed ask above.
+  # [usage] none keeps the provider neutral, unlike a failed ask above.
   printf '%s\n' '{"provider":"xai","meters":[],"error":null,"none":"no meter: cli-chat-proxy.grok.com/v1/billing?format=credits reports no usage percent, and the settings cache carries no subscription_usage entries"}' ;;
 install)
   if command -v grok >/dev/null; then echo "grok: already installed ($(grok --version 2>/dev/null))"; exit 0; fi

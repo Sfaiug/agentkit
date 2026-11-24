@@ -637,13 +637,15 @@ class NoMeterPicker(GrokSandbox):
 
     def test_a_meterless_provider_reads_neutral_and_stays_in_the_pick(self):
         cfg = config.load()
-        # every model works but Fable, whose scoped meter this fixture does not report
-        cfg["defaults"]["workers"] = [n for n in config.offered(cfg) if n != "fable"]
+        # the meterless grok beside the metered opus, the failed probes spark and astra with
+        # them, each where it is marked
+        cfg["defaults"]["workers"] = ["spark", "opus", "grok", "astra"]
         providers = self.providers()
         budget, reason = usage.model_budget(cfg, "grok", providers, NOW)
         self.assertEqual((budget, reason), (1.0, None))
         self.assertEqual(usage._budget_label(budget, reason), "1.0 in step")
-        self.assertIn("grok", usage.pick_order(cfg, providers, quiet=True))
+        self.assertEqual(usage.pick_order(cfg, providers, quiet=True),
+                         ["spark", "opus", "grok", "astra"])
 
 
 class MeterlessNeverDry(GrokSandbox):

@@ -55,7 +55,7 @@ CACHE_TTL = 300
 # a model request, so its adapter answers from its own ten-minute cache in between
 # (`harness/muse_usage.py`'s `CACHE_TTL`).
 # A probe that brings back no meters keeps the reading it could not replace, and that reading
-# still ranks for PROBE_TRUSTED_FOR: a meter nobody could read again is not a meter nobody ever
+# still counts for PROBE_TRUSTED_FOR: a meter nobody could read again is not a meter nobody ever
 # read, and calling one unknown is how a rate limit came to push every run onto the other
 # providers.
 PROBE_EVERY = 60
@@ -231,7 +231,7 @@ def _probe(cfg, provider, now, account=None):
         # No meter is not a failed probe: a harness whose manifest says `[usage] none`
         # reads no budget at all, so the provider is neutral -- but only when the probe
         # itself ran and answered no meters.  A failed probe on any provider, metered or
-        # not, stays unknown and ranks last, and a metered answer is a metered provider.
+        # not, stays unknown, and a metered answer is a metered provider.
         out["none"] = True
         why = data.get("none")
         out["none_reason"] = why if isinstance(why, str) and why else "no meter"
@@ -1634,7 +1634,7 @@ def _parks(cfg, name, prov, mark):
 
 
 def model_pace(cfg, name, providers):
-    """(pace, label) for worker ranking; pace None when nothing is reported."""
+    """(pace, label) for the payg rule (`pick_order`); pace None when nothing is reported."""
     meters, label = _gating_meters(cfg, name, providers)
     paces = [m["pace"] for m in meters if m.get("pace") is not None]
     if not meters and label != PROVIDER_METERS:
@@ -1688,7 +1688,7 @@ def shared_week(cfg, provider, prov, now=None):
     52% is wrong on its face.  So when every week that can be read is somebody's private cap
     there is no shared week at all, and this says None rather than borrowing one of them: a row
     that cannot be drawn is better than a wrong one.
-    The picker is unaffected -- it ranks each model on the meters gating it (`_gating_meters`).
+    The picker is unaffected -- it reads each model's own gates (`_gating_meters`).
 
     The menu's row and the table's row (`rows`) both read this one answer, so the two can never
     disagree about which week they are naming.
@@ -1732,11 +1732,11 @@ def provider_headroom(prov, cfg, provider=None):
 def _stale(prov, now):
     """Whether a reading no probe has been able to refresh has stopped answering for anything.
 
-    A refused probe keeps the last reading and the picker ranks on it, because a week's meter
-    does not move fast and a provider whose meter was rate limited has not stopped holding a
-    subscription: ranking it unknown-last is exactly how a rate limit came to push every run onto
-    the other providers.  Once the refusals have run on for PROBE_TRUSTED_FOR nobody can say what
-    it has left any more, and unknown-last is then the honest answer rather than the expensive one.
+    A refused probe keeps the last reading and it still counts, because a week's meter does not
+    move fast and a provider whose meter was rate limited has not stopped holding a
+    subscription: calling it unknown is exactly how a rate limit came to push every run onto the
+    other providers.  Once the refusals have run on for PROBE_TRUSTED_FOR nobody can say what it
+    has left any more, and unknown is then the honest answer rather than the expensive one.
     """
     prov = prov if isinstance(prov, dict) else {}
     since = _number(prov.get("stale_since"))
@@ -1808,7 +1808,7 @@ def provider_budget(prov, now=None):
     """The smallest non-session budget; every gate must support the spending rate."""
     now = time.time() if now is None else now
     if prov.get("none") and not prov.get("error"):
-        return 1.0, None   # meterless but answering: neutral, ranked by the normal rules
+        return 1.0, None   # meterless but answering: neutral, never unknown
     budgets = [_budget(prov, meter, now) for meter in prov.get("meters") or []
                if meter.get("window_secs") != SESSION_SECS]
     return min(budgets, key=lambda value: (value[1] is None, value[0]),
