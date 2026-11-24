@@ -423,6 +423,22 @@ def begins(entry):
             or isinstance(origin, dict) and origin.get("kind") == "task-notification")
 
 
+def by_model(entry):
+    """Whether a transcript line is the model's message, not one Claude Code wrote in its place
+    (`<synthetic>`)."""
+    message = entry.get("message")
+    return (entry.get("type") == "assistant" and isinstance(message, dict)
+            and message.get("model") not in (None, "<synthetic>"))
+
+
+def holds_result(entry):
+    """Whether a transcript line holds a tool's result."""
+    message = entry.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    return entry.get("type") == "user" and isinstance(content, list) and any(
+        isinstance(part, dict) and part.get("type") == "tool_result" for part in content)
+
+
 def running(record, cwd, conversation):
     """The newer of that conversation's last answer and its status-line report, the answer
     dated by the line that began its turn, else by its own time: Claude Code stamps each
@@ -438,16 +454,12 @@ def running(record, cwd, conversation):
         if entry.get("isSidechain"):
             return False
         if not found:
-            if (entry.get("type") == "assistant" and isinstance(entry.get("message"), dict)
-                    and entry["message"].get("model") not in (None, "<synthetic>")):
+            if by_model(entry):
                 found.append(entry)
             return False
         if began and entry.get("type") == "assistant":
             return True
-        message = entry.get("message")
-        content = message.get("content") if isinstance(message, dict) else None
-        if began and entry.get("type") == "user" and isinstance(content, list) and any(
-                isinstance(part, dict) and part.get("type") == "tool_result" for part in content):
+        if began and holds_result(entry):
             began.clear()
         if begins(entry):
             began[:] = [entry]
@@ -458,6 +470,47 @@ def running(record, cwd, conversation):
                moment((began or found)[0].get("timestamp"))) if found else None)
     report = model_report(conversation)
     return report if report and (not latest or report[2] > (latest[2] or 0)) else latest
+
+
+def last_sent(record, cwd, conversation):
+    """The earliest that conversation's last request to its model can have gone out: the time of
+    the last tool's result between the model's last message's first entry and its message
+    before that, or None where none stands there or a line read back to it cannot be read.
+
+    On 19 Nov 2026 a long turn went on answering the owner on a login ak had parked while it
+    ran ("even this session says out of usage").  Asked on 22 Nov whether an answered turn
+    should end only the refusals made before it began, the owner: "Keep building", for a turn
+    already running, "judged by when its last request was sent".
+
+    Claude Code sends a request only once every result the model's message before it asked for
+    is written down, and writes the message that request brings after it.  One message is
+    written as several entries sharing `message.id`, and a result of its own tools can stand
+    between them: no request waited for that one.
+    """
+    from . import last_entry, moment
+    path = transcript(record, cwd, conversation)
+    last, kept = [], []
+
+    def pick(entry):
+        # Read back from the end: the model's last message, then what stands before it, up to
+        # the model's message before that one.
+        if entry.get("isSidechain"):
+            return False
+        if by_model(entry):
+            said = entry["message"].get("id")
+            if not last:
+                last.append(said)
+            elif said is None or said != last[0]:
+                return True
+            kept.clear()
+        elif last and not kept and holds_result(entry):
+            kept.append(entry)
+        return False
+    try:
+        path and last_entry(path, pick, strict=True)
+    except (FileNotFoundError, ValueError, RecursionError):
+        return None     # gone since `transcript` named it, or a line `json.loads` refuses
+    return moment(kept[0].get("timestamp")) if kept else None
 
 
 def resumable(record, cwd, conversation):

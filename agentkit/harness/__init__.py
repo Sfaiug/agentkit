@@ -156,11 +156,12 @@ def model_report(conversation):
     return None
 
 
-def last_entry(path, pick):
+def last_entry(path, pick, strict=False):
     """The last line of that JSON-lines file `pick` takes, read back from its end, or None.
 
     A conversation's file grows for as long as the conversation does, and a tick wants only
     its last event: a line still being written, or one that is not JSON, is passed over.
+    `strict`, a line `json.loads` refuses raises what it raised, one of no bytes aside.
     """
     with open(path, "rb") as fh:
         end, rest = fh.seek(0, 2), b""
@@ -173,6 +174,8 @@ def last_entry(path, pick):
                 try:
                     entry = json.loads(line)
                 except ValueError:
+                    if strict and line:
+                        raise
                     continue
                 if isinstance(entry, dict) and pick(entry):
                     return entry
@@ -965,6 +968,12 @@ class Harness:
         seconds since the epoch (moment) -- or None where it records neither.  OSError where a
         record exists and cannot be read."""
         hook = self._hook("running")
+        return hook(record, cwd, conversation) if hook else None
+
+    def last_sent(self, record, cwd, conversation):
+        """When that conversation's last request to its model went out, in seconds since the
+        epoch (moment), or None where its harness's plugin does not say."""
+        hook = self._hook("last_sent")
         return hook(record, cwd, conversation) if hook else None
 
     def holds(self, record):
