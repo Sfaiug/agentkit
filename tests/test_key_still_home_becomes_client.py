@@ -205,24 +205,32 @@ exec {shlex.quote(vm.install.ak)} "$@"
                 self.unchanged(mini, vm, minute)
                 self.assertEqual(self.freezer(mini), b"1")
 
-    def test_a_stamp_naming_no_home_asks_nobody(self):
-        for stamp in None, "acme\nacme-vm\n", f"{now(0)}\n-V\n":
+    def asks_nobody(self, stamp):
+        """acme-mini, with no record and its stamp `stamp`, none for None, standing still asks no
+        machine whether it is home and changes nothing."""
+        machines = self.pair(None)
+        mini, vm = machines
+        if stamp:
+            mini.write(COPIED, stamp)
+        vm.env["AK_NOW"] = now(1)
+        # acme-mini's ssh, each call logged before it goes on as it would
+        (mini.bin / "ssh").rename(mini.bin / "ssh-sent")
+        sent = shlex.quote(str(mini.at / "bin" / "ssh-sent"))
+        mini.refuse("ssh", LOG + f'exec {sent} "$@"\n')
+        self.stands_still(machines)
+        self.unchanged(mini, vm, 1)
+        self.assertEqual(self.freezer(mini), b"1")
+        # no machine asked by any name, as git's calls to the origin go by ssh too
+        self.assertEqual([call for call in mini.calls("ssh")
+                          if call[-1].split()[1:] == ["standby", "--home"]], [])
+
+    def test_no_stamp_or_one_whose_first_line_is_none_asks_nobody(self):
+        for stamp in None, "acme\nacme-vm\n":
             with self.subTest(stamp=stamp):
-                machines = self.pair(None)
-                mini, vm = machines
-                if stamp:
-                    mini.write(COPIED, stamp)
-                vm.env["AK_NOW"] = now(1)
-                # acme-mini's ssh, each call logged before it goes on as it would
-                (mini.bin / "ssh").rename(mini.bin / "ssh-sent")
-                sent = shlex.quote(str(mini.at / "bin" / "ssh-sent"))
-                mini.refuse("ssh", LOG + f'exec {sent} "$@"\n')
-                self.stands_still(machines)
-                self.unchanged(mini, vm, 1)
-                self.assertEqual(self.freezer(mini), b"1")
-                # no machine asked by any name, as git's calls to the origin go by ssh too
-                self.assertEqual([call for call in mini.calls("ssh")
-                                  if call[-1].split()[1:] == ["standby", "--home"]], [])
+                self.asks_nobody(stamp)
+
+    def test_a_stamp_naming_what_ssh_reads_as_an_option_asks_nobody(self):
+        self.asks_nobody(f"{now(0)}\n-V\n")
 
     def test_a_slice_with_no_kill_file_gets_none_its_standby_told_it_copies_it(self):
         mini, vm = self.pair(kill=False)
