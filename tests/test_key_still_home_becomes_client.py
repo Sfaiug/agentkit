@@ -9,9 +9,9 @@ ak's slice, makes the standby's folder, adds the standby's job to its crontab, i
 kept byte for byte, and installs itself as a client of that machine, which ends the asking: its
 firings after are a client's.  A machine that answers no, or nothing, ends nothing and changes
 nothing, nor does a home whose only record says `no`, standing still by a proof 20 minutes old,
-as that machine is not asked, nor one with no record and no stamp, or one whose first line is no
-stamp, which asks nobody; and a slice with no `cgroup.kill` gets none, the record there kept
-and nothing past it done.
+as that machine is not asked, nor one with no record whose stamp names no home: none, one whose
+first line is no stamp, or one naming what ssh would read as an option, which asks nobody; and a
+slice with no `cgroup.kill` gets none, the record there kept and nothing past it done.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, given before its first command, with
@@ -89,18 +89,27 @@ class AStillHomeBecomesAClient(Firings, unittest.TestCase):
         except FileNotFoundError:
             return None
 
+    def stamp(self, machine):
+        """What `machine`'s stamp of its last pass reads, None where it is not there."""
+        try:
+            return (machine.path / COPIED).read_bytes()
+        except FileNotFoundError:
+            return None
+
     def table(self, machine):
         return (machine.root / "crontab").read_bytes()
 
     def unchanged(self, mini, vm, minute):
         """acme-mini's firing at `minute`, which exits 0 and leaves its `cgroup.kill` empty, its
-        crontab as it was, no record of a server, and acme-vm's records as they were."""
-        records = self.records(vm)
+        crontab and stamp as they were, no record of a server, and acme-vm's records as they
+        were."""
+        records, stamp = self.records(vm), self.stamp(mini)
         self.assertEqual(self.fire(mini, now(minute))[0], 0)
         self.assertEqual(self.kill(mini), b"")
         self.assertEqual(self.table(mini), TABLE)
         self.assertFalse((mini.path / SERVER).exists())
         self.assertEqual(self.records(vm), records)
+        self.assertEqual(self.stamp(mini), stamp)
 
     def stepped_down(self, takes, told, rewritten=None):
         """acme-mini, its record of acme-vm saying `takes`, standing still becomes acme-vm's
@@ -196,8 +205,8 @@ exec {shlex.quote(vm.install.ak)} "$@"
                 self.unchanged(mini, vm, minute)
                 self.assertEqual(self.freezer(mini), b"1")
 
-    def test_no_stamp_or_one_whose_first_line_is_none_asks_nobody(self):
-        for stamp in None, "acme\nacme-vm\n":
+    def test_a_stamp_naming_no_home_asks_nobody(self):
+        for stamp in None, "acme\nacme-vm\n", f"{now(0)}\n-V\n":
             with self.subTest(stamp=stamp):
                 machines = self.pair(None)
                 mini, vm = machines
@@ -211,7 +220,9 @@ exec {shlex.quote(vm.install.ak)} "$@"
                 self.stands_still(machines)
                 self.unchanged(mini, vm, 1)
                 self.assertEqual(self.freezer(mini), b"1")
-                self.assertEqual([call for call in mini.calls("ssh") if vm.name in call], [])
+                # no machine asked by any name, as git's calls to the origin go by ssh too
+                self.assertEqual([call for call in mini.calls("ssh")
+                                  if call[-1].split()[1:] == ["standby", "--home"]], [])
 
     def test_a_slice_with_no_kill_file_gets_none_its_standby_told_it_copies_it(self):
         mini, vm = self.pair(kill=False)
