@@ -5,8 +5,9 @@ month (52/12 weeks) or more before the usage clock and none taken in that month 
 used.  A week in the middle nobody read changes nothing: ak says only what it read; nor does a
 model's own cap of the meter's name (`scope`), nor a reading taken after the usage clock.  One
 with a reading above 0 in the month, one whose oldest reading is a week old and one with no
-shared week read as today and are `no_use_read` false; one no role marks keeps `no role marks
-its models`.
+shared week, its 5h session alone and a month of readings at 0 (the owner, 24 Nov 2026: "Leave
+it"), read as today and are `no_use_read` false; one no role marks keeps `no role marks its
+models`.
 
 Black-box, as tests/test_key_usage_says_a_plan_no_role_marks.py is and on its fixtures, with
 invented logins and readings written into its Home, the readings dated back from the moment its
@@ -29,7 +30,7 @@ import test_key_usage_says_a_plan_no_role_marks as marks
 from test_key_week_price import METER_READINGS
 
 NOW = int(time.time())
-DAY, WEEK = 86400, 7 * 86400
+DAY, WEEK, SESSION = 86400, 7 * 86400, 5 * 3600
 # (provider, account): (its row on `ak usage`, its plan, the days before NOW its weekly meter
 # was read on, the day of those it read 3% used or None).  Five weeks are kept at most.
 LOGINS = {("anthropic", "default"): ("Claude I", "max 20x", range(35), None),
@@ -57,8 +58,8 @@ class UsageSaysNoUseReadInAMonth(unittest.TestCase):
             logins.setdefault(provider, {})[account] = {
                 "email": f"{account}@{provider}.test", "ends": None, "plan": plan,
                 "checked_at": NOW}
-            if provider != "xai":   # Grok's meter reads no week now: it has no shared week
-                meter.week(provider, account, used=0)
+            # Grok's one meter is its 5h session: it has no shared week
+            meter.week(provider, account, used=0, window=WEEK if provider != "xai" else SESSION)
         self.home.write(".agentkit/state/logins.json", logins)
         with closing(sqlite3.connect(self.home.path / ".agentkit/history.db")) as db, db:
             db.execute(METER_READINGS)

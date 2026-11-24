@@ -2093,7 +2093,10 @@ def no_use_read(cfg, provider, account, prov, cost, marked, now):
     back or more, and none taken in that MONTH has `used` above 0.  A model's own cap of that
     meter's name (`scope`) is no reading of it.  The provider's meter, not ak's turns: older
     turn rows name no model, and what the owner uses a login for outside ak is use.  Only what
-    was read: a stretch nobody read changes nothing, as a meter spent and reset in it was not."""
+    was read: a stretch nobody read changes nothing, as a meter spent and reset in it was not.
+    A login with no shared week, its 5h session alone, is never said so: which of its other
+    readings are that login's own cannot be told from what is kept.  The owner, 24 Nov 2026,
+    asked whether to leave that: "Leave it"."""
     week = shared_week(cfg, provider, prov, now)
     if cost is None or not marked or week is None:
         return False
