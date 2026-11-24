@@ -4,17 +4,19 @@ the other machine carries on from its copy.  This hides who is asked, the order 
 the kill file.
 
 Asked, in the order of their names, is each machine a record here says takes over from this one
-(`standby._records`), by the record's name, whether it holds ak's lease by its own word
-(`ak standby --home`): nothing is ended on what this machine lacks, as a lease it cannot read
-looks the same as one taken, only on a machine it knows saying it is home.  The first that says
-so is told first that this machine copies it, with this machine's name, that machine's stamp
-(`standby._home_began`) and the word the records here give then (`standby._told`), which says this
-machine takes over, `back` or `yes`, or the step fails, so it keeps a record of that before this
-machine can ever watch its lease.  Then what ak's slice holds is ended by its `cgroup.kill`, the
-slice left frozen, which a firing of this machine as a home again thaws; the standby's folder is
-made, with which a client's install keeps this machine's runs, checkouts and work; the standby's
-job is kept; and `install.sh --client` runs last, whose record of a server makes the next firing
-a client's.
+(`standby._records`), by the record's name, then the home the stamp of this machine's last pass
+as a standby names (`standby._last`), where no record asked has its name: a machine that took
+over keeps that stamp and has no record of its old home till that home has stepped down under
+it.  Each is asked whether it holds ak's lease by its own word (`ak standby --home`): nothing is
+ended on what this machine lacks, as a lease it cannot read looks the same as one taken, only on
+a machine it knows saying it is home.  The first that says so is told first that this machine
+copies it, with this machine's name, that machine's stamp (`standby._home_began`) and the word the
+records here give then (`standby._told`), which says this machine takes over, `back` or `yes`, or
+the step fails, so it keeps a record of that before this machine can ever watch its lease.  Then
+what ak's slice holds is ended by its `cgroup.kill`, the slice left frozen, which a firing of this
+machine as a home again thaws; the standby's folder is made, with which a client's install keeps
+this machine's runs, checkouts and work; the standby's job is kept; and `install.sh --client`
+runs last, whose record of a server makes the next firing a client's.
 A step that fails or raises leaves the rest to the next paused firing, from the first.  Each
 leaves what a second firing doing the same at once would, so no lock is taken.
 """
@@ -30,8 +32,10 @@ def where_another_is_home():
     """This machine made the client of the first machine asked that says it is home; nothing
     where none does, nor past a step that fails or raises."""
     with contextlib.suppress(Exception):
-        home = next((path.name for path in sorted(standby._records())
-                     if standby._takes(path) and _asked(path.name, "--home")), None)
+        takers = [path.name for path in sorted(standby._records()) if standby._takes(path)]
+        # each once: the stamp's home may be a record's machine too, and is None for no stamp
+        home = next((alias for alias in dict.fromkeys([*takers, standby._last()[1]])
+                     if alias and _asked(alias, "--home")), None)
         # without this machine's name and that machine's stamp, no record of it is kept there
         held = standby._home_began(home) if home else []
         # the word read once the stamp is held: a pass of that machine's may write its record
