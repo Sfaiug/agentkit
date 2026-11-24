@@ -27,7 +27,7 @@ from fixtures.akterm import SERVER, Terminal, forget
 
 # role: its colour in the white theme, and in the black
 THEMES = {
-    "background": ("ffffff", "000000"), "surface": ("f4f6fa", "111519"),
+    "background": ("ffffff", "000000"),
     "selection": ("dcecff", "08305d"), "border": ("b1b8c0", "3a3f46"),
     "text": ("181c22", "e2e8ef"), "muted": ("535962", "acb4bd"), "dim": ("6f757e", "868d97"),
     "accent": ("0067c6", "4da3ff"), "success": ("007935", "33b65f"),

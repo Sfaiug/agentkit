@@ -3528,7 +3528,7 @@ ASTRA=$(HOME="$OVH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit imp
 # The tick and every menu draw rewrite them through the one writer; a rename writes them at
 # once. What they come to on screen is asserted further down.
 [ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = 2 ] || OVERLAY=1
-[ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = "fg=#e2e8ef,bg=#111519" ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = default ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_top 2>/dev/null)" \
   = " #[bold]$OV1#[nobold]   #[fg=#acb4bd]$FABLE xhigh#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV2" -v @ak_top 2>/dev/null)" \

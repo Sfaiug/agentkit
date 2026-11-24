@@ -1,14 +1,14 @@
-"""What tmux draws around a seat is in the theme: its bar, the popup's border, tmux's own styles.
+"""What tmux draws around a seat is in the theme: its bar, the popup's border, tmux's selection.
 
 The owner (12 Nov 2026): "look at every place where things are visual to the end user inside of
-ak, and see through to apply the following two themes."  A seat's bar stands on the theme's
-surface from its first cell to its last: its name in the text, its model and its key's word
-muted, its key dim, its state's chip on-accent on the state's colour.  In the seat, tmux's own
-selection while scrolling back is the text on the selection, its message line the text on the
-surface; Ctrl-b m's popup is bordered in the border colour, the seat dim under it till it
-closes.  Each follows the theme a menu kept last: the bar and tmux's own styles by the bar's next
-draw, which writes them together, the popup from the next one opened, whichever ak kept the
-theme.  A session on the same server that ak did not start keeps the styles it had.
+ak, and see through to apply the following two themes."  A seat's bar draws its model and its
+key's word muted, its key dim, on the terminal's own background
+(tests/test_key_a_seats_bar_sets_no_background.py).  In the seat, tmux's own selection while
+scrolling back is the text on the selection; Ctrl-b m's popup is bordered in the border colour,
+the seat dim under it till it closes.  Each follows the theme a menu kept last: the bar and the
+selection by the bar's next draw, which writes them together, the popup from the next one
+opened, whichever ak kept the theme.  A session on the same server that ak did not start keeps
+the styles it had.
 
 Black-box: the program AK_BIN names, in a person's terminal of 24-bit colour whose background
 a test sets (tests/fixtures/akterm.py), attached by `ak orch acme` to a working seat
@@ -29,20 +29,16 @@ from fixtures.akterm import SERVER, Terminal
 
 SIZE = (100, 30)
 # role: its colour in the black theme, and in the white
-BLACK = {"surface": "111519", "text": "e2e8ef", "muted": "acb4bd", "dim": "868d97",
-         "selection": "08305d", "border": "3a3f46", "accent": "4da3ff", "on-accent": "000000"}
-WHITE = {"surface": "f4f6fa", "text": "181c22", "muted": "535962", "dim": "6f757e",
-         "selection": "dcecff", "border": "b1b8c0", "accent": "0067c6", "on-accent": "ffffff"}
+BLACK = {"text": "e2e8ef", "muted": "acb4bd", "dim": "868d97", "selection": "08305d",
+         "border": "3a3f46"}
+WHITE = {"text": "181c22", "muted": "535962", "dim": "6f757e", "selection": "dcecff",
+         "border": "b1b8c0"}
 CHIP, MODEL, KEY, WORD = "● working", "Opus 5.5 xhigh", "Ctrl-b m", "menu"
-STYLES = ("status-style", "message-style", "mode-style")
+STYLES = ("status-style", "message-style", "message-command-style", "mode-style")
 
 
 def fg(rgb):
     return "38;2;" + ";".join(str(channel) for channel in bytes.fromhex(rgb))
-
-
-def bg(rgb):
-    return "48" + fg(rgb)[2:]
 
 
 def style(value):
@@ -85,24 +81,13 @@ class TheBarIsInItsTheme(unittest.TestCase):
         return bar
 
     def bar(self):
-        return looks(self.term.screen(colours=True, blank=True).rstrip("\n"))[-2:]
+        return looks(self.term.screen(colours=True).rstrip("\n"))[-2:]
 
     def off(self, bar, theme):
-        """What of the bar is not in `theme`, else None: each cell on the surface but its chip's,
-        which are on-accent on the accent, and each part in its role."""
+        """What of the bar is not in `theme`, else None: each part in its role."""
         if len(bar) < 2 or CHIP not in plain(bar[0]) or KEY not in plain(bar[1]):
             return "no bar of a working seat"
-        chip = plain(bar[0]).index(CHIP) - 1
-        for number, line in enumerate(bar):
-            if len(line) != SIZE[0]:
-                return f"line {number + 1} is {len(line)} cells"
-            for at, (_, shown) in enumerate(line):
-                chipped = number == 0 and chip <= at < chip + len(CHIP) + 2
-                ground = "accent" if chipped else "surface"
-                if bg(theme[ground]) not in shown:
-                    return f"line {number + 1}, cell {at + 1} is not on the {ground}: {shown}"
-        for text, role, line in (("acme", "text", 0), (MODEL, "muted", 0), (KEY, "dim", 1),
-                                 (WORD, "muted", 1), (CHIP, "on-accent", 0)):
+        for text, role, line in ((MODEL, "muted", 0), (KEY, "dim", 1), (WORD, "muted", 1)):
             shown = look([bar[line]], text) - ATTRIBUTES
             if fg(theme[role]) not in shown:
                 return f"{text!r} is not in the {role}: {shown}"
@@ -129,14 +114,12 @@ class TheBarIsInItsTheme(unittest.TestCase):
             time.sleep(0.1)
         return held
 
-    def styles(self, theme):
-        """tmux's own styles in the seat are `theme`'s: the selection and the position while
-        scrolling back are its window's, the message line its session's."""
-        for scope, name, ground in (("-wv", "mode-style", "selection"),
-                                    ("-v", "message-style", "surface")):
-            held = self.home.tmux("show-options", scope, "-t", "=acme:", name)
-            self.assertEqual(held.code, 0, held.err)
-            self.assertEqual(style(held.out), {f"fg=#{theme['text']}", f"bg=#{theme[ground]}"})
+    def selection(self, theme):
+        """tmux's own selection and position while scrolling back in the seat, its window's, are
+        the text on `theme`'s selection."""
+        held = self.home.tmux("show-options", "-wv", "-t", "=acme:", "mode-style")
+        self.assertEqual(held.code, 0, held.err)
+        self.assertEqual(style(held.out), {f"fg=#{theme['text']}", f"bg=#{theme['selection']}"})
 
     def kept(self, background):
         """A menu run on a terminal of that background, which answers what it is."""
@@ -147,27 +130,27 @@ class TheBarIsInItsTheme(unittest.TestCase):
         self.addCleanup(self.home.tmux, "kill-session", "-t", menu.pane, server=SERVER)
         menu.wait("esc leave", 60)
 
-    def test_a_the_bar_stands_on_the_surface_each_part_in_its_role(self):
+    def test_a_each_part_of_the_bar_is_in_its_role(self):
         self.drawn(BLACK)
 
-    def test_b_tmux_s_own_styles_in_the_seat_are_the_theme_s(self):
+    def test_b_tmux_s_selection_in_the_seat_is_the_theme_s(self):
         self.drawn(BLACK)
-        self.styles(BLACK)
+        self.selection(BLACK)
 
     def test_c_the_popup_is_bordered_in_the_border_colour(self):
         self.popup(BLACK)
 
     def test_d_a_light_background_kept_is_the_next_bar_s_and_popup_s(self):
         self.kept("#ffffff")
-        # keeping writes no seat: its bar and tmux's own styles change in the bar's one write
+        # keeping writes no seat: tmux's own styles change in the bar's one write, its own the
+        # terminal's in either theme
         said = self.home.tmux("display-message", "-p", "-t", "=acme:",
                               "\t".join(f"#{{{name}}}" for name in STYLES))
         self.assertIn([style(value) for value in said.out.strip().split("\t")],
-                      [[style(f"fg=#{theme['text']},bg=#{theme[ground]}")
-                        for ground in ("surface", "surface", "selection")]
+                      [[{"default"}] * 3 + [style(f"fg=#{theme['text']},bg=#{theme['selection']}")]
                        for theme in (BLACK, WHITE)])
         self.drawn(WHITE)
-        self.styles(WHITE)
+        self.selection(WHITE)
         self.popup(WHITE)
 
     def test_e_the_popup_is_in_the_theme_kept_as_the_key_is_pressed(self):

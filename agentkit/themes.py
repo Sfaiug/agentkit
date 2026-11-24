@@ -18,7 +18,6 @@ WHITE, BLACK = 0, 1     # each theme's column
 KEPT = "background"     # the file in ak's state the last answer is kept in: `light`, else dark
 ROLES = {
     "background": ("ffffff", "000000"),
-    "surface": ("f4f6fa", "111519"),
     "selection": ("dcecff", "08305d"),
     "border": ("b1b8c0", "3a3f46"),
     "text": ("181c22", "e2e8ef"),

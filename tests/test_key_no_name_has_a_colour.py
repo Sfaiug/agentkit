@@ -2,7 +2,7 @@
 still gives a provider a `colour`: `c` names each harness over its models and Subscriptions each
 company over its subscriptions bold, in the colours a seat's name has on the ak screen, and Models
 each harness on its row in them; the usage runs in the order config.toml names its providers; and
-once nothing moves no cell is in a colour outside the theme's fourteen.
+once nothing moves no cell is in a colour outside the theme's thirteen.
 
 Nor does anything wash into a company's colour under the pointer: the subscription under it is
 lit on the theme's selection over its whole cell, every colour in it kept, on the ak screen, on
@@ -28,8 +28,8 @@ from fixtures.aklooks import colours, plain, settled
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-# the black theme's fourteen roles (agentkit/themes.py)
-BLACK = {"background": "000000", "surface": "111519", "selection": "08305d", "border": "3a3f46",
+# the black theme's thirteen roles (agentkit/themes.py)
+BLACK = {"background": "000000", "selection": "08305d", "border": "3a3f46",
          "text": "e2e8ef", "muted": "acb4bd", "dim": "868d97", "accent": "4da3ff",
          "success": "33b65f", "warning": "d79200", "error": "fe756f", "info": "00b0bf",
          "special": "da7de0", "on-accent": "000000"}

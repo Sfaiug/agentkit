@@ -44,10 +44,10 @@ var (
 
 // barCut is that option cut to room cells and the `…` tmux adds past them, the cell every caller's
 // room leaves it; nothing where not one cell is left, since tmux reads a limit of 0 as none and a
-// negative one as the line's tail, and one forced would push into what is beside it
-// (statusbar._cut).
+// negative one as the line's tail, and one forced would push into what is beside it; its styles end
+// with it, as tmux drops those after its last cell, the chip's end among them (statusbar._cut).
 func barCut(option, room string) string {
-	return "#{?#{e|>:" + room + ",0},#{=/" + room + "/…:" + option + "},}"
+	return "#{?#{e|>:" + room + ",0},#{=/" + room + "/…:" + option + "}#[default],}"
 }
 
 // barLineOne is the widest progress line beside who else needs you that fits the client, drawn
@@ -210,11 +210,12 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		head += "   " + barPaint(model, "muted")
 	}
 	target := "=" + seat.Name + ":"
-	// in the shades kept, and tmux's own styles in the seat too (statusbar.layout); the pane, where the
-	// harness draws, stays the terminal's
-	text, surface := "fg=#"+terminal.RGB("text"), ",bg=#"+terminal.RGB("surface")
-	own := [][3]string{{target, "set-titles", "on"}, {target, "status", "2"}, {target, "status-style", text + surface},
-		{target, "mode-style", text + ",bg=#" + terminal.RGB("selection")}, {target, "message-style", text + surface},
+	// the bar, its message line and its command prompt on the terminal's own colours, as the pane where
+	// the harness draws is, and tmux's selection while scrolling back in the shades kept
+	// (statusbar.layout)
+	own := [][3]string{{target, "set-titles", "on"}, {target, "status", "2"}, {target, "status-style", "default"},
+		{target, "mode-style", "fg=#" + terminal.RGB("text") + ",bg=#" + terminal.RGB("selection")},
+		{target, "message-style", "default"}, {target, "message-command-style", "default"},
 		{target, "status-format[0]", barLineOne()}, {target, "status-format[1]", barLineTwo()}}
 	for i, option := range barTops {
 		top := head
