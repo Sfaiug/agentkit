@@ -130,10 +130,16 @@ def question_refused(name):
     return DONE_ASKING
 
 
+def _going(directory, state):
+    """Whether the run keeps its seat working (`transitions.going`), a loop the tick brings back
+    (`watch.comes_back`) as much as one that runs."""
+    return transitions.going(state) or watch.comes_back(state, directory, time.time())
+
+
 def _parked(records, mine):
     """Those of the seat's runs parked undecided: ended unsettled, or stalled."""
     return [(directory, state) for directory, state in mine
-            if (not transitions.going(state) or state.get("state") == "stalled")
+            if (not _going(directory, state) or state.get("state") == "stalled")
             and transitions.unfinished(state, records)]
 
 
@@ -159,8 +165,8 @@ def recorded_ending(name, records=None, *, question=False, since=None):
         return True, []     # nothing is owed: no open line in the plan, so the stop stands
     if supplied is None:
         _, mine = _ending_work(name, None)
-    for _, state in mine:
-        if transitions.going(state) or watch.awaiting_live(state):
+    for directory, state in mine:
+        if _going(directory, state) or watch.awaiting_live(state):
             return True, []
         if since is not None and state.get("state") not in ("error", "waiting"):
             for key in ("started_at", "queued_at"):
