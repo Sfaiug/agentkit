@@ -37,9 +37,10 @@ offline() {
      ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen || exit 253
      exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes" "$@"
 }
-# The sandbox builds, with no link but lo: asked before the command, and after one that failed.
-builds() { offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]'; }
-builds || fail "the sandbox did not build"
+# The sandbox builds, with no link but lo: asked before the command and after one that failed. The
+# question is the script's arguments, read by now: a name for it could reach the command, or clash.
+set -- sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]'
+offline "$@" || fail "the sandbox did not build"
 # Kills for memory: of the piece's own cgroup where it has one, as a container on a kernel other
 # pieces share does, else of its VM's kernel.
 oom() {
@@ -55,5 +56,5 @@ code=$?
 # unshare ends 1 with nothing run where the sandbox stopped building since the first look: one
 # that no longer builds ends the piece as one the helper could not run, though its command may
 # have run.
-[ "$code" = 0 ] || builds || fail "the sandbox no longer builds"
+[ "$code" = 0 ] || offline "$@" || fail "the sandbox no longer builds"
 exit "$code"

@@ -20,7 +20,7 @@ PIECE = (Path(__file__).resolve().parents[1] / "tools/helper/piece.sh").read_tex
 # piece.sh's own lines: `fail`, from the sandbox's size to its preflight, and from the kills for
 # memory counted before the command's launch to the piece's end.
 FAIL, SANDBOX, LAUNCH = (re.search(lines, PIECE, re.M).group(0) for lines in (
-    r"^fail\(\).*\n", r"^notes=(?s:.*?)\|\| fail .*\n", r"^before=(?s:.*)"))
+    r"^fail\(\).*\n", r"^notes=(?s:.*?)^offline .*\n", r"^before=(?s:.*)"))
 UNSHARE = shutil.which("unshare")
 
 
