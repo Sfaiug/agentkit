@@ -1105,10 +1105,14 @@ def _toml_key(key):
 def whole(value):
     """`value` as str gives it, a whole number past the most digits Python writes in decimal
     (sys.get_int_max_str_digits) in hex: TOML's too, which tomllib reads back with no such limit,
-    so a number config.toml takes, as host_policy's have no top, is written and shown."""
+    so a number config.toml takes, as host_policy's have no top, is written and shown.  TOML's
+    hex has no sign, so one that long under 0 is refused."""
     try:
         return str(value)
     except ValueError:
+        if value < 0:
+            raise Error(f"cannot write a number under 0 of more than "
+                        f"{sys.get_int_max_str_digits()} digits to {CONFIG_NAME}") from None
         return hex(value)
 
 
