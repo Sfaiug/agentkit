@@ -5,8 +5,8 @@ would like to see which account it is."  On the ak screen and `c` the line reads
 then the login's email as ak keeps it, dim as a note is, then the notes it gave before, bytes
 kept as read with surrogateescape written back as they came; a login with no email kept, or one
 kept as a number, only spaces or what the menu's stream cannot write, reads as before.  A login
-that ends soon reads as before, its own note naming the email once, and only its meter is
-amber.  Too narrow for every note, the email is the last to give way.  The email and the ending
+that ends soon reads as before, its own note naming the email once, or none where there is no
+email to say, and only its meter is amber.  Too narrow for every note, the email is the last to give way.  The email and the ending
 are one read's: the logins changed between the grid's read and the line's draw, the line tells
 of the logins the grid was drawn from.
 Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over six Claude logins
@@ -67,12 +67,13 @@ def login(email, ends=60 * DAY):
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AHoveredMeterNamesItsAccount(unittest.TestCase):
-    def open(self, ends=60 * DAY, size=(120, 40)):
+    def open(self, ends=60 * DAY, size=(120, 40), others=60 * DAY):
         """The menu over Claude I to VI, each holding a reset and a week resetting in two days:
         Claude I's login `EMAIL`'s, ending `ends` seconds from now; Claude II's email kept as a
         number, Claude III's as spaces, nothing kept of Claude IV's, Claude V's holding a lone
         surrogate, which JSON keeps and UTF-8 cannot write, and Claude VI's kept as an adapter's
-        UTF-8 bytes read with surrogateescape, which the menu's stream writes back."""
+        UTF-8 bytes read with surrogateescape, which the menu's stream writes back, those of
+        Claude II, III, V and VI ending `others` seconds from now."""
         self.home = Home()
         self.addCleanup(self.home.close)
         akconfig.write(self.home, {"fable": "claude"}, providers={
@@ -86,9 +87,9 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "anthropic": {**reading, "accounts": {name: reading for name in LOGINS}}}})
         self.home.write(".agentkit/state/logins.json", {"anthropic": {
-            "default": login(EMAIL, ends), "second": login(5), "third": login(" \t "),
-            "fifth": login("ops\ud800@acme.test"),
-            "sixth": login("zoë@acme.test".encode().decode("ascii", "surrogateescape"))}})
+            "default": login(EMAIL, ends), "second": login(5, others),
+            "third": login(" \t ", others), "fifth": login("ops\ud800@acme.test", others),
+            "sixth": login("zoë@acme.test".encode().decode("ascii", "surrogateescape"), others)}})
         self.term = Terminal(self.home, size=size, env={"TZ": "UTC", "COLORTERM": "truecolor"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
@@ -165,6 +166,13 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
             return len(drawn) == 6 and drawn["Claude I"] == amber and all(
                 shown != amber for label, shown in drawn.items() if label != "Claude I")
         self.settled(only_its_own)
+
+    def test_a_login_ending_soon_with_no_email_to_say_says_when_it_ends(self):
+        self.open(others=2 * DAY)
+        for label in ("Claude II", "Claude III", "Claude V"):
+            self.assertTrue(self.hovered(label).startswith(f"  {label}  login ends "), label)
+        self.assertTrue(self.hovered("Claude VI").startswith("  Claude VI  login zoë@acme.test "
+                                                             "ends "))
 
     def test_too_narrow_for_every_note_the_email_is_the_last_to_go(self):
         self.open(size=(40, 40))

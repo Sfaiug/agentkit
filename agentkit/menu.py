@@ -2938,10 +2938,9 @@ def login_notes(rows, now=None):
         login = found.get(name)
         login = login.get(account or config.DEFAULT_ACCOUNT) if isinstance(login, dict) else None
         email = login.get("email") if isinstance(login, dict) else None
+        email = email if isinstance(email, str) and email.strip() and _writes(email) else None
         when = logins.ending(login, now)
-        notes.append((when and " ".join(filter(None, ("login", login.get("email"), when))),
-                      email if isinstance(email, str) and email.strip() and _writes(email)
-                      else None))
+        notes.append((when and " ".join(filter(None, ("login", email, when))), email))
     return notes
 
 
