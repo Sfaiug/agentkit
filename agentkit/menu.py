@@ -2929,7 +2929,8 @@ def login_notes(rows, now=None):
     """What the line under the grid says of each of `rows`' (`usage_rows`') login, as (while it
     ends within logins.WARN_WITHIN or has ended, `login owner@acme.test ends Mon 26 Oct 04:47 (in
     2 days)`, its meter amber meanwhile, else None; its email, as kept, None where what is kept
-    is no text or only spaces), of one read of the logins, so both are always one login's."""
+    is no text, only spaces or what the screen cannot write), of one read of the logins, so both
+    are always one login's."""
     now = time.time() if now is None else now
     found = logins.read()
     notes = []
@@ -2937,12 +2938,21 @@ def login_notes(rows, now=None):
         login = found.get(name)
         login = login.get(account or config.DEFAULT_ACCOUNT) if isinstance(login, dict) else None
         email = login.get("email") if isinstance(login, dict) else None
-        # text is what UTF-8 writes whole: JSON keeps a lone surrogate, which no terminal is sent
-        email = (email if isinstance(email, str) and email.strip()
-                 and email.encode("utf-8", "ignore").decode() == email else None)
         when = logins.ending(login, now)
-        notes.append((when and " ".join(filter(None, ("login", email, when))), email))
+        notes.append((when and " ".join(filter(None, ("login", login.get("email"), when))),
+                      email if isinstance(email, str) and email.strip() and _writes(email)
+                      else None))
     return notes
+
+
+def _writes(text):
+    """Whether the screen's stream writes `text`: JSON keeps a lone surrogate, which a stream
+    escaping surrogates writes as the byte it stands for and any other refuses, ending the menu."""
+    try:
+        text.encode(sys.stdout.encoding or "utf-8", sys.stdout.errors or "strict")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def meter_spots(width, count, first):

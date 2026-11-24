@@ -2,13 +2,14 @@
 
 The owner (24 Nov 2026), of the meters on the ak screen: "when I hover above a meter here, I
 would like to see which account it is."  On the ak screen and `c` the line reads the label,
-then the login's email as ak keeps it, dim as a note is, then the notes it gave before; a
-login with no email kept, or one kept as a number or only spaces, reads as before.  A login
+then the login's email as ak keeps it, dim as a note is, then the notes it gave before, bytes
+kept as read with surrogateescape written back as they came; a login with no email kept, or one
+kept as a number, only spaces or what the menu's stream cannot write, reads as before.  A login
 that ends soon reads as before, its own note naming the email once, and only its meter is
 amber.  Too narrow for every note, the email is the last to give way.  The email and the ending
 are one read's: the logins changed between the grid's read and the line's draw, the line tells
 of the logins the grid was drawn from.
-Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over four Claude logins
+Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over six Claude logins
 holding the same reading in a temporary HOME (TZ=UTC), their harness faked
 (tests/fixtures/fakeadapter.py), each cell judged by its look (tests/fixtures/aklooks.py); the
 race in a child python3 of Python ak's own `c` meters, which no claim of Go's reaches.  This
@@ -30,7 +31,7 @@ from fixtures.akterm import SERVER, Terminal
 
 TESTS = Path(__file__).resolve().parent
 DAY = 86400
-LOGINS = ["default", "second", "third", "fourth", "fifth"]  # Claude I to Claude V
+LOGINS = ["default", "second", "third", "fourth", "fifth", "sixth"]   # Claude I to VI
 EMAIL = "reef@acme.test"
 METER = re.compile(r"[━╸─]+  \d+% left")
 # `c`'s meters, the highlight on the first, the logins changed to sys.argv[2] by another
@@ -67,10 +68,11 @@ def login(email, ends=60 * DAY):
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AHoveredMeterNamesItsAccount(unittest.TestCase):
     def open(self, ends=60 * DAY, size=(120, 40)):
-        """The menu over Claude I to V, each holding a reset and a week resetting in two days:
+        """The menu over Claude I to VI, each holding a reset and a week resetting in two days:
         Claude I's login `EMAIL`'s, ending `ends` seconds from now; Claude II's email kept as a
-        number, Claude III's as spaces, nothing kept of Claude IV's, and Claude V's holding a
-        lone surrogate, which JSON keeps and UTF-8 cannot write."""
+        number, Claude III's as spaces, nothing kept of Claude IV's, Claude V's holding a lone
+        surrogate, which JSON keeps and UTF-8 cannot write, and Claude VI's kept as an adapter's
+        UTF-8 bytes read with surrogateescape, which the menu's stream writes back."""
         self.home = Home()
         self.addCleanup(self.home.close)
         akconfig.write(self.home, {"fable": "claude"}, providers={
@@ -85,11 +87,12 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
             "anthropic": {**reading, "accounts": {name: reading for name in LOGINS}}}})
         self.home.write(".agentkit/state/logins.json", {"anthropic": {
             "default": login(EMAIL, ends), "second": login(5), "third": login(" \t "),
-            "fifth": login("ops\ud800@acme.test")}})
+            "fifth": login("ops\ud800@acme.test"),
+            "sixth": login("zoë@acme.test".encode().decode("ascii", "surrogateescape"))}})
         self.term = Terminal(self.home, size=size, env={"TZ": "UTC", "COLORTERM": "truecolor"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
-        self.term.wait(lambda screen: "Claude V" in screen and METER.search(screen))
+        self.term.wait(lambda screen: "Claude VI" in screen and METER.search(screen))
 
     def hovered(self, label):
         """The line under the grid once the pointer is on `label`'s meter."""
@@ -107,13 +110,16 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
     def said(self):
         """Each meter's line under the grid, the pointer on it, as {label: what follows it}."""
         return {label: self.hovered(label).removeprefix(f"  {label}  ")
-                for label in ("Claude I", "Claude II", "Claude III", "Claude IV", "Claude V")}
+                for label in ("Claude I", "Claude II", "Claude III", "Claude IV", "Claude V",
+                              "Claude VI")}
 
     def assert_names_its_account(self):
         said = self.said()
         # nothing kept of Claude IV's login: it reads as before, its reset and the one in hand
         self.assertRegex(said["Claude IV"], r"\Aresets \w{3} \d\d:\d\d · 1 reset in hand\Z")
         self.assertEqual(said["Claude I"], f"{EMAIL} · {said['Claude IV']}")
+        # its bytes as kept, which the terminal shows as the address they spell
+        self.assertEqual(said["Claude VI"], f"zoë@acme.test · {said['Claude IV']}")
         # kept as a number, only spaces or what UTF-8 cannot write, there is no email to say
         for label in ("Claude II", "Claude III", "Claude V"):
             self.assertEqual(said[label], said["Claude IV"], label)
@@ -156,7 +162,7 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
             note = next((line for line in rows if plain(line).startswith("  Claude I  login")),
                         None)
             amber = note and ink(note[plain(note).index(EMAIL)][1])
-            return len(drawn) == 5 and drawn["Claude I"] == amber and all(
+            return len(drawn) == 6 and drawn["Claude I"] == amber and all(
                 shown != amber for label, shown in drawn.items() if label != "Claude I")
         self.settled(only_its_own)
 
