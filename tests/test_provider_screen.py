@@ -17,8 +17,10 @@ the test's own child.
 import io
 import os
 import re
+import signal
 import sys
 import tempfile
+import threading
 import tomllib
 import unittest
 from pathlib import Path
@@ -127,6 +129,13 @@ def named(lines):
     return re.split(r"\s{2,}", highlighted(lines)[2:])[0]
 
 
+def step(screen, key, lines):
+    """`key`, which moves what is lit on `lines`, then the screen it drew.  Its own draw: a screen
+    a loaded host slows past Screen.press's half second of quiet reads as unmoved, and a walk
+    pressing the key again on that goes past its row (24 Nov 2026)."""
+    return screen.press(key, lambda drawn: (drawn, drawn.lit) != (lines, lines.lit))
+
+
 def open_page(screen):
     """Down the matrix to `Subscriptions` and into it: its page."""
     lines = screen.frame()
@@ -136,7 +145,7 @@ def open_page(screen):
             screen.case.assertTrue(" ".join(" ".join(lines[-2:]).split()).endswith(
                 " ".join(KEYS["row"].split())), lines[-2:])
             return screen.press(ENTER, lambda lines: title(lines) == PAGE)
-        lines = screen.press(DOWN)
+        lines = step(screen, DOWN, lines)
     screen.case.fail(f"no `Subscriptions`: {lines}")
 
 
@@ -144,13 +153,18 @@ def open_row(screen, name):
     """`name`'s row on `Subscriptions`, from the matrix or the page: the page with it lit."""
     lines = screen.frame()
     lines = lines if title(lines) == PAGE else open_page(screen)
-    for key in [UP] * 20 + [DOWN] * 20:
+    for _ in range(20):
         # Enter's word is the lit act's, or `open`; none where nothing is lit, a login far from
         # its end offering no `log in again`
         if named(lines) == name:
             screen.case.assertRegex(lines[-1], r"^  ↑↓←→ move   (⏎ [a-z ]+   )?esc back$")
             return lines
-        lines = screen.press(key)
+        rows = [number for number, line in enumerate(lines)
+                if line[:1] in " ›" and re.split(r"\s{2,}", line[2:])[0] == name]
+        # toward it, down where a short screen does not draw it, as a page opens on its first
+        # row: a key at the end of the rows draws nothing, so nothing tells it moved
+        up = rows and rows[0] < lines.index(highlighted(lines))
+        lines = step(screen, UP if up else DOWN, lines)
     screen.case.fail(f"no row of {name}: {lines}")
 
 
@@ -312,6 +326,22 @@ class ProviderScreen(unittest.TestCase):
         self.assertNotIn("anthropic", screen.saved()["providers"])
         back(screen)
         screen.leave()
+
+    def test_a_screen_slow_to_draw_is_walked_to_its_row(self):
+        # as a loaded host slows it: the child stopped as each key goes in, on 0.7 s later, past
+        # Screen.press's half second of quiet
+        screen = Screen(self, child=CHILD)
+        press = screen.press
+
+        def slow(keys, where=None):
+            os.kill(screen.proc.pid, signal.SIGSTOP)
+            woken = threading.Timer(.7, os.kill, (screen.proc.pid, signal.SIGCONT))
+            woken.start()
+            self.addCleanup(woken.join)     # before the screen's own cleanup ends the child
+            return press(keys, where)
+
+        screen.press = slow
+        self.assertEqual(named(open_row(screen, "Grok")), "Grok")
 
     def test_two_providers_of_one_name_are_told_apart(self):
         house = ('\n[models.house]\nharness = "claude"\nmodel = "claude-sonnet-5"\n'
