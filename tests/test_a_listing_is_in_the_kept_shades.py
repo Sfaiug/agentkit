@@ -33,7 +33,7 @@ class AListingIsInTheKeptShades(unittest.TestCase):
                     forget(home)
                 shown = {}
                 for args in (("orch", "list"), ("usage",)):
-                    term = Terminal(home, *args)
+                    term = Terminal(home, *args, env={"COLORTERM": "truecolor"})
                     self.assertEqual(term.exit_code(60), 0, term.screen())
                     shown[args[0]] = looks(term.screen(colours=True))
                     home.tmux("kill-session", "-t", term.pane, server=SERVER)

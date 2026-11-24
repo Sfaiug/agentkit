@@ -384,7 +384,7 @@ class Listings(Sandbox):
     def test_v5z_p_table_cells_pad_outside_the_colour_escapes(self):
         # cut, then style, then pad: no pad space may sit inside an escape,
         # and the row keeps no trailing space colour could hide
-        with patch.object(terminal, "colour_depth", return_value=24):
+        with patch.object(terminal, "colour_depth", return_value=8):
             line = terminal.table_row(["#", "title", "state"], [2, 8, 7],
                                       "", ["dim"] * 3)
         self.assertNotIn(" \033[0m", line)

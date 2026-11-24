@@ -103,7 +103,8 @@ class TextHasThreeWeights(unittest.TestCase):
         done = self.home.tmux("set-option", "-g", *option, server=SERVER)
         self.assertEqual(done.code, 0, done.err)
         self.at(OPENED)
-        menu = Terminal(self.home, size=(100, 50), env={"AK_MOTION_CLOCK": str(self.clock)})
+        menu = Terminal(self.home, size=(100, 50), env={"COLORTERM": "truecolor",
+                                                        "AK_MOTION_CLOCK": str(self.clock)})
         self.addCleanup(self.home.tmux, "kill-session", "-t", menu.pane, server=SERVER)
 
         def first(texts, *words):

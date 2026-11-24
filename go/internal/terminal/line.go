@@ -7,12 +7,20 @@ import (
 	"strings"
 )
 
-// lookOf is a word's style and its colour on this screen, a `#RRGGBB` taking its own.
+// lookOf is a word's style and its colour on this screen, a `#RRGGBB` taking its own and the
+// nearest of the eight basic ones.
 func (s Screen) lookOf(word string) (style, string) {
-	if rgb, own := strings.CutPrefix(word, "#"); own {
-		return style{}, rgb
+	rgb, own := strings.CutPrefix(word, "#")
+	if !own {
+		return styles[word], colourOf(word, s.theme)
 	}
-	return styles[word], colourOf(word, s.theme)
+	tone := 30
+	for i, text := range channels(rgb) {
+		if value, _ := strconv.Atoi(text); value >= 128 {
+			tone += 1 << i
+		}
+	}
+	return style{tone: strconv.Itoa(tone)}, rgb
 }
 
 // LayoutWidth is the room a screen lays out in: the terminal's, up to 120 columns; beyond that the
@@ -80,16 +88,23 @@ func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word
 	ends := (halves + 1) / 2
 	start := math.RoundToEven(float64(size) * from)
 	head := int(math.RoundToEven(start + (float64(ends)-start)*moved))
+	cells := make([]string, head)
 	var line strings.Builder
 	for n := range head {
-		cell, in := full, word
+		cells[n] = full
 		if halves%2 == 1 && n == ends-1 && n == head-1 {
-			cell = half
+			cells[n] = half
 		}
-		if lit && n == head-1 {
-			in = s.faded(word, -0.5)
+		if s.depth > 8 {
+			ink := word
+			if lit && n == head-1 {
+				ink = s.faded(word, -0.5)
+			}
+			line.WriteString(s.Styled(cells[n], ink))
 		}
-		line.WriteString(s.Styled(cell, in))
+	}
+	if s.depth <= 8 {
+		line.WriteString(s.Styled(strings.Join(cells, ""), word))
 	}
 	return line.String() + s.Styled(strings.Repeat(empty, size-head), "border")
 }

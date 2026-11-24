@@ -5,9 +5,9 @@ highlight (the screen approved on 14 Oct 2026).  Every seat, a done one too, nev
 it got done (the owner, 9 Nov 2026), names each role and the models in it, and never a task's
 squares: its row counts its tasks in flight (the owner, 17 Nov 2026), and a run that ended is no
 task in flight.  Black-box:
-the program `AK_BIN` names runs in a person's terminal (tests/fixtures/akterm.py), beside
-tests/fixtures/akseat.py's seats and run records like those `ak run` writes, and this test fails
-against `/bin/false`.
+the program `AK_BIN` names runs in a person's terminal (tests/fixtures/akterm.py), of eight
+colours so nothing breathes, beside tests/fixtures/akseat.py's seats and run records like those
+`ak run` writes, and this test fails against `/bin/false`.
 """
 
 import re
@@ -84,7 +84,7 @@ class OpenLine(unittest.TestCase):
                            ("0904-eeee", {"state": "pass", "step": "merge"})):
             home.write(f".agentkit/runs/20261020-{run}/run.json",
                        {**state, "launched_session": "fix-api"})
-        menu = Terminal(home, size=(100, 30))
+        menu = Terminal(home, size=(100, 30), env={"TERM": "xterm"})
         cls.addClassCleanup(menu.exit_code)
         cls.addClassCleanup(menu.keys, "Escape")
         menu.wait(lambda screen: all(word in screen for word in ("✓ done", "● working",

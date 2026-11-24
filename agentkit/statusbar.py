@@ -119,7 +119,7 @@ def chip(word):
     """The state as its bar opens with it: its glyph and word on its colour in the text that
     reads on it, bold where the word is -- `! needs you`, the one loud thing on the bar."""
     ink, rgb = terminal.colour("on-accent", tmux=True), terminal.colour(word, tmux=True)
-    bold = ",bold" * (terminal.STATE_STYLES[word][3] == "1")
+    bold = ",bold" * (terminal.STATE_STYLES[word][4] == "1")
     return f"#[fg=#{ink},bg=#{rgb}{bold}] {orch.tmux_text(terminal.state_text(word))} #[default]"
 
 

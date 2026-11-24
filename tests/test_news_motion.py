@@ -68,7 +68,8 @@ class Menu(Sandbox):
         super().setUp()
         os.environ.pop("NO_COLOR")
         self.stack.enter_context(patch.dict(os.environ, {
-            "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm-256color"}))
+            "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "xterm-256color",
+            "COLORTERM": "truecolor"}))
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
         self.words, self.tasks, self.notices, self.live = {}, {}, [], None

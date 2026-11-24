@@ -148,7 +148,7 @@ class ExecutorsOptional(Sandbox):
     def test_orchestrator_exec_mark_is_filled_and_on_while_nobody_else_is_marked(self):
         marks = "●○■□"
         with patch.object(terminal, "layout_width", return_value=100), \
-                patch.object(terminal, "colour_depth", return_value=24), \
+                patch.object(terminal, "colour_depth", return_value=8), \
                 patch.object(terminal, "utf8", return_value=True):
             lines, _ = menu.config_body(self.cfg, selected=self.selected())
             rows = {re.split(r" [[●○■□]", terminal.plain(line).lstrip("› "))[0]: line

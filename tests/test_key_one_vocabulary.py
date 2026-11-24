@@ -21,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.aklooks import look, plain, settled
 from test_key_models_company_list import ADDING, ENV, Opened
 
-COLOUR = {name: value for name, value in ENV.items() if name != "NO_COLOR"}
+COLOUR = {**{name: value for name, value in ENV.items() if name != "NO_COLOR"},
+          "COLORTERM": "truecolor"}
 
 
 class OneVocabulary(Opened):

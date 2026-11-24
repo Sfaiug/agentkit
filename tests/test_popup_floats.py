@@ -2,8 +2,9 @@
 
 `Ctrl-b m`'s popup has a rounded border in the border colour with ` agentkit ` set into its top edge
 and, but on a phone, a column and a row of padding inside it, a line typed into it included; it
-is handed its
-client's name, the window a seat picked in it opens in, which no tmux command hands on; the pane
+is handed its client's terminal features, so its menu asks tmux nothing before it draws, its
+client's process, whose terminal it draws on, and its client's name, the window a seat picked in
+it opens in, which no tmux command hands on; the pane
 behind it draws its text dim while it is up and has exactly its own styles back once the last
 popup over it is down, however it comes down -- its menu ending, a crash, a kill, which is what
 its client going does to it too; every tmux call on the way is tmux's own, never the shim a
@@ -130,7 +131,7 @@ while True:
 saw = os.environ["STANDIN_SAW"]
 with open(saw + ".part", "w") as out:
     json.dump({"styles": styles, "padding": os.environ.get("AGENTKIT_PADDING"),
-               "pid": os.getpid()}, out)
+               "features": os.environ.get("AGENTKIT_TERMFEATURES"), "pid": os.getpid()}, out)
 os.replace(saw + ".part", saw)
 end = os.environ["STANDIN_END"]
 if end == "crash":
@@ -199,6 +200,8 @@ print(f"<answered {terminal.readline('Name: ')!r}>", flush=True)
 TAKEN, DOWN = "\x1b[?1049h", b"\x1b[B"
 PAINT = r"(?:\x1b\[[0-9;]*[mJK])*"   # what colours or clears the cells from a place, the padding's
 PANE, CLIENT = "%1", "/dev/pts/7"   # what the binding's formats come to in this test's tmux
+FEATURES = "256,RGB,bpaste,clipboard,title"   # ... and the client's terminal features
+PID = "4242"                                  # ... and its process
 
 
 def header_tones(text):
@@ -288,8 +291,9 @@ class FakeTmux:
         saw = self.root / f"saw-{self.opened}.json"
         run = tmux_words(self.branches()[0 if small else 1])
         self.case.assertEqual(run[:2], ["run-shell", "-b"])
-        script = re.sub(r"##|#\{(pane_id|client_name)\}",
-                        lambda m: {"pane_id": PANE, "client_name": CLIENT}.get(m[1], "#"), run[2])
+        script = re.sub(r"##|#\{(pane_id|client_name|client_pid|client_termfeatures)\}",
+                        lambda m: {"pane_id": PANE, "client_name": CLIENT, "client_pid": PID,
+                                   "client_termfeatures": FEATURES}.get(m[1], "#"), run[2])
         job = subprocess.Popen(["sh", "-c", script], start_new_session=True,
                                stderr=subprocess.DEVNULL,       # as `run-shell` has it
                                env={**self.env, "STANDIN_SAW": str(saw), "STANDIN_END": end})
@@ -344,9 +348,10 @@ class TheBinding(unittest.TestCase):
         self.assertEqual((phone["-w"], phone["-h"]), ("100%", "100%"))
         handed = [[popup[at + 1] for at, word in enumerate(popup[:-1]) if word == "-e"]
                   for popup in tmux.popups()]
-        client = f"{orch.CLIENT_ENV}={CLIENT}"
-        self.assertEqual(handed, [[client],                   # a phone spares no cell
-                                  [client, f"{terminal.PAD_ENV}=1"]])
+        features = (f"{terminal.FEATURES_ENV}={FEATURES}", f"{terminal.CLIENT_PID_ENV}={PID}",
+                    f"{orch.CLIENT_ENV}={CLIENT}")
+        self.assertEqual(handed, [[*features],                # a phone spares no cell
+                                  [*features, f"{terminal.PAD_ENV}=1"]])
         self.assertNotIn("set-hook", "\n".join(tmux.lines))   # no other session is touched
 
     def test_its_colours_are_the_shades_kept_as_the_key_is_pressed(self):
@@ -392,6 +397,7 @@ class ThePaneBehind(unittest.TestCase):
                         seen = tmux.press(small, end)
                         self.assertEqual(seen["styles"], dict.fromkeys(STYLES, DIM))
                         self.assertEqual(seen["padding"], None if small else "1")
+                        self.assertEqual(seen["features"], FEATURES)
                         self.assertEqual(tmux.options(), own)   # exactly: nothing more, nothing less
 
     def test_it_stays_dim_until_the_last_popup_over_it_is_down_however_they_race(self):
@@ -434,7 +440,7 @@ class Popup:
         env = {key: value for key, value in fake.env.items()
                if key not in ("NO_COLOR", "COLUMNS", "LINES", "TMUX", "FAKE_TMUX_PANE",
                               terminal.PAD_ENV)}
-        env.update({"TERM": "xterm-256color", "LANG": "C.UTF-8",
+        env.update({"TERM": "xterm-256color", "COLORTERM": "truecolor", "LANG": "C.UTF-8",
                     "LC_ALL": "C.UTF-8", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                     "FLOATS_REPO": str(REPO)})
         if padding:

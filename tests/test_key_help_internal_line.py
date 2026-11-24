@@ -1,9 +1,10 @@
 """`ak -h` on a colour terminal shows its `internal:` line dim, and only that line.
 
 The help is one screen: the menu and the commands an orchestrator uses, then one line naming the
-commands the toolkit runs for itself, dim so a reader's eye passes over it.  Black-box: the
-program `AK_BIN` names runs from outside through tests/fixtures/akbin.py with a terminal on its
-stdout, and this test fails against `/bin/false`.
+commands the toolkit runs for itself, dim so a reader's eye passes over it.  On an eight-colour
+terminal dim is the terminal's own faint style.  Black-box: the program `AK_BIN` names runs from
+outside through tests/fixtures/akbin.py with a terminal on its stdout, and this test fails
+against `/bin/false`.
 """
 
 import os
@@ -18,8 +19,7 @@ from fixtures.akbin import AK, Home
 
 INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor",
             "move", "standby")
-COLOUR = {"TERM": "xterm", "NO_COLOR": None}   # a terminal, and colour not turned off
-DIM = r"\x1b\[38;2;134;141;151m"    # the black theme's dim, #868d97: no menu kept a light one here
+COLOUR = {"TERM": "xterm", "NO_COLOR": None, "COLORTERM": None}   # eight colours, per terminfo
 
 
 class HelpInternalLine(unittest.TestCase):
@@ -59,7 +59,7 @@ class HelpInternalLine(unittest.TestCase):
                 lines = self.on_terminal(flag).splitlines()
                 internal = [line for line in lines if "internal:" in line]
                 self.assertEqual(len(internal), 1, lines)
-                match = re.fullmatch(DIM + r"(internal:.*)\x1b\[0m", internal[0])
+                match = re.fullmatch(r"\x1b\[2m(internal:.*)\x1b\[0m", internal[0])
                 self.assertIsNotNone(match, internal[0])
                 for command in INTERNAL:
                     self.assertRegex(match[1], rf"(?<![\w-]){re.escape(command)}(?![\w-])")

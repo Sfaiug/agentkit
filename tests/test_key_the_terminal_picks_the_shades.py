@@ -41,11 +41,11 @@ class TheTerminalPicksTheShades(unittest.TestCase):
         Terminal(home, "--help").exit_code()    # its tmux keeps a background only while it is up
 
     def open(self, *args, background=None):
-        """`args` on a terminal of that background, or of none."""
+        """`args` on a true-colour terminal of that background, or of none."""
         option = ["window-style", f"bg={background}"] if background else ["-u", "window-style"]
         done = self.home.tmux("set-option", "-g", *option, server=SERVER)
         self.assertEqual(done.code, 0, done.err)
-        term = Terminal(self.home, *args, size=(100, 40))
+        term = Terminal(self.home, *args, size=(100, 40), env={"COLORTERM": "truecolor"})
         self.addCleanup(self.home.tmux, "kill-session", "-t", term.pane, server=SERVER)
         return term
 

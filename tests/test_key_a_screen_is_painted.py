@@ -57,13 +57,13 @@ class AScreenIsPainted(unittest.TestCase):
         new.replace(self.clock)
 
     def open(self, *args, background=DARK, env=None, program=AK):
-        """`args` run on a terminal of that background, ak's motion at OPENED."""
+        """`args` run on a true-colour terminal of that background, ak's motion at OPENED."""
         done = self.home.tmux("set-option", "-g", "window-style", f"bg={background}",
                               server=SERVER)
         self.assertEqual(done.code, 0, done.err)
         self.at(OPENED)
         term = Terminal(self.home, *args, size=SIZE, program=program, env={
-            "AK_MOTION_CLOCK": str(self.clock), **(env or {})})
+            "COLORTERM": "truecolor", "AK_MOTION_CLOCK": str(self.clock), **(env or {})})
         self.addCleanup(self.home.tmux, "kill-session", "-t", term.pane, server=SERVER)
         return term
 

@@ -155,7 +155,7 @@ class Row(unittest.TestCase):
                              ["acme-fix", "zeta-fix", "draft"])
 
     def test_its_heading_is_dim_for_it_is_no_project(self):
-        with patch.object(terminal, "colour_depth", lambda: 24):
+        with patch.object(terminal, "colour_depth", lambda: 256):
             self.assertEqual(menu.v5o_header({"name": "acme", "checkout": Path("/c/acme")}, 100),
                              terminal.styled("acme", "bold"))
             self.assertEqual(menu.v5o_header({"name": menu.UNFILED, "checkout": None}, 100),
@@ -164,7 +164,7 @@ class Row(unittest.TestCase):
     def test_on_a_phone_its_crew_is_one_muted_line_cut_to_its_room(self):
         info = {"born": {}, "crew": (["astra"], ["fable"])}
         with patch.object(menu, "born_refusal", lambda born: ""), \
-                patch.object(terminal, "colour_depth", lambda: 24):
+                patch.object(terminal, "colour_depth", lambda: 256):
             self.assertEqual(menu.born_lines(info, 25),
                              [terminal.styled("build: astra   review:…", "muted")])
 

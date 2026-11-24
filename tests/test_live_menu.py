@@ -324,8 +324,11 @@ class LiveMenu(Sandbox):
         self.assertIn("90% left · resets Fri 14:00 · ? muse usage timed out after 30s",
                       said(self.cfg)["Muse"])
         with patch.object(sys.stdout, "isatty", return_value=True), \
-                patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
-            self.assertIn("\033[1;38;2;215;146;0m?\033[0m", menu.usage_detail(self.cfg, 3))
+                patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
+                patch("curses.setupterm"), patch("curses.tigetnum", return_value=8), \
+                patch("curses.tigetflag", return_value=0), \
+                patch("curses.tigetstr", return_value=None):
+            self.assertIn("\033[1;33m?\033[0m", menu.usage_detail(self.cfg, 3))
         # With no meter to draw at all the row is still `—` and the words that say why -- and
         # `no login` comes from the `auth` verb the probe asked, never from the error's wording.
         self.cache(self.providers(meta={"meters": [], "error": "unknown: not logged in",

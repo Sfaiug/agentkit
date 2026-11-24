@@ -56,7 +56,7 @@ def ask(keys, cols=120):
         return 5
     with patch.object(terminal, "read_key", side_effect=keys), \
             patch.object(terminal, "width", return_value=cols), \
-            patch.object(terminal, "colour_depth", return_value=24), \
+            patch.object(terminal, "colour_depth", return_value=256), \
             patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}), \
             redirect_stdout(io.StringIO()):
         answer = terminal.confirm(QUESTION, MEANS, "Stop", around)
@@ -66,7 +66,7 @@ def ask(keys, cols=120):
 class QuestionCard(unittest.TestCase):
     def test_the_card_is_the_question_what_it_means_and_keep_first(self):
         _, card = ask([Key("esc")])
-        with patch.object(terminal, "colour_depth", return_value=24):
+        with patch.object(terminal, "colour_depth", return_value=256):
             dim, warn = terminal.styled("  " + MEANS, "dim"), terminal.styled("× Stop", "amber")
         # the choices on the card's two rows before its last: Keep lit, on the selection over its
         # text and a cell each side, its row no band, and Stop in the warn colour
@@ -75,7 +75,7 @@ class QuestionCard(unittest.TestCase):
         self.assertEqual(terminal.ANSI.sub("", keep), "› ✓ Keep ")
         self.assertEqual([column for column, back in enumerate(terminal._grounds(keep), 1)
                           if back], list(range(2, 10)))
-        self.assertIn("48;2;8;48;93m", keep)
+        self.assertIn("48;5;23m", keep)
         self.assertTrue(stop.endswith("  " + warn), repr(stop))
         # on a phone the question and its meaning wrap and no choice does
         _, card = ask([Key("esc")], cols=40)

@@ -92,9 +92,10 @@ func (s Screen) Scrolled(lines int) int {
 
 // paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the theme's
 // background, in its text wherever it sets no colour, each reset putting both back, and the terminal
-// its own colours again after it, for whatever has it next.  Where nothing is coloured it is as it is.
+// its own colours again after it, for whatever has it next.  At eight colours, whose tones read on any
+// background, it is as it is.
 func (s Screen) paint(text string) string {
-	if s.depth == 0 || text == "" {
+	if !s.Moves() || text == "" {
 		return text
 	}
 	back, fore := s.ink(colourOf("background", s.theme), "48"), s.ink(colourOf("text", s.theme), "38")

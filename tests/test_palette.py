@@ -2,13 +2,14 @@
 
 A pty stands in for the terminal: `sense` asks it for its background and its attributes and the
 test has answered, or has not, on a clock that stands still while `sense` waits, so only the wait
-running out ends it.
+running out ends it.  tmux is a faked `subprocess.run`; nothing real is asked.
 """
 
 import json
 import os
 import pty
 import select
+import subprocess
 import sys
 import tempfile
 import time
@@ -17,7 +18,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, menu, terminal
+from agentkit import config, guard, menu, terminal
 
 QUERY = b"\033]11;?\033\\\033[c"
 WHITE = b"\033]11;rgb:ffff/ffff/ffff\033\\"
@@ -51,9 +52,9 @@ class Palette(unittest.TestCase):
         for end in (stdin, stdout):
             self.addCleanup(end.close)
         self.addCleanup(os.close, self.master)
-        for target, name, value in ((terminal, "THEME", None), (terminal, "_KEYED", b""),
-                                    (sys, "stdin", stdin), (sys, "stdout", stdout),
-                                    (config, "STATE", kept.name)):
+        for target, name, value in ((terminal, "_RGB", False), (terminal, "THEME", None),
+                                    (terminal, "_KEYED", b""), (sys, "stdin", stdin),
+                                    (sys, "stdout", stdout), (config, "STATE", kept.name)):
             patcher = patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -77,6 +78,41 @@ class Palette(unittest.TestCase):
             terminal.sense()
         self.assertEqual(os.read(self.master, 64), QUERY)   # what it asked the terminal
         return not all(ready)
+
+    def test_tmux_reporting_rgb_gives_true_colour_with_colorterm_unset(self):
+        with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1000/default,1,0"}), \
+                patch("curses.setupterm"), patch("curses.tigetnum", return_value=256), \
+                patch("curses.tigetflag", return_value=0), \
+                patch("curses.tigetstr", return_value=None):
+            self.assertNotIn("COLORTERM", os.environ)
+            self.assertEqual(terminal.colour_depth(), 256)
+            for said, depth in (("256,RGB,bpaste,clipboard,title\n", 24), ("256,Tc\n", 24),
+                                ("256,bpaste,clipboard,title\n", 256), ("", 256)):
+                with self.subTest(features=said), patch.object(
+                        terminal.subprocess, "run",
+                        return_value=subprocess.CompletedProcess([], 0, said, "")) as tmux:
+                    self.sense()
+                    self.assertEqual(tmux.call_args.args[0], [guard.real("tmux"), "display",
+                                                              "-p", "#{client_termfeatures}"])
+                    self.assertEqual(terminal.colour_depth(), depth)
+                    self.assertEqual(terminal.styled("working", "working"),
+                                     "\033[38;2;77;163;255mworking\033[0m" if depth == 24 else
+                                     "\033[38;5;75mworking\033[0m")
+                    with patch.dict(os.environ, {"NO_COLOR": ""}):
+                        self.assertEqual(terminal.colour_depth(), 0)   # whatever tmux says
+        # outside tmux nothing is asked of it
+        with patch.object(terminal.subprocess, "run", side_effect=AssertionError("tmux")):
+            self.sense()
+        self.assertFalse(terminal._RGB)
+
+    def test_a_popup_handed_its_clients_features_asks_tmux_nothing(self):
+        # what `orch.tmux_conf`'s popup is handed as the key is pressed, read for its first frame
+        for said, rgb in (("256,RGB,bpaste,title", True), ("256,bpaste,title", False)):
+            with self.subTest(features=said), patch.dict(os.environ, {
+                    "TMUX": "/tmp/tmux-1000/default,1,0", terminal.FEATURES_ENV: said}), \
+                    patch.object(terminal.subprocess, "run", side_effect=AssertionError("tmux")):
+                self.sense()
+                self.assertIs(terminal._RGB, rgb)
 
     def test_an_answer_puts_its_shades_in_force_and_keeps_them_for_none_in_time(self):
         self.assertFalse(self.sense(WHITE, ATTRIBUTES))
@@ -133,15 +169,17 @@ class Bars(Sandbox):
             "anthropic": {"meters": [{**week, "used": 50}]},
             "openai": {"meters": [{**week, "used": 85}]},
             "meta": {"meters": [{**week, "used": 97}]}}}))
-        with patch.object(terminal, "colour_depth", return_value=24):
-            rest = "\n".join(menu.usage_lines(self.cfg, 120))
-            # 50% left is five cells of ten, 15% one and a half, 3% a half, none in a colour
-            for left in ("━━━━━", "━╸", "╸"):
-                self.assertIn(left + terminal.styled("─" * (10 - len(left)), "border"), rest)
-            # the one pointed at is lit as any cell is, every colour in it kept
-            lines = menu.usage_lines(self.cfg, 120)
-            self.assertEqual(menu.usage_lines(self.cfg, 120, lit=1), [terminal.selected(
-                lines[0], 3, 2 + menu.COLUMN), *lines[1:]])
+        for depth in (24, 256, 8):
+            with self.subTest(depth=depth), \
+                    patch.object(terminal, "colour_depth", return_value=depth):
+                rest = "\n".join(menu.usage_lines(self.cfg, 120))
+                # 50% left is five cells of ten, 15% one and a half, 3% a half, none in a colour
+                for left in ("━━━━━", "━╸", "╸"):
+                    self.assertIn(left + terminal.styled("─" * (10 - len(left)), "border"), rest)
+                # the one pointed at is lit as any cell is, every colour in it kept
+                lines = menu.usage_lines(self.cfg, 120)
+                self.assertEqual(menu.usage_lines(self.cfg, 120, lit=1), [terminal.selected(
+                    lines[0], 3, 2 + menu.COLUMN), *lines[1:]])
 
 
 if __name__ == "__main__":

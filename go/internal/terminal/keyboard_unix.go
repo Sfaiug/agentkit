@@ -3,7 +3,9 @@
 package terminal
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"os/signal"
 	"regexp"
 	"strconv"
@@ -86,11 +88,20 @@ func (k *Keyboard) give(modes string) {
 	signal.Stop(k.heard)
 }
 
-// Sense asks what the terminal is, once a start, on a taken keyboard: whether its background is
-// light, by its answer to OSC 11 within a second, as a busy host can take most of one to pass it
-// on, the answer kept for what cannot ask (keep).  DA1, which every terminal answers and in turn,
-// ends the wait with the answers.  Anything typed meanwhile is kept for ReadKey.
+// Sense asks what the terminal is, once a start, on a taken keyboard: whether it takes true colour
+// though COLORTERM does not say (what AGENTKIT_TERMFEATURES says, else inside tmux what tmux says,
+// which takes a process), and whether its background is light, by its answer to OSC 11 within a
+// second, as a busy host can take most of one to pass it on, the answer kept for what cannot ask
+// (keep).  DA1, which every terminal answers and in turn, ends the wait with the answers.  Anything
+// typed meanwhile is kept for ReadKey.
 func (k *Keyboard) Sense() {
+	features, set := os.LookupEnv("AGENTKIT_TERMFEATURES")
+	if !set && os.Getenv("TMUX") != "" { // asked of the client this runs under, $TMUX kept
+		asked, cancel := context.WithTimeout(context.Background(), time.Second)
+		said, _ := exec.CommandContext(asked, "tmux", "display", "-p", "#{client_termfeatures}").Output()
+		cancel()
+		features = string(said)
+	}
 	syscall.Write(outFD, []byte("\x1b]11;?\x1b\\\x1b[c"))
 	var heard []byte
 	until := time.Now().Add(time.Second)
@@ -117,7 +128,7 @@ func (k *Keyboard) Sense() {
 		heard = append(heard[:at[0]:at[0]], heard[at[1]:]...)
 	}
 	k.keyed = append(heard, k.keyed...)
-	k.sensed = Screen{depth: depth(os.Stdout), ascii: !utf8(), theme: in}
+	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in}
 }
 
 // Screen is what Sense found, at the size the terminal is now, in the theme its background fits,

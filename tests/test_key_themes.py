@@ -102,7 +102,7 @@ class Themes(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         self.at(OPENED)
         menu = Terminal(self.home, size=(100, 40),
-                        env={"AK_MOTION_CLOCK": str(self.clock)})
+                        env={"COLORTERM": "truecolor", "AK_MOTION_CLOCK": str(self.clock)})
         self.addCleanup(self.home.tmux, "kill-session", "-t", menu.pane, server=SERVER)
         menu.wait(lambda text: all(word in text for word in WORDS) and "esc leave" in text, 60)
         return menu
@@ -183,7 +183,8 @@ class Themes(unittest.TestCase):
         for seat, word, name in (("acme", "● working", "accent"),
                                  ("beta", "! needs you", "warning")):
             with self.subTest(word):
-                term = Terminal(self.home, "orch", seat, size=(100, 30))
+                term = Terminal(self.home, "orch", seat, size=(100, 30),
+                                env={"COLORTERM": "truecolor"})
                 self.addCleanup(self.home.tmux, "kill-session", "-t", term.pane, server=SERVER)
                 done = self.home.ak("orch", "why", seat)      # a look at the seat dresses its bar
                 self.assertEqual(done.code, 0, done.err)

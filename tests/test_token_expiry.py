@@ -120,7 +120,7 @@ class TokenExpiry(unittest.TestCase):
     def test_the_line_under_the_grid_says_it_dim_then_amber_once_dead(self):
         cfg = config.load()
         (config.STATE / "usage.json").write_text('{"providers": {}}')
-        self.stack.enter_context(patch.object(terminal, "colour_depth", return_value=24))
+        self.stack.enter_context(patch.object(terminal, "colour_depth", return_value=8))
 
         def under(height=30, owned=True):
             with patch.object(terminal, "width", return_value=100), \

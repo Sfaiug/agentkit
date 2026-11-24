@@ -92,9 +92,11 @@ class UsageRow(Sandbox):
         self.assertIn(f"note: Muse {reason}", rendered)
         self.assertRegex(rendered, r"(?m)^Muse +spark +90% ")
         with patch.object(sys.stdout, "isatty", return_value=True), \
-                patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
-            # the table's `?`
-            self.assertIn("\033[1;38;2;215;146;0m?\033[0m", menu.usage_detail(self.cfg, 3))
+                patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
+                patch("curses.setupterm"), patch("curses.tigetnum", return_value=8), \
+                patch("curses.tigetflag", return_value=0), \
+                patch("curses.tigetstr", return_value=None):
+            self.assertIn("\033[1;33m?\033[0m", menu.usage_detail(self.cfg, 3))   # the table's `?`
 
     def test_v5c_no_reading_is_a_dash_and_why(self):
         cases = ((None, "no reading yet"),

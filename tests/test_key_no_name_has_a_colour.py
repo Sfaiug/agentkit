@@ -94,7 +94,7 @@ class NoNameHasAColour(unittest.TestCase):
         # idle, so nothing breathes: one on the Gemini subscription
         Seat(home, SEATS[0], model="gemini", screen="antigravity-prompt-pane.txt")
         Seat(home, SEATS[1], model="opus")
-        cls.term = term = Terminal(home, size=(120, 40))
+        cls.term = term = Terminal(home, size=(120, 40), env={"COLORTERM": "truecolor"})
         # each screen's looks once it rests, the pointer away and on the Gemini subscription
         cls.screens = screens = {}
         term.wait(lambda text: "esc leave" in text and all(seat in text for seat in SEATS)

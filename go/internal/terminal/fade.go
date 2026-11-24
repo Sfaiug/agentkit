@@ -10,6 +10,9 @@ import (
 
 var sgr = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
 
+// cube is each channel's steps in xterm's 6x6x6 colour cube.
+var cube = [6]int{0, 95, 135, 175, 215, 255}
+
 // Fade is text as a draw wrote it, every colour in it and the foreground its plain cells take, the
 // theme's text, amount (0 to 1) of the way to the theme's background: a page coming up out of it as
 // it opens, and the line a row opens.  Where colour cannot move it is as it is.
@@ -50,6 +53,13 @@ func (s Screen) Fade(text string, amount float64) string {
 				rgb = nil
 			case first == 38 && i+4 < len(parts) && parts[i+1] == "2":
 				rgb, i = []int{number(i + 2), number(i + 3), number(i + 4)}, i+4
+			case first == 38 && i+2 < len(parts) && parts[i+1] == "5" && number(i+2) >= 16:
+				n := number(i+2) - 16
+				rgb, i = []int{cube[n/36%6], cube[n/6%6], cube[n%6]}, i+2
+				if n >= 216 {
+					grey := 8 + 10*(n-216)
+					rgb = []int{grey, grey, grey}
+				}
 			}
 		}
 		out.WriteString(text[at:code[1]] + tone(rgb))

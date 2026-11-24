@@ -204,7 +204,7 @@ class Screen:
         self.master, self.slave = os.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
         env = {key: value for key, value in os.environ.items() if key not in INHERITED}
-        env.update({"HOME": home.name, "TERM": "xterm-256color",
+        env.update({"HOME": home.name, "TERM": "xterm-256color", "COLORTERM": "truecolor",
                     "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "AK_RUN_DEPTH": "0",
                     "AK_MAX_RUNS": "0", "RULE_REPO": str(REPO), "RULE_LIST": str(seconds),
                     "RULE_TICK": str(tick), "RULE_SET": str(flip), "RULE_OPENS": str(opens),

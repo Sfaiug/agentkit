@@ -48,7 +48,8 @@ import threading
 import time
 import uuid
 from collections import Counter
-from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from contextlib import (ExitStack, closing, contextmanager, nullcontext, redirect_stderr,
+                        redirect_stdout)
 from datetime import datetime
 from pathlib import Path
 
@@ -2084,11 +2085,6 @@ def tmux_conf():
     whole of it; a key table and the global options belong to the server, so on the default
     server -- where the legacy seats are -- they reach the user's own sessions too.
 
-    `RGB` tells tmux that each client's terminal takes true colour, whatever its name's entry
-    counts: over ssh the name arrives and COLORTERM does not.  So a seat's bar, its borders and
-    its popup are in the theme's own colours on every terminal, as the menu in the whole window
-    is (`terminal.colour_depth`).
-
     `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
     wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
     one attached before this file was loaded gets the rows apart until it attaches again.
@@ -2119,9 +2115,12 @@ def server_conf():
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
     border, because a popup of 80% by 70% of forty by twelve holds a key line and nothing to
     press it on; anywhere larger it is the 80% by 70% it always was.  `display-popup` takes
-    no format for its size, so the choice is `if-shell -F`'s.  The client's name rides in with
-    it (CLIENT_ENV), read as the key is pressed, so a seat picked in it opens in that window,
-    whichever window tmux last heard a key from: a key pressed in a popup is none.
+    no format for its size, so the choice is `if-shell -F`'s.  The client's terminal features
+    ride in with it (`terminal.FEATURES_ENV`), read as the key is pressed, so the menu's first
+    frame waits on no tmux call to learn whether it takes true colour; so does the client's
+    process (`terminal.CLIENT_PID_ENV`), whose terminal the menu draws on; and so does the
+    client's name (CLIENT_ENV), so a seat picked in it opens in that window, whichever window
+    tmux last heard a key from: a key pressed in a popup is none.
 
     The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
     popup, and says nothing): a rounded border in the theme's border with ` agentkit ` set into
@@ -2139,9 +2138,11 @@ def server_conf():
         roles = shlex.join([sys.executable, "-S", "-I", str(versions.live() / "agentkit" /
                                                             "themes.py"),
                             str(config.HOME / config.CONFIG_NAME), "border", "dim"])
-        handed = f'-e "{CLIENT_ENV}=$c"'
+        handed = (f'-e "{terminal.FEATURES_ENV}=$f" -e "{terminal.CLIENT_PID_ENV}=$i" '
+                  f'-e "{CLIENT_ENV}=$c"')
         small, large = (
-            "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}'; " + tmux_text(
+            "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' i='#{client_pid}' "
+                                        "f='#{client_termfeatures}'; " + tmux_text(
                 FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "roles": roles,
                          "popup": popup, "command": shlex.quote(popup_command())}))
             for popup in (f"{small} {border} {handed}",
@@ -2405,6 +2406,8 @@ def attach(name, log=print, wait=False, session=None):
     attach to it: the session is running, and saying where it is is the whole answer.  `wait`
     is the menu's way in: it comes back when the user detaches, and the menu is drawn again.
     `session` is the seat as its caller has it listed, which spares asking tmux for it again.
+    A terminal no menu has asked what it is is asked here (`terminal.sense`): the menu over the
+    seat, a popup, cannot ask its background, and draws in the one kept.
     """
     name = config.resolve_session(name)
     session = find(name) if session is None else session
@@ -2427,6 +2430,10 @@ def attach(name, log=print, wait=False, session=None):
     note = fix_term()
     if note:
         log(note)
+    if not wait:
+        with closing(terminal.Keyboard(screen=False)) as keyboard:
+            if keyboard.take():
+                terminal.sense()
     cmd = tmux_argv(socket, "attach-session", "-t", f"={name}")
     env = tmux_env()      # $TMUX gone: from a client on another server this one nests on purpose
     seen_by_user(name, session)   # before the exec below, which never comes back here

@@ -76,7 +76,7 @@ class TheMenuDrawsNoTaskSquares(unittest.TestCase):
         self.assertEqual(line, UNDER + CREW)
 
     def test_on_a_terminal_the_highlighted_row_opens_its_crew_alone(self):
-        menu = Terminal(self.home, size=(100, 30))
+        menu = Terminal(self.home, size=(100, 30), env={"TERM": "xterm"})
         self.addCleanup(menu.exit_code)
         self.addCleanup(menu.keys, "Escape")
         menu.wait(lambda screen: opened(screen, "fix-api"), bound=OPENS)
