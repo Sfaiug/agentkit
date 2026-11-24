@@ -41,36 +41,46 @@ WRAPPED = MENU.replace(f"  ❯ 1. {STOP}\n    2. Wait here, then continue automa
 REFUSED = {"type": "assistant", "isApiErrorMessage": True, "apiError": "usage_limit_reached",
            "message": {"role": "assistant", "content": [{"type": "text", "text":
                        "You've hit your weekly limit · resets Nov 21, 1am (Europe/Berlin)"}]}}
-# The seat's harness: it draws SCREEN, keeps each key it gets in TYPED, and once one is Esc
-# draws its prompt, empty, as Claude Code does on that menu.  Each frame titles the pane as
-# akpane.py's do, which is how the seat knows its screen is drawn.
+# The seat's harness: it draws SCREEN, again whenever that file is written, keeps each key it
+# gets in TYPED, and once one is Esc draws its prompt, empty, as Claude Code does on that menu,
+# until SCREEN is written again.  Each frame titles the pane as akpane.py's do, which is how the
+# seat knows its screen is drawn.
 HARNESS = r"""
-import os, re, sys, tty
+import os, re, select, sys, tty
 from pathlib import Path
 sys.path.insert(0, FIXTURES)
 from akpane import stamp
-screen, typed = Path(sys.argv[1]).read_bytes(), b""
+typed, given, screen, drawn = b"", None, None, None
 tty.setraw(0)
 while True:
-    frame = screen.decode().rstrip("\n").replace("\n", "\r\n")
-    os.write(1, f"\x1b[H\x1b[2J{frame}\x1b]2;{stamp(screen, len(typed))}\x1b\\".encode())
+    written = os.stat(sys.argv[1])
+    if given != (written.st_ino, written.st_mtime_ns):
+        given, screen = (written.st_ino, written.st_mtime_ns), Path(sys.argv[1]).read_bytes()
+    if drawn != (screen, len(typed)):
+        drawn = screen, len(typed)
+        frame = screen.decode().rstrip("\n").replace("\n", "\r\n")
+        os.write(1, f"\x1b[H\x1b[2J{frame}\x1b]2;{stamp(screen, len(typed))}\x1b\\".encode())
+    if not select.select([0], [], [], 0.05)[0]:
+        continue
     got = os.read(0, 4096)
     if not got:
         break
     typed += got
     with open(sys.argv[2], "ab") as keep:
         keep.write(got)
-    if re.search(rb"\x1b(?!\[)", typed):
+    if re.search(rb"\x1b(?!\[)", got):
         screen = Path(FIXTURES, "claude-prompt-pane.txt").read_bytes()
 """
 
 
-@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
-class ALimitMenuIsDismissed(unittest.TestCase):
-    def seat(self, screen, second=False, legacy=False):
+class LimitSeat:
+    """A unittest.TestCase's seat whose turn the limit refused, its hooks and its word."""
+
+    def seat(self, screen, second=False, legacy=False, heard=True):
         """Seat acme on its login `default`, spent, and with `second` on a second with room too,
         in its turn the transcript records as refused, HARNESS drawing `screen` in its pane; with
-        `legacy` on the owner's own tmux server."""
+        `legacy` on the owner's own tmux server; that turn's prompt heard by its hook, unless not
+        `heard`."""
         self.home = home = Home()
         self.addCleanup(home.close)
         with socket.socket() as probe:     # a port nobody listens on: the tick reaches no board
@@ -105,7 +115,8 @@ class ALimitMenuIsDismissed(unittest.TestCase):
             [sys.executable, str(PANE), str(FIXTURES / "claude-prompt-pane.txt"),
              f"{seat.typed_file}.reopened"]))
         self.hooks = Hooks(home)
-        self.fire("UserPromptSubmit", {"prompt": "go"})
+        if heard:
+            self.fire("UserPromptSubmit", {"prompt": "go"})
         return seat
 
     def fire(self, event, payload, pane=None):
@@ -114,6 +125,8 @@ class ALimitMenuIsDismissed(unittest.TestCase):
         self.assertEqual(fired.code, 0, fired)
 
     def tick(self):
+        if not boxable():
+            self.skipTest("no bwrap able to box a tick here")
         done = self.home.ak("watch", boxed=True, env={"AK_HOST_READINGS": json.dumps(FINE)})
         self.assertEqual(done.code, 0, done.out + done.err)
 
@@ -122,6 +135,9 @@ class ALimitMenuIsDismissed(unittest.TestCase):
         self.assertEqual(why.code, 0, why.err)
         return why.out.splitlines()[0].split(None, 1)[1]
 
+
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+class ALimitMenuIsDismissed(LimitSeat, unittest.TestCase):
     def test_a_failed_turns_hook_dismisses_it_and_a_login_with_room_takes_the_seat(self):
         seat = self.seat(MENU, second=True)
         self.fire("StopFailure", {"error": "rate_limit"}, pane=seat)
