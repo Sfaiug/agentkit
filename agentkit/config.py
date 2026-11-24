@@ -1107,7 +1107,11 @@ def _toml_value(value):
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
-        return str(value)
+        try:
+            return str(value)
+        except ValueError:          # Python writes no more digits than this; nor would repr
+            raise Error(f"cannot write a number of more than {sys.get_int_max_str_digits()} "
+                        f"digits to {CONFIG_NAME}") from None
     if isinstance(value, float):
         if not math.isfinite(value):
             raise Error(f"cannot write {value!r} to {CONFIG_NAME}: not a TOML number")

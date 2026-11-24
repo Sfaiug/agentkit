@@ -3,11 +3,12 @@ config.toml at once: `Review rounds` 0 to 5, `Max lines per executor task` 0 to 
 then `no limit`, `Max lines per orchestrator task` 0 to 200 in 25s then `no limit`,
 `Extra rounds with one or two findings left` by one from 0 with no top.  A value between steps,
 as written by hand, moves to the next step in the arrow's direction, and neither arrow moves past
-an end.  The pointed row shows its value as `◂ value ▸`, a side's arrow left out at that end, a
-click on one moving it as its key does, and the key line reads `↑↓ limit   ←→ value   esc back`.
-With the pointer off every row, the first ← or → only brings the highlight back, as Enter and
-Space do.  A pointed value too wide beside its label, as on 40 cells, folds under it whole, never
-an arrow parted from it, and a label too wide for its line wraps at its words.
+an end, nor → past the most digits ak writes, saying so.  The pointed row shows its value as
+`◂ value ▸`, a side's arrow left out at that end, a click on one moving it as its key does, and
+the key line reads `↑↓ limit   ←→ value   esc back`.  With the pointer off every row, the first ←
+or → only brings the highlight back, as Enter and Space do.  A pointed value too wide beside its
+label, as on 40 cells, folds under it whole, never an arrow parted from it, and a label too wide
+for its line wraps at its words.
 
 The owner's design of 5 Nov 2026; 22 Nov 2026: "Let the page count on."  Black-box: the program
 `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its harnesses the fakes of
@@ -59,11 +60,11 @@ class ArrowSteps(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         fakeadapter.install(cls.home, claude="pass", codex="pass")
 
-    def limits(self, settings=None, width=100):
-        """`config · limits` from `c`, in a window `width` cells wide of its own, over a
-        config.toml setting `settings`."""
+    def limits(self, settings=None, size=(100, 40)):
+        """`config · limits` from `c`, in a window of its own `size` cells, over a config.toml
+        setting `settings`."""
         akconfig.write(self.home, MODELS, settings=settings)
-        term = Terminal(self.home, size=(width, 40), env={"NO_COLOR": "1"})
+        term = Terminal(self.home, size=size, env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")
@@ -143,6 +144,16 @@ class ArrowSteps(unittest.TestCase):
                 term.keys("Left")
                 self.pointed(term, name, steps[-2])
 
+    def test_past_the_most_digits_written_the_count_says_so_and_keeps_its_number(self):
+        digits = sys.get_int_max_str_digits()    # the most Python writes, ak's as this test's
+        # tall enough for every row whole: on a page taller than the window, ↓ pages it first
+        term = self.limits({"extra_rounds": 10 ** digits - 1}, size=(140, 100))
+        term.keys(*["j"] * 3)
+        term.wait(f"› {NAMES[3]}")
+        term.keys("Right")
+        term.wait(f"config: cannot write a number of more than {digits} digits to config.toml")
+        self.assertEqual(akconfig.read(self.home)["extra_rounds"], 10 ** digits - 1)
+
     def test_a_click_on_an_arrow_moves_the_value_as_its_key_does(self):
         term = self.limits()
         for name, (_, steps, default) in LIMITS.items():
@@ -159,7 +170,7 @@ class ArrowSteps(unittest.TestCase):
 
     def test_on_40_cells_a_value_too_wide_beside_its_label_folds_under_it_whole(self):
         # five cells beside the label once held `◂ 300`, its `▸` alone on the line under it
-        term = self.limits(width=40)
+        term = self.limits(size=(40, 40))
         # each label's lines, one too wide for the line wrapped at its words
         for label, value in (([NAMES[1]], "◂ 300 ▸"), ([NAMES[2]], "◂ 50 ▸"),
                              (["Extra rounds with one or two findings", "left"], "◂ 2 ▸")):
