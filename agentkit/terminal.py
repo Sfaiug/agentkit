@@ -139,6 +139,11 @@ def _depth(isatty, term, colorterm, no_colour, rgb):
         import curses
         curses.setupterm(term=term)
         colours = curses.tigetnum("colors")
+        # as tmux reads a session's client (its RGB feature), so the menu over a seat and the one
+        # in the whole window draw one terminal alike; ssh carries TERM and not COLORTERM
+        if curses.tigetflag("Tc") == 1 or curses.tigetflag("RGB") == 1 or (
+                curses.tigetstr("setrgbf") and curses.tigetstr("setrgbb")):
+            return 24
         return 256 if colours >= 256 else 8 if colours >= 8 else 0
     except ImportError:
         return 0
