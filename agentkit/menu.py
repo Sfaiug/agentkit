@@ -3082,18 +3082,18 @@ MACHINES = ("row", "Machines")
 LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
 # The config.POLICY numbers on `Limits`: each one's name there, how `Limits`' value on `c` says
 # it, before the number and its unit after, None where `c` leaves it out, and the steps ← and →
-# move it through (limit_step).  `c`'s line holds the first four, a fifth passing 100 cells.
+# move it through (limit_step), None where they count by one from 0 with no top, as config.toml
+# has none.  `c`'s line holds the first four, a fifth passing 100 cells.
 # Owner, 3 Nov 2026: the keys' own names were unclear to users; 5 Nov 2026: "The executor cap
-# moves in steps of 100, the orchestrator's in steps of 25."
+# moves in steps of 100, the orchestrator's in steps of 25."; 22 Nov 2026: "Let the page count on."
 LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6)),
                "executor_lines": ("Max lines per executor task", "executor", "lines",
                                   (*range(0, 1001, 100), "no limit")),
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
                                       (*range(0, 201, 25), "no limit")),
                "extra_rounds": ("Extra rounds with one or two findings left", "extra", "rounds",
-                                range(0, 4)),
-               "rescope_findings": ("Findings that end a run for rescoping", None, None,
-                                    range(0, 13))}
+                                None),
+               "rescope_findings": ("Findings that end a run for rescoping", None, None, None)}
 # What a subscription offers on its row of `Subscriptions`, each where it applies
 # (subscription_acts), and without UTF-8.
 # The second is one act for each kind of reset it can spend now, named after it (`spend a
@@ -6306,8 +6306,9 @@ def config_machines(cfg):
 
 
 def limit_shown(value):
-    """One of config.POLICY's numbers as `Limits` says it: 0, the limit off, as `off`."""
-    return str(value) if value else "off"
+    """One of config.POLICY's numbers as `Limits` says it, as config.toml writes a number
+    (config.whole): 0, the limit off, as `off`."""
+    return config.whole(value) if value else "off"
 
 
 def limits_value(cfg):
@@ -6382,7 +6383,10 @@ def size_chart(runs, limit, step, heading, noun=""):
 
 def limit_step(key, held, step):
     """`key`'s step (LIMIT_NAMES) next from `held` up, `step` 1, or down, -1, `no limit` over
-    every number: one between steps, as typed by hand, moves onto the next; None past an end."""
+    every number: one between steps, as typed by hand, moves onto the next; None past an end.
+    A number with no steps moves onto the whole number beside `held`, none under 0."""
+    if LIMIT_NAMES[key][3] is None:
+        return held + step if held + step >= 0 else None
     rank = lambda value: (value == "no limit", value)
     return next((value for value in LIMIT_NAMES[key][3][::step]
                  if (rank(held) < rank(value) if step > 0 else rank(value) < rank(held))), None)

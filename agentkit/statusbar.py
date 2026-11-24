@@ -14,9 +14,11 @@ a failed move (`whys`); its question is the chat's last message or card.  The on
 right end, `Ctrl-b m  menu`, whatever the seat's word: the bar is in the seat, where
 `x` is a letter typed.  It never moves: the seat is where the owner reads and types.
 
-The bar is in the theme a menu kept last as it is drawn (`layout`, terminal.kept), never tmux's
-green: its text on the theme's surface, a state's chip on its colour, so each write after a menu
-kept another draws it in that one.  The pane, where the harness draws, stays the terminal's.
+The bar sets a background on its state's chip alone, never tmux's green: the rest of it stands on
+the terminal's own, as the pane where the harness draws does, and its plain text is in the
+terminal's own colour (the owner, 24 Nov 2026).  What says something by its colour is in the
+theme a menu kept last as it is drawn (`layout`, terminal.kept), so each write after a menu kept
+another draws it in that one.
 
 The text is data: each write puts it in the session's own options (`@ak_top` at each bar
 width, `@ak_need` and `@ak_fold`, `@ak_why` and its folded versions, `@ak_key`), and
@@ -63,8 +65,9 @@ def _cut(option, room):
     leaves it; nothing where not one cell is left, since tmux reads a limit of 0 as none and a
     negative one as the line's tail, and one forced would push into what is beside it.  Only a
     text that does not fit goes through it: tmux marks one that fills its room to the cell cut
-    too, as it drops the styles after its last cell."""
-    return "#{?#{e|>:" + room + ",0},#{=/" + room + "/…:" + option + "},}"
+    too, as it drops the styles after its last cell -- the chip's end among them, so the cut
+    ends them itself, or the chip's colour would stand under what follows it."""
+    return "#{?#{e|>:" + room + ",0},#{=/" + room + "/…:" + option + "}#[default],}"
 
 
 def _line_one():
@@ -102,16 +105,15 @@ FORMATS = (_line_one(), _line_two())
 
 def layout():
     """What every write sets beside the text, so a seat dressed before this layout came has it
-    too: its two lines among them, on the theme in force, and tmux's own styles in the seat in
-    it as well -- the selection and the position while scrolling back (its window's), its message
-    line (its session's).  tmux resizes a pane only when the height changes, so a seat's pane
-    changes size once -- when it is dressed, or a seat dressed with one line at its first write
-    since -- and never later."""
-    text, surface, selection = (terminal.colour(role, tmux=True)
-                                for role in ("text", "surface", "selection"))
-    return (("set-titles", "on"), ("status", "2"), ("status-style", f"fg=#{text},bg=#{surface}"),
+    too: its two lines among them, the bar, its message line and its command prompt on the
+    terminal's own colours (its session's), and tmux's selection and position while scrolling
+    back on the theme's (its window's).  tmux resizes a pane only when the height changes, so a
+    seat's pane changes size once -- when it is dressed, or a seat dressed with one line at its
+    first write since -- and never later."""
+    text, selection = (terminal.colour(role, tmux=True) for role in ("text", "selection"))
+    return (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
             ("mode-style", f"fg=#{text},bg=#{selection}"),
-            ("message-style", f"fg=#{text},bg=#{surface}"),
+            ("message-style", "default"), ("message-command-style", "default"),
             ("status-format[0]", FORMATS[0]), ("status-format[1]", FORMATS[1]))
 
 

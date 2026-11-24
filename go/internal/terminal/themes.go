@@ -55,7 +55,6 @@ func keep(fits theme) {
 // role (styles), and tests/test_boundaries.py counts an RGB written anywhere but here.
 var roles = map[string][2]string{
 	"background": {white: "ffffff", black: "000000"},
-	"surface":    {white: "f4f6fa", black: "111519"},
 	"selection":  {white: "dcecff", black: "08305d"},
 	"border":     {white: "b1b8c0", black: "3a3f46"},
 	"text":       {white: "181c22", black: "e2e8ef"},

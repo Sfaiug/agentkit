@@ -90,10 +90,12 @@ func sysctlSet(live, key, value, name, why string) bool {
 	// Only that rule makes these two shapes, but a name proves nothing: an entry of either is ak's
 	// only if it is a file whose bytes open with the line every release has written first into
 	// each (a pipe is never opened), and an owner's is followed like any other.  ak's own under
-	// this name is an earlier install's, removed; under another it is another key's, followed only
-	// if it holds this key's last part, which every spelling of the key does, so one this key was
-	// added to still applies first and neither of ak's names grows out of the other's.
+	// this name is an earlier install's, removed once ours is written, so a write that fails leaves
+	// every boot the setting that worked; under another it is another key's, followed only if it
+	// holds this key's last part, which every spelling of the key does, so one this key was added
+	// to still applies first and neither of ak's names grows out of the other's.
 	last := "zz"
+	var earlier []string
 	for _, entry := range strings.Split(listed, "\n") {
 		shaped := func(patterns ...string) bool {
 			for _, pattern := range patterns {
@@ -105,9 +107,7 @@ func sysctlSet(live, key, value, name, why string) bool {
 		}
 		switch file := filepath.Join(dir, entry); {
 		case shaped("zz"+ours, "*.conf"+ours) && akWrote(file):
-			if _, err := sudo("rm", "-f", "--", file); err != nil {
-				return false
-			}
+			earlier = append(earlier, entry)
 		case shaped("zz-agentkit-*.conf", "*.conf-agentkit-*.conf") && akWrote(file):
 			if _, err := sudo("grep", "-qF", "--", key[strings.LastIndex(key, ".")+1:], file); err == nil {
 				last = max(last, entry)
@@ -135,8 +135,18 @@ func sysctlSet(live, key, value, name, why string) bool {
 		}
 		last = string(cut) + ".conf"
 	}
-	return written(filepath.Join(dir, last+ours), mark+": "+why+"\n"+key+" = "+value+"\n") &&
-		written(live, value)
+	if !written(filepath.Join(dir, last+ours), mark+": "+why+"\n"+key+" = "+value+"\n") {
+		return false
+	}
+	for _, entry := range earlier {
+		if entry == last+ours {
+			continue // the name just written holds ours now
+		}
+		if _, err := sudo("rm", "-f", "--", filepath.Join(dir, entry)); err != nil {
+			return false
+		}
+	}
+	return written(live, value)
 }
 
 // mark opens every sysctl.d entry ak has written, in every release.

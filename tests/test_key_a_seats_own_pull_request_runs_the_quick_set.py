@@ -4,8 +4,9 @@ With a time record and landings red on a test, the review of a seat's own pull r
 suite that test once its reviewer has answered PASS, not before and not after a failed review.  A
 commit that breaks that test turns the review's verdict to FAIL, does not merge on that commit,
 and hands the seat's fixer the first failing line with the findings; the fixer's commit passes the
-test and merges.  A review of another author's pull request hands the suite nothing, nor does a
-seat's own run with `--no-worktree`.
+test and merges.  A review of another author's pull request hands the suite nothing.  A task run
+with `--no-worktree` hands the suite that test once its reviewer has answered PASS, but nothing on
+a target only the local repository has.
 
 Owner, 20 Nov 2026: "why does an orch never get a quick set?".
 
@@ -14,8 +15,9 @@ tests/test_key_own_pr_fix_and_land.py: the program `AK_BIN` names runs five jobs
 against the bare origin of gitrig.py, the GitHub of fakegh.py, the seat of akseat.py and scripted
 harnesses from fakeadapter.py, its clock injected (tests/fixtures/clock.py).  A first seat PR lands
 to create history.db; then earlier landings red on often.sh and the time record are written, and
-four jobs run: a seat's own PR whose first review fails and second passes; a seat's own PR whose
-change breaks often.sh; another author's PR; and a seat's own `--no-worktree` run.
+five jobs run: a seat's own PR whose first review fails and second passes; a seat's own PR whose
+change breaks often.sh; another author's PR; and two `--no-worktree` task runs, the second on a
+branch origin has none of.
 """
 
 import json
@@ -58,8 +60,9 @@ class SeatOwnPrQuickSet(unittest.TestCase):
         Seat(cls.home, "acme", cwd=cls.rig.path, alive=False,
              record={"workers": ["opus", "astra"]}, planned=True)
         # claude: fixer for fixed, fixer for broken, reviewer for other (no writer -> first model),
-        # executor for --no-worktree.
-        # codex: reviewer for seed, fixed (FAIL then PASS), broken (PASS then PASS), --no-worktree.
+        # executor for each --no-worktree run.
+        # codex: reviewer for seed, fixed (FAIL then PASS), broken (PASS then PASS), each
+        # --no-worktree run.
         cls.fakes = fakeadapter.install(cls.home, claude=[
             {"write": {"fixed.txt": "good\n"}, "commit": "fixed good",
              "final": "## Summary\ngood", "hand_in": [["done"]]},
@@ -68,11 +71,13 @@ class SeatOwnPrQuickSet(unittest.TestCase):
             review(said),
             {"write": {"local.txt": "l\n", "tests/often.sh": f"# local\n{OFTEN}"},
              "commit": "local", "final": "## Summary\nlocal", "hand_in": [["done"]]},
+            {"write": {"draft.txt": "d\n", "tests/often.sh": f"# draft\n{OFTEN}"},
+             "commit": "draft", "final": "## Summary\ndraft", "hand_in": [["done"]]},
         ], codex=[
             review(said),
             review(said, "fixed.txt"), review(said),
             review(said), review(said),
-            review(said),
+            review(said), review(said),
         ])
         cls.done, cls.notes, cls.states, cls.prs = {}, {}, {}, {}
 
@@ -109,18 +114,23 @@ class SeatOwnPrQuickSet(unittest.TestCase):
         review_pr("other", {"other.txt": "o\n", "tests/often.sh": f"# other\n{OFTEN}"},
                   author="other-dev")
 
+        def no_worktree(name, front=None):
+            task = taskfile.write(cls.home, cls.rig.path, f"Add {name}", front=front,
+                                  done_when=(f"test -f {name}.txt",))
+            before = set(taskfile.runs(cls.home))
+            cls.done[name] = cls.home.ak("run", str(task), "--no-worktree", "--no-merge",
+                                         env={"AGENTKIT_SESSION": "acme"},
+                                         cwd=cls.rig.path, timeout=300)
+            cls.notes[name] = said.since()
+            (run_dir,) = set(taskfile.runs(cls.home)) - before
+            cls.states[name] = (run_dir, json.loads((run_dir / "run.json").read_text()))
+
         cls.rig.git("checkout", "-q", "main")
         cls.rig.git("pull", "-q", "--ff-only")
         cls.rig.git("checkout", "-qb", "local")
-        task = taskfile.write(cls.home, cls.rig.path, "Add local",
-                              done_when=("test -f local.txt",))
-        before = set(taskfile.runs(cls.home))
-        cls.done["local"] = cls.home.ak("run", str(task), "--no-worktree", "--no-merge",
-                                        env={"AGENTKIT_SESSION": "acme"},
-                                        cwd=cls.rig.path, timeout=300)
-        cls.notes["local"] = said.since()
-        (run_dir,) = set(taskfile.runs(cls.home)) - before
-        cls.states["local"] = (run_dir, json.loads((run_dir / "run.json").read_text()))
+        no_worktree("local")
+        cls.rig.git("branch", "draft")
+        no_worktree("draft", {"base": "draft"})
 
     def verdicts(self, name):
         return [summary["verdict"] for summary in self.states[name][1]["round_summaries"]]
@@ -165,14 +175,20 @@ class SeatOwnPrQuickSet(unittest.TestCase):
                           "review_posted": True})
         self.assertEqual(self.notes["other"], ["suite whole", "review"])
 
-    def test_a_seats_no_worktree_run_hands_the_suite_nothing(self):
-        done, (_, state) = self.done["local"], self.states["local"]
+    def no_worktree_notes(self, name, target):
+        done, (_, state) = self.done[name], self.states[name]
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual({key: state.get(key) for key in ("state", "verdict", "worktree",
-                                                          "branch", "no_merge")},
+                                                          "branch", "target", "no_merge")},
                          {"state": "pass", "verdict": "PASS", "worktree": str(self.rig.path),
-                          "branch": "local", "no_merge": True})
-        self.assertEqual(self.notes["local"], ["review"])
+                          "branch": "local", "target": target, "no_merge": True})
+        return self.notes[name]
+
+    def test_a_no_worktree_task_run_still_hands_the_suite_its_chosen_test(self):
+        self.assertEqual(self.no_worktree_notes("local", "origin/main"), ["review", CHOSEN])
+
+    def test_a_no_worktree_task_run_on_a_target_only_the_local_repository_has_hands_nothing(self):
+        self.assertEqual(self.no_worktree_notes("draft", "draft"), ["review"])
 
 
 if __name__ == "__main__":

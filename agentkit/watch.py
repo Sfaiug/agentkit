@@ -2952,6 +2952,17 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
         time.sleep(0.05)
     if hook_state(harness, hook_facts(name))[1] in failed:
         settle_account(cfg, session, lambda _: None, records)
+    # A limit menu drawn once another event's fact replaced the failed turn's stood until the
+    # tick's pass, three minutes at most, the seat `needs you` (measured 22 Nov 2026).  The owner,
+    # 19 Nov: "Should always pick stop and wait for limit to reset"; asked whether ak should check
+    # for it on every later event, 20 Nov: "Yes, build it".  So every look puts it away, its key
+    # only at this hook's own pane and only where that is the one ak launched the harness in: a
+    # pane the owner selected is not the harness's (20, 24 Nov).  The tick's pass settles the seat.
+    # A manifest somebody is in the middle of writing has no rule, as `live_state` reads it.
+    with suppress(config.Error):
+        if any(rule["answer"] for rule in screen(harness)["rules"]) and orch.launch_pane(
+                name, orch.seat_socket(session)) == pane:
+            dismiss(dict(session, pane=pane), harness)
     answer = announce_state(session, cfg=cfg, look=True, number=number, records=records)
     # The tick's pass for this one seat: what it is owed goes in at the event that ends its
     # turn or answers its question, not at a tick minutes later, and a move before the
@@ -6612,12 +6623,32 @@ def _dead_where(state, run_dir):
 
 
 def _dead_plan(state, run_dir, now):
-    """What this tick does with a loop whose process is gone.
+    """What the dead-loop pass makes of a run's record: (action, deaths, reason).
 
-    `skip` is a resume already ordered. `wait` records a death and holds for the
-    backoff. `park` is the third death inside an hour. `resume` continues now, as it
-    does every loop a restart of the host ended (`transitions.restart_ended`).
+    `skip` is a run nothing here is for: a state that ends it or waits (`run_record.ENDED`,
+    `run_record.GOING`), an interruption a person was told about, a loop parked, a launch
+    inside its grace, a resume already ordered, a process of it running.  A slot or a suite
+    turn is waited out by the run's own process, and a process of it may outlive its loop
+    (`_run_working`).  `wait-quiet` is a death waiting out its backoff, nothing to do until
+    then.  `wait` records a death and holds for the backoff. `park` is the third death inside
+    an hour. `resume` continues now, as it does every loop a restart of the host ended
+    (`transitions.restart_ended`), and `resume-open` a death a look recorded first.
     """
+    status = state.get("state")
+    if status not in (*run_record.ACTIVE, "interrupted"):
+        return "skip", [], ""
+    if status == "interrupted" and not transitions.loop_death(state):
+        # An interruption with no death of its loop recorded on it is not this pass's: a
+        # failed launch, a worktree that went, an older record a person was told
+        # about. Only a loop whose death was noticed -- here, or by the reap that
+        # got to it first -- is one the tick carries on.
+        return "skip", [], ""
+    holding = state.get("resume_after")
+    if isinstance(holding, (int, float)) and not isinstance(holding, bool) and now < holding:
+        return "wait-quiet", [], ""     # the hold is the record's, as reap reads it
+    if (transitions.dead_parked(state) or _launch_grace(state, now)
+            or run_record.process_active(state) or _run_working(run_dir)):
+        return "skip", [], ""
     pid = state.get("pid")
     deaths = [death for death in (state.get("deaths") or []) if isinstance(death, dict)]
     # A resume already ordered — by this pass or by the stall ladder — adopts the
@@ -6699,32 +6730,34 @@ def _arm_resume(state, deaths, now, role):
 
 
 def dead_loop(state, run_dir, now):
-    """What the dead-loop pass makes of a run's record, the one reading of whether its loop is
-    lost (`runs_health`): None where a process of it runs or something holds it, else
-    `_dead_plan`'s (action, deaths, reason).
-
-    What holds a run: a state that ends it or waits (`run_record.ENDED`, `run_record.GOING`),
-    an interruption a person was told about, a launch inside its grace, a resume already
-    ordered, a death waiting out its backoff.  A slot or a suite turn is waited out by the
-    run's own process, and a process of it may outlive its loop (`_run_working`).
-    """
-    status = state.get("state")
-    if status not in (*run_record.ACTIVE, "interrupted"):
-        return None
-    if status == "interrupted" and not transitions.loop_death(state):
-        # An interruption with no death of its loop recorded on it is not this pass's: a
-        # failed launch, a worktree that went, an older record a person was told
-        # about. Only a loop whose death was noticed -- here, or by the reap that
-        # got to it first -- is one the tick carries on.
-        return None
-    holding = state.get("resume_after")
-    if isinstance(holding, (int, float)) and not isinstance(holding, bool) and now < holding:
-        return None     # a death waiting out its backoff: the hold is the record's, as reap reads it
-    if (transitions.dead_parked(state) or _launch_grace(state, now)
-            or run_record.process_active(state) or _run_working(run_dir)):
-        return None
+    """What the dead-loop pass acts on in a run's record this tick, the one reading of whether
+    its loop is lost (`runs_health`): `_dead_plan`'s (action, deaths, reason), or None where
+    nothing here is for the run or its death waits out its backoff."""
     plan = _dead_plan(state, run_dir, now)
     return None if plan[0] in ("skip", "wait-quiet") else plan
+
+
+def comes_back(state, run_dir, now):
+    """Whether the dead-loop pass brings that run's lost loop back, now or once its ten quiet
+    minutes are out (`_dead_plan`), and leaves it to nobody (`_left`).  A seat resting on the
+    run waits for it as for one whose loop runs (`stop.recorded_ending`), whether the tick's
+    seats read it before this pass or after; a loop the pass parks or leaves is the seat's."""
+    return (_dead_plan(state, run_dir, now)[0] in ("wait", "wait-quiet", "resume", "resume-open")
+            and not _left(state))
+
+
+def _left(state):
+    """Why the dead-loop pass leaves that run's lost loop to another, else None: `cap`, a scope
+    the kernel ended on its own memory cap, a `fail` for reap to conclude with the cap in the
+    reason, as resuming a leak repeats it; `unplaced`, a launch that died before its workspace
+    was allocated, reap's to hand back -- a slot wait has none by nature, and resuming one is
+    resuming the wait itself; `gone`, a workspace that went, an explicit resume's."""
+    if handback.memory_cap_reason(state):
+        return "cap"
+    wt = state.get("worktree")
+    if not wt:
+        return None if state.get("state") == "queued" and state.get("slot_waiting") else "unplaced"
+    return None if Path(wt).is_dir() else "gone"
 
 
 def _run_working(run_dir):
@@ -6786,19 +6819,11 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
             plan = state and dead_loop(state, run_dir, now)
             if not plan:
                 continue
-            if handback.memory_cap_reason(state):
-                # The kernel ended this scope on its own memory cap. That is a `fail` for
-                # reap to conclude, with the cap in the reason: resuming a leak repeats it.
-                continue
-            wt = state.get("worktree")
-            if not wt and not (state.get("state") == "queued" and state.get("slot_waiting")):
-                # Nothing to continue into: a launch that died before its workspace was
-                # allocated is reap's to hand back. A slot wait has no workspace yet by
-                # nature, and resuming one is resuming the wait itself.
-                continue
-            if wt and not Path(wt).is_dir():
-                if state.get("dead_worktree_warned"):
+            left = _left(state)
+            if left:
+                if left != "gone" or state.get("dead_worktree_warned"):
                     continue
+                wt = state["worktree"]
                 if dry_run:
                     log(f"would leave {run_dir.name} alone: worktree {wt} is gone")
                     continue

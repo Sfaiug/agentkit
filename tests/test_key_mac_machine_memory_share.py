@@ -46,7 +46,7 @@ class Held(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.macs = {}
-        for memory, status in ((56, "Running"), (56, "Stopped"), (48, "Running"),
+        for memory, status in ((56, "Running"), (56, "Stopped"), (40, "Running"),
                                (32, "Running")):
             cls.macs[memory, status] = mac = MadeByHand(memory, status)
             cls.addClassCleanup(mac.close)
@@ -54,25 +54,25 @@ class Held(unittest.TestCase):
     def test_a_running_machine_with_more_takes_its_share_from_its_next_start(self):
         mac = self.macs[56, "Running"]
         [start] = [call for call in mac.calls if call[0] == "start"]
-        self.assertIn("--memory=48", start)
+        self.assertIn("--memory=40", start)
         self.assertNotIn("stop", [call[0] for call in mac.calls])
         self.assertEqual((mac.home.root / "machine").read_text(), "Running")
         [line] = mac.sizes
-        for words in ("56 GiB", "48 GiB", "next start"):
+        for words in ("56 GiB", "40 GiB", "next start"):
             self.assertIn(words, line)
         self.assertEqual(mac.yaml.read_text(), "cpus: 10\nmemory: 56GiB\n")
 
     def test_a_stopped_one_starts_with_its_share(self):
         mac = self.macs[56, "Stopped"]
         [start] = [call for call in mac.calls if call[0] == "start"]
-        self.assertIn("--memory=48", start)
+        self.assertIn("--memory=40", start)
         self.assertEqual((mac.home.root / "machine").read_text(), "Running")
         [line] = mac.sizes
-        for words in ("56 GiB", "48 GiB"):
+        for words in ("56 GiB", "40 GiB"):
             self.assertIn(words, line)
 
     def test_one_with_its_share_or_less_is_left_as_it_is(self):
-        for memory in (48, 32):
+        for memory in (40, 32):
             with self.subTest(memory=memory):
                 mac = self.macs[memory, "Running"]
                 self.assertEqual(mac.sized("--memory"), [])

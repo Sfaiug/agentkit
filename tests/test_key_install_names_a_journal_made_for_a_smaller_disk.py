@@ -7,14 +7,20 @@ default, each server install prints one note naming the filesystem's size, its j
 default's, and that only an offline filesystem takes a larger one, then the e2fsck and tune2fs
 commands that give it one, by the UUID dumpe2fs prints where that is 36 hex digits and dashes;
 a journal at or above the default, a client, or a filesystem that cannot be read gets none.
+Without passwordless sudo, where the kernel names the filesystem's type ext2/ext3, the note is
+one line saying its size was not read and to run `sudo -v` and re-run ./install.sh; of any
+other type, or on a client, none.
 Black-box: install.sh of the checkout `AK_BIN` names runs as a server install in a Home that is
 the account's own (tests/fixtures/installer.py), with `AK_DEV_BLOCK` a folder holding one file,
 named `MAJOR:MINOR` for the device number of the Home's ak home, which a stand-in `dumpe2fs`
 prints as that filesystem's header, run by a passwordless stand-in `sudo`, on a PATH reaching no
-real dumpe2fs, under LC_ALL=de_DE.UTF-8 where the host has that locale.
+real dumpe2fs, under LC_ALL=de_DE.UTF-8 where the host has that locale; without passwordless
+sudo, a stand-in `stat` answers `-f` with a type and hands every other call to the real one.
 """
 
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -43,6 +49,16 @@ DUMPE2FS = """#!/bin/sh
 echo "dumpe2fs 1.47.4 (6-Mar-2025)" >&2
 [ "$1" = -h ] && cat -- "$2" || exit 1
 exit {code}
+"""
+# A sudo that asks for a password, as an account nobody has set up yet has.
+NO_SUDO = "#!/bin/sh\necho 'sudo: a password is required' >&2\nexit 1\n"
+# The installer's question of ak's home, `stat -L -f -c %T -- $HOME/.agentkit`, gets the type
+# {kind}, as the kernel names it; every other call is the real stat's.
+STAT = """#!/bin/sh
+if [ $# = 6 ] && [ "$1 $2 $3 $4 $5" = "-L -f -c %T --" ] && [ "$6" = "$HOME/.agentkit" ]; then
+  echo {kind}; exit 0
+fi
+exec {real} "$@"
 """
 GERMAN = "de_DE.UTF-8"
 HAS_GERMAN = subprocess.run(
@@ -158,9 +174,6 @@ class JournalNote(unittest.TestCase):
             self.assertEqual(self.notes(), [], name)
         self.device.write_text(small)
         self.assertEqual(self.notes("--client", "acme-box"), [], "a client")
-        self.home.fake("sudo", "#!/bin/sh\necho 'sudo: a password is required' >&2\nexit 1\n")
-        self.assertEqual(self.notes(), [], "no passwordless sudo")
-        self.home.fake("sudo", SUDO)
         (self.home.bin / "dumpe2fs").unlink()
         self.assertEqual(self.notes(), [], "no dumpe2fs")
         self.dumpe2fs(0)
@@ -182,6 +195,19 @@ class JournalNote(unittest.TestCase):
                           {"mounted": f"/srv\nFilesystem UUID: {other}", "uuid": ""})):
             self.device.write_text(header(91750400, 4096, 16384, **kw))
             self.assertEqual(self.notes(), [plain], name)
+
+    def test_f_without_passwordless_sudo_an_ext_filesystem_s_journal_is_said_unread(self):
+        self.device.write_text(header(91750400, 4096, 16384))
+        self.home.fake("sudo", NO_SUDO)
+        real = shutil.which("stat", path=self.home.env["PATH"])
+        for kind, notes in (("ext2/ext3", 1), ("xfs", 0)):
+            with self.subTest(kind=kind):
+                self.home.fake("stat", STAT.format(kind=kind, real=shlex.quote(real)))
+                said = self.notes()
+                self.assertEqual(len(said), notes, said)
+                for note in said:
+                    self.assertIn("sudo -v", note)
+                self.assertEqual(self.notes("--client", "acme-box"), [], "a client")
 
 
 if __name__ == "__main__":

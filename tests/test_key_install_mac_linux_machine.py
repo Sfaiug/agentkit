@@ -267,8 +267,8 @@ class FreshMac(unittest.TestCase):
 
     def test_it_is_sized_from_the_mac_leaving_macos_its_share(self):
         [create] = self.created()
-        # 10 cores keep 2, 16 GiB keep 4, 500 GiB free keep a quarter
-        for flag in ("--cpus=8", "--memory=12", "--disk=375"):
+        # 10 cores keep 2, 16 GiB keep half, 500 GiB free keep a quarter
+        for flag in ("--cpus=8", "--memory=8", "--disk=375"):
             self.assertIn(flag, create)
 
     def test_it_is_up_and_starts_with_the_mac(self):

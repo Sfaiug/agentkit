@@ -90,7 +90,7 @@ Example: `↑↓←→ move   ␣ mark   a add a company   esc back`.
 
 Screens ask for roles, never RGB, each drawn as its colour alone: `working` is accent,
 `needs you` warning, `done` success, `FAIL` and `out of usage` error, `idle` and `waiting` dim; a
-seat's bar surface, its chip on-accent on its state's. Names and numbers are `text`, what tells of
+seat's bar transparent, its chip on-accent on its state's. Names and numbers are `text`, what tells of
 its neighbour `muted`, what the eye skips `dim`, lines `border`, ak's own word `info`; a highlight
 keeps them. A fade nears the background; lit, the text; moving, the rainbow (`themes.RAINBOW`).
 
