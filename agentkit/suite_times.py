@@ -178,19 +178,21 @@ def timed(cwd, versions, command):
     return found
 
 
-def keep(cwd, log):
+def keep(cwd, log=None, gone=()):
     """Add the times the check whose whole output is the file `log` printed to the record of
     `cwd`, the checkout it ran on, the latest of a test's winning; a test whose file that
-    checkout no longer has leaves it."""
-    found = measured(log)
-    if not found:
+    checkout no longer has leaves it, and so does each of `gone`, a part the check named as not
+    there and not as run (`AK_NOT_THERE`): its file still there, a round would choose it again
+    (`round_tests.chosen`), red on what no change fixes."""
+    found = measured(log) if log else {}
+    if not found and not gone:
         return
     from . import watch
     path = _path(cwd)
     try:
         with watch.state_lock():
             times = {name: seconds for name, seconds in (read(handed(cwd)) | found).items()
-                     if (Path(cwd) / name.partition("::")[0]).is_file()}
+                     if name not in gone and (Path(cwd) / name.partition("::")[0]).is_file()}
             path.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", delete=False) as saved:
                 json.dump(times, saved, sort_keys=True)
