@@ -994,6 +994,25 @@ def reviewed_runs(harness, model):
         return {}
 
 
+def first_review_efforts():
+    """{run_id: the effort its first review ran at, None where none was recorded}: of its lowest
+    round, the first written; {} where the database cannot answer."""
+    _ensure_migrated()      # a reviews table from before rounds and efforts has neither column
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                first = {}
+                for run_id, effort in connection.execute(
+                        "SELECT run_id, effort FROM reviews ORDER BY round, rowid"):
+                    first.setdefault(run_id, effort)
+                return first
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return {}
+
+
 def merged(row):
     """Whether the run merged: its size (`changed_lines`) survives run cleanup, an older merge
     needs its record."""
@@ -1444,6 +1463,25 @@ def ended_runs(since, until):
                 return [dict(row) for row in connection.execute(
                     "SELECT * FROM runs WHERE finished_at >= ? AND finished_at <= ? "
                     f"AND {REAL_WORK}", (since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
+def changes_since(since):
+    """Every run, whatever its state, of each change a run of which ended at or after `since`,
+    read as plain mappings; none of a suite's (`suite_run`)."""
+    _ensure_tokens_recounted()
+    change = "COALESCE(NULLIF(\"change\", ''), run_id)"
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    f"SELECT * FROM runs WHERE {change} IN (SELECT {change} FROM runs "
+                    "WHERE finished_at >= ?) AND NOT suite_run(run_id, repo)", (since,))]
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

@@ -45,7 +45,11 @@ def answer(name, model):
         held.write_text(json.dumps(boards))
         done = home.ak("models", "--json", env=ENV)
     assert done.code == 0, done.out + done.err
-    return json.loads(done.out)
+    found = json.loads(done.out)
+    # the tasks by team span the moment each call asked
+    # (tests/test_key_models_json_counts_tasks_by_team.py)
+    found.pop("runs", None)
+    return found
 
 
 def labels(found):

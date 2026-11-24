@@ -50,8 +50,10 @@ class ModelsCommand(unittest.TestCase):
 
     def test_json_gives_each_role_s_front_and_ak_s_own_numbers(self):
         found = json.loads(self.models("--json"))
-        # Subscription measurements have their own keys; this remains Go's older claim.
-        self.assertEqual(sorted(found.keys() - {"usage", "task_usage"}),
+        # Subscription measurements and the tasks by team (tests/
+        # test_key_models_json_counts_tasks_by_team.py) have their own keys; this remains Go's
+        # older claim.
+        self.assertEqual(sorted(found.keys() - {"usage", "task_usage", "runs"}),
                          ["execute", "live", "orchestrate", "review"])
         self.assertEqual(round(found["execute"]["best"], 1), 100.0)
         self.assertEqual([(row["name"], row["effort"], round(row["quality"], 1), row["cost"],
