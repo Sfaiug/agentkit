@@ -128,12 +128,12 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
 def _room_here():
     """Has this host room for a turn? Its readings show its cores less its one-minute load leave a
     turn's CPUs, and its free memory less a turn's VM's stays above what a run needs to be admitted
-    here; config.Error where a config.toml is mid-edit."""
+    here (gate.resource_limits); config.Error where a config.toml is mid-edit."""
+    from . import gate    # here, not at the top: gate reaches this module through the worker
     readings = host.host_readings()
-    cpus, load, free, total = (host._reading(readings, name)
-                               for name in ("cpus", "load", "free_mb", "mem_total_mb"))
+    cpus, load, free = (host._reading(readings, name) for name in ("cpus", "load", "free_mb"))
     return (None not in (cpus, load, free) and cpus - load >= CPUS
-            and free - helper.each_mb(MEMORY_MB, 0) > config.min_free_mb(total))
+            and free - helper.each_mb(MEMORY_MB, 0) > gate.resource_limits(readings)[0])
 
 
 def _declared(away):
