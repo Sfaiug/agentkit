@@ -4,10 +4,14 @@ the other machine carries on from its copy.  This hides who is asked, the order 
 the kill file.
 
 Asked, in the order of their names, is each machine a record here says takes over from this one
-(`standby._records`), by the record's name, whether it holds ak's lease by its own word
-(`ak standby --home`): nothing is ended on what this machine lacks, as a lease it cannot read
-looks the same as one taken, only on a machine it knows saying it is home.  The first that says
-so is told first that this machine copies it, with this machine's name, that machine's stamp
+(`standby._records`), by the record's name, then the home the stamp of this machine's last pass
+as a standby names (`standby._last`), where no record asked has its name: a machine that took
+over keeps that stamp and has no record of its old home till that home has stepped down under
+it.  Each record, and the stamp, is read at its turn, as one may change while a machine before it
+is asked.  Each machine is asked whether it holds ak's lease by its own word (`ak standby
+--home`): nothing is ended on what this machine lacks, as a lease it cannot read looks the same
+as one taken, only on a machine it knows saying it is home.  The first that says so is told first
+that this machine copies it, with this machine's name, that machine's stamp
 (`standby._home_began`) and the word the records here give then (`standby._told`), which says this
 machine takes over, `back` or `yes`, or the step fails, so it keeps a record of that before this
 machine can ever watch its lease.  Then what ak's slice holds is ended by its `cgroup.kill`, the
@@ -30,8 +34,7 @@ def where_another_is_home():
     """This machine made the client of the first machine asked that says it is home; nothing
     where none does, nor past a step that fails or raises."""
     with contextlib.suppress(Exception):
-        home = next((path.name for path in sorted(standby._records())
-                     if standby._takes(path) and _asked(path.name, "--home")), None)
+        home = next((alias for alias in _machines() if _asked(alias, "--home")), None)
         # without this machine's name and that machine's stamp, no record of it is kept there
         held = standby._home_began(home) if home else []
         # the word read once the stamp is held: a pass of that machine's may write its record
@@ -43,6 +46,17 @@ def where_another_is_home():
                 checkout = update.agentkit_dir()
                 versions.run([str(checkout / "install.sh"), "--client", home], checkout,
                              **update.PINS)
+
+
+def _machines():
+    """The name of each machine to ask, in its turn."""
+    asked = set()
+    for path in sorted(standby._records()):
+        if standby._takes(path):
+            asked.add(path.name)
+            yield path.name
+    if (home := standby._last()[1]) and home not in asked:
+        yield home
 
 
 def _asked(alias, *words):
