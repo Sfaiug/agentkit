@@ -12,7 +12,8 @@ on every harness alike, never as the seat says it is.  The model
 hands in each gap as a finding quoting the owner.  A quote that is not word for word in one
 message or answer of the owner's is no gap, whatever the model wrote in its workspace, the seat's
 replies, questions and choices included: that is decided here, not by the model.  Exit 1 with a
-gap, 0 with none, and 2 (an Error) where nothing could be checked.
+gap, 0 with none, and 2 (an Error) where nothing could be checked; each exit 0 or 1 is a row
+of the history's `done_checks`, for the owner to compare orchestrators by.
 
 A check that finds no gap keeps what it read (`keep`), and one that finds a gap forgets it: a
 seat whose plan has every line done owes a check (`owed`) until one read what its owner has said
@@ -29,8 +30,8 @@ import threading
 import time
 from pathlib import Path
 
-from . import (command_help, config, hand_in, harness, notify, plan, record, staffing, transitions,
-               usage, worker)
+from . import (command_help, config, hand_in, harness, history, notify, plan, record, staffing,
+               transitions, usage, worker)
 
 ASK = """\
 # Does seat {name}'s work hold everything its owner asked of it?
@@ -337,6 +338,7 @@ def main(argv):
         found = gaps(config.load(), name)
     except (OSError, ValueError) as exc:
         raise config.Error(f"could not check {name}: {exc}") from None
+    history.done_check(name, time.time(), len(found))
     if not found:
         print(f"{name}: its work holds everything its owner asked")
         return 0

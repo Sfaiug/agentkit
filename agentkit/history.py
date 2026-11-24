@@ -238,6 +238,19 @@ CREATE TABLE IF NOT EXISTS done_runs (
     run_id TEXT
 )
 """
+# A seat's done check that reached a result (`done_check.main`), one row each: a seat is checked
+# many times before each done, and the checks that find a gap are those no done follows.
+# `model` and `effort` are the seat's orchestrator as its record named them when the check ended,
+# NULL where it named none; `gaps` the owner's asks it found not in the work, 0 for none.
+DONE_CHECKS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS done_checks (
+    session TEXT,
+    model TEXT,
+    effort TEXT,
+    at REAL,
+    gaps INTEGER
+)
+"""
 # Each meter of every fresh reading a probe or a worker turn took (`usage._keep`), as read and
 # at the moment it was measured: state/usage.json keeps only the latest reading, and setting a
 # plan's meter against the tokens spent on it takes the readings over time.  `account` is
@@ -320,6 +333,7 @@ def _connect(*, readonly=False):
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
     connection.execute(DONE_RUNS_SCHEMA)
+    connection.execute(DONE_CHECKS_SCHEMA)
     connection.execute(METER_READINGS_SCHEMA)
     connection.execute(TURN_USAGE_SCHEMA)
     for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
@@ -1083,6 +1097,20 @@ def done(conversation, at, began, runs=(), *, work=None, log=None):
         connection.executemany("INSERT INTO done_runs (conversation, at, run_id) VALUES (?, ?, ?)",
                                [(conversation, at, run) for run in runs])
     _write(insert, log)
+
+
+def done_check(session, at, gaps):
+    """A done check of seat `session` that ended `at`, finding `gaps` of its owner's asks not in
+    the work, under the orchestrator and effort the record it leads to names then."""
+    def insert(connection):
+        try:
+            record = config.resolved_record(session) or {}
+        except config.Error:
+            record = {}     # a chain of renames that cannot be followed names no orchestrator
+        model = record.get("orchestrator")
+        connection.execute("INSERT INTO done_checks (session, model, effort, at, gaps) VALUES (?, ?, ?, ?, ?)",
+                           (session, model, config.launched_effort(record, model, "orchestrator"), at, gaps))
+    _write(insert)
 
 
 def dones(since, until):
