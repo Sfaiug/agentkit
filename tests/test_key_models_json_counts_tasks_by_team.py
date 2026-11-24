@@ -4,7 +4,8 @@ or running too, of the team of its first run (the run its change is named for, w
 relaunch ties with), its orchestrator, executor and reviewer each a model at an effort (the
 reviewer's its first review's).  Per team: its tasks, those merged on their first run, those
 merged on any, and the hours every run of them spent.  A follow-up, a seat's own pull request and
-a task whose first run ended before the window count nowhere, nor do its relaunches.
+a task whose first run ended outside the window, or recorded no end, count nowhere, nor do its
+relaunches.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
 runs and their reviews written into the Home's history.db; judged by the output and exit code.
@@ -56,10 +57,14 @@ RUNS = [
     run("acme-pr", 1, kind="seat PR", change="acme/acme#7"),
     run("fix-old", 31),                                 # ended before the window, and so its
     run("fix-old-again", 1, change="fix-old"),          # relaunch
+    run("fix-soon", -1 / 24),                           # ends after the window, an hour on
+    run("fix-undated", 2, finished_at=None),            # recorded no end, and so its relaunch
+    run("fix-undated-again", 1, change="fix-undated"),
 ]
 # the effort of each first run's first review; fix-api's second round is at another
 REVIEWS = [("fix-api", 1, "medium"), ("fix-api", 2, "high"), ("write-cache", 1, "medium"),
-           ("fix-docs", 1, "medium"), ("fix-login", 1, "medium"), ("fix-old", 1, "medium")]
+           ("fix-docs", 1, "medium"), ("fix-login", 1, "medium"), ("fix-old", 1, "medium"),
+           ("fix-soon", 1, "medium"), ("fix-undated", 1, "medium")]
 
 
 def team(executor_effort, tasks, first_run, live, runs):

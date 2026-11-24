@@ -37,13 +37,13 @@ def by_team():
     teams = {}
     for change, runs in changes.items():
         # the run a change is named for began it, whatever start a relaunch ties with; a change
-        # comes whole, so a task whose first run ended before the window takes its relaunches
-        # out with it
+        # comes whole, so a task whose first run ended outside the window, or recorded no end,
+        # takes its relaunches out with it
         runs.sort(key=lambda row: (row["run_id"] != change, row.get("started_at") or 0,
                                    row["run_id"]))
         start = next((at for at, row in enumerate(runs) if row.get("kind") == "task"
                       and row["final_state"] in record.JUDGED), None)
-        if start is None or runs[start]["finished_at"] < since:
+        if start is None or not since <= (runs[start]["finished_at"] or 0) <= until:
             continue
         task = runs[start:]
         first = {**task[0], "reviewer_effort": reviewed.get(task[0]["run_id"])}
