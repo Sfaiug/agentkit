@@ -41,10 +41,10 @@ WRAPPED = MENU.replace(f"  ❯ 1. {STOP}\n    2. Wait here, then continue automa
 REFUSED = {"type": "assistant", "isApiErrorMessage": True, "apiError": "usage_limit_reached",
            "message": {"role": "assistant", "content": [{"type": "text", "text":
                        "You've hit your weekly limit · resets Nov 21, 1am (Europe/Berlin)"}]}}
-# The seat's harness: it draws SCREEN, again whenever that file changes, keeps each key it gets
-# in TYPED, and once one is Esc draws its prompt, empty, as Claude Code does on that menu, until
-# SCREEN changes again.  Each frame titles the pane as akpane.py's do, which is how the seat
-# knows its screen is drawn.
+# The seat's harness: it draws SCREEN, again whenever that file is written, keeps each key it
+# gets in TYPED, and once one is Esc draws its prompt, empty, as Claude Code does on that menu,
+# until SCREEN is written again.  Each frame titles the pane as akpane.py's do, which is how the
+# seat knows its screen is drawn.
 HARNESS = r"""
 import os, re, select, sys, tty
 from pathlib import Path
@@ -53,8 +53,9 @@ from akpane import stamp
 typed, given, screen, drawn = b"", None, None, None
 tty.setraw(0)
 while True:
-    if given != (now := Path(sys.argv[1]).read_bytes()):
-        given = screen = now
+    written = os.stat(sys.argv[1])
+    if given != (written.st_ino, written.st_mtime_ns):
+        given, screen = (written.st_ino, written.st_mtime_ns), Path(sys.argv[1]).read_bytes()
     if drawn != (screen, len(typed)):
         drawn = screen, len(typed)
         frame = screen.decode().rstrip("\n").replace("\n", "\r\n")
@@ -130,8 +131,9 @@ class LimitSeat:
         self.assertEqual(done.code, 0, done.out + done.err)
 
     def word(self):
-        """The word ak last published for the seat, as its record holds it: no look again."""
-        return json.loads((self.home.path / ".agentkit/state/seat-acme.json").read_text())["word"]
+        why = self.home.ak("orch", "why", "acme")
+        self.assertEqual(why.code, 0, why.err)
+        return why.out.splitlines()[0].split(None, 1)[1]
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

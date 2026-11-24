@@ -12,6 +12,7 @@ screen again when its file changes, its hooks fired as Claude fires them, and th
 wrapper starts with no event (agentkit/looker.py, as tools/codex-seat.py starts it); no tick runs.
 """
 
+import json
 from pathlib import Path
 import shlex
 import sys
@@ -53,12 +54,16 @@ class ALaterLookDismissesTheLimitMenu(LimitSeat, unittest.TestCase):
             time.sleep(0.05)
         return types.SimpleNamespace(pane=pane), lambda: typed.read_text() if typed.exists() else ""
 
+    def published(self):
+        """The word the look left the seat's record with: `word` looks again, and publishes."""
+        return json.loads((self.home.path / ".agentkit/state/seat-acme.json").read_text())["word"]
+
     def put_away(self, seat):
-        """The seat's pane got Esc and nothing else, shows no menu, and the seat is not the
-        owner's."""
+        """The seat's pane got Esc and nothing else, shows no menu, and the look left the seat
+        not the owner's."""
         self.assertEqual(seat.typed(), "\x1b")
         self.assertNotIn(STOP, seat.capture())
-        self.assertNotEqual(self.word(), "needs you")
+        self.assertNotEqual(self.published(), "needs you")
 
     def test_a_look_at_a_later_event_puts_it_away(self):
         self.put_away(self.failed_then(MENU))
@@ -89,7 +94,7 @@ class ALaterLookDismissesTheLimitMenu(LimitSeat, unittest.TestCase):
     def test_the_trust_dialog_gets_no_key(self):
         seat = self.failed_then("claude-dialog-pane.txt")
         self.assertEqual(seat.typed(), "")
-        self.assertEqual(self.word(), "needs you")
+        self.assertEqual(self.published(), "needs you")
 
 
 if __name__ == "__main__":
