@@ -144,7 +144,7 @@ class ArrowSteps(unittest.TestCase):
                 term.keys("Left")
                 self.pointed(term, name, steps[-2])
 
-    def test_the_count_goes_on_past_the_most_digits_python_writes_in_decimal(self):
+    def test_past_the_most_digits_written_in_decimal_the_count_goes_on(self):
         # 4300, Python's own most (sys.get_int_max_str_digits) in the program's environment,
         # built from nothing; this test's own has none, whatever its caller's holds
         sys.set_int_max_str_digits(0)
