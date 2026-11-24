@@ -52,9 +52,17 @@ exit {code}
 """
 # A sudo that asks for a password, as an account nobody has set up yet has.
 NO_SUDO = "#!/bin/sh\necho 'sudo: a password is required' >&2\nexit 1\n"
-# `stat -f` names the filesystem's type {kind}, as the kernel does; the rest is the real stat's.
+# `stat -f -c %T` names the filesystem's type {kind}, as the kernel does: -f an option, before
+# any `--`, and %T the format; every other call is the real stat's.
 STAT = """#!/bin/sh
-case " $* " in *" -f "*) echo {kind}; exit 0 ;; esac
+fs= format= last=
+for word; do
+  [ "$word" = -- ] && break
+  [ "$word" = -f ] && fs=1
+  [ "$last" = -c ] && format=$word
+  last=$word
+done
+if [ "$fs" = 1 ] && [ "$format" = %T ]; then echo {kind}; exit 0; fi
 exec {real} "$@"
 """
 GERMAN = "de_DE.UTF-8"
