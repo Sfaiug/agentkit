@@ -19,6 +19,7 @@ seat by itself.  None writes no `[audit]` table, as a home that never set it.
 
 import json
 from pathlib import Path
+import sys
 import tomllib
 
 SHIPPED_CONFIG = Path(__file__).resolve().parents[2] / "config.default.toml"
@@ -73,11 +74,11 @@ def _keys(table):
 
 def _value(value):
     # A JSON string, number, boolean or list of them is the same value written in TOML; a dict
-    # is an inline table; a number past the digits Python writes in decimal is TOML's hex.
+    # is an inline table.  A number past the digits ak's Python reads in decimal, its default
+    # whatever this one's caller holds (Home's environment is built from nothing), is TOML's hex.
     if isinstance(value, dict):
         return "{" + ", ".join(f"{json.dumps(key)} = {_value(item)}"
                                for key, item in value.items()) + "}"
-    try:
-        return json.dumps(value)
-    except ValueError:
+    if type(value) is int and value >= 10 ** sys.int_info.default_max_str_digits:
         return hex(value)
+    return json.dumps(value)
