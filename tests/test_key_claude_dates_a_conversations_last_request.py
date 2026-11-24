@@ -4,7 +4,8 @@ Claude Code sends a request only once every result the model's message before it
 written down, so a tool's result standing between two of the model's messages dates the later
 one's request.  A result standing between two entries of one message, one of its own tools',
 dates none.  Each transcript is written where Claude Code keeps it for the checkout /acme in a
-temporary home, every entry dated by hand; a line the read reaches and cannot read says nothing.
+Home of tests/fixtures/akbin.py, every entry dated by hand, and a child python3 asks the plugin;
+a line the read reaches and cannot read says nothing.
 """
 
 from datetime import datetime, timezone
@@ -12,17 +13,37 @@ import json
 import os
 from pathlib import Path
 import sys
-import tempfile
 import unittest
-from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures.akbin import Home
+
+REPO = Path(__file__).resolve().parents[1]
+TRANSCRIPT = ".claude/projects/-acme/conv-acme.jsonl"     # Claude Code's, for /acme's conversation
+OPUS = "claude-opus-5-5"
+# A caller of the plugin named: its answer for /acme's conversation, as JSON.  With a word after
+# the name, the file goes between `transcript` naming it and the open; exit 3 where it raised.
+ASK = """
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
 from agentkit import harness
 from agentkit.harness import claude
 
-RECORD = {"cwd": "/acme"}
-CONVERSATION = "conv-acme"
-OPUS = "claude-opus-5-5"
+named = claude.transcript
+
+
+def gone(*args):
+    path = named(*args)
+    os.remove(path)
+    return path
+
+
+claude.transcript = gone if sys.argv[3:] else named
+try:
+    print(json.dumps(harness.load(sys.argv[2]).last_sent({"cwd": "/acme"}, "/acme", "conv-acme")))
+except OSError:
+    sys.exit(3)
+"""
 
 
 def stamp(at):
@@ -52,19 +73,21 @@ BROKEN = b'{"type": "user", "timestamp": '
 
 class LastSent(unittest.TestCase):
     def setUp(self):
-        home = tempfile.TemporaryDirectory(prefix="ak-test-last-sent-")
-        self.addCleanup(home.cleanup)
-        held = patch.dict(os.environ, {"HOME": home.name})
-        held.start()
-        self.addCleanup(held.stop)
-        self.path = claude.transcript_path(RECORD, CONVERSATION)
+        self.home = Home()
+        self.addCleanup(self.home.close)
+        self.path = self.home.path / TRANSCRIPT
         self.path.parent.mkdir(parents=True)
 
-    def sent(self, *lines):
+    def ask(self, *argv, code=0):
+        done = self.home.run(sys.executable, "-c", ASK, str(REPO), *(argv or ["claude"]))
+        self.assertEqual(done.code, code, done.err)
+        return json.loads(done.out) if code == 0 else None
+
+    def sent(self, *lines, gone=()):
         """`last_sent` of a transcript of those lines: entries, or raw bytes written as they are."""
         self.path.write_bytes(b"".join((line if isinstance(line, bytes)
                                         else json.dumps(line).encode()) + b"\n" for line in lines))
-        return harness.load("claude").last_sent(RECORD, RECORD["cwd"], CONVERSATION)
+        return self.ask("claude", *gone)
 
     def test_a_result_before_the_answer_dates_its_request(self):
         self.assertEqual(self.sent(ASKING, result(2000), model(3000)), 2000)
@@ -98,26 +121,18 @@ class LastSent(unittest.TestCase):
     def test_none_without_the_models_message_or_its_file(self):
         self.assertIsNone(self.sent(PROMPT, result(2000)))
         self.path.unlink()
-        self.assertIsNone(harness.load("claude").last_sent(RECORD, RECORD["cwd"], CONVERSATION))
-        named = claude.transcript
-
-        def gone(*args):
-            path = named(*args)
-            Path(path).unlink()
-            return path
-        with patch.object(claude, "transcript", gone):
-            self.assertIsNone(self.sent(ASKING, result(2000), model(3000)))
+        self.assertIsNone(self.ask())
+        self.assertIsNone(self.sent(ASKING, result(2000), model(3000), gone=["gone"]))
 
     def test_a_file_it_cannot_read_back_is_no_line_it_refuses(self):
         # a pipe cannot be read from its end: io.UnsupportedOperation, an OSError and a ValueError
         os.mkfifo(self.path)
         writer = os.open(self.path, os.O_RDWR | os.O_NONBLOCK)     # so opening it waits for none
         self.addCleanup(os.close, writer)
-        with self.assertRaises(OSError):
-            harness.load("claude").last_sent(RECORD, RECORD["cwd"], CONVERSATION)
+        self.ask(code=3)
 
     def test_a_plugin_without_its_own_says_nothing(self):
-        self.assertIsNone(harness.load("codex").last_sent(RECORD, RECORD["cwd"], CONVERSATION))
+        self.assertIsNone(self.ask("codex"))
 
 
 if __name__ == "__main__":
