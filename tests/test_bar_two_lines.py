@@ -4,8 +4,9 @@ Line one: its word as a chip, on its colour in the text that reads on it, bold f
 -- the seat's name in bold, the model that orchestrates it, muted, and its progress
 line.  Line two: each task in flight as its squares, then who builds and who reviews, or in
 their place what needs you that no chat shows (an expired login, a parked run), the key at its
-right end, dim, its word muted.  Both stand on the theme's surface, and what tmux draws of its own in the seat
-is in the theme too, each in the one in force as the bar is written.
+right end, dim, its word muted.  Both, and tmux's message line and prompt, stand on the
+terminal's own colours; tmux's selection is in the theme, each in the one in force as the bar is
+written.
 A question is the chat's last message or card, so line two never repeats it.
 The height is two on every write, so a seat dressed with one line gets its second at its next
 redraw and no pane resizes after; the bar is statusbar.py's alone, and no `@ak_runs` tally is
@@ -74,9 +75,9 @@ class TwoLines(Sandbox):
     def test_a_dressing_a_seat_gives_it_two_lines_in_its_theme(self):
         statusbar.dress("fix-api", "fable")
         self.assertEqual(self.options["status"], "2")
-        self.assertEqual(self.options["status-style"], "fg=#e2e8ef,bg=#111519")   # never green
+        for style in ("status-style", "message-style", "message-command-style"):
+            self.assertEqual(self.options[style], "default")     # the terminal's, never green
         self.assertEqual(self.options["mode-style"], "fg=#e2e8ef,bg=#08305d")
-        self.assertEqual(self.options["message-style"], "fg=#e2e8ef,bg=#111519")
         self.assertEqual(self.options["set-titles"], "on")
         self.assertEqual(self.options["status-format[0]"], statusbar.FORMATS[0])
         self.assertEqual(self.options["status-format[1]"], statusbar.FORMATS[1])
@@ -100,7 +101,7 @@ class TwoLines(Sandbox):
         config.STATE.mkdir(parents=True, exist_ok=True)
         (config.STATE / terminal.KEPT).write_text("light\n")     # a menu's terminal's answer
         statusbar.dress("fix-api", "fable")
-        self.assertEqual(self.options["status-style"], "fg=#181c22,bg=#f4f6fa")
+        self.assertEqual(self.options["status-style"], "default")
         self.assertEqual(self.options["mode-style"], "fg=#181c22,bg=#dcecff")
         self.assertIn("#[fg=#535962]Fable 5.1 xhigh#[default]", self.options[statusbar.TOP])
 
