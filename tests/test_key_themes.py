@@ -58,13 +58,6 @@ def colours(shown):
     return set(shown) - ATTRIBUTES
 
 
-def colour(shown, theme):
-    """The one colour of a look on its theme's background (tests/test_key_a_screen_is_painted.py):
-    none, or another background, fails the test."""
-    [found] = colours(shown) - {role("background", theme, bg)}
-    return found
-
-
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class Themes(unittest.TestCase):
     @classmethod
@@ -123,7 +116,9 @@ class Themes(unittest.TestCase):
                  for at, cell in enumerate(rows[0])] for rows in zip(*captures[1:])]
         return captures[-1], rest
 
-    def assert_states(self, screen, theme):
+    def assert_states(self, screen, theme, ground):
+        """Each state in its role of `theme`, on `ground` off the highlight: what fills a cell
+        there (tests/test_key_a_screen_is_painted.py)."""
         # acme's row, the first, is the highlight's: on the selection, its `›` in the accent
         lit = role("selection", theme, bg)
         self.assertEqual(colours(look(screen, "›")), {role("accent", theme), lit})
@@ -132,17 +127,17 @@ class Themes(unittest.TestCase):
                                  ("✓ done", "success", "gamma"), ("○ idle", "dim", "delta"),
                                  ("○ out of usage", "error", "omega")):
             with self.subTest(word):
-                ground = lit if seat == "acme" else role("background", theme, bg)
-                self.assertEqual(colours(look(screen, word, on=seat)), {role(name, theme), ground})
+                on = {lit} if seat == "acme" else ground
+                self.assertEqual(colours(look(screen, word, on=seat)), {role(name, theme), *on})
         for key in ("↑↓←→", "esc"):
-            self.assertEqual(colour(look(screen, key, on="esc leave"), theme),
-                             role("dim", theme))
+            self.assertEqual(colours(look(screen, key, on="esc leave")),
+                             {role("dim", theme), *ground})
 
     def test_on_a_terminal_that_sets_no_background_each_state_is_its_role_of_black(self):
-        self.assert_states(self.screen()[0], BLACK)
+        self.assert_states(self.screen()[0], BLACK, {role("background", BLACK, bg)})   # painted
 
     def test_on_a_white_background_each_state_is_its_role_of_white(self):
-        self.assert_states(self.screen("#ffffff")[0], WHITE)
+        self.assert_states(self.screen("#ffffff")[0], WHITE, set())     # sat on: nothing fills
 
     def test_at_rest_no_cell_is_drawn_in_a_colour_outside_its_theme(self):
         for background, theme in ((None, BLACK), ("#ffffff", WHITE)):
@@ -173,7 +168,7 @@ class Themes(unittest.TestCase):
                         # each cell's background, None where it has none
                         lit = {next((part for part in shown if part.startswith("48")), None)
                                for _, shown in line[at:at + len("c config")]}
-                    # lit, not on the background white paints every cell on: the clock on past
+                    # lit, not on the background black paints every cell on: the clock on past
                     # the light's coming, which began as the pointer was read
                     if lit and not lit & {None, role("background", theme, bg)}:
                         self.at(OPENED + 10)

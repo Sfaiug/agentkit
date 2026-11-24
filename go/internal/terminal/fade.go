@@ -14,8 +14,8 @@ var sgr = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
 var cube = [6]int{0, 95, 135, 175, 215, 255}
 
 // Fade is text as a draw wrote it, every colour in it and the foreground its plain cells take, the
-// theme's text, amount (0 to 1) of the way to the theme's background: a page coming up out of it as
-// it opens, and the line a row opens.  Where colour cannot move it is as it is.
+// theme's text, amount (0 to 1) of the way to the screen's background (colour): a page coming up out
+// of it as it opens, and the line a row opens.  Where colour cannot move it is as it is.
 func (s Screen) Fade(text string, amount float64) string {
 	if amount <= 0 || !s.Moves() {
 		return text

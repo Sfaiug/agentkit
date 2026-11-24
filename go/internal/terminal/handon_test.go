@@ -5,20 +5,21 @@ import (
 	"testing"
 )
 
-func TestAFrameUpCrossesWithTheSizeItWasLaidOutForAndIsWrittenOnlyAtThatSize(t *testing.T) {
+func TestAFrameUpCrossesWithWhatItWasDrawnForAndIsWrittenOnlyOnThat(t *testing.T) {
 	var before, after strings.Builder
 	old, screen := NewPainter(&before), Screen{width: 6, height: 4}
 	if old.Up() != nil {
 		t.Fatal("nothing drawn yet handed on a frame")
 	}
 	old.Write([]string{"acme", "123456"}, screen)
-	if got := string(old.Up()); got != "6 4\nacme\n123456" {
+	if got := string(old.Up()); got != "6 4 000000\nacme\n123456" {
 		t.Fatalf("handed on %q", got)
 	}
 	NewPainter(&after).Restore(old.Up(), Screen{width: 5, height: 4})
+	NewPainter(&after).Restore(old.Up(), Screen{width: 6, height: 4, own: ownOf("101820", black)})
 	NewPainter(&after).Restore(nil, screen)
 	if after.Len() != 0 {
-		t.Fatalf("wrote %q on another size or with nothing handed", after.String())
+		t.Fatalf("wrote %q on another size or background, or with nothing handed", after.String())
 	}
 	NewPainter(&after).Restore(old.Up(), screen)
 	if want := "\x1b[1;1Hacme\x1b[K\x1b[2;1H123456\x1b[?2026l"; after.String() != want {

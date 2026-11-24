@@ -90,15 +90,19 @@ func (s Screen) Scrolled(lines int) int {
 	return lines - s.height + 1
 }
 
-// paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on its
-// background (colour), in the theme's text wherever it sets no colour, each reset putting both
-// back, and the terminal its own colours again after it, for whatever has it next.  At eight
-// colours, whose tones read on any background, it is as it is.
+// paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: in the theme's
+// text wherever it sets no colour, its cells of no background left the terminal's own where it said
+// one (ownOf) and filled with the theme's where it said none, each reset putting both back, and the
+// terminal its own colours again after it, for whatever has it next.  At eight colours, whose tones
+// read on any background, it is as it is.
 func (s Screen) paint(text string) string {
 	if !s.Moves() || text == "" {
 		return text
 	}
-	back, fore := s.ink(s.colour("background"), "48"), s.ink(colourOf("text", s.theme), "38")
+	back, fore := "49", s.ink(colourOf("text", s.theme), "38")
+	if s.own == (own{}) {
+		back = s.ink(colourOf("background", s.theme), "48")
+	}
 	again := map[string]string{"": "0;" + back + ";" + fore, "0": "0;" + back + ";" + fore, "39": fore, "49": back}
 	return "\x1b[" + back + ";" + fore + "m" + sgr.ReplaceAllStringFunc(text, func(code string) string {
 		parts, out := strings.Split(code[2:len(code)-1], ";"), []string{}

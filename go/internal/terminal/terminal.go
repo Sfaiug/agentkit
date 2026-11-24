@@ -37,39 +37,36 @@ var styles = map[string]style{
 // kinds are the roles a screen asks Styled for, each the word whose colour it is.
 var kinds = map[string]string{"accent": "working", "amber": "needs you"}
 
-// colourOf is a word's colour in a theme: a role's (roles), a state word's, or a kind's.
-func colourOf(word string, in theme) string {
+// roleOf is the role of a theme a word is drawn in: its own (roles), a state word's, or a kind's.
+func roleOf(word string) string {
 	if _, ok := roles[word]; ok {
-		return roles[word][in]
+		return word
 	}
 	if role, ok := kinds[word]; ok {
 		word = role
 	}
-	return roles[styles[word].colour][in]
+	return styles[word].colour
 }
 
-// colour is a role's colour on this screen: its theme's, but where the terminal said its own
-// background (ownOf) and takes every colour, what fills or rules -- the background, the selection,
-// the border -- is as far from the terminal's own as from the theme's, as Python's terminal.colour.
+// colourOf is a word's colour in a theme.
+func colourOf(word string, in theme) string {
+	return roles[roleOf(word)][in]
+}
+
+// colour is a word's colour on this screen, as Python's terminal.colour: its theme's, or as the
+// terminal's own background has it (ownOf).
 func (s Screen) colour(word string) string {
-	rgb, role := colourOf(word, s.theme), word
-	if _, ok := roles[word]; !ok {
-		if kind, ok := kinds[word]; ok {
-			word = kind
+	if s.own != (own{}) {
+		switch roleOf(word) {
+		case "background":
+			return s.own.background
+		case "selection":
+			return s.own.selection
+		case "border":
+			return s.own.border
 		}
-		role = styles[word].colour
 	}
-	if s.own == "" || s.depth != 24 || (role != "background" && role != "selection" && role != "border") {
-		return rgb
-	}
-	out, base, own := "", channels(colourOf("background", s.theme)), channels(s.own)
-	for i, part := range channels(rgb) {
-		c, _ := strconv.Atoi(part)
-		b, _ := strconv.Atoi(base[i])
-		o, _ := strconv.Atoi(own[i])
-		out += fmt.Sprintf("%02x", max(0, min(255, o+c-b)))
-	}
-	return out
+	return colourOf(word, s.theme)
 }
 
 // luminance is WCAG's relative luminance of rgb.
@@ -88,48 +85,60 @@ func luminance(rgb string) float64 {
 	return sum
 }
 
-// reads is the least contrast a theme's dim text keeps with a terminal's own background for a screen
-// to be painted in it (WCAG's floor for large text): on any other it is painted in its theme's.
+// own is what a screen takes from its terminal's own background where it said one (ownOf), each
+// rrggbb, as Python's terminal.OWN; none of it where the terminal said none.
+type own struct{ background, selection, border string }
+
+// reads is the contrast a selection leaves a theme's dim text, the faintest a highlight keeps:
+// WCAG's floor for large text, so no highlight hides what it is on.
 const reads = 3
 
-// ownOf is the background an answer names, rrggbb, where in's dim text reads on it; else "".
-func ownOf(answer string, in theme) string {
-	found := backgroundRGB.FindStringSubmatch(answer)
-	if found == nil {
-		return ""
+// ownOf is what a screen in a theme takes from a terminal's own background rgb, as Python's
+// terminal._own: the background itself, which the screen sits on, filling no cell of it (paint), and
+// what fills or rules on it, as far from it as the theme's is from the theme's own: the border, and
+// the selection as much of that way as leaves the theme's dim text reads of contrast on it, none of
+// the way where it has less on rgb itself.
+func ownOf(rgb string, in theme) own {
+	moved := func(role string, share float64) string {
+		out, to, base := "", channels(roles[role][in]), channels(roles["background"][in])
+		for i, part := range channels(rgb) {
+			o, _ := strconv.Atoi(part)
+			c, _ := strconv.Atoi(to[i])
+			b, _ := strconv.Atoi(base[i])
+			out += fmt.Sprintf("%02x", max(0, min(255, int(math.RoundToEven(float64(o)+float64(c-b)*share)))))
+		}
+		return out
 	}
-	own := ""
-	for _, part := range found[1:] {
-		value, _ := strconv.ParseUint(part, 16, 64)
-		own += fmt.Sprintf("%02x", int(math.Round(float64(value)/(math.Pow(16, float64(len(part)))-1)*255)))
+	selection, dim := rgb, luminance(roles["dim"][in])
+	for step := 255; step > 0; step-- {
+		shade := moved("selection", float64(step)/255)
+		if low, high := min(luminance(shade), dim), max(luminance(shade), dim); (high+0.05)/(low+0.05) >= reads {
+			selection = shade
+			break
+		}
 	}
-	low, high := luminance(own), luminance(colourOf("dim", in))
-	if low > high {
-		low, high = high, low
-	}
-	if (high+0.05)/(low+0.05) < reads {
-		return ""
-	}
-	return own
+	return own{rgb, selection, moved("border", 1)}
 }
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
 
-// isLight is whether an answer's luma is past half way, and whether it names a colour to tell.
-func isLight(answer string) (light, read bool) {
+// backgroundOf is the colour an answer names, rrggbb, "" where it names none to tell, and whether
+// its luma is past half way.
+func backgroundOf(answer string) (rgb string, light bool) {
 	found := backgroundRGB.FindStringSubmatch(answer)
 	if found == nil {
-		return false, false
+		return "", false
 	}
 	var channel [3]float64
 	for i, part := range found[1:] {
 		value, err := strconv.ParseUint(part, 16, 64)
 		if err != nil {
-			return false, false
+			return "", false
 		}
 		channel[i] = float64(value) / (math.Pow(16, float64(len(part))) - 1)
+		rgb += fmt.Sprintf("%02x", int(math.RoundToEven(channel[i]*255)))
 	}
-	return 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5, true
+	return rgb, 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5
 }
 
 // trueColour is whether a tmux client's features say it takes true colour, as tmux and ssh both
@@ -166,7 +175,7 @@ type Screen struct {
 	depth, width, height int
 	ascii                bool
 	theme                theme
-	own                  string // the terminal's own background, where the screen is painted in it (ownOf)
+	own                  own
 }
 
 // For is out as a screen that never asks its terminal what it is: in the shades kept (kept).

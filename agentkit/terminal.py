@@ -51,10 +51,15 @@ KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
-# The terminal's own background as it answered, rrggbb, where the theme's dim text keeps READS
-# of contrast with it (WCAG's floor for large text): a screen is painted in it (`colour`), on
-# any other in the theme's.  The owner, 20 Nov 2026: the terminal's background "should be used".
-OWN, READS = None, 3
+# What a screen takes from its terminal's own background where it answered one (`sense`), each
+# role's colour, rrggbb; empty where it gave none.  The background itself, which a screen sits
+# on, filling no cell of it (`_painted`): the owner, 20 Nov 2026, it "should be used, and ak just
+# sits on top of that".  And what fills or rules on it, as far from it as the theme's is from the
+# theme's own (22 Nov 2026: "Follow the terminal"): the border, and the selection as much of
+# that way as leaves the theme's dim text, the faintest a highlight keeps, READS of contrast on
+# it (WCAG's floor for large text), none of the way where it has less on the background itself:
+# no highlight hides what it is on.
+OWN, READS = {}, 3
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
@@ -110,22 +115,30 @@ def theme():
 
 def colour(word, tmux=False):
     """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
-    force; with `tmux`, in a tmux format (a seat's bar, a popup's border), in the kept one
-    whichever process writes it: tmux shows it on a terminal ak never asks, and the
-    menu's writes and the tick's never disagree."""
+    force, or as the terminal's own background has it (OWN); with `tmux`, in a tmux format (a
+    seat's bar, a popup's border), in the kept one whichever process writes it: tmux shows it on
+    a terminal ak never asks, and the menu's writes and the tick's never disagree."""
     role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
-    rgb = ROLES[role][kept() if tmux else theme()]
-    if OWN and not tmux and role in ("background", "selection", "border") and colour_depth() == 24:
-        # what fills or rules is as far from the terminal's own background as from the theme's,
-        # so it shows there as on black or white (the owner, 22 Nov 2026: "Follow the terminal")
-        rgb = bytes(max(0, min(255, own + c - b)) for own, c, b in zip(*map(
-            bytes.fromhex, (OWN, rgb, ROLES["background"][THEME])))).hex()
-    return rgb
+    return OWN[role] if role in OWN and not tmux else ROLES[role][kept() if tmux else theme()]
 
 
 def _luminance(rgb):    # WCAG's relative
     return sum(share * (c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4) for share, c
                in zip((0.2126, 0.7152, 0.0722), (b / 255 for b in bytes.fromhex(rgb))))
+
+
+def _own(own, theme):
+    """What a screen in `theme` takes from a terminal's `own` background (OWN)."""
+    def moved(role, share=1):
+        return bytes(max(0, min(255, round(o + (c - b) * share))) for o, c, b in zip(*map(
+            bytes.fromhex, (own, ROLES[role][theme], ROLES["background"][theme])))).hex()
+
+    def reads(rgb):     # the theme's dim text on it, by WCAG's contrast
+        low, high = sorted(map(_luminance, (rgb, ROLES["dim"][theme])))
+        return (high + 0.05) / (low + 0.05) >= READS
+    shades = (moved("selection", step / 255) for step in range(255, 0, -1))
+    return {"background": own, "border": moved("border"),
+            "selection": next(filter(reads, shades), own)}
 
 
 def glyph(word):
@@ -244,12 +257,13 @@ class _Screen:
     """stdout as a screen leaves for the terminal (`screens`): painted in the theme in force, and
     `_PAD` cells in from every edge.
 
-    Each write starts in the theme's background and text, puts them back after every reset and
-    ends in the terminal's own colours: every cell a draw, a frame or a clear touches is on the
-    background and text of no colour is the theme's, whichever helper drew it, and the terminal is
-    its own again between writes, for whatever has it next -- a program ak starts, a signal, the
-    shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at
-    eight colours, whose tones read on any background.
+    Each write starts in the theme's text, on the terminal's own background where it said one
+    (OWN) and on the theme's where it said none, puts them back after every reset and ends in the
+    terminal's own colours: every cell a draw, a frame or a clear touches is on that background
+    and text of no colour is the theme's, whichever helper drew it, and the terminal is its own
+    again between writes, for whatever has it next -- a program ak starts, a signal, the shell.
+    Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at eight
+    colours, whose tones read on any background.
 
     Each place a screen writes at, and the start of each line it begins, is moved in by the
     padding, and painted it too: a place on the first column takes the padding to its left, and
@@ -277,10 +291,10 @@ class _Screen:
 
 
 def _painted(text):
-    """`text` on the background of the theme in force, in its text where it sets no colour
+    """`text` in the text of the theme in force where it sets no colour, its cells of no
+    background left the terminal's own where it said one, else filled with the theme's
     (`_Screen`)."""
-    back, fore = (ink(colour(role), ground)
-                  for role, ground in (("background", "48"), ("text", "38")))
+    back, fore = "49" if OWN else ink(colour("background"), "48"), ink(colour("text"), "38")
     again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
 
     def put_back(code):
@@ -1054,22 +1068,28 @@ def hand_on():
     what is up is not laid out for the size there is.  The size is read first, as a resize after
     the look is the new program's to find."""
     try:
-        size = f"{width()} {height()}"
+        drawn = _drawn_for()
         if not _UP or select.select([_TAKEN.again[0]], [], [], 0)[0]:
             return {}
-        return warm.cross(FRAME, "\n".join([size, *_PAINTED]).encode())
+        return warm.cross(FRAME, "\n".join([drawn, *_PAINTED]).encode())
     except Exception:
         return {}
+
+
+def _drawn_for():
+    """What a frame handed on is drawn for, its first line: the terminal's size, which lays it
+    out, and the background its colours are of, the highlight's and every fade's."""
+    return f"{width()} {height()} {colour('background')}"
 
 
 def _last_frame():
     """The frame the program before this exec left up (`hand_on`), ending its hold: what the
     terminal holds is only known once the first `written` has written every row, in an update of
-    its own.  Written where the size is still the one it was laid out for, else that first frame
-    ends the hold; through stdout, which knows a popup's padding."""
+    its own.  Written where the terminal is still the one it was drawn for (`_drawn_for`), else
+    that first frame ends the hold; through stdout, which knows a popup's padding."""
     try:
-        size, *rows = (warm.crossed(FRAME) or b"").decode().split("\n")
-        if size == f"{width()} {height()}":
+        drawn, *rows = (warm.crossed(FRAME) or b"").decode().split("\n")
+        if drawn == _drawn_for():
             sys.stdout.write(_differing(enumerate(rows, 1)) + RELEASE)
             sys.stdout.flush()
     except (OSError, ValueError, RuntimeError):
@@ -1082,13 +1102,14 @@ def sense():
     True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
     (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in -- as the popup was
     handed them (FEATURES_ENV), else as tmux says, which takes a process.  And whether the
-    background is light, from the terminal's answer to OSC 11 within a second, kept (`_keep`); no
-    answer by then is the kept one.  Its attributes are asked for after it (DA1), which every
-    terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
-    is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
-    answers are read here and never as keys: anything typed while they were awaited is kept for
-    `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
-    back up in what it found (`_last_frame`), the hold it was given back under hiding the wait.
+    background is light, from the terminal's answer to OSC 11 within a second, kept (`_keep`), and
+    what a screen takes from it (OWN); no answer by then is the kept one, and nothing taken.  Its
+    attributes are asked for after it (DA1), which every terminal answers, and answers in turn:
+    once they are in, an OSC 11 answer not in before them is none, so a terminal that never
+    answers it -- tmux, in a popup -- costs no wait.  The answers are read here and never as
+    keys: anything typed while they were awaited is kept for `read_key`, and one that comes later
+    is `_sequence`'s.  Then the frame a restart left up goes back up in what it found
+    (`_last_frame`), the hold it was given back under hiding the wait.
     """
     global _RGB, THEME, OWN, _KEYED
     features = os.environ.get(FEATURES_ENV)
@@ -1117,14 +1138,12 @@ def sense():
     _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
     colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
                       found.group(1)) if found else None
-    THEME = OWN = None
+    THEME, OWN = None, {}
     if colour:
         red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
         THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK  # luma
         _keep(THEME)
-        own = bytes(round(part * 255) for part in (red, green, blue)).hex()
-        low, high = sorted(map(_luminance, (own, ROLES["dim"][THEME])))
-        OWN = own if (high + 0.05) / (low + 0.05) >= READS else None
+        OWN = _own(bytes(round(part * 255) for part in (red, green, blue)).hex(), THEME)
     _last_frame()
 
 

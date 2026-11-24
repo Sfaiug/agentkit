@@ -36,7 +36,7 @@ func Pad(text string, room int) string {
 }
 
 // faded is a word's colour, as Styled draws it, or a `#RRGGBB`, amount (0 to 1) of the way to the
-// theme's background, or with a negative one that far toward its text, lit.
+// screen's background (colour), or with a negative one that far toward its text, lit.
 func (s Screen) faded(word string, amount float64) string {
 	if role, ok := kinds[word]; ok {
 		word = role

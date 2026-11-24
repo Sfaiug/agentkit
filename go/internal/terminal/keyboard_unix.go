@@ -92,8 +92,8 @@ func (k *Keyboard) give(modes string) {
 // though COLORTERM does not say (what AGENTKIT_TERMFEATURES says, else inside tmux what tmux says,
 // which takes a process), and whether its background is light, by its answer to OSC 11 within a
 // second, as a busy host can take most of one to pass it on, the answer kept for what cannot ask
-// (keep).  DA1, which every terminal answers and in turn, ends the wait with the answers.  Anything
-// typed meanwhile is kept for ReadKey.
+// (keep), and what a screen takes from that background (ownOf).  DA1, which every terminal answers
+// and in turn, ends the wait with the answers.  Anything typed meanwhile is kept for ReadKey.
 func (k *Keyboard) Sense() {
 	features, set := os.LookupEnv("AGENTKIT_TERMFEATURES")
 	if !set && os.Getenv("TMUX") != "" { // asked of the client this runs under, $TMUX kept
@@ -113,15 +113,16 @@ func (k *Keyboard) Sense() {
 		heard = append(heard, each)
 	}
 	said := backgroundSaid.FindSubmatchIndex(heard)
-	in, light, own := black, false, ""
+	in, own := black, own{}
 	k.fits = false
 	if said != nil {
-		if light, k.fits = isLight(string(heard[said[2]:said[3]])); light {
+		rgb, light := backgroundOf(string(heard[said[2]:said[3]]))
+		if light {
 			in = white
 		}
-		if k.fits {
+		if k.fits = rgb != ""; k.fits {
 			keep(in)
-			own = ownOf(string(heard[said[2]:said[3]]), in)
+			own = ownOf(rgb, in)
 		}
 		heard = append(heard[:said[0]:said[0]], heard[said[1]:]...)
 	}
