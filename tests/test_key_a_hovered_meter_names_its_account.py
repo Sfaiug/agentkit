@@ -95,12 +95,16 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
                         "sleep 86400", server=SERVER)
         self.term.wait(lambda screen: "Claude VI" in screen and METER.search(screen))
 
-    def hovered(self, label):
-        """The line under the grid once the pointer is on `label`'s meter."""
+    def at(self, label):
+        """Where `label`'s meter is: a column inside its label, then its row, each from 1."""
         shown = lines(self.term.screen())
         row = next(number for number, line in enumerate(shown)
                    if f"{label}  " in line and METER.search(line))
-        self.term.type(f"\x1b[<35;{shown[row].index(label + '  ') + 3};{row + 1}M")
+        return shown[row].index(label + "  ") + 3, row + 1
+
+    def hovered(self, label):
+        """The line under the grid once the pointer is on `label`'s meter."""
+        self.term.type("\x1b[<35;{};{}M".format(*self.at(label)))
         return under_grid(self.term.wait(
             lambda screen: under_grid(screen).startswith(f"  {label}  ")))
 
@@ -173,6 +177,11 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
             self.assertTrue(self.hovered(label).startswith(f"  {label}  login ends "), label)
         self.assertTrue(self.hovered("Claude VI").startswith("  Claude VI  login zoë@acme.test "
                                                              "ends "))
+        # Subscriptions, which drops from its lines what no terminal can write, names it still
+        self.term.type("\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*self.at("Claude V")))
+        self.term.wait(lambda screen: any(
+            row.startswith("› Claude V ") and below.startswith("    login ops@acme.test ends ")
+            for row, below in zip(lines(screen), lines(screen)[1:])))
 
     def test_too_narrow_for_every_note_the_email_is_the_last_to_go(self):
         self.open(size=(40, 40))

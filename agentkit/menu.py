@@ -2926,11 +2926,10 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None):
 
 
 def login_notes(rows, now=None):
-    """What the line under the grid says of each of `rows`' (`usage_rows`') login, as (while it
-    ends within logins.WARN_WITHIN or has ended, `login owner@acme.test ends Mon 26 Oct 04:47 (in
-    2 days)`, its meter amber meanwhile, else None; its email, as kept, None where what is kept
-    is no text, only spaces or what the screen cannot write), of one read of the logins, so both
-    are always one login's."""
+    """Of each of `rows`' (`usage_rows`') login, in one read of the logins, so both are always
+    one login's: when it ends while that is within logins.WARN_WITHIN or past, `ends Mon 26 Oct
+    04:47 (in 2 days)` (logins.ending), its meter amber meanwhile, else None; and its email as
+    kept, None where what is kept is no text or only spaces."""
     now = time.time() if now is None else now
     found = logins.read()
     notes = []
@@ -2938,10 +2937,15 @@ def login_notes(rows, now=None):
         login = found.get(name)
         login = login.get(account or config.DEFAULT_ACCOUNT) if isinstance(login, dict) else None
         email = login.get("email") if isinstance(login, dict) else None
-        email = email if isinstance(email, str) and email.strip() and _writes(email) else None
-        when = logins.ending(login, now)
-        notes.append((when and " ".join(filter(None, ("login", email, when))), email))
+        notes.append((logins.ending(login, now),
+                      email if isinstance(email, str) and email.strip() else None))
     return notes
+
+
+def ending_note(email, when):
+    """What a screen says of a login ending `when` (login_notes), naming `email` where given:
+    `login owner@acme.test ends Mon 26 Oct 04:47 (in 2 days)`."""
+    return " ".join(filter(None, ("login", email, when)))
 
 
 def _writes(text):
@@ -2993,8 +2997,11 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
         (-1, usage.credits_note(prov)), first, (1, hand),
         *((3, note) for note in claimed),
         session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
-    login, email = (login_notes(rows[number - 1:number], now) if ending is None
-                    else ending[number - 1:number])[0]
+    when, email = (login_notes(rows[number - 1:number], now) if ending is None
+                   else ending[number - 1:number])[0]
+    # this line is written as kept, and what the screen's stream cannot write would end the menu
+    email = email if email and _writes(email) else None
+    login = when and ending_note(email, when)
     # each note styled as it is made: an email is any text, so no note is known by its words
     told = ([(-2, terminal.styled(login, "amber")), (-2, _note_styled("click to log in again"))]
             if login else [(-2, terminal.styled(email, "dim"))] if email else [])
@@ -5511,7 +5518,7 @@ def config_subscriptions(cfg, keyboard, number=None):
     usage_rows order, as Enter or a click on its meter opens it, on the ak screen, `c` and a
     new seat's models alike, else on the first.  The row the keys or the pointer are on
     says its resets in hand beside its meter where there is room, and opens a line: whose login
-    it is and its plan (logins.whose; one ending as login_notes says it, amber), resets with no
+    it is and its plan (logins.whose; one ending as ending_note says it, amber), resets with no
     room beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter
     or a click running one, the key line naming it.  One an act adds is asked whose it is
     (logins.renewed), then pointed at.  It comes up as `c` does as it opens, and the pointed
@@ -5578,9 +5585,9 @@ def _subscriptions(cfg, keyboard, whose):
             on = on if on in acts else None
             email, plan = logins.whose(name, account)
             plan = harness_plugin(logins.harness(cfg, name)).plan_name(plan)
-            ends, _ = ending[number - 1]
+            ends, kept = ending[number - 1]
             kind = "amber" if ends else "dim"
-            told = [(ends or email, kind), (plan, kind),
+            told = [(ending_note(kept, ends) if ends else email, kind), (plan, kind),
                     (not beside and held, "info")]
             # the pointer on its own cell lights that, so its act is at rest: one thing lit
             for shown, cells in opened_line(told, list(acts), None if owned else on, width - 4):
