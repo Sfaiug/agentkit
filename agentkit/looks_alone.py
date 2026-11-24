@@ -41,7 +41,7 @@ PAGES = {".html", ".htm"}
 # or an opener inside a script's string among them.
 OPENERS = ("{{", "{%", "{#", "<%")
 # A page's words and styles, which `_markup` takes out: its text, what stands inside `style` and
-# these attributes' values; never text inside VERBATIM, nor text or a value holding a `{`
+# these attributes' values; never text inside VERBATIM, nor text or a value holding a `{` or `<%`
 # (`_words`).
 WORDY = {"style", "alt", "title", "placeholder", "aria-label"}
 VERBATIM = {"script", "template", "textarea", "option"}
@@ -107,9 +107,9 @@ def _markup(repo, blob):
 
 
 def _words(text):
-    """Is `text` free of a `{`, which opens the logic of templates OPENERS does not name
-    (`${ }`)?"""
-    return "{" not in text
+    """Is `text`, its character references decoded, free of a `{` or `<%`, which could open a
+    template's logic OPENERS cannot find in the source (`${ }`, `&lt;%`)?"""
+    return "{" not in text and "<%" not in text
 
 
 class _Markup(HTMLParser):

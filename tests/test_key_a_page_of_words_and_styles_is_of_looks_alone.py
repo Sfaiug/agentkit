@@ -4,10 +4,10 @@ A change that edits an `.html` page so that, read by Python's `html.parser` on b
 its text and what stands inside `style` differ is of looks alone
 (tests/test_key_a_change_of_looks_alone_lands_on_its_quick_checks.py): it lands with no whole run,
 its merge ending with `Looks-Alone-Tree: <tree>`.  One that edits a line inside `script`,
-changes a `class` or an `onclick`, rewords text holding a `{` or an `option`, adds a page, makes
-one html.parser cannot read, or edits a page either side of which holds a template's opener
-(`{{`, `{%`, `{#`, `<%`) anywhere, though only a colour changes, waits for the whole run as any
-member.
+changes a `class` or an `onclick`, rewords text holding a `{`, a `&lt;%` or an `option`, adds a
+page, makes one html.parser cannot read, or edits a page either side of which holds a template's
+opener (`{{`, `{%`, `{#`, `<%`) anywhere, though only a colour changes, waits for the whole run as
+any member.
 
 Black-box, as that key and with its fixtures: the program `AK_BIN` names, on a busy host where a
 whole suite waits for company, checks a landing line through tests/fixtures/akline.py; the run
@@ -91,6 +91,9 @@ class APageOfWordsAndStylesIsOfLooksAlone(unittest.TestCase):
 
     def test_one_that_rewords_text_holding_a_brace_waits(self):
         self.waits({"index.html": PAGE.replace("Hello,", "Hi,")})
+
+    def test_one_that_rewords_text_holding_an_opener_by_a_character_reference_waits(self):
+        self.waits({"index.html": PAGE.replace("Welcome to acme.", "&lt;%= name %&gt;")})
 
     def test_one_that_rewords_an_option_waits(self):
         self.waits({"index.html": PAGE.replace("Small", "Little")})
