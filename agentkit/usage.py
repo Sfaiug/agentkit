@@ -1932,8 +1932,9 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     it.  Where the harness's own config says what a model is paid from, that outranks the
     model's own `mode`, which outranks its provider's.
 
-    Each role stays within its selection.  `quiet` keeps the exclusions off stderr for JSON
-    output, whose providers already carry them as structured fields.
+    Each role stays within its selection.  `quiet` keeps the exclusions and each candidate's
+    unknown budget off stderr for JSON output, whose providers already carry them as
+    structured fields.
     """
     offered = config.offered(cfg)
     tier_b = [n for n in marked(cfg, workers, role, reviewers) if n in offered and n not in skip]
@@ -1958,6 +1959,14 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     subs = [n for n in candidates if mode(n) != "payg"]
     if any(pace(n) is None or pace(n) <= limit for n in subs):
         candidates = subs
+    if not quiet:
+        now = time.time()
+        for name in candidates:
+            budget, reason = model_budget(cfg, name, providers, now)
+            if reason is not None:
+                provider = config.model(cfg, name)["provider"]
+                print(f"pick {role}: {name} ({provider}) budget {budget:g} unknown: "
+                      f"{reason.removeprefix('unknown: ')}", file=sys.stderr)
     return sorted(candidates, key=lambda n: on_credits(cfg, n, providers))
 
 

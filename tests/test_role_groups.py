@@ -335,7 +335,7 @@ class RoleGroups(unittest.TestCase):
         saved = run_record.read_state(directory)
         self.assertEqual((saved["executor"], saved["reviewer"]), ("seat", "gamma"))
 
-    def test_tick_handover_prefers_a_better_tier_over_a_cheaper_self(self):
+    def test_tick_handover_prefers_a_better_tier_over_a_self_marked_first(self):
         directory = config.RUNS / "20260928-0000-recovery-tier"
         directory.mkdir()
         state = {"run_id": directory.name, "state": "exhausted", "executor": "delta",

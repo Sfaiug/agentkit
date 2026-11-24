@@ -234,7 +234,7 @@ class SelfReviewLast(unittest.TestCase):
         self.assertEqual((state["executor"], state["reviewer"]), ("beta-one", "beta-one"))
 
     # beta-one reviews too, so another lab reviews every builder and the first pick names them
-    def test_a_handover_prefers_a_better_tier_over_a_cheaper_self(self):
+    def test_a_handover_prefers_a_better_tier_over_a_self_marked_first(self):
         lp = self.loop(executor="beta-one", reviewer="beta-one")
         lp.state["workers"] = ["acme-one", "acme-two", "beta-one"]
         lp.state["reviewers"] = ["acme-one", "beta-one"]

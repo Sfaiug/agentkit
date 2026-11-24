@@ -5,7 +5,7 @@ A provider that lists no accounts is one login: ak asks its harness for the usua
 meters and keeps what it reported, a spent gate meter spending the provider.  A harness that
 answers an error leaves that error, and its `auth` says whether the login works.  The pick
 order is the models with room in the order marked, a spent provider's left out, and `review`
-pairs the first of them with the first on another provider.
+pairs the first of them with the first on another provider, past one on its own.
 A second read within five minutes asks no harness and answers the same, the reading kept in
 `~/.agentkit/state/usage.json`.
 
@@ -25,14 +25,14 @@ from fixtures import akconfig, meters
 from fixtures.akbin import Home
 
 # each model's provider, in the order marked
-MODELS = {"bolt": "brine", "cask": "coral", "drum": "dune", "anvil": "acme", "easel": "acme"}
+MODELS = {"anvil": "acme", "easel": "acme", "cask": "coral", "drum": "dune", "bolt": "brine"}
 PROVIDERS = sorted({*MODELS.values()})
 USED = {"acme": 40, "brine": 70, "dune": 100}    # each week's used%; coral's harness has none
 ERROR = "unknown: no meter scripted"    # what the meter fixture answers where no week is set
 REPORTED = ("name", "used", "resets_at", "window_secs")
-# as marked, whatever budget each has left; dune's, spent, left out
-ORDER = ["bolt", "cask", "anvil", "easel"]
-PAIR = {"executor": "bolt", "reviewer": "cask"}
+# as marked, coral's unknown budget before brine's known one; dune's, spent, left out
+ORDER = ["anvil", "easel", "cask", "bolt"]
+PAIR = {"executor": "anvil", "reviewer": "cask"}     # easel is on anvil's own provider
 # the short headings `ak usage` prints where its full ones do not fit
 HEADINGS = ("model(s)", "left", "holds", "month", "resets", "elapsed", "session", "held",
             "room", "budget", "outlook")

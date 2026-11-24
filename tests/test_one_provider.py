@@ -113,7 +113,7 @@ class OneProvider(unittest.TestCase):
         self.cfg["defaults"]["workers"] = ["beta", "gamma"]
         self.assertEqual(self.pick("gamma"), ("gamma", "beta"))
 
-    def test_auto_pair_executes_cheapest_with_same_company_review(self):
+    def test_auto_pair_executes_the_first_mark_with_same_company_review(self):
         self.providers = self.meters(b=100)
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
         self.assertEqual(self.pick(), ("alpha", "beta"))
@@ -225,7 +225,7 @@ class OneProvider(unittest.TestCase):
                                for harness in ("codex", "muse", "grokbuild")}
         providers["anthropic"] = {"resets": 0, "meters": [
             {**meter, "name": "weekly_all"}, {**meter, "name": "weekly_scoped"}]}
-        # two Anthropic models left execute and review, cheapest first
+        # two Anthropic models left execute and review, as marked
         self.assertEqual(run.pick_models(cfg, providers, None, None, self.logs.append),
                          ("opus", "fable"))
         self.assertEqual(self.logs, ["skipped astra: codex is not logged in",
@@ -270,7 +270,7 @@ class OneProvider(unittest.TestCase):
         self.assertIsNone(saved["review_session"])
         self.assertTrue(any("reviewer re-picked" in line for line in self.logs))
 
-    def test_handover_repicks_the_cheapest_pair(self):
+    def test_handover_repicks_the_first_legal_pair(self):
         lp = self.loop(reviewer="gamma")
         self.providers = self.meters(a=100, b=10)
         self.cfg["models"]["delta"]["reviews_own_provider"] = False

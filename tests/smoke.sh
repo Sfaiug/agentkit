@@ -1376,8 +1376,6 @@ with open(sys.argv[1], "w") as fh:
 PY
     fi
     fakeadapter "$D" claude "$2"; fakeadapter "$D" codex "$3"; fakeadapter "$D" muse pass
-    # no grokbuild or opencode fake here on purpose: every meter in this sandbox errors by
-    # design, and a neutral meterless harness would steal check 9b's pinned fallback to spark
     R=$(newrepo "repo-$1")
     # Distinct titles: the run id is the minute plus the slug, and these two start
     # together.  One shared id would make either run's sweep signal the other's turn.
@@ -4294,7 +4292,7 @@ PRR=0
 [ "$PRC" = 0 ] || PRR=1
 [ "$(jq -r '.verdict' "$PJSON" 2>/dev/null)" = PASS ] || PRR=1
 [ "$(jq -r '.executor' "$PJSON" 2>/dev/null)" = null ] || PRR=1
-[ "$(jq -r '.reviewer' "$PJSON" 2>/dev/null)" = astra ] || PRR=1
+[ "$(jq -r '.reviewer' "$PJSON" 2>/dev/null)" = opus ] || PRR=1
 [ "$(jq -r '.review_pr' "$PJSON" 2>/dev/null)" = "https://github.com/smokeowner/$PREPO/pull/7" ] || PRR=1
 [ "$(jq -r '.review_posted' "$PJSON" 2>/dev/null)" = true ] || PRR=1
 [ "$(jq -r '.head_sha' "$PJSON" 2>/dev/null)" = "$PHEAD" ] || PRR=1
@@ -4314,7 +4312,7 @@ grep -q "message: Needs you . $INBOX: PR #7 by bob: Add contrib. Merge? yes/no" 
 jq -e '.kind == "needs" and .text == "PR #7 by bob: Add contrib. Merge? yes/no"' \
   "$PH/.agentkit/state/notify-$INBOX.json" >/dev/null 2>&1 || PRR=1
 tm kill-session -t "=$INBOX" 2>/dev/null
-[ "$PRR" = 0 ] && ok "25 ak run --review-pr: astra reviews despite Fable lagging 80/53, PR head checked out, tests: run, PASS posted as a comment, smoke-inbox seat asked to merge --match-head-commit ${PHEAD:0:12}, user pinged" \
+[ "$PRR" = 0 ] && ok "25 ak run --review-pr: opus, marked first, reviews despite Fable lagging 80/53, PR head checked out, tests: run, PASS posted as a comment, smoke-inbox seat asked to merge --match-head-commit ${PHEAD:0:12}, user pinged" \
              || { no "25 ak run --review-pr: exit=$PRC verdict=$(jq -r .verdict "$PJSON" 2>/dev/null)"; sed 's/^/      /' "$WORK/prreview.log" | tail -8; }
 
 # --- 25b: a review that cannot be posted is an error, not a PASS (offline) ---

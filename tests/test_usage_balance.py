@@ -101,6 +101,25 @@ class WeeklyBalance(unittest.TestCase):
             for role in ("executor", "reviewer"):
                 self.assertEqual(usage.pick_order(self.cfg, providers, workers, role=role), workers)
 
+    def test_v5b_an_unknown_budget_keeps_its_place_and_logs_probe_reason(self):
+        for meters in ([], [self.meter("primary_window", 1)]):
+            with self.subTest(meters=meters), redirect_stderr(io.StringIO()) as err:
+                providers = self.providers(50, 50)
+                providers["openai"].update(meters=meters, error="probe timed out", resets=10)
+                self.assertEqual(usage.model_budget(self.cfg, "astra", providers),
+                                 (0.0, "probe timed out"))
+                self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"]),
+                                 ["astra", "opus"])
+                self.assertIn("astra (openai) budget 0 unknown: probe timed out\n", err.getvalue())
+        providers["openai"].update(meters=[], error=None)
+        with redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(usage.pick_order(self.cfg, providers, ["astra", "opus"]),
+                             ["astra", "opus"])
+        self.assertIn("no weekly meter reported", err.getvalue())
+        with redirect_stderr(io.StringIO()) as err:
+            usage.pick_order(self.cfg, providers, ["astra", "opus"], quiet=True)
+        self.assertEqual(err.getvalue(), "")
+
     def test_v5b_full_meter_without_reset_is_excluded_until_new_reading(self):
         providers = self.providers(50, 50)
         meter = providers["openai"]["meters"][0]
@@ -303,6 +322,14 @@ class WeeklyBalance(unittest.TestCase):
         budget, reason = usage.model_budget(self.cfg, "astra", providers)
         self.assertEqual(budget, 0)
         self.assertIsNotNone(reason)
+
+    def test_v5b_pick_reason_has_one_unknown_prefix(self):
+        providers = self.providers(50, 50)
+        providers["meta"].update(meters=[], error="unknown: no usage endpoint")
+        with redirect_stderr(io.StringIO()) as err:
+            usage.pick_order(self.cfg, providers)
+        self.assertIn("spark (meta) budget 0 unknown: no usage endpoint\n", err.getvalue())
+        self.assertNotIn("unknown: unknown:", err.getvalue())
 
     def test_v5b_budget_label_agrees_with_rounded_number(self):
         for value, expected in ((0.94, "0.9 ahead"), (0.98, "1.0 in step"),
