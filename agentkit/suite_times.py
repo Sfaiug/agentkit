@@ -3,9 +3,9 @@ file timed it (`<file>::<part>`, tests/every_file.py).
 
 A suite's box throws its HOME writes away, so the times live in ak's state instead: every check,
 the lander's among them, keeps those its pieces printed (`passed`, wherever each piece ran), but a
-round's of the tests it chose from this record (`gate.run_done_when`'s `chosen`), which only drops
-those its tree lacks, and every piece of a suite gets one copy, taken as the suite starts, in the
-file AK_TIMES names, so all of them cut the same shares (tests/every_file.py)."""
+round's of the tests it chose from this record (`gate.run_done_when`'s `chosen`), and
+every piece of a suite gets one copy, taken as the suite starts, in the file AK_TIMES names, so
+all of them cut the same shares (tests/every_file.py)."""
 
 import json
 from pathlib import Path
@@ -178,20 +178,19 @@ def timed(cwd, versions, command):
     return found
 
 
-def keep(cwd, log, gone=()):
+def keep(cwd, log):
     """Add the times the check whose whole output is the file `log` printed to the record of
-    `cwd`, the checkout it ran on, the latest of a test's winning; a test that checkout no
-    longer has leaves it: one whose file is gone, or one its runner named not there (`gone`),
-    as only a runner knows a file's parts.  A landing that runs it again times it again."""
-    found = measured(log) if log else {}
-    if not found and not gone:
+    `cwd`, the checkout it ran on, the latest of a test's winning; a test whose file that
+    checkout no longer has leaves it."""
+    found = measured(log)
+    if not found:
         return
     from . import watch
     path = _path(cwd)
     try:
         with watch.state_lock():
             times = {name: seconds for name, seconds in (read(handed(cwd)) | found).items()
-                     if name not in gone and (Path(cwd) / name.partition("::")[0]).is_file()}
+                     if (Path(cwd) / name.partition("::")[0]).is_file()}
             path.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", delete=False) as saved:
                 json.dump(times, saved, sort_keys=True)

@@ -2752,12 +2752,12 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     With `chosen`, a passed review's (`roundloop.chosen_tests`), `only` lists the tests it chose
     from the time record (`round_tests.chosen`), which holds while the round goes: the check keeps
     no times, as a resumed round chooses from it again, and the re-run of a `shard` is handed them
-    less those its first go named as not there and not as run, which leave the record, as no
-    change fixes one its file lost and a later round would hand it again.  Its `flaky:` record
-    names what the first go lacked, and no lacked part is a flaky test: a first go that named no
-    other failure and passed all else its tree holds (`passes_what_it_holds`) leaves none, as a
-    follow-up could fix nothing.  A lander's check runs without it: it reads a red go and a green
-    one as a flake that blames nobody, and counts a part not there by that rule.
+    less those its first go named as not there and not as run, as the record keeps a part while
+    its file exists and no change fixes one its file lost.  Its `flaky:` record names what the
+    first go lacked, and no lacked part is a flaky test: a first go that named no other failure
+    and passed all else its tree holds (`passes_what_it_holds`) leaves none, as a follow-up could
+    fix nothing.  A lander's check runs without it: it reads a red go and a green one as a flake
+    that blames nobody, and counts a part not there by that rule.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2767,7 +2767,6 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                                             # begun, and the output it had produced by then
     reason, running = [], []
     held = [] if absent is None else absent     # a go's not there, where it passed all else
-    lost = []   # every chosen go's not there and not run, which leaves the record
     cpu = {}    # by command, the CPU seconds its rows count: every go of it in the list
 
     def stopped(why, pid):
@@ -2827,7 +2826,6 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         absent=held, lacked=lacked, used=ended, known=known, blamed=blamed)
                     ended["exit"] = None if killed else code
                     end = progress.tell()
-                lost += lacked or ()
                 go = left - (deadline - time.monotonic())
                 cpu[cmd] = cpu.get(cmd, 0) + (ended.get("cpu_seconds") or 0)
                 if log is not None and run_dir is not None:
@@ -2924,7 +2922,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         if log is not None:
             log(stopped_line)
     text = "\n\n".join(chunks)
-    suite_times.keep(cwd, None if chosen else log_path, lost)
+    if not chosen:
+        suite_times.keep(cwd, log_path)
     log_path.write_text(text)
     # The gate is over and its children are not the round's: a command that exited 0 may
     # still have left processes behind, and they die with the gate, however detached.

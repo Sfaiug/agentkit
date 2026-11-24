@@ -1,9 +1,6 @@
 """The check of the tests a round chose from the time record, run once its reviewer passed it,
-keeps none of their times, so a resumed round chooses from what the landings timed.  A part its
-tree lacks leaves the record, as no round must hand it again: one deleted on 12 Nov 2026, still
-timed, made each round choosing it red and run its tests twice into 24 Nov.  Its re-run, handed
-the tests less that part, measures the rest anew: kept, those times would change what fits in the
-piece.
+keeps none of their times, so a resumed round chooses the same tests from the same record.  Its re-run, handed the tests less a part
+its tree lacks, measures the rest anew: kept, those times would change what fits in the piece.
 
 In-process on a sandbox HOME (tests/fixtures/sandbox.py), with real Git and a suite of its own;
 the landings' reds and the piece's seconds are injected.
@@ -28,13 +25,13 @@ sed 's/.*/PASS  & (3.0s)/' "$AK_RAN"
 ! [ -s "$AK_NOT_THERE" ]
 """
 # In a piece of 3 s, by landings: parts::gone and slow fit, then next does not; slow timed at 3 s,
-# next would not fit beside it either way.
+# next would.
 TIMES = "PASS  parts::gone (1.0s)\nPASS  slow (1.0s)\nPASS  next (2.0s)\n"
 REDS = {"parts::gone": {"landings": 3}, "slow": {"landings": 2}, "next": {"landings": 1}}
 
 
 class ARound(Sandbox):
-    def test_its_chosen_tests_keep_no_times_and_a_part_its_tree_lacks_leaves(self):
+    def test_its_chosen_tests_keep_no_times(self):
         repo = self.root / "acme"
         repo.mkdir()
         for name, text in (("AGENTS.md", '---\ntests: : "$AK_SHARD"; sh suite.sh\n---\n'),
@@ -61,9 +58,8 @@ class ARound(Sandbox):
             ok, text = roundloop.chosen_tests(lp, chosen, head)
             self.assertTrue(ok, text)
             self.assertEqual(suite_times.read(suite_times.handed(repo)),
-                             {"slow": 1.0, "next": 2.0})
-            # slow still at its landing's 1 s: at the 3 s its round printed, next would not fit
-            self.assertEqual(round_tests.chosen(lp), (chosen[0], ["slow", "next"]))
+                             {"parts::gone": 1.0, "slow": 1.0, "next": 2.0})
+            self.assertEqual(round_tests.chosen(lp), chosen)
 
 
 if __name__ == "__main__":
