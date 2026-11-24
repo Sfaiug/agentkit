@@ -74,11 +74,12 @@ def _keys(table):
 
 def _value(value):
     # A JSON string, number, boolean or list of them is the same value written in TOML; a dict
-    # is an inline table.  A number past the digits ak's Python reads in decimal, its default
-    # whatever this one's caller holds (Home's environment is built from nothing), is TOML's hex.
+    # is an inline table.  A number past the digits every Python writes and reads in decimal,
+    # whatever limit it holds (str_digits_check_threshold, the lowest one), is TOML's hex: this
+    # process and ak's may hold different ones.
     if isinstance(value, dict):
         return "{" + ", ".join(f"{json.dumps(key)} = {_value(item)}"
                                for key, item in value.items()) + "}"
-    if type(value) is int and value >= 10 ** sys.int_info.default_max_str_digits:
+    if type(value) is int and value >= 10 ** sys.int_info.str_digits_check_threshold:
         return hex(value)
     return json.dumps(value)
