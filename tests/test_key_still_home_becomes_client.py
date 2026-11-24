@@ -169,10 +169,10 @@ exec {shlex.quote(vm.install.ak)} "$@"
         self.record(mini, "yes", "acme-box")     # asked first, by its name
         box.hang()
         vm.env["AK_NOW"] = now(1)
-        for unset in "", "0", "x":      # no timeout: ak runs as without one
+        for unset in "", "0", "x", "100", "9" * 5000:   # none of 1 to 99: ak runs as without one
             done = mini.ak("standby", "--began", env={"AK_STANDBY_TIMEOUT": unset,
                                                       "AK_NOW": now(1)}, raw=True)
-            self.assertEqual(done.code, 0, unset)
+            self.assertEqual(done.code, 0, unset[:9])
         mini.env["AK_STANDBY_TIMEOUT"] = "20"
         self.paused(mini, now(1))
         del mini.env["AK_STANDBY_TIMEOUT"]
