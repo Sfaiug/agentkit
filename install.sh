@@ -812,7 +812,7 @@ SYSCTL_D="${AK_SYSCTL_D:-/etc/sysctl.d}"
 # NAME in sysctl.d in place of an earlier install's, then now, in the LIVE file: the entry first,
 # as the live value alone decides whether an install writes it, and once that is ours none does.
 sysctl_set() {
-  local LC_ALL=C ours=-agentkit-$4.conf name names fit last others=zz   # C: lengths and order in bytes
+  local LC_ALL=C ours=-agentkit-$4.conf name names fit last others=zz earlier=   # C: lengths and order in bytes
   # listed and measured through sudo, as written, so an entry only root can reach still sorts
   # before ours
   sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null && names=$(sudo -n ls -- "$SYSCTL_D" 2>/dev/null) &&
@@ -824,16 +824,17 @@ sysctl_set() {
   # Only that rule makes these two shapes, but a name proves nothing: an entry of either is ak's
   # only if it is a file whose bytes open with the line every release has written first into
   # each (a pipe is never opened), and an owner's is followed like any other.  ak's own under
-  # this name is an earlier install's, removed; under another it is another key's, followed only
-  # if it holds this key's last part, which every spelling of the key does, so one this key was
-  # added to still applies first and neither of ak's names grows out of the other's.
+  # this name is an earlier install's, removed once ours is written, so a write that fails leaves
+  # every boot the setting that worked; under another it is another key's, followed only if it
+  # holds this key's last part, which every spelling of the key does, so one this key was added
+  # to still applies first and neither of ak's names grows out of the other's.
   while IFS= read -r name; do
     case $name in
       zz-agentkit-*.conf|*.conf-agentkit-*.conf)
         if sudo -n test -f "$SYSCTL_D/$name" 2>/dev/null && sudo -n sed 1q -- "$SYSCTL_D/$name" \
              2>/dev/null | grep -qa "^# Written by agentkit's install\.sh"; then
           case $name in
-            zz"$ours"|*.conf"$ours") sudo -n rm -f -- "$SYSCTL_D/$name" 2>/dev/null || return 1 ;;
+            zz"$ours"|*.conf"$ours") earlier+=$'\n'$name ;;
             *) sudo -n grep -qF -- "${2##*.}" "$SYSCTL_D/$name" 2>/dev/null && others+=$'\n'$name ;;
           esac
         else
@@ -858,8 +859,14 @@ sysctl_set() {
     name+=.conf
   fi
   printf '%s\n' "# Written by agentkit's install.sh: $5" "$2 = $3" |
-    sudo -n tee "$SYSCTL_D/$name$ours" >/dev/null 2>&1 &&
-    printf '%s' "$3" | sudo -n tee "$1" >/dev/null 2>&1
+    sudo -n tee "$SYSCTL_D/$name$ours" >/dev/null 2>&1 || return 1
+  while IFS= read -r last; do
+    case $last in
+      ''|"$name$ours") ;;   # the name just written holds ours now
+      *) sudo -n rm -f -- "$SYSCTL_D/$last" 2>/dev/null || return 1 ;;
+    esac
+  done <<<"$earlier"
+  printf '%s' "$3" | sudo -n tee "$1" >/dev/null 2>&1
 }
 CORE_PATTERN="${AK_CORE_PATTERN:-/proc/sys/kernel/core_pattern}"
 if [ "$SANDBOX" = 1 ] || ! core_now=$(cat -- "$CORE_PATTERN" 2>/dev/null) ||

@@ -8,6 +8,7 @@ probe and runs what it is given there.  The real kernel is never read or written
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -157,6 +158,24 @@ class RoomForInotify(unittest.TestCase):
         self.assertEqual(self.live(), "128")
         self.assertEqual(self.entries(), before)
         self.assertEqual(self.sudo_calls(), [])
+
+    def test_f_an_earlier_entry_stays_until_ours_is_written(self):
+        self.limit.write_text("128\n")
+        earlier = self.sysctl_d / "zz-agentkit-inotify.conf"
+        earlier.write_text(f"{OURS}: every session has room for its inotify instances\n"
+                           f"{KEY} = 8192\n")
+        (self.sysctl_d / "zzz-owner.conf").write_text(f"{KEY} = 128\n")
+        before = earlier.read_text()
+        # a tee that cannot write into sysctl.d, as on a full /etc, which fails the step
+        tee = self.bin / "tee"
+        tee.write_text('#!/bin/sh\ncase $1 in "$AK_SYSCTL_D"/*) exit 1 ;; esac\n'
+                       f'exec {shutil.which("tee")} "$@"\n')
+        tee.chmod(0o755)
+        self.assertIn("could not be set", self.install().stderr)
+        self.assertEqual(earlier.read_text(), before)
+        tee.unlink()
+        self.leaves_room_now_and_on_every_boot()
+        self.assertFalse(earlier.exists())
 
 
 if __name__ == "__main__":
