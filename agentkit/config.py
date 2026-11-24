@@ -1102,16 +1102,22 @@ def _toml_key(key):
     return json.dumps(key, ensure_ascii=False)
 
 
+def whole(value):
+    """`value` as str gives it, a whole number past the most digits Python writes in decimal
+    (sys.get_int_max_str_digits) in hex: TOML's too, which tomllib reads back with no such limit,
+    so a number config.toml takes, as host_policy's have no top, is written and shown."""
+    try:
+        return str(value)
+    except ValueError:
+        return hex(value)
+
+
 def _toml_value(value):
     # bool before int: isinstance(True, int) is true and TOML spells them differently.
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
-        try:
-            return str(value)
-        except ValueError:          # Python writes no more digits than this; nor would repr
-            raise Error(f"cannot write a number of more than {sys.get_int_max_str_digits()} "
-                        f"digits to {CONFIG_NAME}") from None
+        return whole(value)
     if isinstance(value, float):
         if not math.isfinite(value):
             raise Error(f"cannot write {value!r} to {CONFIG_NAME}: not a TOML number")

@@ -1,14 +1,14 @@
 """On `config · limits`, ← and → move the limit the pointer is on one step down or up, saved to
 config.toml at once: `Review rounds` 0 to 5, `Max lines per executor task` 0 to 1000 in hundreds
 then `no limit`, `Max lines per orchestrator task` 0 to 200 in 25s then `no limit`,
-`Extra rounds with one or two findings left` by one from 0 with no top.  A value between steps,
-as written by hand, moves to the next step in the arrow's direction, and neither arrow moves past
-an end, nor → past the most digits ak writes, saying so.  The pointed row shows its value as
-`◂ value ▸`, a side's arrow left out at that end, a click on one moving it as its key does, and
-the key line reads `↑↓ limit   ←→ value   esc back`.  With the pointer off every row, the first ←
-or → only brings the highlight back, as Enter and Space do.  A pointed value too wide beside its
-label, as on 40 cells, folds under it whole, never an arrow parted from it, and a label too wide
-for its line wraps at its words.
+`Extra rounds with one or two findings left` by one from 0 with no top, past the most digits
+Python writes in decimal too.  A value between steps, as written by hand, moves to the next step
+in the arrow's direction, and neither arrow moves past an end.  The pointed row shows its value
+as `◂ value ▸`, a side's arrow left out at that end, a click on one moving it as its key does,
+and the key line reads `↑↓ limit   ←→ value   esc back`.  With the pointer off every row, the
+first ← or → only brings the highlight back, as Enter and Space do.  A pointed value too wide
+beside its label, as on 40 cells, folds under it whole, never an arrow parted from it, and a
+label too wide for its line wraps at its words.
 
 The owner's design of 5 Nov 2026; 22 Nov 2026: "Let the page count on."  Black-box: the program
 `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its harnesses the fakes of
@@ -144,15 +144,18 @@ class ArrowSteps(unittest.TestCase):
                 term.keys("Left")
                 self.pointed(term, name, steps[-2])
 
-    def test_past_the_most_digits_written_the_count_says_so_and_keeps_its_number(self):
-        digits = sys.get_int_max_str_digits()    # the most Python writes, ak's as this test's
+    def test_the_count_goes_on_past_the_most_digits_python_writes_in_decimal(self):
+        # 4300, Python's own most (sys.get_int_max_str_digits) in the program's environment,
+        # built from nothing; this test's own has none, whatever its caller's holds
+        sys.set_int_max_str_digits(0)
+        held = 10 ** 4300 - 1
         # tall enough for every row whole: on a page taller than the window, ↓ pages it first
-        term = self.limits({"extra_rounds": 10 ** digits - 1}, size=(140, 100))
+        term = self.limits({"extra_rounds": held}, size=(140, 100))
         term.keys(*["j"] * 3)
         term.wait(f"› {NAMES[3]}")
-        term.keys("Right")
-        term.wait(f"config: cannot write a number of more than {digits} digits to config.toml")
-        self.assertEqual(akconfig.read(self.home)["extra_rounds"], 10 ** digits - 1)
+        for arrow, value in (("Right", held + 1), ("Left", held)):
+            term.keys(arrow)
+            term.wait(lambda _: akconfig.read(self.home)["extra_rounds"] == value)
 
     def test_a_click_on_an_arrow_moves_the_value_as_its_key_does(self):
         term = self.limits()

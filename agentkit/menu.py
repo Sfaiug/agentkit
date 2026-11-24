@@ -6306,8 +6306,9 @@ def config_machines(cfg):
 
 
 def limit_shown(value):
-    """One of config.POLICY's numbers as `Limits` says it: 0, the limit off, as `off`."""
-    return str(value) if value else "off"
+    """One of config.POLICY's numbers as `Limits` says it, as config.toml writes a number
+    (config.whole): 0, the limit off, as `off`."""
+    return config.whole(value) if value else "off"
 
 
 def limits_value(cfg):
