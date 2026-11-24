@@ -33,7 +33,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import installer
 from fixtures.akbin import LOG, boxable
-from fixtures.akinstall import FETCH, Install
+from fixtures.akinstall import FETCH, PUSH, Install
 from test_key_ak_lease_creates_a_lease import REF, kept
 from test_key_home_creates_a_lease import RECORDS
 from test_key_home_freezes_without_its_lease import SLICE, Firings, named, now
@@ -220,8 +220,9 @@ exec {shlex.quote(vm.install.ak)} "$@"
         self.stands_still(machines)
         self.unchanged(mini, vm, 1)
         self.assertEqual(self.freezer(mini), b"1")
-        # no call but git's to the origin, which go by ssh too
-        self.assertEqual([call for call in mini.calls("ssh") if FETCH[0] not in call], [])
+        # no call but git's fetch or push of the origin, its host and command, which go by ssh too
+        self.assertEqual([call for call in mini.calls("ssh")
+                          if tuple(call[-2:]) not in (FETCH, PUSH)], [])
 
     def test_no_stamp_or_one_whose_first_line_is_none_asks_nobody(self):
         for stamp in None, "acme\nacme-vm\n":
