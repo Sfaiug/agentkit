@@ -507,9 +507,10 @@ def last_sent(record, cwd, conversation):
             kept.append(entry)
         return False
     try:
-        path and last_entry(path, pick, strict=True)
-    except (FileNotFoundError, ValueError, RecursionError):
-        return None     # gone since `transcript` named it, or a line `json.loads` refuses
+        if not path or last_entry(path, pick, strict=True) is False:
+            return None     # no file, or a line `json.loads` refuses
+    except FileNotFoundError:
+        return None         # gone since `transcript` named it
     return moment(kept[0].get("timestamp")) if kept else None
 
 

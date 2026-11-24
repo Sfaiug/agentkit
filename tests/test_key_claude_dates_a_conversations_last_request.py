@@ -108,6 +108,14 @@ class LastSent(unittest.TestCase):
         with patch.object(claude, "transcript", gone):
             self.assertIsNone(self.sent(ASKING, result(2000), model(3000)))
 
+    def test_a_file_it_cannot_read_back_is_no_line_it_refuses(self):
+        # a pipe cannot be read from its end: io.UnsupportedOperation, an OSError and a ValueError
+        os.mkfifo(self.path)
+        writer = os.open(self.path, os.O_RDWR | os.O_NONBLOCK)     # so opening it waits for none
+        self.addCleanup(os.close, writer)
+        with self.assertRaises(OSError):
+            harness.load("claude").last_sent(RECORD, RECORD["cwd"], CONVERSATION)
+
     def test_a_plugin_without_its_own_says_nothing(self):
         self.assertIsNone(harness.load("codex").last_sent(RECORD, RECORD["cwd"], CONVERSATION))
 

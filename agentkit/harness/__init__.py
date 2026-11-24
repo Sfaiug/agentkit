@@ -161,7 +161,7 @@ def last_entry(path, pick, strict=False):
 
     A conversation's file grows for as long as the conversation does, and a tick wants only
     its last event: a line still being written, or one that is not JSON, is passed over.
-    `strict`, a line `json.loads` refuses raises what it raised, one of no bytes aside.
+    `strict`, a line `json.loads` refuses, one of no bytes aside, ends the read with False.
     """
     with open(path, "rb") as fh:
         end, rest = fh.seek(0, 2), b""
@@ -173,9 +173,9 @@ def last_entry(path, pick, strict=False):
             for line in reversed(lines):
                 try:
                     entry = json.loads(line)
-                except ValueError:
+                except (ValueError, RecursionError) if strict else ValueError:
                     if strict and line:
-                        raise
+                        return False
                     continue
                 if isinstance(entry, dict) and pick(entry):
                     return entry
