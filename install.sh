@@ -812,7 +812,7 @@ SYSCTL_D="${AK_SYSCTL_D:-/etc/sysctl.d}"
 # NAME in sysctl.d in place of an earlier install's, then now, in the LIVE file: the entry first,
 # as the live value alone decides whether an install writes it, and once that is ours none does.
 sysctl_set() {
-  local LC_ALL=C ours=-agentkit-$4.conf name names fit last others=zz earlier=()   # C: lengths and order in bytes
+  local LC_ALL=C ours=-agentkit-$4.conf name names fit last=zz earlier=()   # C: lengths and order in bytes
   # listed and measured through sudo, as written, so an entry only root can reach still sorts
   # before ours
   sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null && names=$(sudo -n ls -- "$SYSCTL_D" 2>/dev/null) &&
@@ -828,27 +828,31 @@ sysctl_set() {
   # every boot the setting that worked; under another it is another key's, followed only if it
   # holds this key's last part, which every spelling of the key does, so one this key was added
   # to still applies first and neither of ak's names grows out of the other's.
-  while IFS= read -r name; do
+  # split in place, and ak's earlier entries kept in an array, as a here-string may need a
+  # temporary file a full disk refuses
+  names+=$'\n'
+  while [ -n "$names" ]; do
+    name=${names%%$'\n'*} names=${names#*$'\n'}
     case $name in
       zz-agentkit-*.conf|*.conf-agentkit-*.conf)
         if sudo -n test -f "$SYSCTL_D/$name" 2>/dev/null && sudo -n sed 1q -- "$SYSCTL_D/$name" \
              2>/dev/null | grep -qa "^# Written by agentkit's install\.sh"; then
           case $name in
-            zz"$ours"|*.conf"$ours") earlier+=("$name") ;;
-            *) sudo -n grep -qF -- "${2##*.}" "$SYSCTL_D/$name" 2>/dev/null && others+=$'\n'$name ;;
+            zz"$ours"|*.conf"$ours") earlier+=("$name"); continue ;;
           esac
-        else
-          others+=$'\n'$name
+          sudo -n grep -qF -- "${2##*.}" "$SYSCTL_D/$name" 2>/dev/null || continue
         fi ;;
-      *.conf) others+=$'\n'$name ;;
+      *.conf) ;;
+      *) continue ;;
     esac
-  done <<<"$names"
-  name=$(LC_ALL=C sort <<<"$others" | tail -n 1)
+    [[ $name > $last ]] && last=$name
+  done
+  name=$last
   # one too long to extend within the filesystem's limit gives way to a .conf name that fits:
   # cut, then until ours sorts after it, a last 0xff dropped or a last byte raised (past `/`,
   # which no name holds)
   if [ ${#name} -gt $fit ]; then
-    last=$name name=${name:0:fit-5}
+    name=${name:0:fit-5}
     until [[ $name.conf$ours > $last ]]; do
       case ${name: -1} in
         '') return 1 ;;
@@ -860,8 +864,7 @@ sysctl_set() {
   fi
   printf '%s\n' "# Written by agentkit's install.sh: $5" "$2 = $3" |
     sudo -n tee "$SYSCTL_D/$name$ours" >/dev/null 2>&1 || return 1
-  # an array, as a here-string may need a temporary file a full disk refuses; `[`, as nocasematch
-  # loosens a pattern; `+`, as bash before 4.4 takes an empty array for unset
+  # `[`, as nocasematch loosens a pattern; `+`, as bash before 4.4 takes an empty array for unset
   for last in ${earlier[@]+"${earlier[@]}"}; do
     [ "$last" = "$name$ours" ] || sudo -n rm -f -- "$SYSCTL_D/$last" 2>/dev/null || return 1
   done
