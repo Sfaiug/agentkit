@@ -994,6 +994,25 @@ def reviewed_runs(harness, model):
         return {}
 
 
+def first_review_efforts():
+    """{run_id: the effort its first review ran at, None where none was recorded}: of its lowest
+    round, the first written; {} where the database cannot answer."""
+    _ensure_migrated()      # a reviews table from before rounds and efforts has neither column
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                first = {}
+                for run_id, effort in connection.execute(
+                        "SELECT run_id, effort FROM reviews ORDER BY round, rowid"):
+                    first.setdefault(run_id, effort)
+                return first
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return {}
+
+
 def merged(row):
     """Whether the run merged: its size (`changed_lines`) survives run cleanup, an older merge
     needs its record."""

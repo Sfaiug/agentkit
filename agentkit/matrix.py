@@ -701,6 +701,8 @@ def main(argv):
     logins, shares = _task_usage(cfg)
     found, own = answer(rows, marked, cfg=cfg, task_usage=(logins, shares)), live(cfg)
     if "--json" in flags:
+        from . import ledger    # here, not at the top: the boards and the table need no database
+
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
                                                  "cost", "board_cost", "cost_rule")},
@@ -718,7 +720,8 @@ def main(argv):
                      for (name, effort), roles in own.items()},
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
-                           for name, efforts in shares.items()}},
+                           for name, efforts in shares.items()},
+            "runs": ledger.by_team()},
             sys.stdout, indent=2)
         print()
         return 0
