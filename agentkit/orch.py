@@ -5157,6 +5157,12 @@ def main(argv):
         from . import done_check
         return done_check.look(argv[1:])
     name, forced, forced_workers, dry_run = parse(argv)
+    # A client's seats are on its home, and a standby's records of them are a copy of that
+    # home's: on 22 Nov 2026 a standby opened its home's 21 seats a second time.  Refused here,
+    # a dry run too, before this command reads or writes anything of a seat.
+    if alias := config.server_alias():
+        raise config.Error(f"this machine is a client of {alias} and opens no seat: "
+                           f"its seats are on {alias}")
     if not dry_run:
         maintenance()
     cfg = config.load()
