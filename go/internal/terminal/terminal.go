@@ -180,19 +180,26 @@ func utf8() bool {
 	return locale == "" || strings.Contains(strings.ReplaceAll(strings.ToLower(locale), "-", ""), "utf8")
 }
 
-// Width is the terminal's columns, for a listing that wraps to all of them.
+// Width is the screen's columns, inside any popup padding, for a listing that wraps to all of them.
 func (s Screen) Width() int {
-	return s.width
+	if s.width == 0 {
+		return 0
+	}
+	return max(1, s.width-2*s.pad)
 }
 
-// Height is the terminal's rows, known once a Keyboard has said what the terminal is.
+// Height is the screen's rows, inside any popup padding, known once a Keyboard has said what the
+// terminal is.
 func (s Screen) Height() int {
-	return s.height
+	if s.height == 0 {
+		return 0
+	}
+	return max(1, s.height-2*s.pad)
 }
 
-// ContentWidth is the room a listing lays out in: the terminal's, capped at 100 columns.
+// ContentWidth is the room a listing lays out in: the screen's, capped at 100 columns.
 func (s Screen) ContentWidth() int {
-	return max(1, min(s.width, 100))
+	return max(1, min(s.Width(), 100))
 }
 
 // Styled is text in a state word's colour, or dim, or a role's (kinds), or a caller's own `#RRGGBB`,

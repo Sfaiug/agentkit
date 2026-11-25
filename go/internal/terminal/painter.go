@@ -67,7 +67,7 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	} else if rows := differing(lines, held, screen); whole || rows != "" || len(lines) < len(p.up) || past {
 		frame.WriteString(rows)
 		// Addressing a row past the last lands on the last, where a clear would erase it.
-		if len(lines) < screen.Height()+screen.pad {
+		if len(lines)+screen.pad < screen.height {
 			frame.WriteString(screen.at(len(lines)+1, 1) + "\x1b[J")
 		}
 	}
@@ -86,15 +86,15 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	p.up, p.over, p.of, p.known = slices.Clone(lines), slices.Clone(over), screen, !tall
 }
 
-// Scrolled is how many rows Write scrolls the screen by to put up a frame of `lines` rows: one
-// taller than the screen goes out whole from row 1+pad, each row ended by a newline, so it scrolls
-// only past the physical terminal's last row (height+2*pad), leaving that last row blank.  None is
-// known on a screen no Keyboard measured.
+// Scrolled is how many rows Write moves a frame of `lines` rows up from its screen rows: one
+// taller than the screen goes out whole from row min(1+pad, height), each row ended by a newline,
+// so it scrolls past the physical terminal's last row (height), leaving that last row blank.  None
+// is known on a screen no Keyboard measured.
 func (s Screen) Scrolled(lines int) int {
-	if s.height == 0 || lines <= s.height {
+	if s.height == 0 || lines <= s.Height() {
 		return 0
 	}
-	return max(0, lines-s.height-s.pad+1)
+	return max(0, lines+1+s.pad-s.height)
 }
 
 // paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the theme's

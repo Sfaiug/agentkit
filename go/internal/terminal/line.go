@@ -23,10 +23,10 @@ func (s Screen) lookOf(word string) (style, string) {
 	return style{tone: strconv.Itoa(tone)}, rgb
 }
 
-// LayoutWidth is the room a screen lays out in: the terminal's, up to 120 columns; beyond that the
+// LayoutWidth is the room a screen lays out in: its width, up to 120 columns; beyond that the
 // margin grows, never the text.
 func (s Screen) LayoutWidth() int {
-	return max(1, min(s.width, 120))
+	return max(1, min(s.Width(), 120))
 }
 
 // Pad is text cut to room and filled to it.

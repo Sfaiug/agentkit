@@ -41,7 +41,7 @@ func differing(lines []string, held func(at int) bool, screen Screen) string {
 // cleared is a line, then its row's tail cleared.  A line ending on the last column gets no clear:
 // the cursor rests on that column, and a clear there would erase it.
 func cleared(line string, screen Screen) string {
-	if cells := Cells(line); cells > 0 && (screen.pad+cells)%max(1, screen.Width()+2*screen.pad) == 0 {
+	if cells := Cells(line); cells > 0 && (screen.pad+cells)%max(1, screen.width) == 0 {
 		return line
 	}
 	return line + "\x1b[K"
@@ -60,7 +60,7 @@ func (s Screen) wraps(line string) int {
 	if cells == 0 {
 		return 0
 	}
-	return max(0, s.pad+cells-1) / max(1, s.Width()+2*s.pad)
+	return max(0, s.pad+cells-1) / max(1, s.width)
 }
 
 // onto is whether each of lines is a row a line before it wraps onto, blank as Unbroken leaves

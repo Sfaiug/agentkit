@@ -149,13 +149,12 @@ func (k *Keyboard) Sense(popup bool) {
 // or where it did not say, the one kept now: another menu may keep one meanwhile.
 func (k *Keyboard) Screen() Screen {
 	screen := k.sensed
-	cols, rows := width(os.Stdout), height(os.Stdout)
-	screen.width, screen.height = max(1, cols-2*screen.pad), max(1, rows-2*screen.pad)
+	screen.width, screen.height = width(os.Stdout), height(os.Stdout)
 	if !k.fits {
 		screen.theme = kept()
 	}
 	k.mu.Lock()
-	k.size = [2]int{cols, rows}
+	k.size = [2]int{screen.width, screen.height}
 	k.mu.Unlock()
 	return screen
 }

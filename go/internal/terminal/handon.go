@@ -31,4 +31,6 @@ func (p *Painter) Restore(frame []byte, screen Screen) {
 // drawnFor is the terminal's size and its answer, which picked the shades a frame's rows are in, as
 // Python's terminal._drawn_for: a frame the release before this handed on, under its size alone,
 // never goes up.
-func (s Screen) drawnFor() string { return fmt.Sprintf("%d %d %s", s.width, s.height, s.background) }
+func (s Screen) drawnFor() string {
+	return fmt.Sprintf("%d %d %s", s.Width(), s.Height(), s.background)
+}
