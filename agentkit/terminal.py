@@ -215,10 +215,11 @@ class _Screen:
 
     Each write starts in the theme's background and text, puts them back after every reset and
     ends in the terminal's own colours: every cell a draw, a frame or a clear touches is on the
-    background and text of no colour is the theme's, whichever helper drew it, and the terminal is
-    its own again between writes, for whatever has it next -- a program ak starts, a signal, the
-    shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at
-    eight colours, whose tones read on any background.
+    background -- the terminal's own where the look reads there (`LOOK`) -- and text of no colour
+    is the theme's, whichever helper drew it, and the terminal is its own again between writes,
+    for whatever has it next -- a program ak starts, a signal, the shell.  Nothing is painted
+    while a `Keyboard` has given the terminal back (`_GIVEN`), nor at eight colours, whose tones
+    read on any background.
 
     Each place a screen writes at, and the start of each line it begins, is moved in by the
     padding, and painted it too: a place on the first column takes the padding to its left, and
@@ -246,8 +247,8 @@ class _Screen:
 
 
 def _painted(text):
-    """`text` on the background of the theme in force, in its text where it sets no colour
-    (`_Screen`)."""
+    """`text` on the background of the theme in force, none where the look reads (`LOOK`), in
+    its text where it sets no colour (`_Screen`)."""
     back, fore = "49" if LOOK else ink(colour("background"), "48"), ink(colour("text"), "38")
     again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
 
