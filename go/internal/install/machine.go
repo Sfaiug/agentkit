@@ -24,7 +24,21 @@ const (
 	machineAlias = "lima-" + machineName
 	// ak's own LaunchDaemon, which runs tools/linux-machine.sh's check every minute
 	machineCheck = "com.agentkit.linux-machine"
+	// where the machine sees its one folder, as freeSpace names it
+	freeSpacePoint = "/mnt/ak-free-space"
 )
+
+// freeSpace is tools/linux-machine.sh's linux_free_space: the one folder the machine in dir sees,
+// its own folder's `free-space`, empty and read-only, through which ak in it counts its disk as
+// full as the Mac's volume under it (host.disk_use): its mount as the machine's file names it,
+// which Lima makes as the machine starts.  Lima refuses a folder that is no full path, as
+// {{.Dir}} is not in a store named relatively, so a machine there has none: "".
+func freeSpace(dir string) string {
+	if !strings.HasPrefix(dir, "/") {
+		return ""
+	}
+	return `{"location": "{{.Dir}}/free-space", "mountPoint": "` + freeSpacePoint + `", "writable": false}`
+}
 
 // mac is whether this host is a Mac, as install.sh reads it: by `uname -s`.
 var mac = sync.OnceValue(func() bool {
@@ -114,13 +128,10 @@ func machineUp(name string, out, errOut io.Writer) error {
 			return err
 		}
 		cpus, disk := share(cores, 2), share(free>>20, 64) // KiB, in GiB
-		// Debian stable, which boots systemd; --mount-none: the machine sees none of the Mac's folders
-		// but its own folder's `free-space`, empty and read-only, through which ak in it counts its disk
-		// as full as the Mac's volume under it (host.disk_use).  Lima makes it as the machine starts, and
-		// refuses a folder that is no full path, as {{.Dir}} is not in a store named relatively.
+		// Debian stable, which boots systemd; --mount-none, but for its free-space folder.
 		settings := fmt.Sprintf(".user.name = %q | .user.home = %q", name, "/home/"+name)
-		if strings.HasPrefix(limaHome, "/") {
-			settings += ` | .mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": "/mnt/ak-free-space", "writable": false}]`
+		if mount := freeSpace(dir); mount != "" {
+			settings += " | .mounts = [" + mount + "]"
 		}
 		if err := tool(out, errOut, "limactl", "create", "--tty=false", "--name="+machineName,
 			fmt.Sprintf("--cpus=%d", cpus), fmt.Sprintf("--memory=%d", mem), fmt.Sprintf("--disk=%d", disk),
@@ -141,6 +152,13 @@ func machineUp(name string, out, errOut io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(out, "linux: this Mac's Linux machine takes %d GiB of memory %s, not %d GiB, leaving macOS its share\n", mem, when, had>>30)
+	}
+	// Lima's daemon, which starts the machine as the Mac boots, gives it no folder: one made before
+	// the folder gets it only from ak's next start.
+	if freeSpace(dir) != "" && status() == "Running" {
+		if file, _ := os.ReadFile(filepath.Join(dir, "lima.yaml")); !strings.Contains(string(file), freeSpacePoint) {
+			fmt.Fprintf(out, "linux: this Mac's Linux machine does not see the Mac's free space yet, and gets the folder the next time ak starts it, which `limactl stop %s` brings on within a minute, ending what runs in it\n", machineName)
+		}
 	}
 	if err := start(dir, out, errOut); err != nil { // one already up stays as it is
 		return err
@@ -180,11 +198,18 @@ func status() string {
 // start` returns once the machine answers, so starting one counts as its answer, read off the
 // check's own clock, `date +%s`.  One already running stays as it is, and so does its last
 // answer: it may hang.  Lima writes the flags it is given into the machine's file even while it
-// runs, where they hold from its next start.
+// runs, where they hold from its next start.  A stopped one first gets its free-space folder, as
+// linux_machine_mount gives it.
 func start(dir string, out, errOut io.Writer, flags ...string) error {
-	running := status() == "Running"
+	state := status()
+	running := state == "Running"
 	if running && len(flags) == 0 {
 		return nil
+	}
+	if mount := freeSpace(dir); state == "Stopped" && mount != "" {
+		// what the edit says or exits with changes nothing about the start
+		_ = exec.Command("limactl", "edit", "--tty=false", "--set", `.mounts = ((.mounts // []) | map(select(.mountPoint != "`+
+			freeSpacePoint+`"))) + [`+mount+`]`, machineName).Run()
 	}
 	if err := tool(out, errOut, "limactl", slices.Concat([]string{"start", "--tty=false"}, flags, []string{machineName})...); err != nil {
 		return err
