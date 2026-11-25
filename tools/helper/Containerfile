@@ -1,10 +1,14 @@
 # The suite helper's one image (agentkit/helper.py): a server's packages, as install.sh's.
 FROM docker.io/library/debian:trixie-slim
+# The machine's own user, as its helper builds this (linux.sh's `build`): a turn runs as that user
+# to own its volumes, and one with no account here finds no home (`getpwuid`, 25 Nov 2026).
+ARG uid=1000
+ARG gid=1000
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash python3 python3-pytest git gh tmux bubblewrap jq curl rsync cron systemd libvncserver1 \
       util-linux iproute2 procps psmisc file sqlite3 ca-certificates openssh-client nodejs \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd -m -u 1000 -s /bin/bash ak
+    && groupadd -o -g "$gid" ak && useradd -o -m -u "$uid" -g ak -s /bin/bash ak
 # Go is the release go.mod's toolchain line names, the one tests/test_go.py judges go/ with:
 # Debian's golang-go is another, whose gofmt lays some files out another way.
 COPY tools/helper/go.sh go/go.mod go/toolchain.sha256 /tmp/go/

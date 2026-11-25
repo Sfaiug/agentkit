@@ -43,9 +43,9 @@ elif words[:2] == ["image", "ls"]:
 elif words[:2] == ["image", "rm"]:
     for ref in words[2:]:
         (images / ref).unlink()
-elif words[0] == "build":    # build -q -t IMAGE -f RECIPE CONTEXT
-    assert Path(words[5]).is_file() and Path(words[6]).is_dir()
-    (images / words[3]).touch()
+elif words[0] == "build":    # build -q -t IMAGE -f RECIPE [--build-arg NAME=VALUE]... CONTEXT
+    assert Path(words[5]).is_file() and Path(words[-1]).is_dir()
+    (images / words[3]).write_text(" ".join(words[7:-1:2]))    # an image holds what it was built for
 elif words[0] == "ps":
     print("".join(f"{name}\n" for name in held), end="")
 elif words[0] == "inspect":    # an unknown container fails it, as docker's does
