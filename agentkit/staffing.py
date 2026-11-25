@@ -243,17 +243,21 @@ def refuse_outside_group(cfg, name, group, role):
 def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, quiet=False,
                 repo=None, workers=None, reviewers=None, draw=None):
     """Pick each role within its launch list; want_review=False switches review off.  Asked for
-    neither by name, with review on, the executor's pick reads the reviewer's list too
-    (`ready_order`'s `reviewed_by`).  `draw` is `usage.pick_order`'s."""
+    no executor by name, with review on, the executor's pick reads the reviewer named -- or the
+    reviewer's list when neither is named -- too (`ready_order`'s `reviewed_by`).  `draw` is
+    `usage.pick_order`'s."""
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
         refuse_outside_group(cfg, want_review, reviewers, "reviewer")
     exec_list, review_list = workers, reviewers if reviewers is not None else workers
     reviewed_by = None
-    if not want_exec and not want_review and want_review is not False:
-        # the executor's pick weighs the very reviewers the reviewer's pick reads
-        exec_list, review_list = config.pair_marks(cfg, workers, reviewers)
-        reviewed_by = review_list
+    if not want_exec and want_review is not False:
+        if want_review:
+            reviewed_by = [want_review]
+        else:
+            # the executor's pick weighs the very reviewers the reviewer's pick reads
+            exec_list, review_list = config.pair_marks(cfg, workers, reviewers)
+            reviewed_by = review_list
     order = ready_order(cfg, providers, exec_list, None if want_exec and want_review else log,
                         quiet=quiet, repo=repo, reviewers=reviewers, reviewed_by=reviewed_by,
                         draw=draw)
