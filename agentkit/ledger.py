@@ -9,6 +9,7 @@ A run of another kind (a follow-up, a repair, a seat's own pull request) is no t
 rewritten under a new title is a new one: ak keeps no link between the two.
 """
 
+from fractions import Fraction
 import math
 import time
 
@@ -18,6 +19,7 @@ from . import history, record
 # in the history, outside every count here.
 WINDOW = 30 * 86400
 ROLES = ("orchestrator", "executor", "reviewer")
+USAGE_ROLES = ("executor", "reviewer")
 # What a team's tasks spent, in hours: each the sum of these columns over every run of them
 HOURS = {"build": ("executor_seconds",), "review": ("reviewer_seconds",),
          "checks": ("done_when_seconds",),
@@ -30,18 +32,42 @@ def _whole(value, low=0):
     return isinstance(value, int) and not isinstance(value, bool) and value >= low
 
 
-def counted():
-    """{"since", "until", "teams", "sizes"}: the window; per team, most tasks first, each role's
-    {"name", "effort"} as its first run's row names them (the reviewer's effort its first
-    review's), its tasks, those whose first run merged (`history.merged`), those any of whose
-    runs merged (`live`), those whose first run's first review (first written of its lowest round)
-    was round 1 with verdict `PASS` (`first_pass`), the `reviews` rows with a round above zero
-    over every run of them (`reviews`), their non-negative `blocking` summed (`issues`), and the
-    hours every run of them spent (`HOURS`), however it ended or while it runs; and per `SIZE`
+def _add_usage(to, used):
+    """Add `used`, `week_meters.run_usage`'s `(points, unrated)`, into one role's
+    `{"points": {provider: {plan: Fraction}}, "unrated": tokens}`."""
+    points, unrated = used
+    to["unrated"] += unrated
+    for (provider, plan), value in points.items():
+        if value:
+            plans = to["points"].setdefault(provider, {})
+            plans[plan] = plans.get(plan, Fraction(0)) + value
+
+
+def sum_usage(by_run):
+    """{role: {"points": {provider: {plan: Fraction}}, "unrated": tokens}} for `executor` and
+    `reviewer`, summed exactly from `by_run`, `week_meters.run_usage`'s; a plan with none not
+    named."""
+    out = {role: {"points": {}, "unrated": 0} for role in USAGE_ROLES}
+    for (_, role), used in by_run.items():
+        if role in out:
+            _add_usage(out[role], used)
+    return out
+
+
+def counted(usage=None, *, until=None):
+    """{"since", "until", "teams", "sizes", "usage"}: the window; per team, most tasks first,
+    each role's {"name", "effort"} as its first run's row names them (the reviewer's effort its
+    first review's), its tasks, those whose first run merged (`history.merged`), those any of
+    whose runs merged (`live`), those whose first run's first review (first written of its lowest
+    round) was round 1 with verdict `PASS` (`first_pass`), the `reviews` rows with a round above
+    zero over every run of them (`reviews`), their non-negative `blocking` summed (`issues`), the
+    hours every run of them spent (`HOURS`), and the `usage` (`week_meters.run_usage`'s) every
+    run of them took by role, summed exactly, however it ended or while it runs; per `SIZE`
     lines, smallest first, the same of the tasks whose size is at most `upto` and over `upto`
-    less SIZE, `lines_live` the sizes of those live summed."""
-    until = time.time()
+    less SIZE, `lines_live` the sizes of those live summed; and `usage` over every run."""
+    until = time.time() if until is None else until
     since = until - WINDOW
+    usage = usage or {}
     changes = {}
     for row in history.changes_since(since):
         changes.setdefault(row.get("change") or row["run_id"], []).append(row)
@@ -66,13 +92,18 @@ def counted():
                  for role in ROLES}
         team = teams.setdefault(repr(roles), {
             **roles, "tasks": 0, "first_run": 0, "live": 0, "first_pass": 0, "reviews": 0,
-            "issues": 0, "hours": dict.fromkeys(HOURS, 0)})
+            "issues": 0, "hours": dict.fromkeys(HOURS, 0),
+            "usage": {role: {"points": {}, "unrated": 0} for role in USAGE_ROLES}})
         team["first_run"] += history.merged(task[0])
         team["first_pass"] += bool(first_review and first_review["round"] == 1
                                    and first_review.get("verdict") == "PASS")
         team["reviews"] += sum(map(len, by_run))
         team["issues"] += sum(row["blocking"] for rows in by_run for row in rows
                               if _whole(row.get("blocking")))
+        for row in task:
+            for role in USAGE_ROLES:
+                if (used := usage.get((row["run_id"], role))) is not None:
+                    _add_usage(team["usage"][role], used)
         live = any(map(history.merged, task))
         counts = [team]
         # its size: the most lines a first review of one of its runs read; none kept, no size
@@ -90,4 +121,5 @@ def counted():
                                             for row in task for column in columns) / 3600
     return {"since": since, "until": until,
             "teams": sorted(teams.values(), key=lambda team: -team["tasks"]),
-            "sizes": [{"upto": upto, **count} for upto, count in sorted(sizes.items())]}
+            "sizes": [{"upto": upto, **count} for upto, count in sorted(sizes.items())],
+            "usage": sum_usage(usage)}

@@ -39,6 +39,7 @@ def days(cfg, since, until, *, meters=None):
     whose readings keep no plan, no write having migrated it since."""
     meters = shared_weeks(cfg) if meters is None else meters
     ours = _ours(cfg)
+    history._ensure_migrated()      # a meter_readings table from before plan and scope has neither
     try:
         with closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")     # one snapshot for the three reads; in WAL no write waits
@@ -92,6 +93,7 @@ def run_usage(cfg, since, until, fitted, *, meters=None):
     tokens are `unrated`.  {} where the history cannot answer."""
     meters = shared_weeks(cfg) if meters is None else meters
     ours = _ours(cfg)
+    history._ensure_migrated()      # a meter_readings table from before plan and scope has neither
     try:
         with closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")

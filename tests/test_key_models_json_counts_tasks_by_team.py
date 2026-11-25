@@ -4,8 +4,9 @@ or running too, of the team of its first run (the run its change is named for, w
 relaunch ties with), its orchestrator, executor and reviewer each a model at an effort (the
 reviewer's its first review's).  Per team: its tasks, those merged on their first run, those
 merged on any, those whose first run's first review (round 1) passed, the reviews of a round
-over every run of them, their blocking issues summed, and the hours every run of them spent.  A
-follow-up, a seat's own pull request and a task whose first run ended outside the window, or
+over every run of them, their blocking issues summed, the hours every run of them spent, and the
+usage every run of them took by role (as `runs.usage`, tests/test_key_models_json_run_usage.py).
+A follow-up, a seat's own pull request and a task whose first run ended outside the window, or
 recorded no end, count nowhere, nor do its relaunches.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
@@ -24,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, NOW, boards
+from test_key_models_json_run_usage import EMPTY, TABLES as METER_TABLES
+from test_key_models_json_week_meters import HOUR, THEN, WeekMeters
 
 DAY = 86400
 # Each run: an hour of build, half of review, a quarter of checks and an hour waiting,
@@ -89,13 +92,14 @@ def history(home, runs, reviews):
 
 
 def team(executor_effort, tasks, first_run, live, runs, first_pass, reviews, issues=0,
-         reviewer_effort="medium"):
+         reviewer_effort="medium", usage=EMPTY):
     return {"orchestrator": {"name": "nova", "effort": "high"},
             "executor": {"name": "bolt", "effort": executor_effort},
             "reviewer": {"name": "crux", "effort": reviewer_effort},
             "tasks": tasks, "first_run": first_run, "live": live,
             "first_pass": first_pass, "reviews": reviews, "issues": issues,
-            "hours": {"build": runs, "review": runs / 2, "checks": runs / 4, "waiting": runs}}
+            "hours": {"build": runs, "review": runs / 2, "checks": runs / 4, "waiting": runs},
+            "usage": usage}
 
 
 def counted(runs, reviews):
@@ -144,6 +148,74 @@ class ModelsJsonCountsTasksByTeam(unittest.TestCase):
             team("max", 2, 2, 2, 2.0, 1, 3, 2),
             team("max", 1, 1, 1, 1.0, 1, 1, 0, reviewer_effort=None),
             team("low", 1, 0, 1, 2.0, 0, 3, 4)])
+
+
+class ModelsJsonTeamUsage(WeekMeters):
+    def turn(self, ago, counts, model="anvil-1", account="default", harness="echo",
+             run_id="fix-api", role="executor"):
+        turn = (self.home.path / f".agentkit/runs/{run_id}/round-1"
+                / f"{role}-{len(self.rows['turn_usage'])}")
+        turn.mkdir(parents=True)
+        (turn / "harness").write_text(harness)
+        self.rows["turn_usage"].append((run_id, role, str(turn), account, model,
+                                        THEN - ago * HOUR, *counts))
+
+    def test_each_team_s_usage_sums_its_tasks_and_relaunches_not_follow_ups(self):
+        # acme/Max: 100 pts/M for anvil-1; brine/Plus: 100/3 pts/M for bolt-1
+        self.read(50, 10)
+        self.seat(45, 100_000, model="anvil-1")
+        self.read(40, 20)
+        self.read(50, 0, plan="Plus", provider="brine")
+        self.seat(45, 300_000, model="bolt-1", harness="chime")
+        self.read(40, 10, plan="Plus", provider="brine")
+        runs = [
+            run("fix-api", 5),
+            run("fix-docs", 4),
+            run("write-cache", 3, executor_effort="low", **FAILED),
+            run("finish-cache", 2, change="write-cache", executor="crux"),
+            run("fix-quiet", 2, executor_effort="high"),
+            run("fix-api-again", 1, kind="follow-up"),
+            run("fix-old", 31),
+            run("fix-old-again", 1, change="fix-old"),
+        ]
+        reviews = [(row["run_id"], 1, "medium") for row in runs if row["run_id"] != "finish-cache"]
+        # team max: build (10 pts + 2,000 unrated) and review summing exactly to 10 + 1/300
+        self.turn(35, (100_000, 0, 0, 0), run_id="fix-api", role="executor")
+        self.turn(35, (2_000, 0, 0, 0), model="anvil-9", run_id="fix-api", role="executor")
+        self.turn(35, (100_000, 0, 0, 0), model="bolt-1", harness="chime",
+                  run_id="fix-api", role="reviewer")
+        self.turn(35, (200_000, 0, 0, 0), model="bolt-1", harness="chime",
+                  run_id="fix-docs", role="reviewer")
+        self.turn(35, (100, 0, 0, 0), model="bolt-1", harness="chime",
+                  run_id="fix-docs", role="reviewer")
+        # team low: relaunch's build joins write-cache's to sum to 10; its review joins too
+        self.turn(35, (100_000, 0, 0, 0), model="bolt-1", harness="chime",
+                  run_id="write-cache", role="executor")
+        self.turn(35, (200_000, 0, 0, 0), model="bolt-1", harness="chime",
+                  run_id="finish-cache", role="executor")
+        self.turn(35, (3_000, 0, 0, 0), model="bolt-9", harness="chime",
+                  run_id="finish-cache", role="reviewer")
+        # follow-up and out-of-window relaunch: in no team, kept in runs.usage
+        self.turn(35, (50_000, 0, 0, 0), run_id="fix-api-again", role="executor")
+        self.turn(35, (1_000, 0, 0, 0), model="anvil-9", run_id="fix-api-again", role="executor")
+        self.turn(35, (30_000, 0, 0, 0), model="bolt-1", harness="chime",
+                  run_id="fix-api-again", role="reviewer")
+        self.turn(35, (500, 0, 0, 0), model="bolt-9", harness="chime",
+                  run_id="fix-api-again", role="reviewer")
+        self.turn(35, (20_000, 0, 0, 0), run_id="fix-old-again", role="executor")
+        history(self.home, runs, reviews)
+        found = self.answer(METER_TABLES)["runs"]
+        self.assertCountEqual(found["teams"], [
+            team("max", 2, 2, 2, 2.0, 2, 2, usage={
+                "executor": {"points": {"acme": {"Max": 10}}, "unrated": 2_000},
+                "reviewer": {"points": {"brine": {"Plus": 10.0033}}, "unrated": 0}}),
+            team("low", 1, 0, 1, 2.0, 1, 1, usage={
+                "executor": {"points": {"brine": {"Plus": 10}}, "unrated": 0},
+                "reviewer": {"points": {}, "unrated": 3_000}}),
+            team("high", 1, 1, 1, 1.0, 1, 1, usage=EMPTY)])
+        self.assertEqual(found["usage"], {
+            "executor": {"points": {"acme": {"Max": 17}, "brine": {"Plus": 10}}, "unrated": 3_000},
+            "reviewer": {"points": {"brine": {"Plus": 11.0033}}, "unrated": 3_500}})
 
 
 if __name__ == "__main__":
