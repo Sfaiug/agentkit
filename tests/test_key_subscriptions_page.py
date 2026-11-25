@@ -1,5 +1,6 @@
 """`Subscriptions` on `c`, as the owner chose on 26 Oct 2026: each subscription under its
-company, drawn as the main screen draws its meter; the row the highlight is on opens one line,
+company, drawn as the main screen draws its meter; the row the highlight is on opens a dim line
+of its limits where it has any (tests/test_key_subscriptions_says_each_limit.py), then one line:
 its login's email and plan as its harness names it (tests/test_key_plan_reads_ultra.py), or
 when it ends while that is soon, then its acts, lit on `→ log in again` where its login ending
 soon offers it, so Enter signs it in again, never removes; and what `+ add a subscription`
@@ -56,11 +57,13 @@ class SubscriptionsPage(unittest.TestCase):
             "anthropic": {"mode": "subscription", "accounts": ["default", "two"]}})
         now = time.time()
 
-        def used(percent):
-            return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800}],
-                    "error": None}
+        def used(percent, *meters):
+            return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800},
+                               *meters], "error": None}
+        # Claude I's 5-hour window: the limit its lit row's line says
+        window = {"name": "session", "used": 25, "window_secs": 18000, "resets_at": int(now + 3600)}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
-            "anthropic": {"accounts": {"default": used(16), "two": used(71)}},
+            "anthropic": {"accounts": {"default": used(16, window), "two": used(71)}},
             "openai": {**used(0), "resets": 1}}})
         def login(email, plan=None, ends=None):
             return {"email": email, "ends": ends, "plan": plan, "checked_at": now}
@@ -88,6 +91,7 @@ class SubscriptionsPage(unittest.TestCase):
         self.assertEqual(body(self.page), [
             "Anthropic",
             "› Claude I   ━━━━━━━━╸─  84% left",
+            "    5h 75% left",
             "    owner@acme.test · ULTRA   − remove",
             "  Claude II  ━━━───────  29% left",
             "OpenAI",
@@ -143,6 +147,7 @@ class SubscriptionsPage(unittest.TestCase):
         added = self.term.wait(lambda screen: title(screen) == PAGE and "› Claude III" in screen)
         self.assertEqual(body(added)[3:], [
             "› Claude III  — no reading yet",
+            "    no reading yet",
             "    new@acme.test   − remove",
             "OpenAI", "  ChatGPT     ━━━━━━━━━━  100% left", "",
             "  + add a subscription"])

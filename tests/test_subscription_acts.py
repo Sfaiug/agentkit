@@ -8,6 +8,7 @@ faked and every list let go, so nothing is signed in, spent or removed but where
 
 from contextlib import redirect_stdout
 import io
+import itertools
 import json
 import re
 import time
@@ -66,11 +67,11 @@ class SubscriptionActs(Sandbox):
                           if line[:1] in " ›" and line[2:3].strip()],
                          [*self.rows, "+ add a subscription"])
 
-        def under(lines, label):      # the acts the row of `label` opens, as their line reads,
-            # under any line of its limits
+        def under(lines, label):      # the acts the row of `label` opens, as their line reads:
+            # the last line it opens, under any of its limits
             at = next(at for at, line in enumerate(lines) if line[2:].startswith(label + " "))
-            return next(line for line in lines[at + 1:]
-                        if "− remove" in line).strip().split("   ")[1:]
+            *_, acts = itertools.takewhile(lambda line: line.startswith("    "), lines[at + 1:])
+            return acts.strip().split("   ")[1:]
         self.assertEqual(under(drawn[0], "Claude"),
                          ["[→ log in again]", "→ spend a reset", "− remove"])
         self.assertEqual(under(drawn[1], "ChatGPT"), ["[→ log in again]", "− remove"])

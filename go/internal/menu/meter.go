@@ -57,25 +57,19 @@ func usageDetail(s terminal.Screen, cell Cell, width int) string {
 	label := terminal.Cut(cell.Label, room-held)
 	var parts []string
 	for _, note := range fitting(notes, room-terminal.Cells(label)) {
-		switch note {
-		case cell.Ends:
+		switch {
+		case note == cell.Ends:
 			note = s.Styled(note, "amber")
-		case cell.Held:
+		case note == cell.Held:
 			note = s.Styled(note, "info")
+		case strings.HasPrefix(note, "?"):
+			note = s.Styled("?", "amber") + s.Styled(note[1:], "dim")
 		default:
-			note = noteStyled(s, note)
+			note = s.Styled(note, "dim")
 		}
 		parts = append(parts, note)
 	}
 	return label + "  " + strings.Join(parts, s.Styled(" · ", "dim"))
-}
-
-// noteStyled is a note in dim, a fault's `?` kept in amber (menu._note_styled).
-func noteStyled(s terminal.Screen, note string) string {
-	if strings.HasPrefix(note, "?") {
-		return s.Styled("?", "amber") + s.Styled(note[1:], "dim")
-	}
-	return s.Styled(note, "dim")
 }
 
 // fitting is the notes that fit in room cells, offered lowest rank first and drawn in their own

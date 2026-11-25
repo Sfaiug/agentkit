@@ -9,6 +9,7 @@ in a temporary HOME.
 """
 
 from contextlib import ExitStack
+import itertools
 import json
 import os
 from pathlib import Path
@@ -94,10 +95,10 @@ class ResetByHand(unittest.TestCase):
 
         def matrix_key(_title, body, _places, _rows, here, top, said, *_a, **_kw):
             row = next(at for at, line in enumerate(body) if line.startswith("›"))
-            # its acts' line, under any of its limits: the one offering `remove`, as each does
-            acts = next(shown for line in body[row + 1:]
-                        if REMOVE in (shown := terminal.plain(line, spaced=True).strip()))
-            drawn.append((acts.split("   ")[1:], said))
+            # its acts' line: the last it opens, under any of its limits
+            opened = (terminal.plain(line, spaced=True) for line in body[row + 1:])
+            *_, acts = itertools.takewhile(lambda line: line.startswith("    "), opened)
+            drawn.append((acts.strip().split("   ")[1:], said))
             return next(keys), here, None, top
         config.save(self.cfg)       # the page reads config.toml as it opens
         with patch.object(menu, "matrix_key", side_effect=matrix_key):

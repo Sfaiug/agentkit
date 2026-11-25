@@ -2644,7 +2644,8 @@ def scoped_notes(cfg, provider, weekly, shared):
     named, claimed = [], []
     for meter in weekly:
         if meter.get("scope"):
-            named.append(f"{meter['scope']} {percent_left(meter)}% left")
+            # the provider's own name for it, on one line whatever it holds
+            named.append(f"{' '.join(str(meter['scope']).split())} {percent_left(meter)}% left")
             continue
         if shared is None or meter is shared or percent_left(meter) == percent_left(shared):
             continue
@@ -5531,7 +5532,7 @@ def config_subscriptions(cfg, keyboard, number=None):
     usage_rows order, as Enter or a click on its meter opens it, on the ak screen, `c` and a
     new seat's models alike, else on the first.  The row the keys or the pointer are on
     says its resets in hand beside its meter where there is room, and opens a dim line of its
-    limit_notes but those its row says whole, where it has any, given way to its width as the line
+    limit_notes but the resets in hand, where it has any, given way to its width as the line
     under its meter on the ak screen gives them (`fitting`), then a line: whose login it is and
     its plan (login_notes; one ending as ending_note says it, amber), resets with no room beside
     its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter or a click
@@ -5597,14 +5598,12 @@ def _subscriptions(cfg, keyboard, whose):
             line += terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
             # what Enter acts on is its act, lit on its line, never the row
             body.append(terminal.highlight(line, band=False))
-            # its limits but what its row says whole: the resets in hand, why it has no week
-            now = time.time()
-            said_whole = (held, reading(cfg, name, prov, now)[1])
-            limits = fitting([(worth, _note_styled(note)) for worth, note in
-                              limit_notes(cfg, name, prov, now) if note not in said_whole],
+            # its limits but the resets in hand, which its row says whole
+            limits = fitting([(worth, note) for worth, note in
+                              limit_notes(cfg, name, prov, time.time()) if note != held],
                              width - 4)
             if limits:
-                shown = "    " + terminal.styled(" · ", "dim").join(limits)
+                shown = "    " + terminal.styled(" · ".join(limits), "dim")
                 places[len(body)] = (("sub", number), row)
                 moves.append((len(body), ("opened",), lit, motion.fading(shown)))
                 body.append(shown)
