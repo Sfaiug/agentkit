@@ -1655,8 +1655,7 @@ def ruled_composer(chrome, rows):
         return None, None
     cells = [re.sub(r"^│\s?", "", strip_sgr(row)).rstrip() for row in rows]
     for at in range(len(cells) - 1, -1, -1):
-        if re.match(rf"[{PROMPT}]", cells[at]) or (
-                chrome["scrolled_top"] and chrome["scrolled_top"].fullmatch(cells[at])):
+        if re.match(rf"[{PROMPT}]", cells[at]) or _scrolled_top(chrome, rows[at]):
             end = next((row for row in range(at + 1, len(cells))
                         if not cells[row].startswith(" ") and chrome_line(chrome, cells[row])),
                        len(cells))
@@ -1665,18 +1664,10 @@ def ruled_composer(chrome, rows):
     return None, None
 
 
-def _up_to_opening(chrome, pane, tail, top):
-    """The rows of `tail`, that pane's last ones, from row `top` -- or from higher, where a
-    draft goes on above it in rows indented under its box's opening, and under them its bare
-    closing rule and what is drawn below that: from that opening, the first other row at the
-    left edge, however tall the draft, above the tail too where the harness always draws its
-    box whole (`[screen] scrolls`)."""
-    rows = (_content_rows(pane)[:-PANE_LINES] if chrome["scrolls"] else []) + tail
-    top += len(rows) - len(tail)
-    while top and (strip_sgr(rows[top])[:1].isspace()
-                   or re.fullmatch(RULE, strip_sgr(rows[top]).rstrip())):
-        top -= 1
-    return rows[top:]
+def _scrolled_top(chrome, row):
+    """Is that row a ruled box's top rule counting the rows above it (`[screen] scrolled_top`)?"""
+    return bool(chrome["scrolled_top"] and chrome["scrolled_top"].fullmatch(
+        re.sub(r"^│\s?", "", strip_sgr(row)).rstrip()))
 
 
 def chrome_below(chrome, rows):
@@ -2138,9 +2129,15 @@ def screen_rule(harness, pane):
             if rule["chrome"] and chrome["ruled"]:
                 # Its composer is the box `ruled_composer` finds in the rule's own rows, every
                 # row of it down to its closing rule, under the footer at the pane's bottom --
-                # or, with none drawn, a prompt row right on that bottom -- read up to its
-                # opening however tall (`_up_to_opening`).
-                raws = _up_to_opening(chrome, pane, raw_lines, len(raw_lines) - len(region))
+                # or, with none drawn, a prompt row right on that bottom.  A draft taller than
+                # the rule's rows goes on above them in rows indented under its prompt row, so
+                # it is read up through those to that row, however tall: in the rows read, or
+                # above them where the harness always draws its box whole (`[screen] scrolls`).
+                rows = (_content_rows(pane)[:-PANE_LINES] if chrome["scrolls"] else []) + raw_lines
+                top = len(rows) - len(region)
+                while top and strip_sgr(rows[top])[:1].isspace():
+                    top -= 1
+                raws = rows[top:]
                 region = [strip_sgr(row).strip() for row in raws]
                 at, end = ruled_composer(chrome, raws)
                 if at is not None and not chrome_line(chrome, region[-1]):
@@ -3976,13 +3973,14 @@ def _pane_sent(session, harness, pane, text):
         # A dialog owns the screen: the line landed, and no Enter goes into it blind.
         return True
     # read whole where the composer can be read: a long line wraps past the bottom rows, and
-    # a line the harness took may be echoed above its empty composer; one not read whole, as a
-    # box showing only its last rows, still holds a line they end
-    rows = _composer_rows(harness, pane) if harness is not None else None
-    if rows is not None:
-        whole = re.sub(r"\s+", "", text)
-        return whole not in re.sub(r"\s+", "", "".join(rows)) and not (
-            _line_end(rows, whole) and _composer_rows(harness, pane, exact=True) is None)
+    # a line the harness took may be echoed above its empty composer; a box opened on its
+    # scrolled top rule shows only the line's last rows
+    held = composer_draft(harness, pane) if harness is not None else None
+    if held is not None:
+        chrome, whole, raws = screen(harness), re.sub(r"\s+", "", text), _content_rows(pane)
+        at, _ = ruled_composer(chrome, raws[-PANE_LINES:])
+        shown = at is not None and _scrolled_top(chrome, raws[-PANE_LINES:][at])
+        return whole not in held and not (shown and whole.endswith(held))
     return not _holds_text(pane, text)
 
 
@@ -4266,11 +4264,7 @@ def _composer_rows(harness, pane, *, exact=False):
     """
     chrome = screen(harness)
     pane = _boxed(pane) if chrome["boxed"] else pane
-    raws = _content_rows(pane)[-PANE_LINES:]
-    # Up to its opening above the tail, as the draft rule reads it, but whole only in the tail:
-    # a box taller than it can scroll there with its prompt mark on its top row.
-    raws = raws if exact else _up_to_opening(chrome, pane, raws, 0)
-    rows = [strip_sgr(row).strip() for row in raws]
+    raws, rows = _screen_rows(pane_tail(pane))
     if chrome["draft"]:
         # A composer no prompt mark finds: its manifest finds the framed block it holds,
         # and finding none reads as empty -- where the composer itself is on the
@@ -4325,15 +4319,14 @@ def _composer_rows(harness, pane, *, exact=False):
         if not exact and at is None and marked and marked[0] + 1 == len(rows):
             at, stop = marked[0], len(rows)
     # A box opened on its scrolled top rule shows only its last rows: never read whole, nor
-    # read empty, however blank those rows.  Read whole, it opens on a prompt row holding more
-    # than chrome.
-    prompted = at is not None and re.match(rf"(?:│\s*)?[{PROMPT}]", rows[at])
-    if at is None or exact and (stop is None or any(dim_rows(raws, chrome["faint"])[at:stop])
-                               or not prompted
+    # read empty, however blank those rows.
+    scrolled = at is not None and _scrolled_top(chrome, raws[at])
+    if at is None or exact and (stop is None or scrolled
+                               or any(dim_rows(raws, chrome["faint"])[at:stop])
                                or chrome["composer"] and chrome["composer"].fullmatch(rows[at])):
         return None
     parts = _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop), exact=exact)
-    return parts if parts or prompted else None
+    return None if scrolled and not parts else parts
 
 
 def _unscrolled(chrome, rows, *, exact=False):
@@ -4390,7 +4383,7 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
               and len(line) > chrome["folds_over"])
     if held and (held == whole or not exact and (
-            _line_end(rows, whole)
+            len(rows) > 1 and whole.endswith(held)
             or folded and chrome["folded"].fullmatch(held))):
         return "line"
     # lines drawn joined are ak's only off a composer read whole: owner text can sit above a crop
@@ -4398,13 +4391,6 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
         (rows if exact else _composer_rows(harness, pane, exact=True)) or ()))
     return "line" if read and whole in [re.sub(r"\s+", "", typed)
                                         for typed in _joined(name, read)] else "other"
-
-
-def _line_end(rows, whole):
-    """Are those composer rows, more than one, the end of the line `whole` (whitespace out), as
-    a composer taller than its rows shows it?  A one-row draft that only ends the way the line
-    does is the owner's."""
-    return len(rows) > 1 and whole.endswith(re.sub(r"\s+", "", "".join(rows)))
 
 
 def own_line(name, harness, session):
