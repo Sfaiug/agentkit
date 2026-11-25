@@ -87,13 +87,14 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 }
 
 // Scrolled is how many rows Write scrolls the screen by to put up a frame of `lines` rows: one
-// taller than the screen goes out whole, each row ended by a newline, so its first rows go off the
-// top and the screen's last row is left blank.  None is known on a screen no Keyboard measured.
+// taller than the screen goes out whole from row 1+pad, each row ended by a newline, so it scrolls
+// only past the physical terminal's last row (height+2*pad), leaving that last row blank.  None is
+// known on a screen no Keyboard measured.
 func (s Screen) Scrolled(lines int) int {
 	if s.height == 0 || lines <= s.height {
 		return 0
 	}
-	return lines - s.height + 1
+	return max(0, lines-s.height-s.pad+1)
 }
 
 // paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the theme's

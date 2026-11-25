@@ -92,4 +92,19 @@ func TestAPaddedScreenInsetsRowsSpansAndClearsThePadding(t *testing.T) {
 	if out.String() != tall {
 		t.Fatalf("a tall padded frame wrote %q, want %q", out.String(), tall)
 	}
+	for _, each := range []struct {
+		screen      Screen
+		lines, want int
+	}{
+		{Screen{height: 15, pad: 0}, 16, 2},
+		{Screen{height: 13, pad: 1}, 13, 0},
+		{Screen{height: 13, pad: 1}, 14, 1},
+		{Screen{height: 13, pad: 1}, 15, 2},
+		{Screen{height: 13, pad: 2}, 14, 0},
+		{Screen{height: 13, pad: 2}, 15, 1},
+	} {
+		if got := each.screen.Scrolled(each.lines); got != each.want {
+			t.Errorf("%+v.Scrolled(%d) = %d, want %d", each.screen, each.lines, got, each.want)
+		}
+	}
 }
