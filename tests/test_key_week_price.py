@@ -5,12 +5,12 @@ rises sum to under ten points or its spend to 0, infinite where 100 times its sp
 float's largest, with those two sums, `plan_points` and `plan_listed_usd`.
 
 A plan's sums are read from the last seven days of every login of its provider: the readings
-its probes kept of its shared week, a model's own cap of that name (`scope`) none of them, a
-reading with no plan its login's plan now's, grouped by login, plan and week, a reading's
-`resets_at` within ten minutes of the one before it in the same week.  A group rose from its
-earliest reading to its highest, and the spend that bought that rise is the login's rows priced
-at listed prices from the earliest reading to the first at the highest; a group whose spend
-cannot be priced counts for nothing.
+its probes kept of its shared week, a model's own cap of that name (`scope`) none of them nor
+one whose `used` or `resets_at` is no number, a reading with no plan its login's plan now's,
+grouped by login, plan and week, a reading's `resets_at` within ten minutes of the one before
+it in the same week.  A group rose from its earliest reading to its highest, and the spend that
+bought that rise is the login's rows priced at listed prices from the earliest reading to the
+first at the highest; a group whose spend cannot be priced counts for nothing.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py on
 tests/fixtures/meters.py's harness, with an invented board, plans, readings and token rows
@@ -186,6 +186,19 @@ class WeekPrice(unittest.TestCase):
         self.spent("default", 3, 25 * HOUR)
         self.read("default", 50, 20 * HOUR, WEEK, plan="Max", scope="Anvil")
         self.assertWeek(self.weeks()["default"], "Max", 20, 10, 2)
+
+    def test_a_reading_whose_use_or_reset_is_no_number_is_no_reading(self):
+        self.plans(default="Max")
+        # 10 -> 30 for $2, a probe's `nan` kept as text before, amid and after it, then 90 kept
+        # with a reset of text
+        self.read("default", "nan", 45 * HOUR, WEEK, plan="Max")
+        self.read("default", 10, 40 * HOUR, WEEK, plan="Max")
+        self.spent("default", 2, 35 * HOUR)
+        self.read("default", "nan", 32 * HOUR, WEEK, plan="Max")
+        self.read("default", 30, 30 * HOUR, WEEK, plan="Max")
+        self.read("default", "nan", 28 * HOUR, WEEK, plan="Max")
+        self.read("default", 90, 25 * HOUR, "soon", plan="Max")
+        self.assertWeek(self.weeks()["default"], "Max", 10, 20, 2)
 
     def test_a_plan_read_from_fewer_than_ten_points_holds_no_week(self):
         self.plans(default="Max", second="Pro")
