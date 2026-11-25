@@ -31,8 +31,9 @@ def keep(at, said):
     from .machines import HERE      # here, not at the top: machines calls this module
     lines = []
     for name, reading in said.items():
-        who = {"home": socket.gethostname()} if name == HERE else {"machine": name}
-        with suppress(ValueError):      # a number JSON has no word for: nan, inf
+        # OSError: no name for this host; ValueError: a number JSON has no word for, nan or inf
+        with suppress(OSError, ValueError):
+            who = {"home": socket.gethostname()} if name == HERE else {"machine": name}
             lines.append(json.dumps({"at": at, **who, **reading}, allow_nan=False) + "\n")
     if not lines:
         return
