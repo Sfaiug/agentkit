@@ -51,6 +51,7 @@ KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
+_BACKGROUND = ""   # ... and that answer, "" where it gave none: what a frame up is drawn for
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
@@ -1015,27 +1016,34 @@ class Keyboard:
 def hand_on():
     """What to add to the environment for the program an exec makes of this one to write the frame
     up as it takes the terminal (`_last_frame`): plain bytes, as another version of the code reads
-    them.  A frame not handed on is only an empty screen a moment longer: {} then, and where a
-    resize or a return from ^Z has asked for a draw not yet made, whether read (`read_key`) or not:
-    what is up is not laid out for the size there is.  The size is read first, as a resize after
-    the look is the new program's to find."""
+    them, under what it was drawn for (`_drawn_for`).  A frame not handed on is only an empty
+    screen a moment longer: {} then, and where a resize or a return from ^Z has asked for a draw
+    not yet made, whether read (`read_key`) or not: what is up is not laid out for the size there
+    is.  The size is read first, as a resize after the look is the new program's to find."""
     try:
-        size = f"{width()} {height()}"
+        drawn = _drawn_for()
         if not _UP or select.select([_TAKEN.again[0]], [], [], 0)[0]:
             return {}
-        return warm.cross(FRAME, "\n".join([size, *_PAINTED]).encode())
+        return warm.cross(FRAME, "\n".join([drawn, *_PAINTED]).encode())
     except Exception:
         return {}
+
+
+def _drawn_for():
+    """What a frame up is drawn for: the terminal's size, and its answer (`sense`), which picked
+    the shades its rows are in; so one the release before this handed on, under its size alone,
+    never goes up."""
+    return f"{width()} {height()} {_BACKGROUND}"
 
 
 def _last_frame():
     """The frame the program before this exec left up (`hand_on`), ending its hold: what the
     terminal holds is only known once the first `written` has written every row, in an update of
-    its own.  Written where the size is still the one it was laid out for, else that first frame
+    its own.  Written where the terminal is still the one it was drawn for, else that first frame
     ends the hold; through stdout, which knows a popup's padding."""
     try:
-        size, *rows = (warm.crossed(FRAME) or b"").decode().split("\n")
-        if size == f"{width()} {height()}":
+        drawn, *rows = (warm.crossed(FRAME) or b"").decode().split("\n")
+        if drawn == _drawn_for():
             sys.stdout.write(_differing(enumerate(rows, 1)) + RELEASE)
             sys.stdout.flush()
     except (OSError, ValueError, RuntimeError):
@@ -1054,9 +1062,10 @@ def sense():
     is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
     answers are read here and never as keys: anything typed while they were awaited is kept for
     `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
-    back up in what it found (`_last_frame`), the hold it was given back under hiding the wait.
+    back up where it was drawn for what it found (`_last_frame`), the hold it was given back under
+    hiding the wait.
     """
-    global _RGB, THEME, _KEYED
+    global _RGB, THEME, _BACKGROUND, _KEYED
     features = os.environ.get(FEATURES_ENV)
     if features is None and os.environ.get("TMUX"):
         try:
@@ -1081,6 +1090,7 @@ def sense():
     found = _ANSWER.search(heard)
     rest = heard[:found.start()] + heard[found.end():] if found else heard
     _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
+    _BACKGROUND = found.group(1).decode(errors="replace") if found else ""
     colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
                       found.group(1)) if found else None
     THEME = None

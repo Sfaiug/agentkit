@@ -113,10 +113,11 @@ func (k *Keyboard) Sense() {
 		heard = append(heard, each)
 	}
 	said := backgroundSaid.FindSubmatchIndex(heard)
-	in, light := black, false
+	in, light, background := black, false, ""
 	k.fits = false
 	if said != nil {
-		if light, k.fits = isLight(string(heard[said[2]:said[3]])); light {
+		background = string(heard[said[2]:said[3]])
+		if light, k.fits = isLight(background); light {
 			in = white
 		}
 		if k.fits {
@@ -128,7 +129,7 @@ func (k *Keyboard) Sense() {
 		heard = append(heard[:at[0]:at[0]], heard[at[1]:]...)
 	}
 	k.keyed = append(heard, k.keyed...)
-	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in}
+	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in, background: background}
 }
 
 // Screen is what Sense found, at the size the terminal is now, in the theme its background fits,
