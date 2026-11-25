@@ -1,15 +1,22 @@
-"""A client is refused a session before it writes.  For a seat tmux lost, `orch.resume` and
-`orch.ensure(saved=True)`, and for a new seat, `orch.ensure` and `orch.create`, each raises
-naming the home and leaves HOME as it was: each asks `orch.refuse_client` before it writes, and
-before it reads through `orch.records`, which writes what a harness reconciles.  So HOME holds a
-seat's record whose conversation no launch handed out, which its harness reconciling drops, and
-the name that seat had before a rename, for which `create`, given no names taken, lists the
-seats.  `resume` asks before it reads what tmux holds, which it does only after `orch.records`,
-so a seat whose pane tmux still holds is refused as one it lost.  `orch.switch_orchestrator`,
-for a seat tmux lost, names the home in its one line and leaves HOME as it was but for the locks
-its try at a move in place took: it asks before it reads the seat's handover, so puts none back,
-and before the seat's record or its rulebook is written.  `orch.start` itself refuses a caller
-that did not ask, as one added later would, before it asks tmux for anything.
+"""A client is refused a session before it writes: each way to one asks `orch.refuse_client`
+first.
+
+`orch.resume` and `orch.ensure(saved=True)`, for a seat tmux lost, and `orch.ensure` and
+`orch.create`, for a new one, each raise naming the home and leave HOME as it was: they ask
+before they write, and before they read through `orch.records`, which writes what a harness
+reconciles.  So HOME holds a seat's record whose conversation no launch handed out, which its
+harness reconciling drops, and the name that seat had before a rename, for which `create`, given
+no names taken, lists the seats.  `resume` asks before it reads what tmux holds too, which it
+does only after `orch.records`: a seat whose pane tmux still holds is refused as one it lost.
+So does `orch.reopen`, which a pane's end calls as well, before it marks a seat whose end cut
+off a question as asking again.
+
+`orch.switch_orchestrator`, for a seat tmux lost, names the home in its one line and leaves HOME
+as it was but for the locks its try at a move in place took: it asks before it reads the seat's
+handover, so puts none back, and before the seat's record or its rulebook is written.
+
+`orch.start` itself refuses a caller that did not ask, as one added later would, before it asks
+tmux for anything.
 
 `ak orch` from outside is tests/test_key_a_client_opens_no_session.py's.
 Offline: fixtures.sandbox's HOME, where tmux holds no seat.
@@ -19,7 +26,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, orch
+from agentkit import config, orch, watch
 
 
 class AClient(Sandbox):
@@ -48,6 +55,10 @@ class AClient(Sandbox):
     def test_resume_refuses_whatever_tmux_holds_of_the_seat(self):
         with patch.object(orch, "find", side_effect=AssertionError("tmux was asked")):
             self.assertRefused(lambda: orch.resume(self.cfg, "acme", hand_over=False))
+
+    def test_a_reopen_is_refused_before_the_seat_is_marked_as_asking_again(self):
+        with patch.object(watch, "cut_off", return_value=("turn", watch.ASKED_LINE)):
+            self.assertRefused(lambda: orch.reopen(self.cfg, "acme"))
 
     def test_a_new_seat_is_refused_before_a_record_is_reconciled_or_written(self):
         self.assertRefused(lambda: orch.ensure(self.cfg, "fix-api"))

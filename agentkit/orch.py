@@ -1977,10 +1977,11 @@ def refuse_client():
     before it writes a seat's record.  `resume`, `create`, and `ak orch` for a new seat (`main`),
     before `records`, which writes what a harness reconciles of a record: refused after it, each
     had dropped another seat's conversation from the copy.  A new seat (`refuse_held`): refused
-    only at its start, it had replaced the copy's record by then, and removed its plan.  And the
+    only at its start, it had replaced the copy's record by then, and removed its plan.  The
     move of a seat tmux lost (`switch_orchestrator`): refused only at its start, it had rewritten
-    the copy's record, and written the seat's rulebook.  `start` asks for a caller that did not:
-    on 22 Nov 2026 one opened a home's 21 sessions a second time on its standby."""
+    the copy's record, and written the seat's rulebook.  And `reopen`, before it marks a seat as
+    asking again.  `start` asks for a caller that did not: on 22 Nov 2026 one opened a home's 21
+    sessions a second time on its standby."""
     if alias := config.server_alias():
         raise config.Error(f"this machine is a client of {alias} and opens no session: "
                            f"its sessions are on {alias}")
@@ -2589,6 +2590,7 @@ def reopen(cfg, name, **kw):
     it (`watch.revive`).  A seat the owner closed or stopped ended on purpose: told nothing.
     """
     from . import watch   # here, not at the top: it imports this module
+    refuse_client()     # here too: `resume` asks only once the seat is marked as asking again
     ended = watch.seat_stopped_at(name) or watch.seat_closed_by_owner(name)
     at, line = time.time(), None if ended else watch.cut_off(cfg, name)[1]
     watch.asking_again(name, line)
