@@ -2,8 +2,8 @@
 job, `agentkit · starting`, and every line under it as it was; the seat then has the terminal.
 
 The owner (24 Nov 2026): a session being started shows `starting` in the menu instead of
-dropping to the shell.  A seat ak refuses to make says why on ak's own screen, and Esc there is
-the menu again, no seat made.
+dropping to the shell.  A screen too short for a header gives the job its first row.  A seat ak
+refuses to make says why on ak's own screen, and Esc there is the menu again, no seat made.
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) in
 every colour, its motion clock held (motion.moment), its harnesses tests/fixtures/fakeadapter.py's.
 The making is held on the seat's record's lock, which this test takes and lets go once ak waits
@@ -37,9 +37,12 @@ class TheHeaderSaysASessionIsStarting(unittest.TestCase):
         self.addCleanup(self.home.close)
         fakeadapter.install(self.home, claude="pass", codex="pass")
         akconfig.write(self.home, {"fable": {}, "astra": {"effort": "high"}})
-        clock = self.home.write("clock", "1000")
         self.state = self.home.path / ".agentkit/state"
-        self.menu = Terminal(self.home, size=(100, 40),
+
+    def named(self, size=(100, 40)):
+        """The menu, `n` and `fix-login` typed on the row it opens."""
+        clock = self.home.write("clock", "1000")
+        self.menu = Terminal(self.home, size=size,
                              env={"COLORTERM": "truecolor", "AK_MOTION_CLOCK": str(clock)})
         self.menu.wait("esc leave")
         self.menu.keys("n")
@@ -48,6 +51,20 @@ class TheHeaderSaysASessionIsStarting(unittest.TestCase):
         self.menu.wait("fix-login▏")
 
     def test_the_screen_stays_up_naming_the_job_until_the_seat_is_made(self):
+        self.made_under_the_job()
+        deadline = time.monotonic() + 30
+        while "fix-login 1" not in self.home.tmux(
+                "list-sessions", "-F", "#{session_name} #{session_attached}").out.splitlines():
+            self.assertLess(time.monotonic(), deadline,
+                            f"fix-login never opened; it shows:\n{self.menu.screen()}")
+            time.sleep(0.05)
+
+    def test_a_screen_with_no_header_gives_the_job_its_first_row(self):
+        self.made_under_the_job(size=(100, 12))
+
+    def made_under_the_job(self, size=(100, 40)):
+        """Enter, the making held: the header names it and every line under it is as it was."""
+        self.named(size)
         before = lines(self.menu.screen(colours=True))
         lock = self.state / ".session-fix-login.lock"
         with lock.open("a") as held:
@@ -61,14 +78,9 @@ class TheHeaderSaysASessionIsStarting(unittest.TestCase):
             self.menu.wait(lambda screen: lines(screen)[0].startswith("agentkit · starting "))
             during = lines(self.menu.screen(colours=True))
             self.assertEqual(during[1:], before[1:])
-        deadline = time.monotonic() + 30
-        while "fix-login 1" not in self.home.tmux(
-                "list-sessions", "-F", "#{session_name} #{session_attached}").out.splitlines():
-            self.assertLess(time.monotonic(), deadline,
-                            f"fix-login never opened; it shows:\n{self.menu.screen()}")
-            time.sleep(0.05)
 
     def test_a_seat_ak_refuses_is_said_on_its_screen_and_esc_is_the_menu(self):
+        self.named()
         # tmux holds the name once the row is open: `orch.create` refuses it, the row does not
         self.assertEqual(self.home.tmux("new-session", "-d", "-s", "fix-login", "sleep 600").code,
                          0)

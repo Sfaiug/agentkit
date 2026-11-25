@@ -312,7 +312,7 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     # a seat's only instructions are its rulebook: a file its harness reads on its own, and
     # cannot be told not to, is refused rather than read beside it -- looked for in the home
     # the seat's own line runs the harness from, an account's where the adapter keeps one
-    found = [path for path in config.unswitched_files(entry["harness"], command_env(cmd))
+    found = [path for path in config.unswitched_files(entry["harness"], command_env(cmd)[0])
              if path.exists()]
     if found:
         raise config.Error(f"{name}'s harness reads {found[0]} on its own and has no switch for "
@@ -329,8 +329,9 @@ def takes_line(harness):
 
 
 def command_env(cmd):
-    """This process's environment as a command line's leading `env` words leave it: each
-    `NAME=value` set, each `-u NAME` unset, through every `env` the line starts with."""
+    """This process's environment as a command line's leading `env` words leave it -- each
+    `NAME=value` set, each `-u NAME` unset, through every `env` the line starts with -- and the
+    command they run."""
     values, words = dict(os.environ), list(cmd)
     while words and words[0] == "env":
         words.pop(0)
@@ -345,7 +346,7 @@ def command_env(cmd):
                 words.pop(0)
             else:
                 break
-    return values
+    return values, words
 
 
 def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None, repo=None):
@@ -5038,13 +5039,14 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     watch.forget(name)       # this is a new conversation, including when reusing a saved name
     if shutil.which("tmux") is None:
         # no tmux to outlive the connection: the seat is this terminal and ends with it, so
-        # there is no record to keep and nothing to come back to
-        os.environ[config.SESSION_ENV] = name
+        # there is no record to keep and nothing to come back to.  The harness itself takes this
+        # process, not `env`, so one that is not there is refused while the caller can say so.
+        environ, argv = command_env(["env", f"{config.SESSION_ENV}={name}", *cmd])
         give()
         try:
-            os.execvp(cmd[0], cmd)
+            os.execvpe(argv[0], argv, environ)
         except OSError as exc:
-            raise config.Error(f"cannot exec {cmd[0]}: {exc}")
+            raise config.Error(f"cannot exec {argv[0]}: {exc}")
     launch(name, model, cwd, cmd, conversation)
     return cmd
 

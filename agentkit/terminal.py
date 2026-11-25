@@ -1616,6 +1616,15 @@ def counting(word, done, total):
              f"\033[2;1H{_cleared(rule_line(filled=done / total))}\0338")
 
 
+def doing(job):
+    """The screen up again as its last draw made it, at rest -- nothing part way through coming
+    up, growing or breathing -- and nothing read anew, but its first row: the header naming
+    `job`, which its program does now with no key read, as `counting` names a count.  A screen
+    drawn with no header, too short for one, gives it its first row while the job lasts."""
+    written([header_line(job, time.strftime("%H:%M")), *on_screen()[1:]],
+            screen=_UP_OF and _UP_OF[0])
+
+
 def _cleared(line):
     """`line`, then its row's tail cleared, so no cell that is text before and after is ever blank
     between.  A line ending on the last column gets no clear: it leaves the cursor on that column,

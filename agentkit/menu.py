@@ -1827,7 +1827,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
 
 
 def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=True,
-         records=None, groups=None, clock=None, updating=None, pointing=True, doing=None):
+         records=None, groups=None, clock=None, updating=None, pointing=True):
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
@@ -1875,9 +1875,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
     the screen is drawn over.  While a popup's content fades in, the whole screen is handed to
     it, to come up out of the background (`motion.Clock.rise`).
-
-    The header names the job the menu waits on: `doing`, `starting` while a seat is made, else
-    `updating` while ak's own update fills the rule (`updating`, the share done).
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -2029,7 +2026,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     moves = []
     explains = {}   # each seat row's state word, a cell that explains it
     if not compact:
-        out += [terminal.header_line(doing or ("updating" if updating is not None else ""),
+        out += [terminal.header_line("updating" if updating is not None else "",
                                      time.strftime("%H:%M"), width),
                 terminal.rule_line(width, updating or 0)]
     grid = len(out) + 1 if reach else None     # its first row
@@ -7382,13 +7379,15 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 if act == "back":
                     newborn = None
                 elif act == "start" and not born_refusal(newborn):
-                    made, newborn, back = newborn, None, True
                     if dry_run:
                         keyboard.give()   # it only says what it would start
-                    else:                 # up as it was while the seat is made, no key read
-                        draw(cfg, found, listed, page, BORN, {}, look=False,
-                             groups=born_groups(groups, made), clock=clock, updating=updating,
-                             pointing=pointing, doing="starting")
+                    else:
+                        if back:          # the models screen is up: the ak screen again, still
+                            draw(cfg, found, listed, page, BORN, {}, look=False,
+                                 groups=born_groups(groups, newborn), updating=updating,
+                                 pointing=pointing)
+                        terminal.doing("starting")    # while the seat is made, no key read
+                    made, newborn, back = newborn, None, True
                     live.away()
                     try:
                         name = start_born(made, dry_run, keyboard.give)
