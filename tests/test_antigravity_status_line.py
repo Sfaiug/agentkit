@@ -106,19 +106,32 @@ class AntigravityStatusLine(Sandbox):
         listing = config.STATE / "listings/antigravity/default.json"
         listing.parent.mkdir(parents=True, exist_ok=True)
         listing.write_text(json.dumps({"models": [
+            {"id": "acme-incomplete", "efforts": ["none"]},
+            {"id": "acme-flash", "label": "3.8 Flash", "efforts": ["high"]},
+            {"id": "gpt-oss-120b", "label": "GPT-OSS 120B Preview", "efforts": ["medium"]},
             {"id": "gemini-3.7-flash", "label": "Gemini 3.7 Flash",
              "efforts": ["low", "medium", "high"]},
             {"id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6 (Thinking)",
              "efforts": ["none"]},
         ]}))
-        for label, model, effort in (("GPT-OSS 120B (Medium)", "gpt-oss-120b", "medium"),
-                                     ("Claude Sonnet 5.5 (High)", "claude-sonnet-5-5", "high"),
-                                     ("Gemini 3.7 Flash (High)", "gemini-3.7-flash", "high"),
-                                     ("Claude Sonnet 4.6 (Thinking)", "claude-sonnet-4-6", None)):
+        (config.STATE / "listings/antigravity/acme.json").write_text(json.dumps({"models": [
+            {"id": "gemini-3.6-flash", "label": "Gemini 3.6 Flash",
+             "efforts": ["low", "medium", "high"]},
+        ]}))
+        for record, label, model, effort in (
+                ({}, "GPT-OSS 120B (Medium)", "gpt-oss-120b", "medium"),
+                ({}, "GPT-OSS 120B Preview (Medium)", "gpt-oss-120b", "medium"),
+                ({}, "Claude Sonnet 5.5 (High)", "claude-sonnet-5-5", "high"),
+                ({}, "Gemini 4 Argon (Low)", "gemini-4-argon", "low"),
+                ({}, "Gemini 3.8 Flash (High)", "gemini-3.8-flash", "high"),
+                ({}, "Gemini 3.7 Flash (High)", "gemini-3.7-flash", "high"),
+                ({}, "Claude Sonnet 4.6 (Thinking)", "claude-sonnet-4-6", None),
+                ({"account": "acme"}, "Gemini 3.6 Flash (Medium)", "gemini-3.6-flash", "medium")):
             self.payload["model"] = {"id": label, "display_name": label,
                                      **({"effort": effort} if effort is not None else {})}
             self.render(status)
-            self.assertEqual(antigravity.running({}, None, "conv-acme")[:2], (model, effort))
+            self.assertEqual(antigravity.running(record, None, "conv-acme")[:2],
+                             (model, effort), (record, label))
 
     def test_pre_resolution_id_reports_fold_or_keep_no_effort_models(self):
         status = self.launch()

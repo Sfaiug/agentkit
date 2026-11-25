@@ -1071,6 +1071,30 @@ def _held(path):
     return held if isinstance(held, dict) else {}
 
 
+def _held_models(harness, account):
+    """Raw valid model rows (`id` str) kept for `account` on `harness`, or []."""
+    rows = _held(_kept(harness) / f"{account}.json").get("models")
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows
+            if isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"]]
+
+
+def catalog_held_raw(harness, cfg=None, accounts=()):
+    """Raw live-listed model rows kept for `harness`, in login order (`accounts` first, then
+    configured logins), preserving each login's live label without manifest substitution."""
+    if not _kept(harness).is_dir():
+        return []
+    seen, rows = set(), []
+    for account in (*accounts, *_logins(cfg, harness)):
+        if (isinstance(account, str) and account and account not in seen
+                and not any(bad in account for bad in ("/", "\\", "\0"))
+                and account not in (".", "..")):
+            seen.add(account)
+            rows.extend(_held_models(harness, account))
+    return rows
+
+
 def catalog_held(harness, cfg=None):
     """catalog(harness, cfg) as its logins last listed it, however long ago and in whichever
     process, its manifest's table standing in for each never listed: for a draw, which asks no
@@ -1078,9 +1102,14 @@ def catalog_held(harness, cfg=None):
     table, models = catalog_table(harness), {}
     # a draw reads no config for a harness never listed
     for account in _logins(cfg, harness) if _kept(harness).is_dir() else [DEFAULT_ACCOUNT]:
-        for model in _held(_kept(harness) / f"{account}.json").get("models") or table:
+        for model in _held_models(harness, account) or table:
             models.setdefault(model["id"], model)
-    return [{**model, "label": model_label(harness, model["id"], model["label"])}
+    return [{**model,
+             "label": model_label(harness, model["id"],
+                                  model["label"] if isinstance(model.get("label"), str) else ""),
+             "efforts": [word for word in (model.get("efforts")
+                                           if isinstance(model.get("efforts"), list) else [])
+                         if isinstance(word, str)]}
             for model in models.values()]
 
 

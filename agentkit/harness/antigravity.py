@@ -282,6 +282,39 @@ def _fold(model):
     return model, "none"
 
 
+def _resolve_label(record, said):
+    """The model id for a resolved status-line label, else the label stripped of its bracketed
+    effort.  Exact raw labels from the seat's and configured logins' held listings win first
+    (preserving live renames a manifest label would shadow, and bracketed no-effort labels like
+    `Claude Sonnet 4.6 (Thinking)`), then the shipped `[catalog]` table, then normalized held
+    labels so an unrelated live row cannot redirect a shipped model."""
+    label = re.sub(r" \([^()]*\)$", "", said)
+    candidates = (said, label) if label != said else (label,)
+    try:
+        cfg = config.load() if (config.HOME / config.CONFIG_NAME).is_file() else None
+    except (config.Error, OSError):
+        cfg = None
+    own = record.get("account") if isinstance(record, dict) else None
+    held = config.catalog_held_raw("antigravity", cfg, (own,) if own else ())
+    for candidate in candidates:
+        match = next((row["id"] for row in held if row.get("label") == candidate), None)
+        if match is not None:
+            return match
+    shipped = config.catalog_table("antigravity")
+    for rows, label_of in (
+            (shipped, lambda row: row["label"]),
+            (held, lambda row: (row["label"]
+                                if isinstance(row.get("label"), str) and row["label"]
+                                else row["id"]))):
+        for candidate in candidates:
+            named = config.model_label("antigravity", "", candidate)
+            match = next((row["id"] for row in rows
+                          if config.model_label("antigravity", "", label_of(row)) == named), None)
+            if match is not None:
+                return match
+    return label
+
+
 def running(record, cwd, conversation):
     """The newer of that conversation's last answer and its status-line report."""
     from . import model_report
@@ -295,17 +328,7 @@ def running(record, cwd, conversation):
             model, folded = _fold(said)
             if not effort or model != said:
                 return model, effort or folded, at
-        rows = config.catalog_held("antigravity") + config.catalog_table("antigravity")
-        label = re.sub(r" \([^()]*\)$", "", said)
-        # Try the reported label as-is before stripping a bracketed effort so no-effort models
-        # whose own label ends in brackets (`Claude Sonnet 4.6 (Thinking)`) still resolve.
-        for candidate in (said, label) if label != said else (label,):
-            named = config.model_label("antigravity", "", candidate)
-            model = next((row["id"] for row in rows
-                          if config.model_label("antigravity", "", row["label"]) == named), None)
-            if model is not None:
-                return model, effort, at
-        return label, effort, at
+        return _resolve_label(record, said), effort, at
     return latest
 
 
