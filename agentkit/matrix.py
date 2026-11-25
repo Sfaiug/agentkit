@@ -9,6 +9,7 @@ Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
 """
 
 import contextlib
+import decimal
 import fcntl
 import functools
 import json
@@ -17,7 +18,7 @@ import re
 import sys
 import time
 
-from . import catalog, command_help, config, quality, record, terminal
+from . import catalog, command_help, config, quality, rates, record, terminal
 from .boards import PREFIX, collect, effort_rank
 
 # the config's word for each role ak answers: `config.ROLE_EFFORTS` keys its efforts by these
@@ -673,17 +674,42 @@ def notes(row, said):
 
 
 def by_plan(days):
-    """`ak models --json`'s `week_meters`, {provider: {plan: {"points", "tokens"}}}: `days`,
-    `week_meters.days`'s, summed by plan, the points to six significant digits."""
-    plans = {}
+    """`ak models --json`'s `week_meters`, {provider: {plan: {"points", "tokens", "rates"}}}:
+    `days`, `week_meters.days`'s, summed by plan, the points to six significant digits, and the
+    rates fitted from them (`rates.fitted`), each rounded once from the fit's exact value to six
+    significant digits as a Decimal, as a float holds none below its own smallest, and one past a
+    float's largest as that largest."""
+    fits, plans = rates.fitted(days), {}
     for provider, plan, points, tokens in days:
         summed = plans.setdefault(provider, {}).setdefault(plan, [0, {}])
         summed[0] += points
         for model, count in tokens.items():
             summed[1][model] = summed[1].get(model, 0) + count
-    return {provider: {plan: {"points": float(f"{float(points):.6g}"), "tokens": tokens}
+
+    def printed(rate):
+        if rate > sys.float_info.max:
+            return sys.float_info.max
+        return decimal.Context(prec=6).divide(rate.numerator, rate.denominator)
+    return {provider: {plan: {"points": float(f"{float(points):.6g}"), "tokens": tokens,
+                              "rates": {model: printed(rate)
+                                        for model, rate in fits[provider, plan].items()}}
                        for plan, (points, tokens) in found.items()}
             for provider, found in plans.items()}
+
+
+def dumped(value, at="\n"):
+    """`value` as JSON, as `json.dumps(value, indent=2)` writes it but each Decimal in it as its
+    digits, which json writes of no Decimal; `at` begins each of its lines but the first."""
+    inner = at + "  "
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, dict) and value:
+        return "{" + ",".join(
+            f"{inner}{json.dumps(key if isinstance(key, str) else json.dumps(key))}: "
+            f"{dumped(item, inner)}" for key, item in value.items()) + at + "}"
+    if isinstance(value, (list, tuple)) and value:
+        return "[" + ",".join(inner + dumped(item, inner) for item in value) + at + "]"
+    return json.dumps(value)
 
 
 def main(argv):
@@ -708,7 +734,7 @@ def main(argv):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
                                                  "cost", "board_cost", "cost_rule")},
                     "notes": notes(row, said)}
-        json.dump({**{role: {
+        sys.stdout.write(dumped({**{role: {
             "best": said["best"] and said["best"]["quality"], "cost_unit": said["cost_unit"],
             **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
             "others": [{**drawn(row, said), "why": why, "by": by and {
@@ -723,8 +749,7 @@ def main(argv):
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()},
             "runs": runs, "own": mine,
-            "week_meters": by_plan(week_meters.days(cfg, runs["since"], runs["until"]))},
-            sys.stdout, indent=2)
+            "week_meters": by_plan(week_meters.days(cfg, runs["since"], runs["until"]))}))
         print()
         return 0
     used, unit = uses(cfg, seat, found), menu.models_unit()     # the screen's, as it was left
