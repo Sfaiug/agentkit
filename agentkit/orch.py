@@ -1973,11 +1973,13 @@ def held_names():
 
 def refuse_client():
     """Refuse a client a session: its seats are on its home, and a standby's records are a copy
-    of that home's, which it carries on from once it takes over.  So `resume`, of a seat tmux
-    lost, and a new seat (`refuse_held`) ask before they write: a new seat refused only at its
-    start had replaced the copy's record by then, and removed its plan.  `start` asks for every
-    caller that did not: on 22 Nov 2026 one opened a home's 21 sessions a second time on its
-    standby."""
+    of that home's, which it carries on from once it takes over.  So three ask before they
+    touch the copy.  `resume` of a seat tmux lost, and `ak orch` of a new seat (`main`), before
+    `records`, which writes what a harness reconciles of a record: refused after it, either had
+    dropped another seat's conversation from the copy.  And a new seat (`refuse_held`): refused
+    only at its start, it had replaced the copy's record by then, and removed its plan.  `start`
+    asks for every caller that did not: on 22 Nov 2026 one opened a home's 21 sessions a second
+    time on its standby."""
     if alias := config.server_alias():
         raise config.Error(f"this machine is a client of {alias} and opens no session: "
                            f"its sessions are on {alias}")
@@ -2498,10 +2500,11 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     comes back with its past, opens on.
     """
     name = config.resolve_session(name)
-    record = (config.session_records() if detached else records()).get(name) or {}
     session = find(name)
     if not session:
-        refuse_client()    # tmux lost it: it comes back only in a new session
+        # tmux lost it: it comes back only in a new session, asked for before `records` writes
+        refuse_client()
+    record = (config.session_records() if detached else records()).get(name) or {}
     if detached:
         if session:
             return 0       # automatic recovery never touches a surviving or legacy pane
@@ -4960,11 +4963,11 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     name = session_name(name)
     if not name:
         raise config.Error("a session needs a name")
+    refuse_held(name)   # first: given no `taken`, the next lists the seats (`records` writes)
     if name in alias_names(taken):
         raise config.Error(f"{name!r} is what the session {config.resolve_session(name)!r} used "
                            f"to be called, and the orchestrator in it still answers to it; "
                            f"pick another name")
-    refuse_held(name)
     if selection is None:
         providers = usage.collect(cfg)
         selected = select(cfg, providers, forced, forced_workers, prompting)
@@ -5057,7 +5060,7 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
         session = find(name)
         if session and not session.get("exited"):
             return False
-        if not session and not records().get(name):
+        if not session and not config.session_records().get(name):
             raise config.Error(f"no session {name!r} to reopen and no record of one")
         return resume(cfg, name, log=log, hand_over=False)
     if find(name):
@@ -5154,12 +5157,15 @@ def main(argv):
             print(f"orch: attaching to {name} in {session['path']} "
                   f"({age(session['created'])} old)")
             return 0 if dry_run else attach(name)
-        if session or (records().get(name) and not (forced or forced_workers)):
+        if session or (config.session_records().get(name) and not (forced or forced_workers)):
             # the seat is not gone, only its process -- or the seat is gone and its record is
             # not.  Either way it is opened again as what it was, on the conversation it was
             # launched with where it was given one, and fresh where it was not.
             # Naming a model or a worker list is the one way to ask for a new seat by that name.
             return resume(cfg, name, dry_run=dry_run)
+    # A new seat from here on, asked for before its questions: the names taken, listed for the
+    # first (`taken_names`), are read through `records`, which writes.
+    refuse_client()
     if not dry_run and not (typed_here() and not config.current_session()):
         # An agent's guessed `ak orch help` or `ak orch roles` once opened a real seat, which
         # sat in the owner's list as "needs you": only a person opens a seat.  A terminal a seat
