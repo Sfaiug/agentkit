@@ -91,7 +91,7 @@ class ATurnLendsItsLogin(unittest.TestCase):
         (machine / "bin/docker").write_text(DOCKER.format(**paths))
         (machine / "bin/docker").chmod(0o755)
         task = taskfile.write(home, rig.path)
-        done = home.ak("run", str(task), timeout=300)
+        done = home.ak("run", str(task), env={"AK_HOST_READINGS": akmachine.CROWDED}, timeout=300)
         self.assertEqual(done.code, 0, done.out + done.err)
         run = taskfile.only_run(home)
         state = json.loads((run / "run.json").read_text())

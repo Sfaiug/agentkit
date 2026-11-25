@@ -126,7 +126,8 @@ class ATurnLivesThroughItsLoginRenewal(unittest.TestCase):
         (home.bin / "ssh").rename(real)
         home.fake("ssh", SSH.format(real=real, dir=here, lent=HELD,
                                     tree=machine / "home/.agentkit-helper", **logs))
-        done = home.ak("run", str(taskfile.write(home, rig.path)), timeout=300)
+        done = home.ak("run", str(taskfile.write(home, rig.path)), timeout=300,
+                       env={"AK_HOST_READINGS": akmachine.CROWDED})
         self.assertEqual(done.code, 0, done.out + done.err)
         run = taskfile.only_run(home)
         self.assertTrue(json.loads((run / "run.json").read_text())["merged"])

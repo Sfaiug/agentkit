@@ -1,13 +1,13 @@
-"""A model turn on a machine marked for turns in config.toml, its results
-back here when it ends. Hidden here: the machine, the busiest taking turns and outliving its login
-(agentkit/helper.py), and the ssh to it; the parcel beside a suite's: the out dir, the checkout's
-uncommitted paths, ak itself, a HOME of the turn's own, holding a copy of its login the adapter
-lends and the conversation it resumes, and the harness program to run, which the machine fetches the
-first time a turn names it (mac.sh's `fetch`), a new version here reaching it at its next turn; the
-container tools/helper/turn.sh runs the turn in, at this host's paths; and what comes back: the out
-dir, a bundle of the turn's commits, the last holding what it left uncommitted, which git applies
-here, and the conversation it reported, at its place under this host's HOME. While it runs, a
-renewal of its login here reaches it (`_following`).
+"""A model turn on a machine marked for turns in config.toml once this host has no room for it
+(`_room_here`), its results back here when it ends. Hidden here: the machine, the busiest taking
+turns and outliving its login (agentkit/helper.py), and the ssh to it; the parcel beside a suite's:
+the out dir, the checkout's uncommitted paths, ak itself, a HOME of the turn's own, holding a copy
+of its login the adapter lends and the conversation it resumes, and the harness program to run,
+which the machine fetches the first time a turn names it (mac.sh's `fetch`), a new version here
+reaching it at its next turn; the container tools/helper/turn.sh runs the turn in, at this host's
+paths; and what comes back: the out dir, a bundle of the turn's commits, the last holding what it
+left uncommitted, which git applies here, and the conversation it reported, at its place under this
+host's HOME. While it runs, a renewal of its login here reaches it (`_following`).
 """
 
 import base64
@@ -26,12 +26,17 @@ import tempfile
 import threading
 import time
 
-from . import config, gitcall, helper, machines
+from . import config, gitcall, helper, host, machines
 
 AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `bin` on PATH
 # Seconds a lent login must last, else the turn runs here: a longer turn would end on an expired
 # login. A harness may say fewer (`[worker] lent_for`). A machine Google ends sooner takes no turn.
 LENT_FOR = 3600
+# What a turn is given on a machine (helper.start), and what this host must spare to keep it
+# (`_room_here`): 2 CPUs and 2048 MiB, twice that, 4 GiB, for its VM (helper.each_mb), as on 30 Oct
+# 2026 this host's runs peaked at a median of 768 MiB and p90 of 1868 MiB, test pieces included,
+# with one at 5438 MiB.
+CPUS, MEMORY_MB = 2, 2048
 # Seconds at most a bound found in a turn's container holds it before the machine is asked again:
 # past the silence limit the watchdog asks on every poll, and a command ending before its bound
 # holds the turn at most this long more.
@@ -64,19 +69,20 @@ def _conversation(harness, session):
 
 def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     """(exit, killed, session) of the turn `cmd` of the model `entry` on a machine with room, or
-    None: it runs here, as with the switch off, `places`, no program for it (`_program`), a
-    checkout where a rebase, merge or cherry-pick stopped (`_stopped`), no login to lend, no
-    recipe, no room, a harness with no `sessions`, or a `session` to resume that this host does
-    not hold, as here is where a later resume would look for it too. `watch(argv, **kwargs)` runs
-    ssh as the worker's watchdog runs a turn, into the out dir's events.jsonl and stderr.log, its
-    silence held while a command in the turn's container is inside its declared timeout. A
-    lost machine's turn fails, this host's files as they were, and leaves `session`, the
-    conversation it was given: the id it streamed names one that is nowhere. One whose results
-    came home leaves the conversation it reported, whatever its exit."""
+    None: it runs here, as with the switch off, `places`, room here (`_room_here`), no program for
+    it (`_program`), a checkout where a rebase, merge or cherry-pick stopped (`_stopped`), no login
+    to lend, no recipe, no room there, a harness with no `sessions`, or a `session` to resume that
+    this host does not hold, as here is where a later resume would look for it too.
+    `watch(argv, **kwargs)` runs ssh as the worker's watchdog runs a turn, into the out dir's
+    events.jsonl and stderr.log, its silence held while a command in the turn's container is
+    inside its declared timeout. A lost machine's turn fails, this host's files as they were, and
+    leaves `session`, the conversation it was given: the id it streamed names one that is nowhere.
+    One whose results came home leaves the conversation it reported, whatever its exit."""
     harness = entry["harness"]
     try:
         on = any("turns" in machines.work(name) for name in [None, *machines.helpers()])
-        program = _program(harness) if on and not places and _sessions(harness) else None
+        program = (_program(harness) if on and not places and _sessions(harness)
+                   and not _room_here() else None)
     except config.Error:    # a config.toml mid-edit fails no turn: it runs here
         program = None
     if not program or _stopped(cwd):
@@ -94,10 +100,9 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
         lent = _lend(entry, cmd[0], env, home, lasting)
         if not lent:
             return None
-        # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768
-        # MiB and p90 of 1868 MiB, test pieces included, with one at 5438 MiB.
-        away = helper.start(2, 2048, cwd, lambda line: None, shlex.join(cmd), lambda tar: _parcel(
-            tar, program, cwd, out_dir, env, home, lent, held), lasting=LENT_FOR)[0]
+        away = helper.start(CPUS, MEMORY_MB, cwd, lambda line: None, shlex.join(cmd),
+                            lambda tar: _parcel(tar, program, cwd, out_dir, env, home, lent, held),
+                            lasting=LENT_FOR)[0]
     if away is None:
         return None
     volumes = [f"home:{env['HOME']}", f"work:{cwd}", f"out:{out_dir}",
@@ -118,6 +123,17 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     finally:
         helper.finish(away)
     return code, killed, session
+
+
+def _room_here():
+    """Has this host room for a turn? Its readings show its cores less its one-minute load leave a
+    turn's CPUs, and its free memory less a turn's VM's stays above what a run needs to be admitted
+    here (gate.resource_limits); config.Error where a config.toml is mid-edit."""
+    from . import gate    # here, not at the top: gate reaches this module through the worker
+    readings = host.host_readings()
+    cpus, load, free = (host._reading(readings, name) for name in ("cpus", "load", "free_mb"))
+    return (None not in (cpus, load, free) and cpus - load >= CPUS
+            and free - helper.each_mb(MEMORY_MB, 0) > gate.resource_limits(readings)[0])
 
 
 def _declared(away):

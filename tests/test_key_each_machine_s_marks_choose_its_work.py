@@ -57,7 +57,8 @@ class EachMachinesMarks(unittest.TestCase):
 
     def turns(self, where):
         task = taskfile.write(self.home, self.line.rig.path, done_when=("test -f left.txt",))
-        done = self.home.ak("run", str(task), "--no-merge", timeout=300)
+        done = self.home.ak("run", str(task), "--no-merge", timeout=300,
+                            env={"AK_HOST_READINGS": akmachine.CROWDED})
         self.assertEqual(done.code, 0, done.out + done.err)
         places = [path.read_text().strip() for path in taskfile.only_run(self.home).rglob("where")]
         self.assertEqual(places, [where, where])

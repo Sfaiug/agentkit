@@ -41,6 +41,7 @@ class ALostMachineKeepsTheConversationItHad(unittest.TestCase):
         stack.enter_context(patch.object(machine_turn, "_program",
                                          return_value=("acme/1.2.3/acme", {})))
         stack.enter_context(patch.object(machine_turn, "_lend", return_value=["login"]))
+        stack.enter_context(patch.object(machine_turn, "_room_here", return_value=False))
         stack.enter_context(patch.object(helper, "start", return_value=(AWAY, "")))
         stack.enter_context(patch.object(helper, "finish"))
         stack.enter_context(patch.object(gitcall, "git", return_value="left"))

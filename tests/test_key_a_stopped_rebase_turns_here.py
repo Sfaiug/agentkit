@@ -53,7 +53,8 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
         rig.branch("contrib", {"contrib.txt": "c\n"})
         url = gh.open_pr(rig, "contrib", title="Add contrib")
         rig.commit({"contrib.txt": "main\n"}, "main moves")
-        cls.done = home.ak("run", "--review-pr", url, env={"AGENTKIT_SESSION": "acme"},
+        cls.done = home.ak("run", "--review-pr", url, env={"AGENTKIT_SESSION": "acme",
+                                                          "AK_HOST_READINGS": akmachine.CROWDED},
                            cwd=rig.path, timeout=300)
         cls.state = json.loads((taskfile.only_run(home) / "run.json").read_text())
 

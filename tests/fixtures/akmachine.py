@@ -6,9 +6,16 @@ given on it, a directory with a HOME and programs of its own: a fake docker, who
     machine = akmachine.install(home)    # every alias ssh is given reaches it
     machine = akmachine.install(home, cpus=8)    # with room for four pieces at once
     logs = machine.glob("docker/roots/*/home/ak/work/.git/suite.log")    # each piece's clone
+    home.ak("run", task, env={"AK_HOST_READINGS": akmachine.CROWDED})    # its turns go there
+
+A turn runs on this host while it has room (agentkit/machine_turn.py): `CROWDED`, this host's
+readings with all its cores busy, sends it on.
 """
 
+import json
 import sys
+
+CROWDED = json.dumps({"cpus": 4, "load": 4, "free_mb": 16000, "mem_total_mb": 32000})
 
 # ssh ALIAS COMMAND: COMMAND as the machine's shell runs it, in nothing of this host's environment.
 SSH = '#!/bin/bash\nexec env -i HOME={home} PATH={bin}:/usr/bin:/bin bash -c "${{@: -1}}"\n'

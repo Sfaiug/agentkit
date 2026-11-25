@@ -67,7 +67,8 @@ class ATurnCarriesItsConversation(unittest.TestCase):
 
     def finish(self, home, rig):
         """The task runs and passes."""
-        done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-merge", timeout=300)
+        done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-merge", timeout=300,
+                       env={"AK_HOST_READINGS": akmachine.CROWDED})
         self.assertEqual(done.code, 0, done.out + done.err)
         state = json.loads((taskfile.only_run(home) / "run.json").read_text())
         self.assertEqual(state["state"], "pass")
