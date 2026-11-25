@@ -71,7 +71,8 @@ def weeks(cfg, meters, windows):
     for the usual one: the meter `usage.shared_week` names for it}}.
 
     A plan's points over its dollars are the points of a week a listed dollar takes, summed
-    over every login's readings on it between `since` and `until`: those its probes kept, a
+    over every login's readings on it between `since` and `until`: those its probes kept, their
+    `used` and `resets_at` numbers (a REAL column keeps a text like `nan` as text), a
     model's own cap of that meter's name (`scope`) no reading of it, as a turn's trail them (on
     6 Nov one read 75 eight seconds after a probe read 76), one kept with no plan its login's
     plan now's; logins on plans of one name share that fit, whatever `price` each holds, left
@@ -92,8 +93,8 @@ def weeks(cfg, meters, windows):
             for used, resets_at, at, plan in _select(
                     "SELECT used, resets_at, at, plan FROM meter_readings WHERE provider = ? AND "
                     "account = ? AND meter = ? AND {added[meter_readings.scope]} IS NULL AND "
-                    "source = 'probe' AND at >= ? AND at <= ? AND used IS NOT NULL AND "
-                    "resets_at IS NOT NULL ORDER BY resets_at",
+                    "source = 'probe' AND at >= ? AND at <= ? AND typeof(used) IN ('integer', "
+                    "'real') AND typeof(resets_at) IN ('integer', 'real') ORDER BY resets_at",
                     provider, account or config.DEFAULT_ACCOUNT, meters[provider][account],
                     since, until):
                 key = window, provider, account, plan or plans[provider, account]
