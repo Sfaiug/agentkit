@@ -631,10 +631,13 @@ def _close():
     the pass goes on the same whatever tmux did: a session made since the listing, and one tmux
     did not end, failing or not running, is the next pass's.  A pass run inside a session it
     ends ends with it, as any command does whose terminal closes."""
-    _, out = orch.tmux_out("list-sessions", "-F", "#{session_id}")
+    # A session's id is its server's alone, and a server started since the listing numbers its
+    # own from $0 again: each line ends nothing on a server but the one that listed it, by pid.
+    _, out = orch.tmux_out("list-sessions", "-F", "#{pid} #{session_id}")
     asked = "".join(f"show-options -t '{sid}' {orch.MARK} ; if-shell -F -t '{sid}' "
-                    f"'#{{==:#{{{orch.MARK}}},1}}' \"kill-session -t '{sid}'\"\n"
-                    for sid in out.split() if re.fullmatch(r"\$[0-9]+", sid))
+                    f"'#{{&&:#{{==:#{{pid}},{pid}}},#{{==:#{{{orch.MARK}}},1}}}}' "
+                    f"\"kill-session -t '{sid}'\"\n"
+                    for pid, sid in re.findall(r"^([0-9]+) (\$[0-9]+)$", out, re.M))
     # On stdin, as `orch.tagged` hands tmux its file: no size caps it, and each line is a command
     # list of its own, so one that fails stops no other session's.
     if asked:
