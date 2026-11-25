@@ -79,7 +79,7 @@ class AMeterOpensItsSubscription(unittest.TestCase):
         self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
         self.config = akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
         now = time.time()
-        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}]}
+        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}], "error": None}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "anthropic": week, "openai": {**week, "resets": resets}}})
         self.home.write(".agentkit/state/logins.json", {provider: {"default": {

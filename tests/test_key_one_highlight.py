@@ -82,7 +82,7 @@ class OneHighlight(unittest.TestCase):
         fakeadapter.install(self.home, claude="pass", codex="pass")
         akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
         # read for both subscriptions, ChatGPT's holding a reset: its line offers two acts
-        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}]}
+        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}], "error": None}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": time.time(), "providers": {
             "anthropic": week, "openai": {**week, "resets": 1}}})
         Seat(self.home, "acme", model="fable")

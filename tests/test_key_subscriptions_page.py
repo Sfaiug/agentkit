@@ -57,7 +57,8 @@ class SubscriptionsPage(unittest.TestCase):
         now = time.time()
 
         def used(percent):
-            return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800}]}
+            return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800}],
+                    "error": None}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "anthropic": {"accounts": {"default": used(16), "two": used(71)}},
             "openai": {**used(0), "resets": 1}}})

@@ -50,7 +50,7 @@ class ListsNameWhatEnterDoes(unittest.TestCase):
             "#!/bin/sh\n", "#!/bin/sh\n" + OPENCODE, 1))
         akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
         now = time.time()
-        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}]}
+        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}], "error": None}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "anthropic": week, "openai": week}})
         self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})

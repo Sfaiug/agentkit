@@ -2978,15 +2978,30 @@ def meter_spots(width, count, first):
             for line in range(-(-count // columns))}
 
 
+def limit_notes(cfg, name, prov, now):
+    """What provider `name`'s reading `prov` says of its limits, (worth, note) each in the order
+    a line reads them (`fitting`), each where it applies: the credits it holds, when its week
+    resets and what each cap its provider names has left, the resets in hand (`in_hand`), each
+    cap config.toml claims that differs (`scoped_notes`), its 5-hour window (`session_note`), why
+    its last probe failed (`fault`) and how old the reading is (`usage.as_of`); for one with no
+    week to draw, why (`unread`) and what each cap its provider names has left.  The line under
+    the usage grid says them (usage_detail), and so does the one under Subscriptions' lit row."""
+    week, why, readable = reading(cfg, name, prov, now)
+    named, claimed = scoped_notes(cfg, name, readable, week)
+    # a cap its provider names is one note with the reset time, or with why there is no week to
+    # reset: it gives way only with it
+    first = (0, " · ".join(filter(None, (resets_note(week, now) if week else why, *named))))
+    notes = [first] if week is None else [
+        (-1, usage.credits_note(prov)), first, (1, in_hand(prov)),
+        *((3, note) for note in claimed),
+        session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
+    return [(worth, note) for worth, note in notes if note]
+
+
 def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     """What the line under the usage grid says of subscription `number`, from 1, while the
-    pointer is on it: its label, then -- each where it applies, joined
-    with ` · ` -- a login that ends soon, in amber, else its login's email (`login_notes`), the
-    credits it holds, when its week resets and what each cap its provider names has left, the
-    resets in hand (`in_hand`), each cap config.toml claims that differs (`scoped_notes`), its
-    5-hour window (`session_note`), why its last probe failed (`fault`) and how old the reading
-    is (`usage.as_of`); for one with no week to draw, why (`unread`) and what each cap its
-    provider names has left.
+    pointer is on it: its label, then -- joined with ` · ` -- a login that ends soon, in amber,
+    else its login's email (`login_notes`), and its limit_notes, the resets in hand in `info`.
     In `width` cells the notes give way one by one, the least worth keeping first (`fitting`),
     the login's last, and the label too, past the notes but before a login that ends soon;
     `rows` as `usage_cells`', and `ending` as `usage_lines`'."""
@@ -2995,16 +3010,7 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     if not 0 < number <= len(rows):
         return ""
     name, label, prov, _ = rows[number - 1]
-    week, why, readable = reading(cfg, name, prov, now)
-    named, claimed = scoped_notes(cfg, name, readable, week)
-    # a cap its provider names is one note with the reset time, or with why there is no week to
-    # reset: it gives way only with it
-    first = (0, " · ".join(filter(None, (resets_note(week, now) if week else why, *named))))
     hand = in_hand(prov)
-    notes = [first] if week is None else [
-        (-1, usage.credits_note(prov)), first, (1, hand),
-        *((3, note) for note in claimed),
-        session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
     when, email, _ = (login_notes(rows[number - 1:number], now) if ending is None
                       else ending[number - 1:number])[0]
     # this line is written as kept, and what the screen's stream cannot write would end the menu
@@ -3014,7 +3020,7 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     told = ([(-2, terminal.styled(login, "amber")), (-2, _note_styled("click to log in again"))]
             if login else [(-2, terminal.styled(email, "dim"))] if email else [])
     notes = [*told, *((worth, terminal.styled(part, "info") if part == hand else
-                       _note_styled(part)) for worth, part in notes if part)]
+                       _note_styled(part)) for worth, part in limit_notes(cfg, name, prov, now))]
     room = 10 ** 6 if width is None else width - 4
     # a login ending is kept before the label, which the lit cell above already shows; a label
     # too long for the line gives way, as in its cell
@@ -5524,15 +5530,17 @@ def config_subscriptions(cfg, keyboard, number=None):
     (config_add_provider), opened on the row of subscription `number`, from 1 in `cfg`'s
     usage_rows order, as Enter or a click on its meter opens it, on the ak screen, `c` and a
     new seat's models alike, else on the first.  The row the keys or the pointer are on
-    says its resets in hand beside its meter where there is room, and opens a line: whose login
-    it is and its plan (login_notes; one ending as ending_note says it, amber), resets with no
-    room beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter
-    or a click running one, the key line naming it.  One an act adds is asked whose it is
-    (logins.renewed), then pointed at.  It comes up as `c` does as it opens, and the pointed
-    row's line comes up under it as the line under the menu's highlighted row does; back from
-    what an act or an add drew, it is drawn as it is.  The act lit (`on`) is kept by what it is,
-    so one going from under it lights nothing in its place, and is at rest while the pointer
-    lights its row's own cell, the label, meter and share.
+    says its resets in hand beside its meter where there is room, and opens a dim line of its
+    limit_notes but those its row says whole, where it has any, given way to its width as the line
+    under its meter on the ak screen gives them (`fitting`), then a line: whose login it is and
+    its plan (login_notes; one ending as ending_note says it, amber), resets with no room beside
+    its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter or a click
+    running one, the key line naming it.  One an act adds is asked whose it is (logins.renewed),
+    then pointed at.  It comes up as `c` does as it opens, and the pointed row's lines come up
+    under it as the line under the menu's highlighted row does; back from what an act or an add
+    drew, it is drawn as it is.  The act lit (`on`) is kept by what it is, so one going from under
+    it lights nothing in its place, and is at rest while the pointer lights its row's own cell,
+    the label, meter and share.
 
     Whichever screen opens it, it is made of config.toml read as it opens, `cfg` where that will
     not load, held as `c` holds it (holding), so a save over the file changed since writes nothing
@@ -5589,6 +5597,17 @@ def _subscriptions(cfg, keyboard, whose):
             line += terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
             # what Enter acts on is its act, lit on its line, never the row
             body.append(terminal.highlight(line, band=False))
+            # its limits but what its row says whole: the resets in hand, why it has no week
+            now = time.time()
+            said_whole = (held, reading(cfg, name, prov, now)[1])
+            limits = fitting([(worth, _note_styled(note)) for worth, note in
+                              limit_notes(cfg, name, prov, now) if note not in said_whole],
+                             width - 4)
+            if limits:
+                shown = "    " + terminal.styled(" · ", "dim").join(limits)
+                places[len(body)] = (("sub", number), row)
+                moves.append((len(body), ("opened",), lit, motion.fading(shown)))
+                body.append(shown)
             # its acts, email and plan from the one read of the logins its meter was drawn by
             ends, email, plan = ending[number - 1]
             acts = dict(subscription_acts(cfg, keyboard, sub, ends))

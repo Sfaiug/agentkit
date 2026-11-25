@@ -31,7 +31,7 @@ class ResetsInHandOnTheLitRow(unittest.TestCase):
 
         def used(percent):
             return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800}],
-                    "resets": 1, "probed_at": now}
+                    "resets": 1, "error": None, "probed_at": now}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "anthropic": used(16), "openai": used(57)}})
         self.home.write(".agentkit/state/logins.json", {

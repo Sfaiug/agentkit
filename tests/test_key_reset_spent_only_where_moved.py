@@ -43,7 +43,7 @@ class ResetSpentOnlyWhereMoved(unittest.TestCase):
         agy.answer("reset-status", '{"available": 1}')
         akconfig.write(self.home, {"gemini": {}, "astra": "codex"})
         now = time.time()
-        week = {"meters": [{"name": "weekly", "used": 30, "window_secs": 604800}]}
+        week = {"meters": [{"name": "weekly", "used": 30, "window_secs": 604800}], "error": None}
         self.usage = self.home.path / ".agentkit/state/usage.json"
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "google": {**week, "resets": 1}, "openai": {**week, "resets": 1}}})

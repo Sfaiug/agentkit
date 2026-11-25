@@ -10,6 +10,7 @@ from contextlib import redirect_stdout
 import io
 import json
 import re
+import time
 import unittest
 from unittest.mock import patch
 
@@ -65,9 +66,11 @@ class SubscriptionActs(Sandbox):
                           if line[:1] in " ›" and line[2:3].strip()],
                          [*self.rows, "+ add a subscription"])
 
-        def under(lines, label):      # the acts on the line the row of `label` opens, as it reads
-            return lines[next(at for at, line in enumerate(lines)
-                              if line[2:].startswith(label + " ")) + 1].strip().split("   ")[1:]
+        def under(lines, label):      # the acts the row of `label` opens, as their line reads,
+            # under any line of its limits
+            at = next(at for at, line in enumerate(lines) if line[2:].startswith(label + " "))
+            return next(line for line in lines[at + 1:]
+                        if "− remove" in line).strip().split("   ")[1:]
         self.assertEqual(under(drawn[0], "Claude"),
                          ["[→ log in again]", "→ spend a reset", "− remove"])
         self.assertEqual(under(drawn[1], "ChatGPT"), ["[→ log in again]", "− remove"])
@@ -122,8 +125,10 @@ class SubscriptionActs(Sandbox):
         (config.STATE / "logins.json").unlink()       # its line says no login ending first
         self.stack.enter_context(patch.object(terminal, "layout_width", return_value=30))
         drawn = self.keyed(lambda: menu.config_subscriptions(self.cfg, None), [("back", None)])
-        self.assertEqual(drawn[0][1:3], ["› Claude   ━━━━────  50% left",
-                                          "    1 reset in hand"])
+        self.assertEqual(drawn[0][1:4], [
+            "› Claude   ━━━━────  50% left",
+            time.strftime("    resets %a %H:%M", time.localtime(WEEK["resets_at"])),
+            "    1 reset in hand"])
 
     def test_the_last_row_removed_leaves_the_highlight_on_the_new_last(self):
         last = len(self.rows) - 1

@@ -40,7 +40,8 @@ class SubscriptionsLightAsC(unittest.TestCase):
             "anthropic": {"mode": "subscription", "accounts": ["default", "two"]}})
 
         def used(percent):
-            return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800}]}
+            return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800}],
+                    "error": None}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": time.time(), "providers": {
             "anthropic": {"accounts": {"default": used(16), "two": used(71)}}}})
         # Claude II's login ending in two days: FADING's `− remove` follows its `→ log in again`
