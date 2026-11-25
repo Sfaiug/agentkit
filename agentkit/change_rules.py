@@ -94,8 +94,8 @@ def rules_check(wt, base_sha, scratch=False, *, head="HEAD", env=None):
     if ceiling and len(held) > ceiling[0]:
         return (f"AGENTS.md is {len(held)} bytes, past the {ceiling[0]} bytes {ceiling[1]} "
                 "reads of it: tighten it.")
-    words = len(gitcall.agents_body(wt, head).split())
-    before = len(gitcall.agents_body(wt, base_sha).split())
+    words = len(gitcall.agents_body(gitcall.agents_text(wt, head)).split())
+    before = len(gitcall.agents_body(gitcall.agents_text(wt, base_sha)).split())
     if words > max(BODY_WORDS, before):
         return (f"AGENTS.md's body grows from {before} to {words} words; past {BODY_WORDS} it "
                 "only shrinks. Move what this adds into a test, a check or a comment at the code "
