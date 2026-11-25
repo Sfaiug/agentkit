@@ -68,14 +68,14 @@ class Unparking(unittest.TestCase):
         fired = self.hooks.prompt("fix the api", seat, env=SECOND, finished=True)
         self.assertEqual(fired.code, 0, fired)
 
-    def stop(self, seat, *said, env=SECOND):
-        """The turn ends on `said`, the lines its record then holds -- an entry, or bytes as they
-        are written -- its Stop heard in `env`; what the hook printed."""
+    def stop(self, seat, *said, env=SECOND, **payload):
+        """The turn ends on `said`, the entries its record then holds, its Stop heard in `env`
+        with `payload`; what the hook printed."""
         path = conversation(self.home, seat)
-        with path.open("ab") as kept:
-            kept.write(b"".join((line if isinstance(line, bytes) else json.dumps(line).encode())
-                                + b"\n" for line in said))
-        fired = self.hooks.fire("Stop", {"background_tasks": [], "transcript_path": str(path)},
+        with path.open("a") as kept:
+            kept.write("".join(json.dumps(entry) + "\n" for entry in said))
+        fired = self.hooks.fire("Stop", {"background_tasks": [], "transcript_path": str(path),
+                                         **payload},
                                 seat=seat.name, pane=seat, env=env, finished=True)
         self.assertEqual(fired.code, 0, fired)
         return fired
