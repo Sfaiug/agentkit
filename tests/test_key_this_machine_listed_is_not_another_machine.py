@@ -5,9 +5,9 @@ host.  The tick still asks it what it is.
 Black-box, as tests/test_key_a_turn_packs_onto_the_busiest_machine.py is: two machines listed,
 each a directory with tests/fixtures/akmachine.py's programs that a fake ssh reaches by its name,
 writing each line it is given to the machine's `asked`.  acme-self's `hostname` says what this
-host's does until the test renames it; being the narrower, a turn would go to it.  Each machine
-keeps the root of every container it ran: a turn's ends in `-turn`, and the round's done-when
-list, placed as a suite is, runs in the others.
+host's does until the test gives it the fixture's again; being the narrower, a turn would go to
+it.  Each machine keeps the root of every container it ran: a turn's ends in `-turn`, and the
+round's done-when list, placed as a suite is, runs in the others.
 """
 
 from pathlib import Path
@@ -66,10 +66,9 @@ class ThisMachineListedIsNotAnotherMachine(unittest.TestCase):
                 (place / harness).touch(0o755)
         home.fake("ssh", SSH.format(python=sys.executable, machines=str(self.machines)))
 
-    def named(self, host):
-        """acme-self's `hostname` says `host`, and a tick has asked both machines."""
-        hostname = self.machines / "acme-self/bin/hostname"
-        hostname.write_text(f"#!/bin/sh\necho {host}\n")
+    def named(self, hostname):
+        """acme-self's `hostname` is the program `hostname`, and a tick has asked both machines."""
+        (self.machines / "acme-self/bin/hostname").write_text(hostname)
         done = self.home.tick()
         self.assertEqual(done.code, 0, done.out + done.err)
         for name in CPUS:
@@ -91,10 +90,10 @@ class ThisMachineListedIsNotAnotherMachine(unittest.TestCase):
                 for name, turns in ran.items()}
 
     def test_a_machine_named_as_this_host_takes_no_work_until_named_otherwise(self):
-        self.named(socket.gethostname())
+        self.named(f"#!/bin/sh\necho {socket.gethostname()}\n")
         self.assertEqual(self.placed("Add x file"),
                          {"acme-self": (0, 0, False), "acme-other": (2, 1, True)})
-        self.named("acme-self")
+        self.named(akmachine.TOOLS["hostname"])
         self.assertEqual(self.placed("Add x file again"),
                          {"acme-self": (2, 0, True), "acme-other": (0, 1, True)})
 
