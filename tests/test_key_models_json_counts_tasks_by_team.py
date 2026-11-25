@@ -4,7 +4,8 @@ or running too, of the team of its first run (the run its change is named for, w
 relaunch ties with), its orchestrator, executor and reviewer each a model at an effort (the
 reviewer's its first review's).  Per team: its tasks, those merged on their first run, those
 merged on any, those whose first run's first review (round 1) passed, the reviews of a round
-over every run of them, their blocking issues summed, the hours every run of them spent, and the
+over every run of them, their blocking issues summed, their answered disputes and those the
+reviewer took back (`conceded` or `dropped`), the hours every run of them spent, and the
 usage every run of them took by role (as `runs.usage`, tests/test_key_models_json_run_usage.py).
 A follow-up, a seat's own pull request and a task whose first run ended outside the window, or
 recorded no end, count nowhere, nor do its relaunches.
@@ -71,9 +72,9 @@ REVIEWS = [("fix-api", 1, "medium"), ("fix-api", 2, "high"), ("write-cache", 1, 
            ("fix-soon", 1, "medium"), ("fix-undated", 1, "medium")]
 
 
-def history(home, runs, reviews):
-    """The Home's history.db holding `runs` and a review per (run_id, round, effort[, verdict,
-    blocking]) of `reviews`."""
+def history(home, runs, reviews, findings=None):
+    """The Home's history.db holding `runs`, a review per (run_id, round, effort[, verdict,
+    blocking]) of `reviews`, and, where given, a finding per (run_id, outcome) of `findings`."""
     connection = sqlite3.connect(home.path / ".agentkit/history.db")
     with connection:
         connection.execute(f"CREATE TABLE runs ({', '.join(RUN)})")
@@ -88,27 +89,40 @@ def history(home, runs, reviews):
             rows.append((run_id, f"{run_id}-{index}", blocking, round, verdict, effort))
         connection.executemany(
             "INSERT INTO reviews VALUES (?, ?, 'codex', 'crux-2', ?, 0, 0, ?, ?, ?)", rows)
+        if findings is not None:
+            connection.execute("CREATE TABLE findings (run_id, review_id, round, path, line, "
+                               "handed, kind, proof, commit_exit, base_exit, replayed, reason, "
+                               "outcome, at)")
+            connection.executemany(
+                "INSERT INTO findings VALUES (?, 'r-1', 1, 'a.py', 1, ?, ?, 'p', "
+                "NULL, NULL, NULL, NULL, ?, ?)",
+                [(run_id, "finding" if outcome is None else "dispute",
+                  "finding" if outcome is None else "dispute", outcome, NOW - DAY)
+                 for run_id, outcome in findings])
     connection.close()
 
 
 def team(executor_effort, tasks, first_run, live, runs, first_pass, reviews, issues=0,
-         reviewer_effort="medium", usage=EMPTY):
+         disputed=0, taken_back=0, reviewer_effort="medium", usage=EMPTY):
     return {"orchestrator": {"name": "nova", "effort": "high"},
             "executor": {"name": "bolt", "effort": executor_effort},
             "reviewer": {"name": "crux", "effort": reviewer_effort},
             "tasks": tasks, "first_run": first_run, "live": live,
             "first_pass": first_pass, "reviews": reviews, "issues": issues,
+            "disputed": disputed, "taken_back": taken_back,
             "hours": {"build": runs, "review": runs / 2, "checks": runs / 4, "waiting": runs},
             "usage": usage}
 
 
-def counted(runs, reviews):
+def counted(runs, reviews, findings=None, *, readonly=False):
     with Home() as home:
         fakeadapter.install(home, claude="pass")
         akconfig.write(home, {"mid": {"harness": "claude", "model": "acme-mid-5",
                                       "effort": "low"}})
         home.write(".agentkit/state/boards.json", boards())
-        history(home, runs, reviews)
+        history(home, runs, reviews, findings)
+        if readonly:
+            (home.path / ".agentkit/history.db").chmod(0o444)
         return home.ak("models", "--json", env=ENV)
 
 
@@ -148,6 +162,48 @@ class ModelsJsonCountsTasksByTeam(unittest.TestCase):
             team("max", 2, 2, 2, 2.0, 1, 3, 2),
             team("max", 1, 1, 1, 1.0, 1, 1, 0, reviewer_effort=None),
             team("low", 1, 0, 1, 2.0, 0, 3, 4)])
+
+    def test_each_team_s_disputed_and_taken_back_issues(self):
+        runs = [run("fix-api", 3)]
+        reviews = [("fix-api", 1, "medium", "FAIL", 4), ("fix-api", 2, "medium", "PASS", 0)]
+        findings = [
+            ("fix-api", "upheld"), ("fix-api", "conceded"), ("fix-api", "dropped"),
+            ("fix-api", None),              # a finding with no outcome counts nothing
+            ("fix-api", 1),                 # non-text outcome counts nothing
+        ]
+        done = counted(runs, reviews, findings)
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(json.loads(done.out)["runs"]["teams"], [
+            team("max", 1, 1, 1, 1.0, 0, 2, 4, disputed=3, taken_back=2)])
+
+    def test_a_relaunch_s_disputes_join_its_task_s_team_and_a_follow_up_s_are_in_no_team(self):
+        runs = [
+            run("write-cache", 3, executor_effort="low", **FAILED),
+            run("finish-cache", 2, change="write-cache", executor="crux"),
+            run("fix-api-again", 1, kind="follow-up"),
+        ]
+        reviews = [
+            ("write-cache", 1, "medium", "FAIL", 2),
+            ("finish-cache", 1, "high", "FAIL", 1), ("finish-cache", 2, "high", "PASS", 0),
+            ("fix-api-again", 1, "medium", "PASS", 1),
+        ]
+        findings = [
+            ("write-cache", "upheld"),
+            ("finish-cache", "conceded"), ("finish-cache", "dropped"),
+            ("fix-api-again", "conceded"),
+        ]
+        done = counted(runs, reviews, findings)
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(json.loads(done.out)["runs"]["teams"], [
+            team("low", 1, 0, 1, 2.0, 0, 3, 3, disputed=3, taken_back=2)])
+
+    def test_a_history_with_no_findings_table_gives_zero_disputes(self):
+        runs = [run("fix-api", 3)]
+        reviews = [("fix-api", 1, "medium", "FAIL", 2), ("fix-api", 2, "medium", "PASS", 0)]
+        done = counted(runs, reviews, readonly=True)
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(json.loads(done.out)["runs"]["teams"], [
+            team("max", 1, 1, 1, 1.0, 0, 2, 2, disputed=0, taken_back=0)])
 
 
 class ModelsJsonTeamUsage(WeekMeters):
