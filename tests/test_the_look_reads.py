@@ -25,7 +25,7 @@ from agentkit import motion, reads, terminal
 from agentkit.themes import BLACK, ROLES, WHITE
 
 TEXT = ("text", "muted", "dim", "accent", "success", "warning", "error", "info", "special")
-# terminals' own, neither theme's: the last two have a highlight only between hundredths of `k`
+# terminals' own, neither theme's: the last two have the rule's highlight between hundredths of `k`
 NAMED = ("24272d", "282a36", "002b36", "fdf6e3", "203040", "402080")
 STEPS = [round(n * 255 / 8) for n in range(9)]
 BACKGROUNDS = [bytes((r, g, b)).hex() for r in STEPS for g in STEPS for b in STEPS] + list(NAMED)
