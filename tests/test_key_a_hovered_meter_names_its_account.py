@@ -4,7 +4,8 @@ The owner (24 Nov 2026), of the meters on the ak screen: "when I hover above a m
 would like to see which account it is."  On the ak screen and `c` the line reads the label,
 then the login's email as ak keeps it, dim as a note is, then the notes it gave before, bytes
 kept as read with surrogateescape written back as they came; a login with no email kept, or one
-kept as a number, only spaces or what the menu's stream cannot write, reads as before.  A login
+kept as a number, only spaces or what the menu's stream cannot write, reads as before, and one
+kept as a number opens on Subscriptions, its meter clicked, with no email to say.  A login
 that ends soon reads as before, its own note naming the email once, or none where there is no
 email to say, and only its meter is amber.  Too narrow for every note, the email is the last to give way.  The email and the ending
 are one read's: the logins changed between the grid's read and the line's draw, the line tells
@@ -144,6 +145,10 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
     def test_the_line_under_the_grid_names_the_hovered_meters_account(self):
         self.open()
         self.assert_names_its_account()
+        self.term.type("\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*self.at("Claude II")))
+        self.term.wait(lambda screen: any(
+            row.startswith("› Claude II ") and below == "    → spend a reset   − remove"
+            for row, below in zip(lines(screen), lines(screen)[1:])))
 
     def test_on_c_the_line_under_its_meters_names_the_account_too(self):
         self.open()
