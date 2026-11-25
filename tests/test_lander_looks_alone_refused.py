@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import SUITE, LanderFixture
-from agentkit import land, record, run
+from agentkit import config, gitcall, land, record, run
 
 STYLE = {"site.css": "p { color: teal }\n"}
 
@@ -26,6 +26,8 @@ class ARefusedLooksVerdict(LanderFixture, unittest.TestCase):
         self.commit("rules")
         run.git(self.repo, "push", "origin", "main")
         self.base = run.git(self.repo, "rev-parse", "HEAD")
+        (config.STATE / f"test-times-{gitcall.repository_id(self.repo)}.json").write_text(
+            '{"t/ok.sh": 1}')
         self.moved = None
 
     def check(self, cmds, cwd, log_path, *args, **kw):
