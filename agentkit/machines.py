@@ -15,7 +15,7 @@ import signal
 import subprocess
 import time
 
-from . import config, gitcall, google_cloud
+from . import config, gitcall, google_cloud, readings
 
 HERE = "this one"
 PROBE = config.REPO / "tools" / "machine.sh"
@@ -28,6 +28,9 @@ KEPT = 3 * DAY      # the checks "always on" is judged on; older ones go
 # What the probe says, each read as its type; an answer missing one is no answer.
 READINGS = {"system": str, "processor": str, "cores": int, "memory_mb": int, "free_mb": int,
             "load": float, "disk_free_mb": int, "battery": int, "power": int}
+# What a Linux probe adds where its kernel keeps them, each read as int: the running totals of
+# the microseconds some work stood waiting for a processor, for memory and for the disk.
+STALLS = ("cpu_stall_us", "memory_stall_us", "io_stall_us")
 
 
 class Machine(namedtuple("Machine", "name checks said")):
@@ -102,13 +105,16 @@ def known():
 def check():
     """The tick's: asks each machine once, side by side, and records what it answered.  The
     record keeps the last three days' checks of each machine, of one the tick did not ask too:
-    one `add` asked meanwhile."""
+    one `add` asked meanwhile.  Each answer is kept over time first (readings), so a record
+    that cannot be written loses none of them."""
     now, names = time.time(), [machine.name for machine in known()]
-    answers = ask([_probe(name) for name in names])
+    answers = {name: _said(answer)
+               for name, (answer, _) in zip(names, ask([_probe(name) for name in names]))}
+    readings.keep(now, {name: said for name, said in answers.items() if said})
 
     def change(record):
-        for name, (answer, _) in zip(names, answers):
-            said, was = _said(answer), record.get(name, {})
+        for name, said in answers.items():
+            was = record.get(name, {})
             record[name] = {"checks": [*was.get("checks", []), [now, bool(said)]],
                             "said": {**said, "at": now} if said else was.get("said")}
         for name, was in list(record.items()):
@@ -277,10 +283,12 @@ def _answer(proc, deadline):
 
 
 def _said(answer):
-    """What the probe answered, by READINGS, or None: it did not answer or said too little."""
+    """What the probe answered, by READINGS and those of STALLS it gave, or None: it did not
+    answer or said too little."""
     said = dict(line.partition(" ")[::2] for line in (answer or "").splitlines())
     try:
-        return {name: kind(said[name]) for name, kind in READINGS.items()}
+        return ({name: kind(said[name]) for name, kind in READINGS.items()}
+                | {name: int(said[name]) for name in STALLS if name in said})
     except (KeyError, ValueError):
         return None
 

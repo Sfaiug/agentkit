@@ -19,6 +19,11 @@ else
   awk '$1 == "MemTotal:" {print "memory_mb", int($2 / 1024)}
        $1 == "MemAvailable:" {print "free_mb", int($2 / 1024)}' /proc/meminfo
   echo "load $(cut -d ' ' -f 1 /proc/loadavg)"
+  # The kernel's running totals of the microseconds some work stood waiting for a processor,
+  # for memory and for the disk: none it cannot read, and the probe goes on.
+  for stall in cpu memory io; do
+    sed -n "s/^some .*total=/${stall}_stall_us /p" "/proc/pressure/$stall" 2>/dev/null || :
+  done
   # A mouse's battery is the mouse's (scope Device). On power: every battery charges, is full or
   # is held, unless a charger says: online is 0 off, any other (1, 2 programmable) on.
   online=

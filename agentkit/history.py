@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS meter_readings (
 )
 """
 METER_READING_MIGRATIONS = (("plan", "TEXT"), ("scope", "TEXT"))
-READINGS_KEPT_FOR = 35 * 86400     # five weeks
+READINGS_KEPT_FOR = 35 * 86400     # five weeks, of meters and of machines (readings.py) alike
 
 
 # One row per model a worker turn's harness reported its tokens by (`Harness.turn_usage`),
