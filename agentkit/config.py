@@ -526,13 +526,19 @@ def _policy_in(path, data):
     return numbers
 
 
+def said_policy(table=None):
+    """host_policy(table) for words that only say the numbers, ak's defaults where the table is
+    one the commands acting on it refuse."""
+    try:
+        return host_policy(table)
+    except Error:
+        return host_policy({})
+
+
 def in_force(text, table=None):
     """ak's own text with POLICY numbers. `$Review_rounds` starts a budget line, replaced
     whole when review is off. Owner and project text stays theirs, dollars included."""
-    try:
-        numbers = host_policy(table)
-    except Error:   # the commands that act on a config.toml refuse it; words only saying it don't
-        numbers = host_policy({})
+    numbers = said_policy(table)
     rounds = numbers["review_rounds"]
     opening = ROUNDS_SAID.get(rounds, rounds)
     executor, orchestrator = numbers["executor_lines"], numbers["orchestrator_lines"]
@@ -2591,15 +2597,17 @@ def rulebook_path(name):
     return seat_file("rulebook", name)
 
 
-def rulebook_text(repo=None):
-    """The rulebook a session receives: ak's rules with its project's numbers, else the host's,
-    then the host's own rules.
+def rulebook_text(repo=None, numbers=None):
+    """The rulebook a session receives: ak's rules with `numbers`, else its project's, else the
+    host's, then the host's own rules.
 
     Only a host that has written no rules of its own has none: a rules.md that is there and
     cannot be read is an error, never an empty one, because a session opened without rules the
     owner did write is a session working to rules nobody chose.
     """
-    body = in_force((REPO / "orchestrator.md").read_text(), policy(repo) if repo else None)
+    if numbers is None and repo:
+        numbers = policy(repo)
+    body = in_force((REPO / "orchestrator.md").read_text(), numbers)
     try:
         local = (HOME / "rules.md").read_text()
     except FileNotFoundError:
@@ -2618,16 +2626,21 @@ def name_owed(name):
 
 
 def seat_rulebook(session, repo=None):
-    """What `session`'s rulebook file holds when it opens now: `rulebook_text`, the AGENTS.md of
-    the project it is filed under -- `repo`, else its record's -- as on that project's default
+    """What `session`'s rulebook file holds when it opens now: `rulebook_text` with its project's
+    numbers, else the host's, as the seat holds them (`seat_numbers`), the AGENTS.md of the
+    project it is filed under -- `repo`, else its record's -- as on that project's default
     branch: what its workers get, as its launch or the tick last fetched it
     (`orch.fetch_project`); an unnamed seat's instruction to name itself; and, last, where the
     conversations it moved from are (`orch.handover`)."""
     from . import gitcall     # here, not at the top: gitcall imports this module
-    record = session_records().get(session, {})
-    repo = record.get("repo") if repo is None else repo
+    with look.one_look():     # its project and its builders as one read of its record found them
+        record = session_records().get(session, {})
+        # `repo` is a new seat's, which no record says until it opens (`orch.for_seat`): a record
+        # under its name is then the seat's before it, whose builders are not this one's
+        seat, repo = (session, record.get("repo")) if repo is None else (None, repo)
+        numbers = seat_numbers(seat, policy(repo) if repo else said_policy())
     project = gitcall.agents_body(repo, RULES_REF)
-    body = rulebook_text(repo)
+    body = rulebook_text(numbers=numbers)
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "
@@ -2643,6 +2656,17 @@ def seat_rulebook(session, repo=None):
                 "run status`), and its plan is `ak plan`. What was said in its conversation so "
                 f"far, oldest first, is in {handed}: read its end before anything else.\n")
     return body
+
+
+def seat_numbers(session, numbers):
+    """The POLICY `numbers` as the seat `session` holds them: executor_lines 0 where its saved
+    record marks no builder, since `ak run` refuses that seat every task, so its rules say it
+    builds each change itself.  Where orchestrator_lines is 0 too nobody could build, a pair
+    `_policy_in` refuses, so they stay as they are."""
+    if (session_records().get(session, {}).get("workers") != []
+            or numbers["orchestrator_lines"] == 0):
+        return numbers
+    return {**numbers, "executor_lines": 0}
 
 
 def rulebook_digest(data):
