@@ -509,7 +509,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
               change, 0, "", kind, 0, plan_line, no_review, orchestrator_effort,
-              json.dumps(policy, sort_keys=True) if policy else None)
+              None if policy is None else json.dumps(policy, sort_keys=True))
 
     def insert(connection):
         connection.execute(
