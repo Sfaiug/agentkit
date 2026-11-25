@@ -255,6 +255,12 @@ def unpark(launched, payload):
     so each thing is read once, in this order, and the record's harness is asked what
     `watch.recorded_error` and `watch.limit_ended` ask, on that one record -- both read it
     again, and the plan `limit_ended` asks writes.
+
+    That 19 Nov turn was a long one, parked while it ran.  Asked on 22 Nov whether this should
+    stay with turns begun after the parking, the owner: "Keep building", for a turn already
+    running, "judged by when its last request was sent".  So the refusals that go are those
+    made before the later of the turn's start and when its harness says that request went out
+    (`last_sent`), asked last of the same record: one made after it, nothing has answered.
     """
     try:
         if (payload.get("terminationReason") not in (None, "", "NO_TOOL_CALL")
@@ -276,7 +282,9 @@ def unpark(launched, payload):
         conversation = plugin.conversation(record, cwd)
         if (plugin.error(record, cwd, conversation) == ""
                 and plugin.wrapped_up(record, cwd, conversation) is None):
-            usage.answered(cfg, entry["provider"], told or None, record["orchestrator"], turn)
+            sent = plugin.last_sent(record, cwd, conversation)
+            usage.answered(cfg, entry["provider"], told or None, record["orchestrator"],
+                           turn if sent is None else max(turn, sent))
     except Exception:
         pass        # the login stays parked as it was; the Stop is no less judged
 

@@ -4,8 +4,8 @@
 brings no Python at all works: the adapter script runs it, the adapter manifest says what its
 screen, its quota, its update and its conversation are, and the defaults here answer the rest.
 A harness that needs Python puts it in `agentkit/harness/<name>.py` and implements only the
-hooks it has something to say about -- `claude.py` the transcript it writes, which dates a
-conversation's last request (`last_sent`), and the counts by model its results report, `codex.py` the launch receipt its thread is proven by,
+hooks it has something to say about -- `claude.py` the transcript it writes and the counts by
+model its results report, `codex.py` the launch receipt its thread is proven by,
 `grokbuild.py` the session directory it opens and the result its turns' tokens are by type,
 `muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe,
 the receipt its SessionStart hook writes its session into, the session each turn's end names,
