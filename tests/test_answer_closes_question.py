@@ -3,6 +3,7 @@
 Offline: real hook input, fake tmux and card delivery, and a temporary HOME.
 """
 
+from contextlib import ExitStack
 import json
 import os
 import subprocess
@@ -11,6 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from fixtures.left import pipe
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, watch
 
@@ -38,21 +40,30 @@ case $1 in
 esac
 """
 
-# Each detached look is waited for before assertions or sandbox cleanup, how it ended kept
+# Each detached look a test expects is waited for before its assertions, how it ended kept
 # despite the hook's silent redirects, by the process that looked: an event heard cold leaves
-# its look to a child of the client the hook waits on. No clock bounds a hook, its look or the
-# fake tmux that look asks (`orch.TMUX_CEILING`): a loaded host stretches each past any bound,
-# and one that never ends stops the suite for its silence.
+# its look to a child of the client the hook waits on.  Every process a hook leaves, expected or
+# not, holds the pipe the hook was handed (`fixtures.left`), one a look starts too: its Popen
+# keeps what it inherited.  A look started alone, which no hook waits on, waits while the fifo
+# `LOOK_HELD` names is open for writing.  No clock bounds a hook, its look or the fake tmux that
+# look asks (`orch.TMUX_CEILING`): a loaded host stretches each past any bound, and one that
+# never ends stops the suite for its silence.
 PYTHON = r"""#!/bin/bash
 if [[ $1 = */agentkit/looker.py ]]; then
-  exec "$TEST_PYTHON" -c 'import os, runpy, sys
+  exec "$TEST_PYTHON" -c 'import os, runpy, subprocess, sys
 from pathlib import Path
 look = sys.argv.pop(1)
 sys.path.insert(0, str(Path(look).resolve().parents[1]))
 from agentkit import orch
 orch.TMUX_CEILING = None
+start = subprocess.Popen.__init__
+subprocess.Popen.__init__ = lambda *args, **kw: start(*args, **{"close_fds": False, **kw})
 ended = "1"
 try:
+    if "LOOK_HELD" in os.environ and len(sys.argv) == 2:
+        held = os.open(os.environ["LOOK_HELD"], os.O_RDONLY | os.O_NONBLOCK)
+        os.set_blocking(held, True)
+        os.read(held, 1)
     runpy.run_path(look, run_name="__main__")
     ended = "0"
 finally:
@@ -92,6 +103,7 @@ class AnswerClosesQuestion(Sandbox):
             path.write_text(script)
             path.chmod(0o755)
         self.looks = []
+        self.left = pipe(self.addCleanup)
 
     def tmux(self, *args, **kwargs):
         if args[0] in ("capture-pane", "send-keys"):
@@ -137,7 +149,8 @@ class AnswerClosesQuestion(Sandbox):
             self.addCleanup(self.wait_look, finished)
         result = subprocess.run(["bash", str(REPO / "hooks" / script)],
                                 input=json.dumps({"hook_event_name": event, **payload}),
-                                text=True, capture_output=True, env=environ)
+                                text=True, capture_output=True, env=environ,
+                                pass_fds=(self.left,))
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         if script == "seat-state.sh":
             self.assertEqual(result.stdout, "")
@@ -220,6 +233,24 @@ class AnswerClosesQuestion(Sandbox):
         self.notice()
         self.prompt()
         self.assert_answered()
+
+    def test_a_look_no_test_expects_ends_before_its_sandbox_goes(self):
+        """A Stop whose `agent_id` is null is the seat's own to each hook, a sub-agent's to this
+        fixture, which waits for no look of it: the pipe its hook was passed still does."""
+        held = self.root / "held"
+        os.mkfifo(held)
+        for script, payload in (("seat-state.sh", {}),
+                                ("orchestrator-stop.sh", {"background_tasks": []})):
+            with self.subTest(script=script):
+                with ExitStack() as waits:
+                    self.left = pipe(waits.callback)
+                    # closed before the pipe's wait, however the hook went: the look goes on
+                    waits.callback(os.close, os.open(held, os.O_RDWR))
+                    self.hook("Stop", script=script, agent_id=None,
+                              env={"LOOK_HELD": str(held)}, **payload)
+                    # the stop hook's judge, which it waited on, ended there too
+                    self.looks[-1].unlink(missing_ok=True)
+                self.assertEqual(self.looks[-1].read_text(), "0\n")
 
     def test_prompt_never_waits_for_the_notice_lock_and_the_answer_lands_after_release(self):
         self.notice()

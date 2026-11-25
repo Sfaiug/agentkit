@@ -3,7 +3,7 @@
 The record and the defaults may name no executor once they name reviewers; a task launch is
 refused before any run exists; the session's own PR is still reviewed, and starts no follow-up
 workers; the last executor may be let go on the screens while the last reviewer may not; and
-the orchestrator's own exec mark is drawn filled and on while nobody else is marked.
+with nobody marked to build every exec mark is drawn open, the orchestrator's too.
 
 Offline: throwaway HOME, fake launch/drive/tmux, and invented GitHub responses.
 """
@@ -145,7 +145,7 @@ class ExecutorsOptional(Sandbox):
                          "at least one model reviews")
         self.assertEqual(config.load_session(self.cfg, "fix-api")["reviewers"], ["astra"])
 
-    def test_orchestrator_exec_mark_is_filled_and_on_while_nobody_else_is_marked(self):
+    def test_every_exec_mark_is_open_while_nobody_is_marked(self):
         marks = "●○■□"
         with patch.object(terminal, "layout_width", return_value=100), \
                 patch.object(terminal, "colour_depth", return_value=8), \
@@ -153,10 +153,9 @@ class ExecutorsOptional(Sandbox):
             lines, _ = menu.config_body(self.cfg, selected=self.selected())
             rows = {re.split(r" [[●○■□]", terminal.plain(line).lstrip("› "))[0]: line
                     for line in lines if any(char in marks for char in terminal.plain(line))}
-            self.assertIn(terminal.styled(" ■ ", "accent"), rows["Opus 5.5"])
             self.assertEqual(tuple("".join(char for char in terminal.plain(rows[name])
                                            if char in marks) for name in ("Opus 5.5", "6 Astra")),
-                             ("●■□", "○□■"))
+                             ("●□□", "○□■"))
 
     def test_defaults_without_executor_stay_without_on_the_new_session_screen(self):
         self.cfg["defaults"] = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}

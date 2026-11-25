@@ -36,7 +36,8 @@ def ran(home, *runs):
     connection.close()
 
 
-HEAD = "tasks went live per task live".split()
+HEAD = ("tasks went live passed 1st review reviews per task issues per task "
+        "per task live").split()
 
 
 class OwnRunsNamed(unittest.TestCase):
@@ -54,7 +55,7 @@ class OwnRunsNamed(unittest.TestCase):
                            run("fix-docs", 1, **{**team, "executor": "haiku @ max",
                                                  "executor_effort": None})],
                     [("fix-api", 1, "max"), ("fix-docs", 1, "max")])
-            done = home.ak("models", env={**ENV, "COLUMNS": "100"})
+            done = home.ak("models", env={**ENV, "COLUMNS": "120"})
         self.assertEqual(done.code, 0, done.err)
         shown = [line.split() for line in done.out.splitlines()]
         self.assertEqual(shown[shown.index(["ORCHESTRATOR", *HEAD]):], [

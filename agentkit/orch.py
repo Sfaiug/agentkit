@@ -4411,11 +4411,11 @@ def role_refusal(cfg, selected, providers):
 
 
 def role_texts(selected, name, marks):
-    """The orch, exec and review marks of one model's row.  With no executor marked the
-    orchestrator builds everything, so its own exec mark is drawn filled."""
-    builds = not selected["workers"] and name == selected["orchestrator"]
+    """The orch, exec and review marks of one model's row.  With no executor marked every exec
+    mark is open, the orchestrator's too: drawn filled it would read as the orchestrator marked
+    to launch tasks to itself (the owner, 25 Nov 2026)."""
     return (marks[0] if name == selected["orchestrator"] else marks[1],
-            marks[2] if name in selected["workers"] or builds else marks[3],
+            marks[2] if name in selected["workers"] else marks[3],
             marks[2] if name in selected.get("reviewers", selected["workers"]) else marks[3])
 
 
@@ -5157,6 +5157,12 @@ def main(argv):
         from . import done_check
         return done_check.look(argv[1:])
     name, forced, forced_workers, dry_run = parse(argv)
+    # A client's seats are on its home, and a standby's records of them are a copy of that
+    # home's: on 22 Nov 2026 a standby opened its home's 21 seats a second time.  Refused here,
+    # a dry run too, before this command reads or writes anything of a seat.
+    if alias := config.server_alias():
+        raise config.Error(f"this machine is a client of {alias} and opens no seat: "
+                           f"its seats are on {alias}")
     if not dry_run:
         maintenance()
     cfg = config.load()
