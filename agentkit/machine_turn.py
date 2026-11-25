@@ -73,11 +73,12 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     it (`_program`), a checkout where a rebase, merge or cherry-pick stopped (`_stopped`), no login
     to lend, no recipe, no room there, a harness with no `sessions`, or a `session` to resume that
     this host does not hold, as here is where a later resume would look for it too.
-    `watch(argv, **kwargs)` runs ssh as the worker's watchdog runs a turn, into the out dir's
-    events.jsonl and stderr.log, its silence held while a command in the turn's container is
-    inside its declared timeout. A lost machine's turn fails, this host's files as they were, and
-    leaves `session`, the conversation it was given: the id it streamed names one that is nowhere.
-    One whose results came home leaves the conversation it reported, whatever its exit."""
+    `watch(argv, **kwargs)` runs ssh as the worker's watchdog runs a turn, handed
+    `machine=away.alias`, into the out dir's events.jsonl and stderr.log, its silence held while a
+    command in the turn's container is inside its declared timeout. A lost machine's turn fails,
+    this host's files as they were, and leaves `session`, the conversation it was given: the id it
+    streamed names one that is nowhere. One whose results came home leaves the conversation it
+    reported, whatever its exit."""
     harness = entry["harness"]
     try:
         on = any("turns" in machines.work(name) for name in [None, *machines.helpers()])
@@ -114,7 +115,8 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
             code, _, killed = watch(helper._remote(
                 away.alias, "turn", away.key, away.image, away.memory_mb, away.repo, *volumes,
                 "--", cwd, config.REPO, away.branch, away.default, *cmd),
-                declared=_declared(away), stdin=renewals, stdout=events, stderr=err)
+                declared=_declared(away), stdin=renewals, stdout=events, stderr=err,
+                machine=away.alias)
         if code == helper.FULL:    # its room went to another before it started: it runs here
             return None
         if not killed:    # the turn's own exit and conversation come home with its results
@@ -324,8 +326,9 @@ def _home(away, harness, cwd, out_dir, home):
         for name, data in files.items():
             path = out_dir / name[4:]
             # a file that came home unchanged keeps its time: the `harness` receipt's is when
-            # the turn began
-            if name.startswith("out/") and name not in ("out/events.jsonl", "out/stderr.log") \
+            # the turn began; `machine` is written on this host at launch, never from the container
+            if name.startswith("out/") and name not in ("out/events.jsonl", "out/stderr.log",
+                                                        "out/machine") \
                     and not (path.is_file() and path.read_bytes() == data):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(data)

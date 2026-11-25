@@ -286,6 +286,8 @@ READINGS_KEPT_FOR = 35 * 86400     # five weeks, of meters and of machines (read
 # the counts cost at the prices the stored boards listed for the model as they were written
 # (`_listed_usd`), NULL where they listed none or on a row from before it: a board drops a
 # model once its maker ships the next, and spend prices a row from the boards only without it.
+# `machine` is where the turn ran, as its kept readings name it (`readings.py`: this host's own
+# name or the listed machine name), NULL on a row from before it.
 TURN_USAGE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS turn_usage (
     turn TEXT,
@@ -301,7 +303,7 @@ CREATE TABLE IF NOT EXISTS turn_usage (
     output INTEGER
 )
 """
-TURN_USAGE_MIGRATIONS = (("listed_usd", "REAL"),)
+TURN_USAGE_MIGRATIONS = (("listed_usd", "REAL"), ("machine", "TEXT"))
 
 
 def path():
@@ -847,8 +849,8 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
                 # kept at once, so a later turn of the same session among `paths` sees them
                 connection.executemany(
                     "INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, "
-                    "input, cache_write, cache_read, output, listed_usd) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "input, cache_write, cache_read, output, listed_usd, machine) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     [(turn, run_id, role, *usage) for usage in usages])
     if not values:
         return
@@ -860,9 +862,9 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
 
 
 def _turn_usage(connection, plugin, run_id, out, priced):
-    """(account, model, began, at, input, cache write, cache read, output, listed usd) for each
-    model the turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them, `priced`
-    (`_listed_usd`) giving the last.
+    """(account, model, began, at, input, cache write, cache read, output, listed usd, machine)
+    for each model the turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them, `priced`
+    (`_listed_usd`) giving `listed_usd`.
 
     It began when its `harness` receipt was written and ended at its last event.  What a
     session's total exceeds is measured against the rows kept for the session's turns that began
@@ -904,8 +906,12 @@ def _turn_usage(connection, plugin, run_id, out, priced):
         account = (out / "account").read_text()
     except OSError:
         account = None
+    try:
+        machine = (out / "machine").read_text().strip() or None
+    except OSError:
+        machine = None
     at = _moment(out / "events.jsonl")
-    return [(account, model, began, at, *numbers, priced(model, numbers))
+    return [(account, model, began, at, *numbers, priced(model, numbers), machine)
             for model, numbers in counts.items()]
 
 
