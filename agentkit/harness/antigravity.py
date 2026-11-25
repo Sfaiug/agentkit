@@ -295,11 +295,17 @@ def running(record, cwd, conversation):
             model, folded = _fold(said)
             if not effort or model != said:
                 return model, effort or folded, at
+        rows = config.catalog_held("antigravity") + config.catalog_table("antigravity")
         label = re.sub(r" \([^()]*\)$", "", said)
-        named = config.model_label("antigravity", "", label)
-        model = next((row["id"] for row in config.catalog_table("antigravity")
-                      if config.model_label("antigravity", "", row["label"]) == named), label)
-        return model, effort, at
+        # Try the reported label as-is before stripping a bracketed effort so no-effort models
+        # whose own label ends in brackets (`Claude Sonnet 4.6 (Thinking)`) still resolve.
+        for candidate in (said, label) if label != said else (label,):
+            named = config.model_label("antigravity", "", candidate)
+            model = next((row["id"] for row in rows
+                          if config.model_label("antigravity", "", row["label"]) == named), None)
+            if model is not None:
+                return model, effort, at
+        return label, effort, at
     return latest
 
 

@@ -103,9 +103,20 @@ class AntigravityStatusLine(Sandbox):
 
     def test_catalog_labels_translate_for_other_models_too(self):
         status = self.launch()
+        listing = config.STATE / "listings/antigravity/default.json"
+        listing.parent.mkdir(parents=True, exist_ok=True)
+        listing.write_text(json.dumps({"models": [
+            {"id": "gemini-3.7-flash", "label": "Gemini 3.7 Flash",
+             "efforts": ["low", "medium", "high"]},
+            {"id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6 (Thinking)",
+             "efforts": ["none"]},
+        ]}))
         for label, model, effort in (("GPT-OSS 120B (Medium)", "gpt-oss-120b", "medium"),
-                                     ("Claude Sonnet 5.5 (High)", "claude-sonnet-5-5", "high")):
-            self.payload["model"] = {"id": label, "display_name": label, "effort": effort}
+                                     ("Claude Sonnet 5.5 (High)", "claude-sonnet-5-5", "high"),
+                                     ("Gemini 3.7 Flash (High)", "gemini-3.7-flash", "high"),
+                                     ("Claude Sonnet 4.6 (Thinking)", "claude-sonnet-4-6", None)):
+            self.payload["model"] = {"id": label, "display_name": label,
+                                     **({"effort": effort} if effort is not None else {})}
             self.render(status)
             self.assertEqual(antigravity.running({}, None, "conv-acme")[:2], (model, effort))
 
