@@ -582,23 +582,29 @@ class Live:
             if not self.watching.is_set():
                 continue                 # away since the wait: what it would read, nobody draws
             try:
-                began, now = CLOCK(), self.recorded()
-                self.configure()
-                if now == self.seen and not self.asked.is_set():
-                    continue
-                self.asked.clear()
-                look = self.looking
-                if look:
-                    self.looking = False     # a look asked for since is this one: it starts after
-                self.seen = now
-                self.read(look, began=began)
+                self.poll()
             except Exception:
                 # This thread is the only one reading the menu's rows, so a round that raises is
                 # dropped, not let end it, and what it could not read stays drawn as last read; a
                 # full STIR, asked or not, so one that always raises never spins.
                 self.done.wait(STIR)
-                continue
-            self._wake()
+
+    def poll(self):
+        """One round of the watcher: the records noted, and config.toml read again if it changed,
+        which asks for a read (`configure`); then, if the records moved or a read is asked for,
+        everything read again and one draw asked for.  Whether it asked."""
+        began, now = CLOCK(), self.recorded()
+        self.configure()
+        if now == self.seen and not self.asked.is_set():
+            return False
+        self.asked.clear()
+        look = self.looking
+        if look:
+            self.looking = False     # a look asked for since is this one: it starts after
+        self.seen = now
+        self.read(look, began=began)
+        self._wake()
+        return True
 
     def _wake(self):
         """Ask for one draw: a byte on the pipe the read is selecting on."""
