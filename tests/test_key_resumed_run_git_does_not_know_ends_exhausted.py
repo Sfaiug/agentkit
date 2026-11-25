@@ -6,7 +6,7 @@ home without the clone it was cut from -- git refuses `repository_lock` before a
 Treating that refusal as `exhausted` stops the tick's error-retry ladder from re-running it for a
 day before handing the ending to its seat; a run in a checkout git answers in carries on as usual.
 Black-box over `AK_BIN` through tests/fixtures/akbin.py, on the same fixtures as
-tests/test_key_error_retry.py, with `transitions.exhausted_wait` checked on the saved record.
+tests/test_key_error_retry.py.
 """
 
 import json
@@ -16,10 +16,7 @@ import sys
 import time
 import unittest
 
-TESTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS))
-sys.path.insert(0, str(TESTS.parent))
-from agentkit import transitions
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
@@ -75,6 +72,7 @@ class CheckoutGitDoesNotKnow(unittest.TestCase):
         (Path(cls.born["worktree"]) / ".git").write_text(f"gitdir: {missing}\n")
         cls.first = cls.home.tick()
         cls.after_first = record(cls.run_dir)
+        cls.status = cls.home.ak("run", "status", cls.run_dir.name)
         cls.second = cls.home.tick()
         cls.after_second = record(cls.run_dir)
 
@@ -90,7 +88,13 @@ class CheckoutGitDoesNotKnow(unittest.TestCase):
         self.assertIn("not a git repository", self.after_first["error"])
         for key in STAMPS:
             self.assertNotIn(key, self.after_first)
-        self.assertFalse(transitions.exhausted_wait(self.after_first))
+        self.assertFalse(self.after_first.get("quota_dry"))
+        self.assertNotIn("API/transport errors", self.after_first["error"])
+        self.assertEqual(self.status.code, 0, self.status.out + self.status.err)
+        rows = [line for line in self.status.out.splitlines() if self.born["title"] in line]
+        self.assertEqual(len(rows), 1, self.status.out)
+        self.assertIn("needs you", rows[0])
+        self.assertNotIn("● working", rows[0])
         self.assertTrue(Path(self.born["worktree"]).is_dir())
         self.assertTrue((self.run_dir / "run.json").is_file())
 
