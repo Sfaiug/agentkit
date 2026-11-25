@@ -60,7 +60,7 @@ def counted():
         task = runs[start:]
         by_run = [[row for row in reviewed.get(run["run_id"], ()) if _whole(row.get("round"), 1)]
                   for run in task]
-        first_round = min(by_run[0], key=lambda row: row["round"], default=None)
+        first_review = min(by_run[0], key=lambda row: row["round"], default=None)
         first = {**task[0], "reviewer_effort": first_efforts.get(task[0]["run_id"])}
         roles = {role: {"name": first.get(role), "effort": first.get(f"{role}_effort")}
                  for role in ROLES}
@@ -68,8 +68,8 @@ def counted():
             **roles, "tasks": 0, "first_run": 0, "live": 0, "first_pass": 0, "reviews": 0,
             "issues": 0, "hours": dict.fromkeys(HOURS, 0)})
         team["first_run"] += history.merged(task[0])
-        team["first_pass"] += bool(first_round and first_round["round"] == 1
-                                   and first_round.get("verdict") == "PASS")
+        team["first_pass"] += bool(first_review and first_review["round"] == 1
+                                   and first_review.get("verdict") == "PASS")
         team["reviews"] += sum(map(len, by_run))
         team["issues"] += sum(row["blocking"] for rows in by_run for row in rows
                               if _whole(row.get("blocking")))
