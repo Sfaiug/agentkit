@@ -211,21 +211,21 @@ def for_seat(name, repo=None):
     an adapter writes at launch is that seat's -- and a launch is often made from another seat,
     whose name is the one this process inherited.  `repo`, the project a new seat is filed under
     ("" for none), goes in $AGENTKIT_SEAT_REPO, since its record is written once it has opened;
-    without one the rulebook reads the seat's record.
+    without one the rulebook reads the seat's record, whatever project this process inherited.
     """
-    told = {config.SESSION_ENV: name or ""}
-    if repo is not None:
-        told[config.SEAT_REPO_ENV] = repo
-    before = {key: os.environ.get(key) for key in told}
-    os.environ.update(told)
-    try:
-        yield
-    finally:
-        for key, value in before.items():
+    def put(values):
+        for key, value in values.items():
             if value is None:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+    told = {config.SESSION_ENV: name or "", config.SEAT_REPO_ENV: repo}
+    before = {key: os.environ.get(key) for key in told}
+    put(told)
+    try:
+        yield
+    finally:
+        put(before)
 
 
 def account_order(cfg, model, readings, first=None):
@@ -347,8 +347,9 @@ def command_env(cmd):
     return values
 
 
-def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None):
-    """(command, conversation) for a seat opening a conversation of its own.
+def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None, repo=None):
+    """(command, conversation) for a seat opening a conversation of its own, `repo` the project
+    of a new one that no record says yet (`for_seat`).
 
     The id is generated here, before anything starts, and handed to the adapter as one its
     harness has not opened yet, so the seat owns it from the moment it is launched.  A TUI that
@@ -357,7 +358,7 @@ def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None):
     hook and OpenCode through its seat plugin.
     """
     conversation = str(uuid.uuid4())
-    with for_seat(seat):
+    with for_seat(seat, repo):
         rulebook = write_rulebook(seat or "")
         cmd = command(cfg, name, conversation, fresh=True, account=account, rulebook=rulebook,
                       line=line, cwd=cwd)
@@ -2979,22 +2980,22 @@ def write_rulebook(session):
     first seat opens with its rules.  A dry run fetches nothing.  A file that cannot be written
     refuses the launch: a session is opened with its rules or not at all.
     """
-    repo = os.environ.get(config.SEAT_REPO_ENV)
-    if repo is None:
-        repo = config.session_records().get(session, {}).get("repo") or ""
+    new = os.environ.get(config.SEAT_REPO_ENV)
     path = config.rulebook_path(session)
-    if os.environ.get(config.RULEBOOK_DIR_ENV):
-        path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
-    elif repo and not fetched(Path(repo)):
+    with look.one_look():     # the project it fetches is the one its rulebook reads
+        repo = new if new is not None else config.session_records().get(session, {}).get("repo")
+        if os.environ.get(config.RULEBOOK_DIR_ENV):
+            path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
+        elif repo and not fetched(Path(repo)):
+            try:
+                fetch_project(Path(repo))
+            except config.Error:
+                pass
         try:
-            fetch_project(Path(repo))
-        except config.Error:
-            pass
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(config.seat_rulebook(session, repo))
-    except OSError as exc:
-        raise config.Error(f"no rulebook for {session or 'this seat'}: {exc}") from exc
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(config.seat_rulebook(session, new))
+        except OSError as exc:
+            raise config.Error(f"no rulebook for {session or 'this seat'}: {exc}") from exc
     return path
 
 
@@ -4959,19 +4960,22 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     extra.update(zip(("reviewers", "efforts"), selected[3:]))
-    if unnamed and not dry_run:
+    saved = unnamed and not dry_run
+    if saved:
         # The adapter writes the rulebook while building its command, before the seat starts.
         extra["unnamed"] = True
         config.save_session(cfg, name, model, workers, extra)
     elif not dry_run:
         config.update_session(name, unnamed=None)
     try:
-        # the project this launch files it under, which no record says yet
-        with scratch(dry_run), for_seat(name, str(repo) if repo else ""):
+        # the project this launch files it under where no record says it yet: one saved above
+        # says it, with the builders the seat opens with
+        filed = None if saved else str(repo) if repo else ""
+        with scratch(dry_run):
             cmd, conversation = fresh_command(config.at_efforts(cfg, extra), model, seat=name,
-                                              account=account, cwd=cwd)
+                                              account=account, cwd=cwd, repo=filed)
     except Exception:
-        if unnamed and not dry_run:
+        if saved:
             config.discard_session(name, extra["created"])
         raise
     if not dry_run:
@@ -5050,8 +5054,8 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
         model, reason, workers = select(cfg, providers, prompting=False)
     # The usual login when none answers, as this seat always opened: it has a question to take.
     account = opening_account(cfg, model, providers, True)
-    with for_seat(name, str(repo) if repo else ""):
-        cmd, conversation = fresh_command(cfg, model, seat=name, account=account, cwd=seat_cwd())
+    cmd, conversation = fresh_command(cfg, model, seat=name, account=account, cwd=seat_cwd(),
+                                      repo=str(repo) if repo else "")
     extra = {"cwd": str(seat_cwd()), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     if conversation:
