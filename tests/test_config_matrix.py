@@ -62,15 +62,28 @@ with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
 print("<left>", flush=True)
 """
+# A terminal's answer, to the child: no key (terminal.read_key), read only once the child is done
+# with every key before it.
+PROBE = b"\x1b]\x07"
 # Run before every child's own code: each page as drawn from its first frame, nothing fading, so
-# the frame read after a key is the page it drew, not the menu's next idle redraw or a fade.
+# the frame read after a key is the page it drew, not the menu's next idle redraw or a fade; and
+# PROBE, as its own bytes are read, said back after what the child drew (Screen.through).
 FADELESS = """
 import os, sys
 sys.path.insert(0, os.environ["MATRIX_REPO"])
 from agentkit import motion
 motion.FADE = 0
 motion.Clock.light = lambda clock, now, moves: None
-"""
+def _probed(fd, size, read=os.read, probe=%r, seen=[b""]):
+    got = read(fd, size)
+    if fd == sys.stdin.fileno():
+        seen[0] = (seen[0] + got)[-len(probe):]
+        if seen[0] == probe:        # never another answer, as a terminal's late one to `sense`
+            sys.stdout.flush()
+            os.write(sys.stdout.fileno(), probe)
+    return got
+os.read = _probed
+""" % PROBE
 HAIKU = """
 [models.haiku]
 harness = "claude"
@@ -193,6 +206,15 @@ class Screen:
         while where is None and len(self.text()) == mark and time.monotonic() < quiet:
             time.sleep(.01)
         return self.frame(where, after=mark if "\x1b[?2026h" in self.text()[mark:] else 0)
+
+    def through(self, keys):
+        """Keys, then the screen once the child is done with them, however slow it is to draw and
+        whatever they drew: nothing, at the end of a list.  Keys alone: a pointer's move is
+        answered after what follows it is read."""
+        mark = len(self.text())
+        os.write(self.master, keys + PROBE)
+        self.saw(PROBE.decode(), after=mark)
+        return self.frame()
 
     def click(self, col, row, where=None):
         """The left button down and up at `col`, `row`, as a terminal in mode 1006 reports it."""

@@ -136,7 +136,7 @@ def open_page(screen):
             screen.case.assertTrue(" ".join(" ".join(lines[-2:]).split()).endswith(
                 " ".join(KEYS["row"].split())), lines[-2:])
             return screen.press(ENTER, lambda lines: title(lines) == PAGE)
-        lines = screen.press(DOWN)
+        lines = screen.through(DOWN)
     screen.case.fail(f"no `Subscriptions`: {lines}")
 
 
@@ -150,7 +150,7 @@ def open_row(screen, name):
         if named(lines) == name:
             screen.case.assertRegex(lines[-1], r"^  ↑↓←→ move   (⏎ [a-z ]+   )?esc back$")
             return lines
-        lines = screen.press(key)
+        lines = screen.through(key)
     screen.case.fail(f"no row of {name}: {lines}")
 
 
@@ -312,6 +312,36 @@ class ProviderScreen(unittest.TestCase):
         self.assertNotIn("anthropic", screen.saved()["providers"])
         back(screen)
         screen.leave()
+
+    def test_a_screen_slow_to_draw_is_walked_to_its_row(self):
+        # as a loaded host slows it: each Down drawn 0.7 s late, past Screen.press's half second
+        # of quiet, the screen drawn again first with its clock on; a terminal's late answer, no
+        # key, ahead of each key; a short screen, its first subscription scrolled off its top
+        # once the last row is lit
+        slow = r"""
+import itertools, time
+from agentkit import terminal
+minutes, strftime = itertools.count(), time.strftime
+time.strftime = lambda form, *at: (strftime(form, *at) if at or form != "%H:%M"
+                                   else f"00:{next(minutes) % 60:02}")
+def read_key(*args, read=terminal.read_key, held=[], **kwargs):
+    if held:
+        time.sleep(.7)
+        return held.pop()
+    key = read(*args, **kwargs)
+    if key is not None and key.name == "down":
+        held.append(key)
+        return None             # no key yet: drawn again
+    return key
+terminal.read_key = read_key
+"""
+        screen = Screen(self, child=slow + CHILD, rows=9,
+                        text=ONE + 'accounts = ["default", "a1", "b2", "c3"]\n')
+        through = screen.through
+        screen.through = lambda keys: through(b"\x1b[?1;2c" + keys)     # its attributes (DA1)
+        first = named(open_page(screen))
+        self.assertEqual(named(open_providers(screen)), "+ add a subscription")
+        self.assertEqual(named(open_row(screen, first)), first)
 
     def test_two_providers_of_one_name_are_told_apart(self):
         house = ('\n[models.house]\nharness = "claude"\nmodel = "claude-sonnet-5"\n'
