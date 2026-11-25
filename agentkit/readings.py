@@ -8,10 +8,10 @@ format, which nothing else in ak knows:
   line means nothing.  A check with no reading to write opens no file.
 - A line is a JSON object: `at`, the check's time; then `home`, this host's name, for this
   machine, or `machine`, the name it was added under, for any other, so the two are never
-  taken for each other; then the reading as machines.json holds it.  A reading JSON cannot hold
+  taken for each other; then the reading as machines.json takes it.  A reading JSON cannot hold
   (`allow_nan=False`) is left out.
-- After its write, a check unlinks each file named as a day before history.READINGS_KEPT_FOR
-  back; a file of any other name stays.
+- After its write, a check unlinks each file named a date `datetime.date.fromisoformat` reads
+  and `.jsonl`, of a day before the check's less history.READINGS_KEPT_FOR; no other name.
 
 Nothing here reads what it wrote, and what the disk refuses is skipped: the check goes on.
 """
@@ -54,4 +54,3 @@ def keep(at, said):
 
 def _date(at):
     return datetime.datetime.fromtimestamp(at, datetime.timezone.utc).date()
-
