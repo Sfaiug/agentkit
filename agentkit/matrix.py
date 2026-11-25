@@ -704,11 +704,11 @@ def by_plan(days):
     `week_meters.days`'s, summed by plan, the points to six significant digits."""
     plans = {}
     for provider, plan, points, tokens in days:
-        summed = plans.setdefault(provider, {}).setdefault(plan, ([], {}))
-        summed[0].append(points)
+        summed = plans.setdefault(provider, {}).setdefault(plan, [0, {}])
+        summed[0] += points
         for model, count in tokens.items():
             summed[1][model] = summed[1].get(model, 0) + count
-    return {provider: {plan: {"points": float(f"{math.fsum(points):.6g}"), "tokens": tokens}
+    return {provider: {plan: {"points": float(f"{float(points):.6g}"), "tokens": tokens}
                        for plan, (points, tokens) in found.items()}
             for provider, found in plans.items()}
 
