@@ -56,7 +56,7 @@ class ANoticeHasAksFrame(unittest.TestCase):
         the note below it cleared."""
         return self.menu.wait(
             lambda screen: (lines := shown(screen)) and lines[0].startswith("agentkit")
-            and "agentkit · note" not in lines[0] and lines[-1].endswith("esc leave"))
+            and "agentkit · note" not in screen and lines[-1].endswith("esc leave"))
 
     def note(self, said):
         """The note frame once up, read: `said` wrapped two spaces in under the header and its
