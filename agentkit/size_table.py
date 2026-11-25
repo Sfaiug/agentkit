@@ -42,9 +42,8 @@ def lines(sizes, limit, width):
         return [*head, "", terminal.styled(table[0], "muted"), *table[1:]]
     folded = []
     for label, tasks, shown, mark in rows:
-        first = [f"{label:<{wide[0]}}", f"{tasks:>{wide[1]}} task{'s' * (tasks != 1)}",
-                 *[mark] * bool(mark)]
-        folded += [*_packed(first, "  ", width),
+        folded += [*_packed([label, f"{tasks} task{'s' * (tasks != 1)}", *[mark] * bool(mark)],
+                            "  ", width),
                    *_packed([f"{name} {text}" for name, text in shown.items()], "    ", width)]
     return [*head, "", *folded]
 
