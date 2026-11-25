@@ -12,8 +12,12 @@ So does `orch.reopen`, which a pane's end calls as well, before it marks a seat 
 off a question as asking again.
 
 `orch.switch_orchestrator`, for a seat tmux lost, names the home in its one line and leaves HOME
-as it was but for the locks its try at a move in place took: it asks before it reads the seat's
-handover, so puts none back, and before the seat's record or its rulebook is written.
+as it was but for the locks its try at a move in place took: it asks outside what puts a handover
+back, and before the seat's record or its rulebook is written.
+
+A machine install.sh makes a client while `resume` reads tmux, or the efforts its command runs
+at, or while the move reads the seat's handover, is refused as well, before the seat's rulebook is
+written: `resume` asks again before its command is built, and the move asks only after that read.
 
 `orch.start` itself refuses a caller that did not ask, as one added later would, before it asks
 tmux for anything.
@@ -23,6 +27,8 @@ Offline: fixtures.sandbox's HOME, where tmux holds no seat.
 """
 
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
@@ -75,6 +81,41 @@ class AClient(Sandbox):
             said = orch.switch_orchestrator(self.cfg, "acme", "opus", providers={})
         self.assertIn("acme-box", said)
         self.assertEqual(unlocked(), before)
+
+    @contextmanager
+    def made_a_client_by(self, owner, read, when=lambda *args: True):
+        """`owner.read` records a server once it has answered, where `when` says so of what it was
+        asked, as install.sh may while it is read: HOME has none till then.  A rulebook written
+        meanwhile fails the test."""
+        server, real = config.STATE / "server", getattr(owner, read)
+        server.unlink()
+
+        def answers(*args, **kw):
+            try:
+                return real(*args, **kw)
+            finally:
+                if when(*args):
+                    server.write_text("acme-box\n")
+
+        unwritten = patch.object(orch, "write_rulebook",
+                                 side_effect=AssertionError("a rulebook written"))
+        with patch.object(owner, read, answers), unwritten:
+            yield
+
+    def test_resume_refuses_a_machine_made_a_client_while_it_read(self):
+        # tmux, where the seat is lost, and the last it reads: the efforts its command runs at
+        for owner, read in ((orch, "find"), (config, "at_efforts")):
+            with self.subTest(read=read), self.made_a_client_by(owner, read):
+                with self.assertRaisesRegex(config.Error, "acme-box"):
+                    orch.resume(self.cfg, "acme", hand_over=False)
+
+    def test_a_move_refuses_a_machine_made_a_client_while_it_read_the_handover(self):
+        handed = config.seat_file("handover", "acme")
+        with self.made_a_client_by(Path, "read_bytes", lambda path: path == handed), \
+                patch.object(orch, "_switch_plan", return_value=("", None)), \
+                patch.object(orch, "unhanded", side_effect=AssertionError("a handover put back")):
+            said = orch.switch_orchestrator(self.cfg, "acme", "opus", providers={})
+        self.assertIn("acme-box", said)
 
     def test_start_refuses_a_caller_that_did_not_ask_before_it_asks_tmux(self):
         with patch.object(orch, "tmux_out", side_effect=AssertionError("tmux was asked")):

@@ -2558,6 +2558,9 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         raise config.Error(f"{name}: recorded directory is unavailable: {ran_in}")
     cwd = ran_in if ran_in.is_dir() else seat_cwd()
     held = config.at_efforts(cfg, record)      # at the seat's own efforts
+    # A client is refused here too, before the command's build writes the seat's rulebook:
+    # install.sh may record a server during a read above, tmux's among them.
+    refuse_client()
     with scratch(dry_run):
         if recorded:
             cmd, line = resume_command(held, orchestrator, recorded, ran_in, seat=name,
@@ -4774,13 +4777,6 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
         session = dict(session, pane=harness_pane(name, seat_socket(session)))
         if not session["pane"]:
             return f"{name} stays on {old_model}: tmux named no pane of it"
-    else:
-        # tmux lost it: restarted, it is in a new session, which a client is refused before the
-        # move reads its handover, so that the refusal puts none back over one copied since
-        try:
-            refuse_client()
-        except config.Error as exc:
-            return _one_line(exc)
     pane = (watch.pane_capture(session)
             if session and not any(session.get(key) for key in CLOSED) else "")
     live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
@@ -4793,6 +4789,14 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
         before = handed.read_bytes()
     except FileNotFoundError:
         before = None
+    if not session:
+        # tmux lost it: restarted, it is in a new session, which a client is refused here.  After
+        # the reads above, as install.sh may record a server during one, and before the `try`,
+        # whose refusals put the handover back as it was read, over one copied since.
+        try:
+            refuse_client()
+        except config.Error as exc:
+            return _one_line(exc)
     try:
         given = None if kept else handover(record, old_model, old_harness, owned)
         if given:
