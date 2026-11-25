@@ -9,17 +9,19 @@ ever started.
 """
 
 from contextlib import ExitStack, redirect_stdout
+import fcntl
 import io
 import json
 import os
-import queue
 from pathlib import Path
 import re
 import select
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
 import unittest
@@ -239,13 +241,24 @@ class LiveStatus(unittest.TestCase):
         self.assertLess(menu.LOOK_EVERY, 2)
         self.hook("Stop")
         watch.hook_look("herdr")                       # at its prompt, and recorded so
-        screens, out, handed = [], io.StringIO(), queue.SimpleQueue()
+        screens, woken, out, handed = [], [], io.StringIO(), []
+        watch_ = menu.Live.watch
+
+        def watching(live, last):
+            live.watcher = threading.current_thread()   # one in place: `watch` starts none, and
+            handed.append(live)                         # each round is the test's
+            return watch_(live, last)
 
         def answers():
-            live = handed.get()
+            live, = handed
+
+            def captured():
+                live.looker.join()                     # any look a round started, over
+                return self.pane.call_count
+
             live.looker.join()                         # the first frame's own look ...
-            first = self.pane.call_count
             self.assertTrue(live.poll())               # ... drawn by the round it asked for
+            first = captured()
             yield None
             # another process's look: the seat's record and its bar move under the open menu, a
             # round between its two writes, what it saw and then its word
@@ -268,7 +281,7 @@ class LiveStatus(unittest.TestCase):
             yield None
             self.assertFalse(live.poll())              # nothing changed
             # the flip's own look captured the one pane; the rounds, none
-            self.assertEqual(self.pane.call_count, first + 1)
+            self.assertEqual(captured(), first + 1)
             yield ""
 
         steps = answers()
@@ -278,16 +291,20 @@ class LiveStatus(unittest.TestCase):
             screens.append(terminal.plain(out.getvalue()))
             out.seek(0)
             out.truncate()
-            return next(steps)
+            answer = next(steps)
+            # the draws its rounds asked for: the bytes on the pipe this wait selects on, unread
+            woken.append(struct.unpack("i", fcntl.ioctl(wake, termios.FIONREAD, bytes(4)))[0])
+            return answer
 
         with patch.object(orch, "listing",
                           side_effect=lambda *a, **k: [dict(self.seat, repo=self.repo)]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu.Live, "probe", return_value=False), \
-                patch.object(menu.Live, "_watch", lambda live: handed.put(live)), \
+                patch.object(menu.Live, "watch", watching), \
                 patch.object(menu, "wait_key", side_effect=wait_key), \
                 redirect_stdout(out):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
+        self.assertEqual(woken, [1, 1, 1, 1, 0])
         rows = [[line for line in screen.splitlines() if " herdr " in line][0]
                 for screen in screens]
         self.assertEqual(len(rows), 5)
