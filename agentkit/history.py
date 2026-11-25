@@ -1523,9 +1523,9 @@ def round_endings():
 
 
 def first_review_sizes():
-    """For `Limits`' line limits, its bars (menu.size_chart) and the words under them
-    (menu.lines_said) the same runs: of those REAL_WORK counts that ended with a verdict on the
-    work (`record.JUDGED`), (builds, own pull requests), each (started_at, first_review_lines,
+    """For `Limits`' line limits, the words under each (menu.lines_said) and the orchestrator's
+    bars (menu.size_chart) the same runs: of those REAL_WORK counts that ended with a verdict on
+    the work (`record.JUDGED`), (builds, own pull requests), each (started_at, first_review_lines,
     passed) in start order: a build is no own pull request and reviews none, passed in round 1;
     an own pull request (kind `seat PR` or own_orchestrator set) is a change's runs, its biggest
     first review, one merged in round 1 -- a pass need not merge, as with --no-merge."""
