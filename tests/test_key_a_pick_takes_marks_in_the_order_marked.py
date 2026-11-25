@@ -1,5 +1,6 @@
-"""A pick takes a role's marks in the order marked (the owner, 24 Nov 2026: "I want the user to
-have full controll."): no lineup, rank or usage left reorders them.
+"""A pick for no run takes a role's marks in the order marked, and a run's in its draw among them
+(tests/test_key_a_run_draws_its_executor_and_reviewer.py): no lineup, rank or usage left
+reorders them (the owner, 24 Nov 2026: "I want the user to have full controll.").
 
 Two executors are marked, wren and then lark, each on a one-login provider of its own.  The
 lineup a `ak models` stores rates lark far above wren to execute, better and cheaper, and lark's

@@ -29,7 +29,9 @@ class TransientHandover(unittest.TestCase):
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "handover-test",
-            "TMUX_TMPDIR": str(self.root), "PYTHONDONTWRITEBYTECODE": "1"}))
+            "TMUX_TMPDIR": str(self.root), "PYTHONDONTWRITEBYTECODE": "1",
+            # picks as marked, whatever draw the caller's environment holds
+            "AK_PICK_DRAW": ""}))
         self.stack.enter_context(patch.object(config, "active_session", return_value=None))
         config.ensure_dirs()
         self.cfg = {"defaults": {"orchestrator": "alpha",

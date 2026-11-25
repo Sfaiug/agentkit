@@ -14,9 +14,9 @@ anything.
 Exhaustion is the one hard exclusion of usage, and it is not a knob: a meter is spent at 100%
 used and not one point earlier, because a subscription is bought to be used to the end.
 Beside it, a model off in the model list (`matrix.off`) is never picked.  The worker
-pick (`pick_order`) takes whatever is left in the order the role's marks list it; the
-orchestrator choice (`ak orch`) ignores every number and takes the default orchestrator while
-it still has something to spend.
+pick (`pick_order`) takes whatever is left in an order drawn per run among the role's marks;
+the orchestrator choice (`ak orch`) ignores every number and takes the default orchestrator
+while it still has something to spend.
 
 Credits an adapter reports (`"credits": <number left>`) are usage left past a spent window:
 such a provider is not spent, only ranked after every one with a window left (`on_credits`),
@@ -26,6 +26,7 @@ nothing bounds them.
 """
 
 import fcntl
+import hashlib
 import itertools
 import json
 import math
@@ -1920,10 +1921,15 @@ def marked(cfg, workers=None, role="executor", reviewers=None):
 
 
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
-               repo=None, skip=(), reviewers=None):
-    """The workers for a role in the order the role's marks list them (`marked`), a model on
-    credits (`on_credits`) after every one with a window left; nothing else orders them.  The
-    owner, 24 Nov 2026: "I want the user to have full controll."
+               repo=None, skip=(), reviewers=None, draw=None):
+    """The workers for a role in an order drawn from a text, the role and each one's name alone,
+    a model on credits (`on_credits`) after every one with a window left; nothing else orders
+    them, and the lab rule over it is `staffing.best_pair`'s.  The owner, 24 Nov 2026: "exec if
+    multiple, then choose randomly 50/50 no preferance".  The text is `AK_PICK_DRAW` where the
+    environment sets it, the tests' seam, else `draw`, else the id of the run this thread serves
+    (`gitcall._RUN_CONTEXT`): so every pick for one run, in whichever process, gives one order,
+    and across runs each of N candidates comes first about one time in N.  With no text, or an
+    empty one -- a pick for no run -- they come as the role's marks list them (`marked`).
 
     The exclusions are a model off in the model list (`matrix.off`) and a gate meter at 100%
     used with no credits left; `skip` names models a caller leaves out before any of this reads
@@ -1969,7 +1975,17 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
                 provider = config.model(cfg, name)["provider"]
                 print(f"pick {role}: {name} ({provider}) budget {budget:g} unknown: "
                       f"{reason.removeprefix('unknown: ')}", file=sys.stderr)
-    return sorted(candidates, key=lambda n: on_credits(cfg, n, providers))
+    # the environment's own bytes, not the text a locale decodes them to: every process handed
+    # the same AK_PICK_DRAW draws alike
+    text = os.environb.get(b"AK_PICK_DRAW")
+    if text is None:
+        text = (draw if draw is not None else
+                getattr(gitcall._RUN_CONTEXT, "state", {}).get("run_id") or "").encode()
+
+    def drawn(name):     # not `hash`, which each process salts anew
+        return hashlib.sha256(text + f"\0{role}\0{name}".encode()).digest() if text else b""
+
+    return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers), drawn(n)))
 
 
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
@@ -2348,7 +2364,8 @@ def render(cfg, providers, order, *, repo=None):
               for note in prov.get("notes") or []]
     lines += [f"{name}: {credits_note(prov)}" for name, _, prov, _ in _accounts(cfg, providers)
               if credits_note(prov)]
-    lines.append("pick order: " + (", ".join(order) if order else "(none: every worker's provider is exhausted)"))
+    lines.append("drawn per run among: "
+                 + (", ".join(order) if order else "(none: every worker's provider is exhausted)"))
     pair = review_pair(cfg, providers)
     if pair:
         lines.append(f"review: {pair['executor']} by {pair['reviewer']}"

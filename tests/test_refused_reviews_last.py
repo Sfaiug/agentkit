@@ -23,7 +23,8 @@ class RefusedReviewsLast(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(patch.dict(os.environ, {"HOME": tmp.name}))
+        # picks as marked, whatever draw the caller's environment holds
+        self.stack.enter_context(patch.dict(os.environ, {"HOME": tmp.name, "AK_PICK_DRAW": ""}))
         self.stack.enter_context(patch.object(config, "HOME", Path(tmp.name)))
         self.stack.enter_context(patch.object(config, "active_session", return_value=None))
         self.cfg = {"defaults": {"workers": ["acme-build", "beta-build"]},

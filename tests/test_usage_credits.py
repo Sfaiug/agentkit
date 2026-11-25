@@ -84,6 +84,10 @@ class Picks(unittest.TestCase):
         self.state.start()
         self.addCleanup(self.state.stop)
         config.STATE.mkdir(exist_ok=True)
+        # picks as marked, whatever draw the caller's environment holds
+        env = patch.dict(os.environ, {"AK_PICK_DRAW": ""})
+        env.start()
+        self.addCleanup(env.stop)
         self.cfg = tomllib.loads((REPO / "config.default.toml").read_text())
         for model in ("grok", "gemini", "mimo"):
             self.cfg["providers"].pop(self.cfg["models"].pop(model)["provider"])

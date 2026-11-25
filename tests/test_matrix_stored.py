@@ -2,7 +2,8 @@
 `state/matrix.json` (`matrix.refresh`), computed again only once a board answered anew or the
 config's models or the harnesses installed changed; a lineup an earlier build stored still
 matches the board's rows by their name until then.  The model list (`matrix.off`) rates one
-stored lineup once, however often a run picks, and the pick keeps the order marked.
+stored lineup once, however often a run picks, and no rating reorders the pick: with no draw,
+as here, it keeps the order marked (`usage.pick_order`).
 
 Offline: the boards answered by bytes, the catalogs and installed harnesses faked
 (tests/test_model_rows.py), or an invented lineup (tests/test_matrix_lineup.py's); fake meters,

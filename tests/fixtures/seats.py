@@ -50,7 +50,7 @@ class Seats(unittest.TestCase):
         stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_SESSION": SENDER, "AGENTKIT_RUN": "",
             "AK_PARENT_RUN": "", "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
-            "AK_NOTIFY_SINK": "dry-run"}))
+            "AK_NOTIFY_SINK": "dry-run", "AK_PICK_DRAW": ""}))
         for name in ("HOME", "STATE", "RUNS", "WT", "WORK", "TMP", "SECRETS", "ENV", "CODE"):
             stack.enter_context(patch.object(config, name, self.root / ".agentkit" / name.lower()))
         self.cfg = config.load()

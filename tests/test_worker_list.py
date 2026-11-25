@@ -6,7 +6,8 @@ adapter, pid or model call appears anywhere in here. What is pinned is that a ru
 its executor, its reviewer, every handover and every fixer only from the `workers` list
 its session held at launch -- never a wider list from the process's own seat, never one
 the session record grew later -- parks `exhausted` with the reason when that list holds
-nobody eligible, and re-picks both roles as one pair on a handover, in the order marked.
+nobody eligible, and re-picks both roles as one pair on a handover, in the run's draw (with no
+draw, as here, as marked).
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
@@ -42,7 +43,7 @@ class WorkerList(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
-            "AK_MAX_RUNS": "0",
+            "AK_MAX_RUNS": "0", "AK_PICK_DRAW": "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "PYTHONDONTWRITEBYTECODE": "1"}))
         # the park test drives a whole run: what the host reads must not decide whether
         # its launch is admitted, or a loaded machine parks the test instead of the run

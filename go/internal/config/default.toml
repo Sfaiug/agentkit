@@ -10,8 +10,8 @@ max_runs = 0              # no count cap; host memory is the gate
 # run_memory_max_mb, when set, is one run's memory cap in MiB. Unset, the cap is
 # 40% of the slice's MemoryMax (4 GB where there is no ceiling), and swap is capped the same.
 pace_margin = 10          # a subscription more than this far ahead of pace no longer keeps a
-                          # payg provider out; workers come in the order marked, and the
-                          # orchestrator choice reads no pace
+                          # payg provider out; workers come in an order drawn per run, and
+                          # the orchestrator choice reads no pace
 # remote_control = false starts a seat's harness without its Remote Control, where it has one
 # (Claude Code's, its session still named after the seat, and Codex's). Absent, it is on.
 # A seat already running keeps what it started with until its next launch.
@@ -25,9 +25,9 @@ pace_margin = 10          # a subscription more than this far ahead of pace no l
 # [defaults] is what a new seat takes with Enter, and what anything outside a seat works with.
 # Orchestrator = the default while none of its meters reads 100% used, else the first model in
 # this file's order that can still be spent, else the default anyway with a WARN.
-# Executor = the first worker in the order marked that can run now, one on credits after every
-# one with a window left.
-# Reviewer = the first marked the same way for reviewing, of another lab (its maker) while
+# Executor = the first worker that can run now in an order drawn at random per run among those
+# marked, one on credits after every one with a window left.
+# Reviewer = the first drawn the same way for reviewing, of another lab (its maker) while
 # one marked has usage, else of the executor's, else the executor's own model, marked
 # self-reviewed. A meter at 100% used removes a worker even without a reset time, and so does
 # a harness that is not installed or not logged in. The menu's `c` screen changes both defaults.
