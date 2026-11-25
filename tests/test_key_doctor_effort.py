@@ -85,6 +85,26 @@ class DoctorEffort(unittest.TestCase):
         self.assertIn(FITS, lines)
         self.assertFalse([line for line in lines if ", not " in line], lines)
 
+    def test_a_suffixed_full_id_at_none_fits_when_its_base_model_takes_that_effort(self):
+        script = LISTING.replace("low medium", "low xhigh").format(
+            script=shlex.quote(str(ECHO / "echo.sh")))
+        manifest = ('\n[effort]\nlevels = ["low", "high", "xhigh", "max"]\nsuffixed_ids = true\n'
+                    '\n[catalog."echo-1"]\nefforts = ["low", "xhigh"]\n')
+        env = self.adapters("suffixed-live", script=script, manifest=manifest)
+        lines = self.doctor(env, {
+            "legacy": {"harness": "echo", "model": "echo-1-xhigh", "effort": "none"}})
+        self.assertIn(FITS, lines)
+        lines = self.doctor(env, {
+            "wrong_effort": {"harness": "echo", "model": "echo-1-xhigh", "effort": "low"},
+            "unoffered": {"harness": "echo", "model": "echo-1-max", "effort": "none"}})
+        self.assertIn("effort  wrong_effort: echo-1-xhigh takes none, not low", lines)
+        self.assertIn("effort  unoffered: echo-1-max takes low high xhigh max, not none", lines)
+        # and from the manifest's `[catalog]` when there is no live listing
+        env = self.adapters("suffixed-table", manifest=manifest)
+        lines = self.doctor(env, {
+            "legacy": {"harness": "echo", "model": "echo-1-xhigh", "effort": "none"}})
+        self.assertIn(FITS, lines)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -831,6 +831,14 @@ class Antigravity(unittest.TestCase):
         proc = self.adapter("models", env={"STUB_MODELS": str(listing)})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.splitlines(), [f"acme-1\tAcme 1\t{' '.join(levels)}"])
+        # models ignores shadowing Python modules in the caller's cwd and PYTHONPATH
+        shadow = self.root / "shadow"
+        shadow.mkdir()
+        (shadow / "datetime.py").write_text("# shadows stdlib datetime\n")
+        proc = self.adapter("models", cwd=shadow,
+                            env={"STUB_MODELS": str(listing), "PYTHONPATH": str(shadow)})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines(), [f"acme-1\tAcme 1\t{' '.join(levels)}"])
         screen = watch.screen("antigravity")
         draft_rule = next(rule for rule in screen["rules"] if rule["id"] == "draft.typed")
         for word in levels:

@@ -237,8 +237,10 @@ signatures = [
 "Google AI Ultra" = 99.99
 
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
+# `suffixed_ids`: a legacy `<model>-<effort>` full id at effort `none` still runs that effort.
 [effort]
 levels = ["low", "medium", "high", "xhigh", "max"]
+suffixed_ids = true
 
 # The models this harness runs when `agy models` cannot say: what agy 1.5.17 listed, each
 # effort-suffixed id folded into its model the way `models` in adapters/antigravity.sh folds

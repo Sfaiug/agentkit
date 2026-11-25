@@ -370,7 +370,7 @@ models)
   # strongest last; an id with no effort word is a model agy runs at no effort, `none`.  A
   # listing that fails or says nothing fails: config.catalog decides what stands in, and how
   # long it waits.
-  listed=$(agy ${DATA:+"$DATA"} models 2>/dev/null | python3 -c 'import re, sys, tomllib
+  listed=$(agy ${DATA:+"$DATA"} models 2>/dev/null | python3 -I -c 'import re, sys, tomllib
 with open(sys.argv[1], "rb") as fh:
     ladder = tomllib.load(fh)["effort"]["levels"]
 known, labels, took = set(ladder), {}, {}

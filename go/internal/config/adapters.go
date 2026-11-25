@@ -319,9 +319,22 @@ func Hooks(harness string) (HookTable, bool, error) {
 // fixedEfforts are the effort words of a harness whose manifest names none (config.EFFORTS).
 var fixedEfforts = []string{"low", "medium", "high", "xhigh", "max", "ultra"}
 
+// SuffixedEfforts is whether that harness accepts `<model>-<effort>` as a full model id at
+// effort `none`, when `[effort] suffixed_ids = true` in its manifest.
+func SuffixedEfforts(harness string) bool {
+	manifests, err := manifests()
+	if err != nil || manifests[harness] == nil {
+		return false
+	}
+	block, _ := manifests[harness].values["effort"].(*table)
+	yes, _ := block.get("suffixed_ids").(bool)
+	return yes
+}
+
 // Efforts are the effort words that harness's model takes, as config.efforts reads them where
-// no login has listed the harness's models: its manifest's `[catalog]` row, else its `[effort]
-// levels` where each is a word, else the fixed list.
+// no login has listed the harness's models: its manifest's `[catalog]` row, or `none` for a
+// `<model>-<effort>` full id where `[effort] suffixed_ids = true` and `<model>` takes `<effort>`,
+// else its `[effort] levels` where each is a word, else the fixed list.
 func Efforts(harness, model string) ([]string, error) {
 	manifests, err := manifests()
 	root := manifests[harness]
@@ -331,6 +344,13 @@ func Efforts(harness, model string) ([]string, error) {
 	if catalog, ok := root.values["catalog"].(*table); ok {
 		if listed := words(catalog, model, "efforts"); len(listed) > 0 {
 			return listed, nil
+		}
+		if SuffixedEfforts(harness) {
+			if cut := strings.LastIndex(model, "-"); cut > 0 && model[cut+1:] != "none" {
+				if listed := words(catalog, model[:cut], "efforts"); slices.Contains(listed, model[cut+1:]) {
+					return []string{"none"}, nil
+				}
+			}
 		}
 	}
 	levels := words(root, "effort", "levels")
