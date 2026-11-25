@@ -1631,22 +1631,28 @@ def prompt_rows(rows):
 
 
 def ruled_composer(chrome, rows):
-    """(prompt row, closing rule row) of the composer a ruled harness draws, else (None, None).
+    """(opening row, closing rule row) of the composer a ruled harness draws, else (None, None).
 
-    It is the bottom-most prompt row whose first chrome row under it is a bare rule, so a
+    It opens on the bottom-most prompt row whose first chrome row under it is a bare rule, so a
     user's status line under that rule is never the composer, even where it starts with a
     prompt mark.  The box's prompt row and rules start at the pane's left edge, with at most
     one space after `│`, and a draft's rows are indented farther.  Only that edge and inset
     are removed: `rows` keep their remaining leading spaces (raw or plain),
     and only rows at the left edge are its prompt row and its chrome: nothing typed -- a run
     of rule glyphs, `---`, a prompt mark -- is ever the box, and every row between is the
-    composer's.
+    composer's.  A box scrolled past its height can open on its top rule instead, where its
+    harness counts the rows above there (`[screen] scrolled`): what it shows is its last rows.
     """
+    # A box opened on such a rule, with no prompt row, read as no composer: six seats each held
+    # an ending ak had typed there and never gave its Enter, every later one waiting behind
+    # it.  The owner, 25 Nov 2026: "lots of sessions are not resuming … Find out the exact root
+    # cause and make sure to build a sustainable fix, so this does not happen again."
     if not chrome["ruled"]:
         return None, None
     cells = [re.sub(r"^│\s?", "", strip_sgr(row)).rstrip() for row in rows]
     for at in range(len(cells) - 1, -1, -1):
-        if re.match(rf"[{PROMPT}]", cells[at]):
+        if re.match(rf"[{PROMPT}]", cells[at]) or (
+                chrome["scrolled"] and chrome["scrolled"].fullmatch(cells[at])):
             end = next((row for row in range(at + 1, len(cells))
                         if not cells[row].startswith(" ") and chrome_line(chrome, cells[row])),
                        len(cells))
@@ -4299,7 +4305,10 @@ def _composer_rows(harness, pane, *, exact=False):
         at, stop = ruled_composer(chrome, raws)
         if not exact and at is None and marked and marked[0] + 1 == len(rows):
             at, stop = marked[0], len(rows)
+    # Read whole, it opens on a prompt row holding more than chrome: a box opened on its scrolled
+    # top rule shows only its last rows.
     if at is None or exact and (stop is None or any(dim_rows(raws, chrome["faint"])[at:stop])
+                               or not re.match(rf"(?:│\s*)?[{PROMPT}]", rows[at])
                                or chrome["composer"] and chrome["composer"].fullmatch(rows[at])):
         return None
     return _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop), exact=exact)
