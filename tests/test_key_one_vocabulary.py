@@ -66,7 +66,9 @@ class OneVocabulary(Opened):
                          ("› Crux Flash 1", "Right"), ("› Crux Flash 1", "Space"))
         shown = settled(term, lambda text: any(
             "Crux Flash 1" in line and "□" in line for line in text.split("\n")))
-        self.assertEqual(look(shown, "□", on="Acme Mid 5"), self.dim)
+        row = next(plain(line) for line in shown if "Acme Mid 5" in plain(line))
+        self.assertEqual("".join(char for char in row if char in "●○■□"), "●□□", row)
+        self.assertEqual(look(shown, "□", on="Acme Mid 5"), self.dim)      # its build mark
 
     def test_the_company_list_marks_a_model_on_as_any_may_be_and_reads_every_lists_keys(self):
         term = self.walk(("r recommended", "r"), ("boards read", "p"),
