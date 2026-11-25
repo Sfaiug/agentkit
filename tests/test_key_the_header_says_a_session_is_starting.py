@@ -67,7 +67,8 @@ class TheHeaderSaysASessionIsStarting(unittest.TestCase):
         """Enter, the making held: the header names it and every line under it is as it was,
         under a header in place of its own (`titled`) or above its first row."""
         self.named(size)
-        before = lines(self.menu.screen(colours=True))[titled:]
+        before = lines(self.menu.screen(colours=True))
+        before = before[1:] if titled else before
         lock = self.state / ".session-fix-login.lock"
         with lock.open("a") as held:
             fcntl.flock(held, fcntl.LOCK_EX)
