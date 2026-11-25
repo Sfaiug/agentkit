@@ -176,7 +176,8 @@ class UsageLeft(Sandbox):
                            ({"meters": [self.meter("weekly", 100, reset=9999)]}, "—  window reset"),
                            ({"meters": [self.meter("session", 100, window=18000)]}, "—  no weekly meter"),
                            ({"meters": [self.meter("weekly", None)]}, "—  bad reading"),
-                           ({"meters": [None]}, "—  bad reading"), ("bad", "—  no reading yet")):
+                           ({"meters": [None]}, "—  bad reading"), ({"meters": 1}, "—  bad reading"),
+                           ("bad", "—  no reading yet")):
             self.providers["meta"] = prov
             self.cache()
             self.assertIn("69%", said(self.cfg)["ChatGPT"])

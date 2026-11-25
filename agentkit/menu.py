@@ -2987,17 +2987,19 @@ def limit_notes(cfg, name, prov, now):
     resets and what each cap its provider names has left, the resets in hand (`in_hand`), each
     cap config.toml claims that differs (`scoped_notes`), its 5-hour window (`session_note`), why
     its last probe failed (`fault`) and how old the reading is (`usage.as_of`); for one with no
-    week to draw, why (`unread`) and what each cap its provider names has left.  The line under
-    the usage grid says them (usage_detail), and so does the one under Subscriptions' lit row."""
+    week to draw, why (`unread`), what each cap its provider names has left and its 5-hour
+    window, read apart from any week.  The line under the usage grid says them (usage_detail),
+    and so does the one under Subscriptions' lit row."""
     week, why, readable = reading(cfg, name, prov, now)
     named, claimed = scoped_notes(cfg, name, readable, week)
     # a cap its provider names is one note with the reset time, or with why there is no week to
     # reset: it gives way only with it
     first = (0, " · ".join(filter(None, (resets_note(week, now) if week else why, *named))))
-    notes = [first] if week is None else [
+    session = session_note(prov, now) or (0, "")
+    notes = [first, session] if week is None else [
         (-1, usage.credits_note(prov)), first, (1, in_hand(prov)),
         *((3, note) for note in claimed),
-        session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
+        session, (1, fault(prov)), (1, usage.as_of(prov, now))]
     # each on one line a screen can draw, whatever a model's or cap's name or an error holds
     return [(worth, shown) for worth, note in notes if (shown := terminal.plain(note))]
 

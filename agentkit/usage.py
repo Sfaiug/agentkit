@@ -1667,9 +1667,11 @@ def _weekly(prov):
 
 def legible(prov, now):
     """This provider's meters a number can actually be read from: a numeric used% in a window
-    that has not rolled over."""
-    return [m for m in prov.get("meters") or []
-            if _number(m.get("used")) is not None and not _past(m, now)]
+    that has not rolled over.  A cache holds whatever was written to it, so meters that are no
+    list of meters give none rather than stop the screen reading them."""
+    meters = prov.get("meters")
+    return [m for m in meters if isinstance(m, dict) and _number(m.get("used")) is not None
+            and not _past(m, now)] if isinstance(meters, list) else []
 
 
 def readable(prov, now):
