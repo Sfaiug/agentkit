@@ -37,12 +37,13 @@ TABLE = ["lines    tasks  went live  building  reviewing  own tests  waiting",
 FOLDED_HEADING = ["What your tasks of each size took, for",
                   "every 100 lines that went live · last",
                   "30 days"]
-FOLDED = ["1–100    20 tasks",
+# each first line in the table's columns
+FOLDED = ["1–100       20 tasks",
           "  went live 80%  building 5.0 h",
           "  reviewing 2.5 h  own tests 1.2 h",
           "  waiting 10.0 h",
-          "101–200  19 tasks",
-          "301–400  20 tasks  over",
+          "101–200     19 tasks",
+          "301–400     20 tasks  over",
           "  went live 0%"]
 
 
