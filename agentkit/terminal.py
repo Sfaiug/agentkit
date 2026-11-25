@@ -1146,16 +1146,17 @@ def read_key(timeout=None, wake=None):
     the rest of the click is no click (`Keyboard.give`).
 
     The pointer is answered, `point`, only once it is on another spot of the screen up than it
-    was when that was drawn (`lit`): another row, another cell, or off what it was on; a move
-    within one is read and let go, keeping to `timeout` however long the pointer goes on.  A
-    move is answered once a frame of the clock's (motion.FRAME) is due since the last, and once
-    what was sent after it is read through to where the pointer ended, or a frame after the
-    first of them, whichever is sooner, however soon the read's own time runs out: a flood of
-    moves is one draw, never a draw each.  One that is not due when nothing more is sent is
-    answered by a read after it; a key read past one, next.  Every other key but a click on
-    nothing hands the highlight to the keys, so the pointer lights nothing until it moves
-    again, and Enter or space -- a click on its key-line item too -- while the pointer is on
-    no row (`away`) only brings it back, answered as a draw.
+    was when that was drawn (`lit`): another row, another cell, off what it was on, or off rows
+    a draw since gave a screen that had none (`_off`); a move within one is read and let go,
+    keeping to `timeout` however long the pointer goes on.  A move is answered once a frame of
+    the clock's (motion.FRAME) is due since the last, and once what was sent after it is read
+    through to where the pointer ended, or a frame after the first of them, whichever is
+    sooner, however soon the read's own time runs out: a flood of moves is one draw, never a
+    draw each.  One that is not due when nothing more is sent is answered by a read after it; a
+    key read past one, next.  Every other key but a click on nothing hands the highlight to the
+    keys, so the pointer lights nothing until it moves again, and Enter or space -- a click on
+    its key-line item too -- while the pointer is on no row (`away`) only brings it back,
+    answered as a draw.
     """
     global _PRESSED, _ASKED, _POINTER, _POINTED, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN, _UP
     key, _NEXT = _NEXT, None
@@ -1190,11 +1191,12 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            # nothing new only on the spot last answered with the pointer's light drawn there: a
-            # draw since may have moved another row under the still pointer, lighting that row
-            # and telling the screen nothing
-            on = under(key, _SPOTS)[:2]
-            moved = _POINTER is None or on != _POINTED[:2] or on != under(_POINTER, _SPOTS)[:2]
+            # nothing new only on the spot last answered with the pointer's light drawn there and
+            # away as it was: a draw since may have moved another row under the still pointer,
+            # lighting that row and telling the screen nothing, or given a screen its first row
+            on = under(key, _SPOTS)
+            moved = (_POINTER is None or on[:2] != _POINTED[:2]
+                     or on[:2] != under(_POINTER, _SPOTS)[:2] or _off(on) != _AWAY)
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()
@@ -1226,11 +1228,17 @@ def read_key(timeout=None, wake=None):
 
 
 def _point(key):
-    """The pointer at `key`, a move or a click: on no row of a screen that has rows, lines or
-    cells that are rows of their own (`under`), it puts out the highlight (`away`)."""
+    """The pointer at `key`, a move or a click: off every row (`_off`), it puts out the
+    highlight (`away`)."""
     global _POINTER, _AWAY, _POINTED
     _POINTER, _POINTED = key, under(key, _SPOTS)
-    _AWAY = _POINTED.what is None and any(
+    _AWAY = _off(_POINTED)
+
+
+def _off(spot):
+    """Whether `spot` is on no row of a screen up that has rows, lines or cells that are rows of
+    their own (`under`)."""
+    return spot.what is None and any(
         what is not None or any(own for _, _, _, *own in places)
         for what, places, *_ in _SPOTS.values())
 
