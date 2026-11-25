@@ -34,7 +34,8 @@ RUNS = [
     run("fix-menu", 1, **FAILED),                               # one never reviewed
     run("fix-auth", 1, executor="flux", executor_effort="high", reviewer="echo"),
     run("fix-mail", 1, reviewer="echo"),                        # the team now's builder, for echo
-    run("fix-ci", 1, executor_effort="low"),
+    run("fix-ci", 1, executor_effort="low"),                    # held after it, sorted before
+    run("fix-cd", 1, executor_effort="high", **FAILED),
     run("fix-cli", 1, executor_effort=None, **FAILED),          # a builder's effort unrecorded
     run("fix-gale", 1, executor="gale", executor_effort="high"),
     run("fix-gale-again", 1, executor="gale", executor_effort="high"),
@@ -80,7 +81,8 @@ class ModelsJsonOwnRows(unittest.TestCase):
         self.assertEqual(own["executor"], [
             row("dune", "low", True, 0, 0), row("bolt", "max", True, 5, 3),
             row("gale", "high", False, 2, 2), row("ash", "high", False, 1, 0),
-            row("bolt", "low", False, 1, 1), row("bolt", None, False, 1, 0)])
+            row("bolt", "high", False, 1, 0), row("bolt", "low", False, 1, 1),
+            row("bolt", None, False, 1, 0)])
         # a blank effort and none are one row; bolt, held for both roles, reviewed nothing
         self.assertEqual(own["reviewer"], [
             row("crux", "medium", True, 4, 2), row("bolt", "high", True, 0, 0),
