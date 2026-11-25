@@ -33,7 +33,7 @@ RUN = {"run_id": "", "repo": "acme", "kind": "task", "change": None,
        "rounds_used": 1, "changed_lines": 1, "started_at": 0, "finished_at": 0,
        "executor_seconds": 3600, "reviewer_seconds": 1800, "done_when_seconds": 900,
        "slot_wait_seconds": 360, "suite_wait_seconds": 720, "merge_wait_seconds": 1080,
-       "lander_wait_seconds": 1440}
+       "lander_wait_seconds": 1440, "first_review_lines": None}
 FAILED = {"final_state": "fail", "verdict": "FAIL", "changed_lines": None}
 STOPPED = {"final_state": "stopped", "verdict": None, "changed_lines": None}
 RUNNING = {**STOPPED, "final_state": "running", "finished_at": None}

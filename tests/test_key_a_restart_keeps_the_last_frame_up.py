@@ -1,6 +1,8 @@
 """A restart on new code keeps the old frame up however long the new program's read takes: its
 rows cross the exec, and the new program writes them as it takes the terminal, ending the hold
-(`?2026l`) before its first frame.  Once, and only on a terminal of the size they were laid out for.
+(`?2026l`) before its first frame.  Once, and only on a terminal of the size they were laid out for
+and of the background they were drawn for: the owner (20 Nov 2026), "the background of the terminal
+which the user has in its setting should be used, and ak just sits on top of that."
 
 Black-box: ak runs in a terminal of tests/fixtures/akterm.py over a real seat.  tmux neither holds
 nor passes mode 2026, so all this is read from the program's own bytes, by `pipe-pane`.
@@ -18,6 +20,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import Home
+from fixtures.aklooks import colours, looks
 from fixtures.akseat import Seat
 from fixtures.akterm import KEEP, SERVER, Terminal
 
@@ -29,6 +32,12 @@ HOLD, RELEASE = b"\x1b[?2026h", b"\x1b[?2026l"
 ENTER, LEAVE = b"\x1b[?1049h", b"\x1b[?1049l"
 UPDATE = re.compile(rb"\x1b\[\?2026[hl]")
 HELD = re.compile(rb"\x1b\[\?2026h(?:(?!\x1b\[\?2026l).)*?\x1b\[\?1049l", re.S)
+# The black theme's shades the white theme has none of (agentkit/themes.py), as SGR writes them.
+DARK = {f"{ground};2;" + ";".join(str(channel) for channel in bytes.fromhex(rgb))
+        for ground in ("38", "48")
+        for rgb in ("000000", "08305d", "3a3f46", "e2e8ef", "acb4bd", "868d97", "4da3ff",
+                    "33b65f", "d79200", "fe756f", "00b0bf", "da7de0")}
+LIGHT = "48;2;255;255;255"      # the white theme's background
 
 
 def until(test, what, bound=60):
@@ -49,12 +58,21 @@ class Restart(unittest.TestCase):
         self.home = Home()
         self.addCleanup(self.home.close)
         Seat(self.home, NAME, record={"created": int(time.time()) - 900})
-        self.menu = Terminal(self.home, size=(100, 30))
+        self.open()
+
+    def open(self, **env):
+        """The menu in a terminal of its own, drawn, what it is sent from then on recorded."""
+        self.menu = Terminal(self.home, size=(100, 30), env=env)
         self.menu.wait(KEYS, bound=60)
         self.drawn = time.time()               # it started before it drew
-        self.bytes = self.home.root / "program-bytes"
+        self.bytes = self.home.root / f"program-bytes-{self.menu.pane.lstrip('%')}"
         done = self.home.tmux("pipe-pane", "-t", self.menu.pane,
                               f"cat >{shlex.quote(str(self.bytes))}", server=SERVER)
+        self.assertEqual(done.code, 0, done.err)
+
+    def background(self, colour):
+        """The terminals' own background, which tmux answers OSC 11 with."""
+        done = self.home.tmux("set-option", "-g", "window-style", f"bg={colour}", server=SERVER)
         self.assertEqual(done.code, 0, done.err)
 
     def said(self):
@@ -159,6 +177,18 @@ class Restart(unittest.TestCase):
         self.assertEqual([mark.group() for mark in marks[:2]], [HOLD, RELEASE])
         self.assertNotIn(ROW, said[enter:marks[0].start()])
         self.assertIn(ROW, said[marks[0].start():marks[1].start()])
+
+    def test_a_terminal_turned_light_gets_no_row_in_the_dark_shades(self):
+        self.home.tmux("kill-session", "-t", self.menu.pane, server=SERVER)
+        self.background("#000000")
+        self.open(COLORTERM="truecolor")
+        self.background("#ffffff")
+        self.stamp()
+        left = self.left_held()
+        said, _enter, marks = self.taken(left)
+        drawn = colours(looks(said[left:marks[1].end()].decode(errors="replace")))
+        self.assertIn(LIGHT, drawn)            # the first frame, all of it in
+        self.assertEqual(drawn & DARK, set())
 
     def test_a_frame_the_terminal_was_resized_under_is_not_handed_on(self):
         # Stopped, the menu draws nothing for the new size before the install is there to see, and
