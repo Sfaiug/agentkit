@@ -397,7 +397,11 @@ def agents_text(repo, ref):
         return ""
     env = project_env(repo)
     try:
-        listed = git(repo, "ls-tree", ref, "--", "AGENTS.md", check=False, env=env).split()
+        # the top tree listed whole, never through a pathspec: ls-tree refuses every one under
+        # an inherited GIT_GLOB_PATHSPECS or GIT_ICASE_PATHSPECS, `--literal-pathspecs` too
+        entries = (entry.partition("\t") for entry in
+                   git(repo, "ls-tree", "-z", "--full-tree", ref, check=False, env=env).split("\0"))
+        listed = next((meta.split() for meta, _, name in entries if name == "AGENTS.md"), [])
         # the blob the listing names, never `ref` read twice: a fetch between the two reads
         # could put a link where the listing saw a file
         return (git(repo, "cat-file", "blob", listed[2], check=False, env=env)
