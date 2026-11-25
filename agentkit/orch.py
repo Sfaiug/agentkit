@@ -26,6 +26,7 @@ in a popup over whatever is running.
 
 import atexit
 import difflib
+import errno
 import fcntl
 import fnmatch
 import hashlib
@@ -40,6 +41,7 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import struct
 import subprocess
 import sys
@@ -3028,9 +3030,24 @@ def fetch_projects(fetched=None):
 
 
 def replace_file(path, data):
-    """Write `data` to `path` whole: a reader sees the old file or the new one, never half."""
+    """Write `data` to `path` whole: a reader sees the old file or the new one, never half.
+
+    Temp names keep `path.name` at the start so interrupted seat-state writes remain recognizable
+    to `gc.stale_seat_files`, falling back to a shorter prefix only when `path.name` leaves no
+    room within NAME_MAX.  Existing permissions are preserved (and new files get 0600) so an
+    unusual umask never publishes an unreadable replacement.
+    """
     path = Path(path)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        mode = 0o600
+    try:
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    except OSError as exc:
+        if exc.errno != errno.ENAMETOOLONG:
+            raise
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name[:16]}.", suffix=".tmp")
     try:
         try:
             handle = os.fdopen(fd, "wb")
@@ -3039,6 +3056,8 @@ def replace_file(path, data):
             raise
         with handle:
             handle.write(data)
+            handle.flush()
+            os.fchmod(handle.fileno(), mode)
         os.replace(tmp, path)
     except BaseException:
         try:
