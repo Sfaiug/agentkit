@@ -744,20 +744,11 @@ def _cached_providers():
         return {}
 
 
-def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None):
-    """(model, provider) pairs that can execute now, in pick order.
-
-    An eligible worker counts when the pick order keeps it, which no refusal parked until a
-    future window keeps (`usage.model_exhausted`), and its budget is above zero with nothing
-    unknown about it.  The waiting words use this conservative estimate of capacity.  `log`
-    is told each worker left out because its harness cannot run, as `ready_order` says it.
-    """
+def _budgeted(cfg, providers, order, reads, now):
+    """(model, provider) pairs of `order` whose selected worker login has a positive known
+    budget, read off the same login `pick_order` picked it on (`reads`) so exhaustion and
+    budget never split across two logins."""
     from . import usage  # here, not at the top: usage imports staffing
-    try:
-        order = ready_order(cfg, providers, workers=workers, log=log, role="executor",
-                            quiet=True, reviewers=reviewers)
-    except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
-        return []
     available = []
     for name in order:
         try:
@@ -767,12 +758,31 @@ def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None)
         if not isinstance((providers or {}).get(provider), dict):
             continue
         try:
-            budget, reason = usage.model_budget(cfg, name, providers, now)
+            read = reads[name] if name in reads else usage._worker_reading(cfg, name, providers)
+            if name not in reads and usage.model_exhausted(cfg, name, read)[0]:
+                continue
+            budget, reason = usage.model_budget(cfg, name, read, now)
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
             continue
         if reason is None and budget > 0:
             available.append((name, provider))
     return available
+
+
+def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None):
+    """(model, provider) pairs that can execute now, in pick order.
+
+    An eligible worker counts when the pick order keeps it, which no refusal parked until a
+    future window keeps (`usage.model_exhausted`), and its budget is above zero with nothing
+    unknown about it.  The waiting words use this conservative estimate of capacity.  `log`
+    is told each worker left out because its harness cannot run, as `ready_order` says it.
+    """
+    try:
+        order = ready_order(cfg, providers, workers=workers, log=log, role="executor",
+                            quiet=True, reviewers=reviewers)
+    except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
+        return []
+    return _budgeted(cfg, providers, order, getattr(order, "reads", {}), now)
 
 
 def reviewable_models(cfg, providers, workers, now, executor=None, writers=None):
@@ -785,29 +795,15 @@ def reviewable_models(cfg, providers, workers, now, executor=None, writers=None)
     executor the legality check has nothing to check against, so every available model
     counts.  `writers` narrow the pick as `ready_order`'s do.
     """
-    from . import usage  # here, not at the top: usage imports staffing
     try:
         order = ready_order(cfg, providers, workers=workers, role="reviewer",
                             quiet=True, writers=writers)
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         return []
+    reads = getattr(order, "reads", {})
     if executor:
         order = reviewer_order(cfg, executor, order)
-    available = []
-    for name in order:
-        try:
-            provider = config.model(cfg, name)["provider"]
-        except config.Error:
-            continue
-        if not isinstance((providers or {}).get(provider), dict):
-            continue
-        try:
-            budget, reason = usage.model_budget(cfg, name, providers, now)
-        except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
-            continue
-        if reason is None and budget > 0:
-            available.append((name, provider))
-    return available
+    return _budgeted(cfg, providers, order, reads, now)
 
 
 def exhausted_waits_for(state, providers, cfg=None, workers=None, now=None):

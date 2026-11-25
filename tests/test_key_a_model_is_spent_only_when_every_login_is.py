@@ -20,16 +20,18 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
+from fixtures.akseat import PLAN_LINE
 from fixtures.gitrig import Rig
 
 OPUS, FABLE = "claude-opus-5-5", "claude-fable-5-2"
 
 
 class SpentOnlyWhenEveryLoginIs(unittest.TestCase):
-    def pick(self, *, run=False, **used):
+    def pick(self, *, run=False, seat=None, unauth=(), **used):
         """(`ak usage --json`'s pick_order, the login an executor turn of a run ran on, or None
         without `run`) over logins each given (week, Fable cap)% used, two workers naming no
-        `meter`."""
+        `meter`; `seat` is an active seat's login on the same provider, `unauth` logins whose
+        `auth` fails."""
         with Home() as home:
             rig = Rig(home)
             akconfig.write(home, {model: "claude" for model in (OPUS, FABLE)},
@@ -37,6 +39,19 @@ class SpentOnlyWhenEveryLoginIs(unittest.TestCase):
             assert not any("meter" in entry for entry in akconfig.read(home)["models"].values())
             home.fake("claude", "#!/bin/sh\nexit 0\n")
             fake = fakeadapter.install(home, claude="work")["claude"]
+            if unauth:
+                checks = "".join(
+                    f'if [ "$1" = auth ] && [ "$AGENTKIT_ACCOUNT" = {name} ]; then\n'
+                    f'  echo "claude: login expired"; exit 1\nfi\n'
+                    for name in unauth)
+                fake.script.write_text(fake.script.read_text().replace(
+                    "#!/bin/sh\n", "#!/bin/sh\n" + checks, 1))
+            if seat is not None:
+                home.write(".agentkit/state/session-fix-api.json", {
+                    "orchestrator": OPUS, "workers": [OPUS, FABLE], "account": seat,
+                    "cwd": str(rig.path), "created": 1})
+                home.write(".agentkit/state/plan-fix-api.md", PLAN_LINE + "\n")
+                home.env["AGENTKIT_SESSION"] = "fix-api"
             now = time.time()
 
             def reading(week, cap):
@@ -71,6 +86,13 @@ class SpentOnlyWhenEveryLoginIs(unittest.TestCase):
 
     def test_spent_on_every_login_is_spent(self):
         self.assertEqual(self.pick(default=(100, 100), second=(100, 100)), ([], None))
+
+    def test_an_unauthenticated_spare_never_hides_a_spent_seat_login(self):
+        self.assertEqual(self.pick(seat="default", unauth=("second",),
+                                   default=(100, 100), second=(40, 40)), ([], None))
+        self.assertEqual(self.pick(run=True, seat="default", unauth=("second",),
+                                   default=(100, 100), second=(40, 40), third=(60, 100)),
+                         ([OPUS], "third"))
 
 
 if __name__ == "__main__":
