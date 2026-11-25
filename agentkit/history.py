@@ -304,10 +304,11 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 )
 """
 TURN_USAGE_MIGRATIONS = (("listed_usd", "REAL"), ("machine", "TEXT"))
-# In a run's directory (read-only to turns): one JSON line per turn launch, naming the turn's
-# resolved directory and the machine it launched on.  Stored outside `out_dir` so an adapter's
-# own files in `out_dir` cannot collide with, corrupt, or spoof it.
-TURN_MACHINES = "turn-machines.jsonl"
+# In a run's directory: a folder holding one JSON line per turn launch (`log.jsonl`), naming the
+# turn's path inside its run directory and the machine it launched on.  Stored outside `out_dir`
+# in a folder `box.command` masks empty and read-only, so an adapter cannot collide with, corrupt
+# or spoof it even in a `--no-worktree` HOME checkout.
+TURN_MACHINES = "turn-machines"
 
 
 def path():
@@ -910,41 +911,58 @@ def _turn_usage(connection, plugin, run_id, out, priced):
         account = (out / "account").read_text()
     except OSError:
         account = None
-    machine = _turn_machine(run_id, str(out.resolve()))
+    machine = _turn_machine(run_id, out)
     at = _moment(out / "events.jsonl")
     return [(account, model, began, at, *numbers, priced(model, numbers), machine)
             for model, numbers in counts.items()]
 
 
+def _turn_key(run_dir, out_dir):
+    """`out_dir` relative to `run_dir` (POSIX), else its resolved path: survives a copy of
+    `.agentkit` onto different backing storage."""
+    resolved = Path(out_dir).resolve()
+    try:
+        return resolved.relative_to(Path(run_dir).resolve()).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
 def note_turn_machine(run_dir, out_dir, machine=None):
-    """Record which machine `out_dir` is launching on, in `run_dir` (read-only to the turn):
-    `machine`, the listed name on another machine, else this host's own name (`readings.py`).
+    """Record which machine `out_dir` is launching on in `run_dir`'s `TURN_MACHINES` folder,
+    returning that folder path (or None on error) so `box.command` can hide it read-only.
+    `machine` is the listed name on another machine, else this host's own name (`readings.py`).
     Appended per launch so a turn turned away by a machine records this host when it runs here,
     and a killed turn keeps its own."""
     try:
         who = (machine or "").strip() or socket.gethostname()
     except OSError:
         who = None
-    line = ("\n" + json.dumps({"turn": str(Path(out_dir).resolve()), "machine": who}) + "\n").encode()
+    folder = Path(run_dir) / TURN_MACHINES
+    line = ("\n" + json.dumps({"turn": _turn_key(run_dir, out_dir), "machine": who}) + "\n").encode()
     with contextlib.suppress(OSError):
-        fd = os.open(Path(run_dir) / TURN_MACHINES, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        folder.mkdir(mode=0o700, exist_ok=True)
+        fd = os.open(folder / "log.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         try:
             os.write(fd, line)
         finally:
             os.close(fd)
+        return folder
+    return None
 
 
-def _turn_machine(run_id, turn):
-    """The last machine recorded for `turn` in its run's directory, or None."""
+def _turn_machine(run_id, out):
+    """The last machine recorded for `out` in its run's directory, or None."""
+    run_dir = config.RUNS / str(run_id)
+    want = _turn_key(run_dir, out)
     found = None
     with contextlib.suppress(OSError):
-        with (config.RUNS / str(run_id) / TURN_MACHINES).open(encoding="utf-8", errors="replace") as fh:
+        with (run_dir / TURN_MACHINES / "log.jsonl").open(encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 try:
                     row = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(row, dict) and row.get("turn") == turn:
+                if isinstance(row, dict) and row.get("turn") == want:
                     value = row.get("machine")
                     found = value if isinstance(value, str) and value else None
     return found

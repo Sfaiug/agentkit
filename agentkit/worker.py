@@ -852,20 +852,31 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     paths = config.manifest(entry["harness"]).get("worker", {})
     watch = {"silence": limit, "activity": out_dir / "events.jsonl",
              "heartbeats": paths.get("heartbeats", ()), "abort": lambda: watching(out_dir)}
+    run = gitcall.run_child_env().get(RUN_MARKER, "")
+    run_dir = run if os.path.isdir(run) else None
+
     def launch(argv, *, machine=None, **kwargs):
-        if os.path.isdir(run := gitcall.run_child_env().get(RUN_MARKER, "")):
-            from . import history     # here, not at the top: history imports gitcall, which imports worker
-            Path(run, LAUNCHED).touch()
-            history.note_turn_machine(run, out_dir, machine)
+        if run_dir:
+            Path(run_dir, LAUNCHED).touch()
+            if machine is not None:
+                from . import history     # here, not at the top: history imports gitcall, which imports worker
+                history.note_turn_machine(run_dir, out_dir, machine)
         return limited(argv, None, **watch, **kwargs)
     away = machine_turn.call(entry, cmd, workspace, out_dir, turn_env, places, session, launch)
     if away:
         code, killed, session = away
     else:
+        hidden = list(config.unswitched_files(entry["harness"], turn_env))
+        if run_dir:
+            from . import history
+            # Record before building the box so bwrap mounts the receipt folder empty and
+            # read-only even when a `--no-worktree` checkout is HOME itself.
+            if folder := history.note_turn_machine(run_dir, out_dir):
+                hidden.append(folder)
         with box.command(cmd, turn_env, out_dir, cwd=workspace,
                          state=paths.get("state", ()), places=places,
                          logins=paths.get("logins", ()),
-                         hidden=config.unswitched_files(entry["harness"], turn_env)) as (cmd, turn_env, spawn), \
+                         hidden=hidden) as (cmd, turn_env, spawn), \
                 own.open("wb") as err:
             code, _, killed = launch(cmd, env=turn_env, stderr=err, **spawn)
         if not killed:
