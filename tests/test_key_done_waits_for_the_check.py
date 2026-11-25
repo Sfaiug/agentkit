@@ -6,11 +6,12 @@ The owner asks for a retry button and a receipt email; the plan holds the button
 first check names the email, quoting the owner; once the owner drops it, the next finds no gap.
 A check that could not be made counts for nothing, nor does one passed before another that ended
 later on a gap, under whichever name the seat went by meanwhile; and a record ak cannot read,
-whichever harness keeps it, is no owner who said nothing.  `[done_check] on = false` leaves done
-as it was.  Black-box: the program `AK_BIN` names runs from
-outside through tests/fixtures/akbin.py, on a Claude seat of tests/fixtures/akseat.py whose
-transcript the test writes, with a fake harness of fakeadapter.py for the model, and the hooks
-beside that program fired as tests/test_key_live_work_plan_line.py fires them.
+whichever harness keeps it, even one ak no longer knows once the seat's model left the config,
+is no owner who said nothing.  `[done_check] on = false` leaves done as it was.  Black-box: the
+program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a Claude seat of
+tests/fixtures/akseat.py whose transcript the test writes, with a fake harness of fakeadapter.py
+for the model, and the hooks beside that program fired as tests/test_key_live_work_plan_line.py
+fires them.
 """
 
 import json
@@ -140,6 +141,13 @@ class DoneWaitsForTheCheck(unittest.TestCase):
         self.assertNotEqual(self.why(), DONE)
         self.plan(NONE)
         self.assertEqual(self.fake.n, 3)
+
+    def test_a_seat_whose_model_left_the_config_is_no_owner_who_said_nothing(self):
+        self.configure()
+        self.plan(GAP)
+        akconfig.write(self.home, ["fable"], extra='[done_check]\nmodel = "fable"')
+        self.assertEqual(self.home.ak("orch", "check", "acme").code, 2)
+        self.assertNotEqual(self.why(), DONE)
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_a_check_ending_on_a_gap_after_a_rename_stands_under_the_new_name(self):

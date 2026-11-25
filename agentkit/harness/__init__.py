@@ -843,6 +843,9 @@ class Harness:
         """
         hook = self._hook("user_messages")
         if not hook:
+            # no reader, as for a seat whose model left the config, is a record ak cannot read,
+            # never one where the owner said nothing
+            unread(ValueError("ak has no reader of the owner's messages for its harness"))
             return []
         said = {conversation: sorted(hook(record, cwd, conversation),
                                      key=lambda message: message["at"])}
