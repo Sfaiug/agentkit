@@ -94,11 +94,7 @@ def lines(own, cfg, room):
         for (mark, kind), model, texts in rows:
             if folded:
                 first, *rest = hung(f"{mark} {model}", room)
-                told = [f"{terminal.styled(head, 'muted')} {text}"
-                        for head, text in zip(HEADS, texts) if text]
-                # the indent gives way before a number is parted from its name
-                lead = " " * max(0, min(2, room - max(map(terminal.cells, told))))
-                rest += [lead + line for line in menu.packed(told, "  ", room - len(lead))]
+                rest += told(texts, room)
             else:
                 first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts)}", []
             shown += [terminal.styled(mark, kind) + first[len(mark):], *rest]
@@ -129,6 +125,23 @@ def named(cfg, row):
     name = config.model_name(cfg, row["name"])
     return menu.named({"name": name if terminal.plain(name) else row["name"],
                        "effort": None if row["effort"] == "none" else row["effort"]})
+
+
+def told(texts, room):
+    """A folded row's `texts` (`numbers`), each after its column's name, two cells in and as many
+    to a line as fit: the indent gives way before a number is parted from its name, and one too
+    wide for the screen wraps at its words, never past `room`."""
+    lines = []
+    for head, text in zip(HEADS, texts):
+        part = f"{terminal.styled(head, 'muted')} {text}"
+        if not text:
+            continue
+        if lines and lines[-1].startswith("  ") and terminal.cells(f"{lines[-1]}  {part}") <= room:
+            lines[-1] += "  " + part
+        else:
+            lead = " " * max(0, min(2, room - terminal.cells(part)))
+            lines += [lead + line for line in menu.packed([part], "", room)]
+    return lines
 
 
 def hung(text, room):

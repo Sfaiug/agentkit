@@ -126,12 +126,12 @@ class ModelsOwnTables(unittest.TestCase):
 
     def test_on_40_cells_each_number_follows_its_model_s_line_with_its_name(self):
         self.assertEqual(self.own(40), FOLDED)
-        # narrower, a name too wide wraps at its words, and the numbers' indent gives way
-        # before a number is parted from its name
+        # narrower, a name too wide wraps at its words, and a line's indent gives way before
+        # its number is parted from its name
         shown = self.own(22)
         at = shown.index("ORCHESTRATOR")
         self.assertEqual(shown[at:at + 6], ["ORCHESTRATOR", "● Acme Nova Seven", "  Preview high",
-                                            " tasks 24", " went live 75%",
+                                            "  tasks 24", "  went live 75%",
                                             " passed 1st review 54%"])
 
     def test_a_history_of_a_former_builder_alone_prints_all_three_tables(self):
