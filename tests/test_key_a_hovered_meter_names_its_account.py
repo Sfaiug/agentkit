@@ -182,11 +182,13 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
             self.assertTrue(self.hovered(label).startswith(f"  {label}  login ends "), label)
         self.assertTrue(self.hovered("Claude VI").startswith("  Claude VI  login zoë@acme.test "
                                                              "ends "))
-        # Subscriptions, which drops from its lines what no terminal can write, names it still
+        # Subscriptions, which drops from its lines what no terminal can write, names it still,
+        # under the line of its limits
         self.term.type("\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*self.at("Claude V")))
         self.term.wait(lambda screen: any(
-            row.startswith("› Claude V ") and below.startswith("    login ops@acme.test ends ")
-            for row, below in zip(lines(screen), lines(screen)[1:])))
+            row.startswith("› Claude V ") and limits.startswith("    resets ")
+            and below.startswith("    login ops@acme.test ends ")
+            for row, limits, below in zip(lines(screen), lines(screen)[1:], lines(screen)[2:])))
 
     def test_too_narrow_for_every_note_the_email_is_the_last_to_go(self):
         self.open(size=(40, 40))
