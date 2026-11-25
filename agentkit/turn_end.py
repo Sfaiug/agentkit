@@ -256,11 +256,12 @@ def unpark(launched, payload):
     `watch.recorded_error` and `watch.limit_ended` ask, on that one record -- both read it
     again, and the plan `limit_ended` asks writes.
 
-    That 19 Nov turn was a long one, parked while it ran.  Asked on 22 Nov whether this should
-    stay with turns begun after the parking, the owner: "Keep building", for a turn already
-    running, "judged by when its last request was sent".  So the refusals that go are those
-    made before the later of the turn's start and when its harness says that request went out
-    (`last_sent`), asked last of the same record: one made after it, nothing has answered.
+    That 19 Nov turn was a long one, its login parked while it ran.  Asked on 22 Nov whether
+    this should stay with turns begun after the parking, the owner: "Keep building", for a turn
+    already running, "judged by when its last request was sent".  So the refusals that go are
+    those made before the later of the turn's start and when its harness says that request
+    went out (`last_sent`), asked last of the same record: no answer shows one made after it
+    wrong.
     """
     try:
         if (payload.get("terminationReason") not in (None, "", "NO_TOOL_CALL")

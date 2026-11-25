@@ -2,10 +2,12 @@
 start and its last request, which Claude Code sent once the tool's result standing before the
 model's answer was written down.  A refusal made after the seat's prompt was heard and before
 that result goes; one made after the result, or with no result before the answer to date the
-request, stays, and a line the read cannot follow leaves the Stop answered as it would have been.
+request, stays, and a line the read cannot follow leaves every one, the Stop answered as with
+none made.
 
 The Home, its seat and its refusals are tests/fixtures/unparking.py's.  Each refusal and each
-entry is dated a whole number of seconds past the moment the prompt hook had been heard by.
+entry written here is dated whole seconds past a moment read once the prompt hook has returned,
+later than the turn's.
 """
 
 from datetime import datetime, timezone
@@ -42,7 +44,8 @@ class ARunningTurnUnparksItsLogin(Unparking):
     def ran(self, result_at=AFTER, deep=False, name="acme", marked=True):
         """A turn of seat `name` on the second login, both logins refused MARKED past its
         prompt where `marked`; its record then holds a tool's result dated `result_at` past it
-        where that is not None, DEEP where `deep`, and the model's answer.  Its Stop's print."""
+        where that is not None, DEEP where `deep`, and the model's answer; what its Stop
+        printed."""
         seat = self.seat(name)
         self.prompt(seat)
         heard = time.time()     # the prompt hook dated the turn before this
