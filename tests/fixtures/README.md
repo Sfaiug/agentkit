@@ -271,9 +271,8 @@ turn that ran one command and answered `done` (working directory normalised), an
 `antigravity-error-events.jsonl` the stream of a turn refused for an unknown model. The auth
 signatures are the stderr lines a headless turn printed with no login, under a temporary HOME.
 
-`antigravity-models.txt` and `grok-models.txt` are the unedited stdout of `agy models` (agy
-1.5.17, signed in) and `grok models` (grok 1.0.40, logged in with grok.com), captured on
-2026-11-25 and 2026-09-24. agy prints one tab-separated id and label per model and effort; grok a greeting,
+`antigravity-models.txt` (`agy models`, 1.5.17, 2026-11-25) and `grok-models.txt` (`grok models`,
+1.0.40, 2026-09-24) are unedited signed-in stdout. agy prints one tab-separated id and label per model and effort; grok a greeting,
 its default, and one `* id` or `- id` line per model. `opencode-model-list.json` is the stdout
 of `opencode api model.list` (OpenCode 2.0.24, against its background service, with the `mimo`
 provider configured and OpenCode's own free one), captured on 2026-10-17 with its `location`
