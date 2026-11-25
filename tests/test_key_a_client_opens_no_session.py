@@ -1,8 +1,9 @@
 """A client opens no session: on a machine whose server record (`state/server`, which
-`install.sh --client` writes) names a home, `ak orch NAME` for a seat tmux lost exits non-zero,
-names the home, and ak's tmux server holds no session it did not hold.  So does `ak orch` typed
-at a terminal with a model and a worker, for a new seat by that name or by none yet.  Each leaves
-HOME as it found it.  With the record removed `ak orch NAME` opens the seat.
+`install.sh --client` writes) names a home, `ak orch NAME` for a seat tmux lost, from a pipe or
+typed at a terminal, exits non-zero, names the home, and ak's tmux server holds no session it did
+not hold.  So does `ak orch` typed at a terminal with a model and a worker, for a new seat by
+that name or by none yet.  Each leaves HOME as it found it.  With the record removed
+`ak orch NAME` opens the seat.
 
 A client's seats are on its home, and a standby's ~/.agentkit is a copy of that home's, seat
 records among them: on 22 Nov 2026 a standby opened all 21 of its home's sessions a second time.
@@ -58,7 +59,8 @@ class AClient(unittest.TestCase):
         before = home.tree()
         refused = home.ak("orch", "acme")
         self.assertRefused(refused, before)
-        self.assertRefused(home.ak("orch", "acme", *NEW, tty=True), before)
+        for new in ((), NEW):       # typed at a terminal: the seat, then a new one by its name
+            self.assertRefused(home.ak("orch", "acme", *new, tty=True), before)
         self.assertRefused(home.ak("orch", *NEW, tty=True, input="ship-docs\n"), before)
         self.record.unlink()
         opened = home.ak("orch", "acme")
