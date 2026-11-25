@@ -4397,9 +4397,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         cells a word as wide as its model's widest, so a step moves no column after it."""
         mark = (4 if tall else 3) if selected else 0
         wide = {number: max([terminal.cells(head) - mark, *(
-            (tall + 2 if levelled[key] else 0) + max(map(terminal.cells,
-                                                         (efforts[key], *levels[key[0]])))
-            if tall else terminal.cells(efforts[key]) for key in beside if key[1] == number)])
+            tall + 2 + max(map(terminal.cells, (efforts[key], *levels[key[0]]))) if tall
+            else terminal.cells(efforts[key]) for key in beside if key[1] == number)])
             for number, head in enumerate(orch.ROLE_HEADS, 3)}
         return {**{number - 3: mark for number in wide if mark}, **wide}
     tall = max((len(levelled[key]) for key in beside), default=0)   # the cells, before every word

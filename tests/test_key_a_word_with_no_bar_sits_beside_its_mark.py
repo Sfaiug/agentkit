@@ -36,9 +36,9 @@ class WordWithNoBar(unittest.TestCase):
                        reviewers=["opus", "haiku"])
         fakeadapter.install(self.home, claude="pass")
 
-    def open_c(self, seat, record):
+    def open_c(self, seat, record, size=(100, 30)):
         Seat(self.home, seat, record=record)
-        term = Terminal(self.home, "attach", "--overlay", size=(100, 30),
+        term = Terminal(self.home, "attach", "--overlay", size=size,
                         env={"NO_COLOR": "1", "AGENTKIT_SESSION": seat})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane,
                         "sleep 86400", server=SERVER)
@@ -90,11 +90,19 @@ class WordWithNoBar(unittest.TestCase):
         self.assertEqual(
             [word.start() for word in re.finditer(r"none|xhigh", haiku_line2)],
             [bars[0], *bars2], f"\n{opus_line2}\n{haiku_line2}")
-        self.assertLessEqual(bars2[0], bars[1])         # the role column is no wider than today
+        self.assertLessEqual(bars2[0], bars[1])         # role columns are no wider than today
+        self.assertEqual(bars2[1] - bars2[0], bars[2] - bars[1])
         term2.keys("Down", "Right", "Right", "Right", "Right", "Right", "Space")
         term2.wait(lambda screen: "xhigh" not in model_row(screen, "Haiku 4.5")[0])
         term2.keys("Escape")
         self.record_waits("acme-orch", {"effort": "none", "exec_effort": "none"})
+
+        # at 60 columns, a cell-less orchestrator does not widen the other role columns
+        _, narrow = self.open_c("acme-narrow", {
+            "orchestrator": "haiku", "workers": ["opus", "haiku"], "reviewers": ["opus", "haiku"],
+            "efforts": {"opus": OPUS_EFFORTS, "haiku": orch_efforts}}, size=(60, 30))
+        narrow_opus, _ = model_row(narrow, "Opus 5.5")
+        self.assertIsNone(re.search("[━─]", narrow_opus), narrow_opus)
 
 
 if __name__ == "__main__":
