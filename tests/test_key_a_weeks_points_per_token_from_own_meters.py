@@ -5,7 +5,8 @@ fitted from the plan's own meters and no price.
 - The rates are fitted on the plan's days, one a login, plan and day, as `week_meters` sums them:
   they are the rates, none below zero, with the least sum over the days of the squared difference
   between a day's points and what its tokens take at them, so a day with no token changes none.
-- The fit is exact, so no tolerance decides it, and each rate is printed to six significant digits.
+- The fit is exact, so no tolerance decides it, and each rate is rounded once from it to six
+  significant digits.
 - Where the days cannot tell the plan's models apart, their token counts by model linearly
   dependent, `rates` is `{}`; a model the fit gives nothing is listed at 0.
 
@@ -58,6 +59,11 @@ class AWeeksPointsPerTokenFromOwnMeters(WeekMeters):
         self.days((10, {"anvil-1": 100_000}), (0, {"anvil-2": 100_000}),
                   (5, {"anvil-1": 100_000, "anvil-2": 100_000}))
         self.assertEqual(self.rates(), {"Max": {"anvil-1": 75, "anvil-2": 0}})
+
+    def test_a_rate_is_rounded_once_from_its_exact_value(self):
+        # just under 0.1078125, which a float of it rounded again would give as 0.107813
+        self.days((69, {"anvil-1": 640_000_000}), (0, {"anvil-1": 1}))
+        self.assertEqual(self.rates(), {"Max": {"anvil-1": 0.107812}})
 
     def test_a_day_with_no_token_changes_no_rate(self):
         self.days((10, {"anvil-1": 100_000}))

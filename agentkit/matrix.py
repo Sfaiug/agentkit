@@ -9,11 +9,13 @@ Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
 """
 
 import contextlib
+import decimal
 import fcntl
 import functools
 import json
 import math
 import re
+import secrets
 import sys
 import time
 
@@ -674,8 +676,10 @@ def notes(row, said):
 
 def by_plan(days):
     """`ak models --json`'s `week_meters`, {provider: {plan: {"points", "tokens", "rates"}}}:
-    `days`, `week_meters.days`'s, summed by plan, and the rates fitted from them (`rates.fitted`),
-    each number to six significant digits, one past a float's largest as that largest."""
+    `days`, `week_meters.days`'s, summed by plan, the points to six significant digits, and the
+    rates fitted from them (`rates.fitted`), each rounded once from the fit's exact value to six
+    significant digits as a Decimal, as a float holds none below its own smallest, and one past a
+    float's largest as that largest."""
     fits, plans = rates.fitted(days), {}
     for provider, plan, points, tokens in days:
         summed = plans.setdefault(provider, {}).setdefault(plan, [0, {}])
@@ -683,11 +687,29 @@ def by_plan(days):
         for model, count in tokens.items():
             summed[1][model] = summed[1].get(model, 0) + count
 
-    def printed(number):
-        return float(f"{float(min(number, sys.float_info.max)):.6g}")
-    return {provider: {plan: {"points": printed(points), "tokens": tokens, "rates": {
-        model: printed(rate) for model, rate in fits[provider, plan].items()}}
-        for plan, (points, tokens) in found.items()} for provider, found in plans.items()}
+    def printed(rate):
+        if rate > sys.float_info.max:
+            return sys.float_info.max
+        return decimal.Context(prec=6).divide(rate.numerator, rate.denominator)
+    return {provider: {plan: {"points": float(f"{float(points):.6g}"), "tokens": tokens,
+                              "rates": {model: printed(rate)
+                                        for model, rate in fits[provider, plan].items()}}
+                       for plan, (points, tokens) in found.items()}
+            for provider, found in plans.items()}
+
+
+def dumped(doc):
+    """`doc` as `ak models --json` prints it, each Decimal in it as its digits, as json prints
+    no Decimal: a mark no text of `doc` holds stands in for each until the text is made."""
+    mark, digits = f"decimal-{secrets.token_hex(16)}-", []
+
+    def held(number):
+        if not isinstance(number, decimal.Decimal):
+            raise TypeError(f"{type(number).__name__} is not JSON")
+        digits.append(str(number))
+        return f"{mark}{len(digits) - 1}"
+    return re.sub(f'"{mark}([0-9]+)"', lambda found: digits[int(found[1])],
+                  json.dumps(doc, indent=2, default=held))
 
 
 def main(argv):
@@ -712,7 +734,7 @@ def main(argv):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
                                                  "cost", "board_cost", "cost_rule")},
                     "notes": notes(row, said)}
-        json.dump({**{role: {
+        sys.stdout.write(dumped({**{role: {
             "best": said["best"] and said["best"]["quality"], "cost_unit": said["cost_unit"],
             **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
             "others": [{**drawn(row, said), "why": why, "by": by and {
@@ -727,8 +749,7 @@ def main(argv):
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()},
             "runs": runs, "own": mine,
-            "week_meters": by_plan(week_meters.days(cfg, runs["since"], runs["until"]))},
-            sys.stdout, indent=2)
+            "week_meters": by_plan(week_meters.days(cfg, runs["since"], runs["until"]))}))
         print()
         return 0
     used, unit = uses(cfg, seat, found), menu.models_unit()     # the screen's, as it was left

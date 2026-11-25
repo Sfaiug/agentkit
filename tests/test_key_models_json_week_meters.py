@@ -110,8 +110,8 @@ class WeekMeters(unittest.TestCase):
 
 class ModelsJsonWeekMeters(WeekMeters):
     def week_meters(self, tables=TABLES):
-        """Each plan's points and tokens."""
-        return {provider: {plan: {key: found[key] for key in ("points", "tokens")}
+        """Each plan but its `rates`, which have their own key."""
+        return {provider: {plan: {key: value for key, value in found.items() if key != "rates"}
                            for plan, found in plans.items()}
                 for provider, plans in super().week_meters(tables).items()}
 
