@@ -1,6 +1,6 @@
 """Who executes and who reviews a run.
 
-The models a session marks for each role, in the order marked,
+The models a session marks for each role, drawn per run among them,
 the pair a round gets and the refusals when none fits, the hand to the next
 executor when one spends its window, and the words a run waiting on a reviewer
 or an exhausted provider shows.
@@ -36,7 +36,7 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     """Hand a worker turn to the best pair on a provider that refused nothing yet.
 
     Returns the new executor, or None where none is eligible.  Both roles are re-picked
-    as one pair (`best_pair`), so tier beats the order marked and the pair is always a legal
+    as one pair (`best_pair`), so tier beats the draw and the pair is always a legal
     one -- a reviewer kept from before can be the very model now executing.  A refused provider
     never gets the work back (that is how a handover becomes a circle); its reviewers
     are considered only when no pair forms without them.  Records the move
@@ -61,14 +61,16 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     if current_provider is not None:
         refused.add(current_provider)
     new = reviewer = None
+    draw = state.get("run_id")   # the tick hands over outside the run's own thread
     try:
         providers = collect_usage(cfg)
         reviewers = run_reviewers(cfg, state)
         workers, review_list = config.pair_marks(cfg, run_workers(cfg, state), reviewers)
         order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers,
-                                        reviewed_by=None if off else review_list)
+                                        reviewed_by=None if off else review_list, draw=draw)
                  if n != current and config.model(cfg, n)["provider"] not in refused]
-        review_order = [] if off else ready_order(cfg, providers, review_list, role="reviewer")
+        review_order = [] if off else ready_order(cfg, providers, review_list, role="reviewer",
+                                                  draw=draw)
         pair = ((order[0], None) if off and order else
                 best_pair(cfg, order, [n for n in review_order
                                       if config.model(cfg, n)["provider"] not in refused]))
@@ -239,10 +241,10 @@ def refuse_outside_group(cfg, name, group, role):
 
 
 def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, quiet=False,
-                repo=None, workers=None, reviewers=None):
+                repo=None, workers=None, reviewers=None, draw=None):
     """Pick each role within its launch list; want_review=False switches review off.  Asked for
     neither by name, with review on, the executor's pick reads the reviewer's list too
-    (`ready_order`'s `reviewed_by`)."""
+    (`ready_order`'s `reviewed_by`).  `draw` is `usage.pick_order`'s."""
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
         refuse_outside_group(cfg, want_review, reviewers, "reviewer")
@@ -253,7 +255,8 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
         exec_list, review_list = config.pair_marks(cfg, workers, reviewers)
         reviewed_by = review_list
     order = ready_order(cfg, providers, exec_list, None if want_exec and want_review else log,
-                        quiet=quiet, repo=repo, reviewers=reviewers, reviewed_by=reviewed_by)
+                        quiet=quiet, repo=repo, reviewers=reviewers, reviewed_by=reviewed_by,
+                        draw=draw)
     session = config.active_session(cfg)
     allowed = workers if workers is not None else (session["workers"] if session else None)
     if want_exec:
@@ -281,13 +284,13 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
         reviewer = want_review
         if want_exec is None:
             # A named reviewer takes the best executor for it: tier first, then the
-            # order marked, through the same pair choice every automatic pick uses.
+            # draw, through the same pair choice every automatic pick uses.
             pair = best_pair(cfg, order, [reviewer])
             if pair is not None:
                 executor = pair[0]
     else:
         review_order = ready_order(cfg, providers, review_list, role="reviewer", quiet=quiet,
-                                   repo=repo)
+                                   repo=repo, draw=draw)
         pair = best_pair(cfg, [want_exec] if want_exec else order, review_order)
         if pair is None:
             where = f" for executor {want_exec}" if want_exec else ""
@@ -530,7 +533,7 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
                   allow_self=True):
     """(executor, reviewer) for work whose provider has run dry, or turns.Exhausted when none is left.
 
-    Both roles are re-picked as one pair (`best_pair`), so tier beats the order marked: a
+    Both roles are re-picked as one pair (`best_pair`), so tier beats the draw: a
     review by another model beats a self-review.  Keeping the current reviewer instead would
     leave the executor only the models it can review -- on 2026-09-22 a Grok refusal kept
     reviewer Muse and pushed execution onto Claude, though executor Muse with reviewer Claude
@@ -669,6 +672,7 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
     """
     from . import usage
     skip = refusal_backoff(state, time.time()) if skip is None else skip
+    draw = state.get("run_id")   # the tick and a resume's admission pick outside its thread
     bound, reviewers = config.role_groups(cfg, run_workers(cfg, state), state.get("reviewers"))
     workers = bound if bound is not None else workers
     if record.review_off(state):
@@ -677,13 +681,13 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
                                                or usage.model_exhausted(cfg, executor, providers)[0])):
             executor = None
         return pick_models(cfg, providers, executor, False, log, resuming=True,
-                           quiet=True, repo=repo, workers=workers)
+                           quiet=True, repo=repo, workers=workers, draw=draw)
     # a resume that needs no executor keeps it, so the reviewer is picked beside its writers
     needs = resume_needs_executor(state)
     # the pick anew weighs the very reviewers the reviewer's pick reads
     exec_list, review_list = config.pair_marks(cfg, workers, reviewers)
     review_order = ready_order(cfg, providers, review_list, role="reviewer", quiet=True, repo=repo,
-                               writers=None if needs else review_writers(state))
+                               writers=None if needs else review_writers(state), draw=draw)
     executor, reviewer = state.get("executor"), state.get("reviewer")
     if not needs:
         order = reviewer_order(cfg, executor, review_order) if executor else review_order
@@ -698,7 +702,7 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
 
     def executors(log=None, reviewed_by=None):
         return ready_order(cfg, providers, exec_list, log, quiet=True, repo=repo,
-                           reviewers=reviewers, reviewed_by=reviewed_by, skip=skip)
+                           reviewers=reviewers, reviewed_by=reviewed_by, skip=skip, draw=draw)
 
     # a pair picked anew takes its executor as a launch picking both roles does (`pick_models`)
     order = executors(log, None if kept else review_list)
@@ -711,7 +715,7 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
             # worker list holds: the pick takes it as one, and who may review stays as it was.
             group, reviewers = [*workers, writer], reviewers if reviewers is not None else workers
         return pick_models(cfg, providers, executor, reviewer, log, resuming=True, quiet=True,
-                           repo=repo, workers=group, reviewers=reviewers)
+                           repo=repo, workers=group, reviewers=reviewers, draw=draw)
     pair = best_pair(cfg, order, review_order)
     # a pair only that pick leaves out is waited for: its executor can run here, so nothing is
     # asked of the saved one; else, as before that pick, one the config dropped is refused by

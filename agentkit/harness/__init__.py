@@ -970,6 +970,12 @@ class Harness:
         hook = self._hook("running")
         return hook(record, cwd, conversation) if hook else None
 
+    def same_model(self, entry, model, effort):
+        """Whether `entry` launches as `(model, effort)` under another spelling of the same
+        id, as Antigravity's full `<model>-<effort>` ids do; False by default."""
+        hook = self._hook("same_model")
+        return bool(hook(entry, model, effort)) if hook else False
+
     def last_sent(self, record, cwd, conversation):
         """When that conversation's last request to its model went out, in seconds since the
         epoch (moment), or None where its harness's plugin does not say."""
@@ -1065,9 +1071,16 @@ class Harness:
 
     def seat_token_usage(self, entry, cursor):
         """One log entry's (time, unique event id, tokens, model, [input, cache write, cache
-        read, output]), model and counts None where unknown; or None.  cursor survives readings."""
+        read, output]), model and counts None where unknown; or None.  cursor survives readings;
+        what an entry changed in it is undone where its usage files no row."""
         hook = self._hook("seat_token_usage")
         return hook(entry, cursor) if hook else None
+
+    def seat_turn(self, entry):
+        """One log entry's (the moment a turn ended, unique event id, its seconds) as this
+        harness timed the turn itself, or None."""
+        hook = self._hook("seat_turn")
+        return hook(entry) if hook else None
 
     def record_turn(self, out, state_dir, account):
         """Import this harness's reports after the box closes, without exposing ak's records."""

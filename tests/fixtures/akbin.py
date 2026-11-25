@@ -224,6 +224,8 @@ class Home:
             "AK_NOTIFY_SINK": "dry-run",
             # nobody's nested run, and no slot gate parking a launch behind the host's load
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            # a pick takes the marks as marked, never by the minute a run's id holds
+            "AK_PICK_DRAW": "",
         }
         if "AK_HANDOVER" in os.environ:
             self.env["AK_HANDOVER"] = os.environ["AK_HANDOVER"]

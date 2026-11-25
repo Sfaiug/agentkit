@@ -59,7 +59,9 @@ class GrokSandbox(unittest.TestCase):
             "AGENTKIT_SESSION": "atoll",
             # OpenCode's config is this HOME's, which names no MiMo endpoint: mimo is payg,
             # never a plan the caller's own config would make it
-            "OPENCODE_CONFIG_DIR": str(self.home / ".config/opencode")}))
+            "OPENCODE_CONFIG_DIR": str(self.home / ".config/opencode"),
+            # picks as marked, whatever draw the caller's environment holds
+            "AK_PICK_DRAW": ""}))
         os.environ.pop(config.ADAPTER_DIR_ENV, None)   # the checkout's adapters, never a copy
         os.environ.pop("XAI_API_KEY", None)
         os.environ.pop("AGENTKIT_ACCOUNT", None)   # the usual login, not the caller's account

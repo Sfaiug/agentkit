@@ -85,7 +85,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
               ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"), ("plan_line", "TEXT"),
               ("no_review", "INTEGER"), ("check_rewritten_at", "REAL"),
-              ("orchestrator_effort", "TEXT"), ("extra_rounds_used", "INTEGER"))
+              ("orchestrator_effort", "TEXT"), ("extra_rounds_used", "INTEGER"), ("policy", "TEXT"))
 REWRITE_WINDOW = 14 * 86400     # how long after going live `ak plan check` counts as a rewrite
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS meter_readings (
 )
 """
 METER_READING_MIGRATIONS = (("plan", "TEXT"), ("scope", "TEXT"))
-READINGS_KEPT_FOR = 35 * 86400     # five weeks
+READINGS_KEPT_FOR = 35 * 86400     # five weeks, of meters and of machines (readings.py) alike
 
 
 # One row per model a worker turn's harness reported its tokens by (`Harness.turn_usage`),
@@ -484,16 +484,18 @@ def suite_run(run_id, repo):
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
               task_checks=None, task_files=None, orchestrator=None, orchestrator_effort=None,
-              change=None, kind=None, plan_line=None, no_review=None, log=None):
+              change=None, kind=None, plan_line=None, no_review=None, policy=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
     goes, and every later write finds no row to change.  The orchestrator is the launching
     seat's at the first write, whatever that seat runs by a resume.  `change` names the
     change the run belongs to (its PR, or the run it continues), which the scoreboard groups
-    runs by.  `plan_line` and `orchestrator_effort` stay as they were at the first write.  A
-    new row is followed for breaks and landing flakes, none yet 0 and '', where a row from
-    before they were recorded keeps NULL: unknown, not unbroken.
+    runs by.  `plan_line` and `orchestrator_effort` stay as they were at the first write, and
+    `policy`, the limits the run's record holds (`run.prepare`), as the first write that has
+    them: JSON, keys sorted, NULL until then.  A new row is followed for breaks and landing
+    flakes, none yet 0 and '', where a row from before they were recorded keeps NULL: unknown,
+    not unbroken.
     """
     if sandbox(repo):
         def forget(connection):
@@ -506,7 +508,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change, 0, "", kind, 0, plan_line, no_review, orchestrator_effort)
+              change, 0, "", kind, 0, plan_line, no_review, orchestrator_effort,
+              None if policy is None else json.dumps(policy, sort_keys=True))
 
     def insert(connection):
         connection.execute(
@@ -516,8 +519,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_words, task_points, task_checks, task_files, orchestrator, "
             "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
             "landing_breaks, broke_after_merge, kind, landing_flakes, plan_line, no_review, "
-            "orchestrator_effort) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "orchestrator_effort, policy) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -530,7 +533,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
             "change=COALESCE(excluded.change,runs.change), "
             "kind=COALESCE(excluded.kind,runs.kind), "
-            "no_review=COALESCE(excluded.no_review,runs.no_review)", values)
+            "no_review=COALESCE(excluded.no_review,runs.no_review), "
+            "policy=COALESCE(runs.policy,excluded.policy)", values)
 
     _write(insert, log)
 

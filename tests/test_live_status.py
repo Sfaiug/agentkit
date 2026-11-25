@@ -9,6 +9,7 @@ ever started.
 """
 
 from contextlib import ExitStack, redirect_stdout
+import fcntl
 import io
 import json
 import os
@@ -16,9 +17,11 @@ from pathlib import Path
 import re
 import select
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
 import unittest
@@ -233,62 +236,82 @@ class LiveStatus(unittest.TestCase):
     # The word follows the real change within about 2 seconds, on every harness.
     # [14, 20 Oct 2026]
     def test_an_open_menu_draws_again_within_two_seconds_of_a_record_changing(self):
+        # The menu's watcher makes a round every LOOK_EVERY: each change below is drawn by the
+        # next round, which the test makes itself, each answer a draw.
+        self.assertLess(menu.LOOK_EVERY, 2)
         self.hook("Stop")
         watch.hook_look("herdr")                       # at its prompt, and recorded so
-        screens, out, woke, captures = [], io.StringIO(), [], []
+        screens, woken, out, handed = [], [], io.StringIO(), []
+        watch_ = menu.Live.watch
 
-        def flip():
-            # another process's look: the seat's record and its bar move under the open menu
+        def watching(live, last):
+            live.watcher = threading.current_thread()   # one in place: `watch` starts none, and
+            handed.append(live)                         # each round is the test's
+            return watch_(live, last)
+
+        def answers():
+            live, = handed
+
+            def captured():
+                live.looker.join()                     # any look a round started, over
+                return self.pane.call_count
+
+            live.looker.join()                         # the first frame's own look ...
+            self.assertTrue(live.poll())               # ... drawn by the round it asked for
+            first = captured()
+            yield None
+            # another process's look: the seat's record and its bar move under the open menu, a
+            # round between its two writes, what it saw and then its word
             self.hook("UserPromptSubmit")
-            watch.hook_look("herdr")
+            write = watch.seat_write
 
-        def touch():
+            def seen(name, **fields):
+                written = write(name, **fields)
+                if "word" not in fields:
+                    self.assertTrue(live.poll())
+                return written
+            with patch.object(watch, "seat_write", seen):
+                watch.hook_look("herdr")
+            yield None
+            self.assertTrue(live.poll())               # the round after its word
+            yield None
             # ... or its record changes where no row looks
             watch.seat_write("herdr", evidence="something new on its screen")
+            self.assertTrue(live.poll())
+            yield None
+            self.assertFalse(live.poll())              # nothing changed
+            # the flip's own look captured the one pane; the rounds, none
+            self.assertEqual(captured(), first + 1)
+            yield ""
 
-        def news(change):
-            def answer(wake):
-                time.sleep(menu.STIR + 0.2)             # whatever the last draw stirred has landed
-                captures.append(self.pane.call_count)   # the first draw's look among it
-                try:
-                    os.read(wake, 4096)
-                except BlockingIOError:
-                    pass
-                change()
-                began = time.monotonic()
-                woke.append((bool(select.select([wake], [], [], 2)[0]), time.monotonic() - began))
-                return None
-            return answer
-
-        def leave(wake):
-            captures.append(self.pane.call_count)
-            return ""
-
-        answers = iter([news(flip), news(touch), leave])
+        steps = answers()
 
         def wait_key(prompt, timeout=None, wake=None):
             self.assertEqual(timeout, menu.TICK)
             screens.append(terminal.plain(out.getvalue()))
             out.seek(0)
             out.truncate()
-            return next(answers)(wake)
+            answer = next(steps)
+            # the draws its rounds asked for: whether this wait would wake, and on how many bytes,
+            # left unread for the menu's own drain
+            woken.append((bool(select.select([wake], [], [], 0)[0]),
+                          struct.unpack("i", fcntl.ioctl(wake, termios.FIONREAD, bytes(4)))[0]))
+            return answer
 
         with patch.object(orch, "listing",
                           side_effect=lambda *a, **k: [dict(self.seat, repo=self.repo)]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu.Live, "probe", return_value=False), \
+                patch.object(menu.Live, "watch", watching), \
                 patch.object(menu, "wait_key", side_effect=wait_key), \
                 redirect_stdout(out):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
-        for ready, waited in woke:
-            self.assertTrue(ready, "the menu was never woken")
-            self.assertLess(waited, 2.0)
-        # the flip's own look captured the one pane; the draws the news asked for, none
-        self.assertEqual(captures, [captures[0], captures[0] + 1, captures[0] + 1])
-        rows = [[line for line in screen.splitlines() if " herdr " in line] for screen in screens]
-        self.assertIn("○ idle", rows[0][0])
-        self.assertIn("● working", rows[1][0])          # the recorded word
-        self.assertIn("● working", rows[2][0])
+        self.assertEqual(woken, [(True, 1)] * 4 + [(False, 0)])
+        rows = [[line for line in screen.splitlines() if " herdr " in line][0]
+                for screen in screens]
+        self.assertEqual(len(rows), 5)
+        for row, word in zip(rows, ["○ idle", "○ idle", "○ idle", "● working", "● working"]):
+            self.assertIn(word, row)    # the recorded word: a round amid a look draws the old one
 
     def test_an_open_menu_is_woken_within_two_seconds_of_a_run_s_step(self):
         # the seat stays `working` while its run goes from building to review: the menu reads it

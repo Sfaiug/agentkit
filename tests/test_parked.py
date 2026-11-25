@@ -58,7 +58,7 @@ class Parked(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(self.root), "PYTHONDONTWRITEBYTECODE": "1",
-            "AK_RUN_ROLE": "orchestrator"}))
+            "AK_RUN_ROLE": "orchestrator", "AK_PICK_DRAW": ""}))
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,

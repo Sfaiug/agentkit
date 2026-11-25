@@ -49,9 +49,11 @@ class PlanReadsUltra(unittest.TestCase):
         akconfig.write(self.home, {"fable": "claude"}, providers={
             "anthropic": {"mode": "subscription", "accounts": ["default", "two"]}})
         self.tick()          # learns each login's plan, its meters refused
+        resets = int(time.time()) + 3 * 86400
+        # the line of limits Subscriptions opens under each login, in UTC as the menu reads it
+        self.limits = time.strftime("    resets %a %H:%M", time.gmtime(resets))
         fake.answer("usage", json.dumps({"meters": [{
-            "name": "weekly_all", "used": 40, "resets_at": int(time.time()) + 3 * 86400,
-            "window_secs": 604800}]}))
+            "name": "weekly_all", "used": 40, "resets_at": resets, "window_secs": 604800}]}))
         every = tomllib.loads(fake.manifest.read_text())["usage"]["probe_every"]
         for account in ("default", "two"):
             self.home.write(LOCK.format(account), repr(time.time() - every - 5))
@@ -85,12 +87,12 @@ class PlanReadsUltra(unittest.TestCase):
         term.keys("Enter")
         first = term.wait(lambda screen: title(screen) == PAGE
                           and "    owner@acme.test · ULTRA   − remove" in lines(screen))
-        self.assertEqual(body(first)[1:3], ["› Claude I   ━━━━━━────  60% left",
+        self.assertEqual(body(first)[1:4], ["› Claude I   ━━━━━━────  60% left", self.limits,
                                             "    owner@acme.test · ULTRA   − remove"])
         self.assertNotIn("max 20x", first)
         term.keys("Down")
         second = term.wait(lambda screen: "› Claude II" in screen)
-        self.assertEqual(body(second)[2:4], ["› Claude II  ━━━━━━────  60% left",
+        self.assertEqual(body(second)[2:5], ["› Claude II  ━━━━━━────  60% left", self.limits,
                                              "    two@acme.test · max 5x   − remove"])
 
 

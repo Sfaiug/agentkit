@@ -72,7 +72,7 @@ class LoginClick(Sandbox):
 
         def draw(*args, **kwargs):
             draws.append(args[5])         # what the screen drew, read back as the loop does
-            amber.append([number for number, (note, _) in enumerate(
+            amber.append([number for number, (note, *_) in enumerate(
                 menu.login_notes(menu.usage_rows(args[0])), 1) if note])
             return real(*args, **kwargs)
 

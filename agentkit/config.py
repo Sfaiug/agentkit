@@ -382,6 +382,10 @@ def repo_env(repo):
         key = key.strip()
         if not sep or not KEY.match(key):
             raise Error(f"{path}:{n}: not a KEY=value line")
+        # a --bg launch has drawn its pick before a run's loop reads this file: set here, the
+        # seam would give that run a second draw (`usage.pick_order`)
+        if key == "AK_PICK_DRAW":
+            raise Error(f"{path}:{n}: AK_PICK_DRAW is ak's tests' own, no repository's")
         value = value.strip()
         if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]

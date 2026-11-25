@@ -27,6 +27,10 @@ class HistoryTests(unittest.TestCase):
         self.patch.start()
         self.addCleanup(self.patch.stop)
         self.addCleanup(self.tmp.cleanup)
+        # picks as marked, whatever draw the caller's environment holds
+        env = patch.dict(os.environ, {"AK_PICK_DRAW": ""})
+        env.start()
+        self.addCleanup(env.stop)
         self.addCleanup(history._OPEN.clear)    # the steps this process counts
 
     def row(self, run_id="r1"):
@@ -541,7 +545,7 @@ class HistoryTests(unittest.TestCase):
         with patch.object(usage, "rows", return_value=[]), \
                 patch.object(usage, "review_pair", return_value=None):
             rendered = usage.render({}, {}, ["opus", "astra", "fable"], repo="project")
-        self.assertIn("pick order: opus, astra, fable", rendered)
+        self.assertIn("drawn per run among: opus, astra, fable", rendered)
         for role in ("orchestrator", "executor", "reviewer"):
             self.assertNotIn(f": {role}:", rendered)
         self.assertNotIn("% over", rendered)

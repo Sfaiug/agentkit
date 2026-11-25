@@ -66,7 +66,7 @@ with Home() as home, tempfile.TemporaryFile() as frame:
     run = home.path / ".agentkit/runs/fix-api/run.json"
     run.parent.mkdir(parents=True)
     os.mkfifo(run)
-    frame.write(b"80 24\nacme old frame")
+    frame.write(b"80 24 \nacme old frame")     # drawn where the terminal gave no background, as here
     frame.seek(0)
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))

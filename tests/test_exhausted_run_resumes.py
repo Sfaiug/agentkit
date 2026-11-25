@@ -47,7 +47,9 @@ class ExhaustedResume(unittest.TestCase):
             # notify.shaped is suppressed for a worker; the tick is not one.
             "AK_RUN_ROLE": "orchestrator",
             # this HOME's OpenCode config, never the caller's: mimo is payg
-            "OPENCODE_CONFIG_DIR": str(self.root / ".config/opencode")}))
+            "OPENCODE_CONFIG_DIR": str(self.root / ".config/opencode"),
+            # picks as marked, never by the run's id
+            "AK_PICK_DRAW": ""}))
         # this file is about when a resume is retried, not where it runs; the slice a launch
         # is placed in has its own tests, and a host with a manager must not change these
         # counts on the host that happens to run the suite

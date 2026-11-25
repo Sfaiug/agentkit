@@ -1,7 +1,8 @@
 """A firing of the tick, `ak watch`, on a home whose oldest value kept, the proof that it is the
 home, is 10 minutes old by either clock, or that keeps none where its record says a machine takes
-over from it, writes `1` to the `cgroup.freeze` of ak's slice and exits 0 before the tick's lock: a
-standby that takes a lease standing still finds the home doing nothing.  A turn that reads the
+over from it or the stamp of its last pass as a standby names a home, writes `1` to the
+`cgroup.freeze` of ak's slice and exits 0 before the tick's lock: a standby that takes a lease
+standing still finds the home doing nothing.  A turn that reads the
 home's own lease keeps only that value and the one it makes, so an unreachable origin or one that
 answers reads and refuses pushes pauses it at 10 minutes.  One that reads another machine's lease
 keeps none, as one that never made a value does, so it pauses at once and at each firing after,
@@ -9,9 +10,10 @@ the origin reachable or not; one that lost its lease's folder reads its own leas
 A home keeping a value takes its turns and pauses by that proof whatever its records say: one whose
 record turned to `no`, or went, does as one whose record says `yes`.  Any other firing that is no
 dry run and no client's writes `0` there where it reads `1`, whoever froze it: a mended origin's
-second firing, its first having swapped, the firing that makes a home's first value, one with no
-record keeping no value, whose origin holds no lease.  A freezer's file that is not there is not
-made.  No output of a firing is compared: what a tick prints varies with the clock.
+second firing, its first having swapped, the firing that makes a home's first value, one with
+neither record nor stamp keeping no value, whose origin holds no lease.  A freezer's file that is
+not there is not made.  No output of a firing is compared: what a tick prints varies with the
+clock.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, a later firing at a later clock, and
@@ -99,10 +101,11 @@ class Firings:
         self.assertEqual(self.fire(machine, at), (0, freezer, True))
 
     def home(self, home, machine="acme-vm"):
-        """`home` with `machine`'s record saying `yes`, whose firing at minute 0 created the lease
-        and whose firing at minute 3 wrote it anew, each going on as any: the values of both
-        kept, and returned, and the lease on the origin the one of minute 3."""
-        self.record(home, "yes", machine)
+        """`home` with `machine`'s record saying `yes`, none for None, whose firing at minute 0
+        created the lease and whose firing at minute 3 wrote it anew, each going on as any: the
+        values of both kept, and returned, and the lease on the origin the one of minute 3."""
+        if machine:
+            self.record(home, "yes", machine)
         freezer = self.freezer(home)
         self.runs(home, now(0), freezer)
         created = home.install.refs().get(REF)

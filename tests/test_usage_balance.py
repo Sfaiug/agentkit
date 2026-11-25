@@ -34,7 +34,8 @@ class WeeklyBalance(unittest.TestCase):
         # the caller's: payg, so it stays out while any subscription is at or behind pace.
         opencode = tempfile.TemporaryDirectory(prefix=".ak-test-usage-opencode-", dir=REPO)
         self.addCleanup(opencode.cleanup)
-        env = patch.dict(os.environ, {"OPENCODE_CONFIG_DIR": opencode.name})
+        # and its picks come as marked, whatever draw the caller's environment holds
+        env = patch.dict(os.environ, {"OPENCODE_CONFIG_DIR": opencode.name, "AK_PICK_DRAW": ""})
         env.start()
         self.addCleanup(env.stop)
         # the usage table reads ak's state: this temporary one's, never the caller's
@@ -189,7 +190,7 @@ class WeeklyBalance(unittest.TestCase):
         self.assertEqual(row[held:].split()[0], "2")    # the count the owner spends from
         self.assertIn("0.5 ahead", row)
         self.assertNotIn("in hand", rendered)
-        self.assertIn("pick order: opus, astra, spark", rendered)
+        self.assertIn("drawn per run among: opus, astra, spark", rendered)
         with patch.object(usage, "collect", return_value=providers), \
                 redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
             self.assertEqual(usage.main(["--json"]), 0)
@@ -233,7 +234,7 @@ class WeeklyBalance(unittest.TestCase):
         for name, label in (("Claude", "1.4 slack"), ("ChatGPT", "0.6 ahead"), ("Muse", "unknown")):
             row = next(line for line in rendered.splitlines() if line.startswith(name + " "))
             self.assertIn(label, row)
-        self.assertIn("pick order: opus, astra, spark", rendered)
+        self.assertIn("drawn per run among: opus, astra, spark", rendered)
         self.assertIn("note: Muse probe failed", rendered)
         with patch.object(usage, "collect", return_value=providers), \
                 redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
@@ -609,10 +610,10 @@ class WeeklyBalance(unittest.TestCase):
                         patch.object(orch, "fresh_command", return_value=(["echo", "seat"], None)), \
                         patch.object(orch, "fix_term", return_value=None), redirect_stdout(io.StringIO()) as out:
                     orch.create(self.cfg, "new-seat", REPO, dry_run=True)
-                    self.assertNotIn("pick order:", out.getvalue())
+                    self.assertNotIn("drawn per run among:", out.getvalue())
                     rendered = usage.render(self.cfg, providers, usage.pick_order(
                         self.cfg, providers, self.workers, orchestrator=model))
-                    self.assertIn("pick order: opus,", rendered)
+                    self.assertIn("drawn per run among: opus,", rendered)
                     self.assertNotIn("preferring Fable", rendered)
                     with patch.object(config, "active_session", return_value={
                             "name": "new-seat", "orchestrator": model, "workers": self.workers}):

@@ -43,7 +43,9 @@ class ReviewContract(unittest.TestCase):
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
             # a top-level launch, whoever runs this: a run's own done-when is depth 1, which
             # skips the slot gate
-            "AK_RUN_DEPTH": "0", "REVIEW_FIXTURE": str(self.root)}))
+            "AK_RUN_DEPTH": "0", "REVIEW_FIXTURE": str(self.root),
+            # picks as marked, never by the minute a run's id holds
+            "AK_PICK_DRAW": ""}))
         os.environ.pop("AK_MAX_RUNS", None)
         # Each launch takes the slot gate, on the readings below and with no run's peak on
         # record, as where smoke runs this file.  One that follows another within the gate's

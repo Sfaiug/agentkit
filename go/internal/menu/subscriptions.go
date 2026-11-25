@@ -8,6 +8,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/motion"
 	"agentkit/internal/terminal"
+	"agentkit/internal/usage"
 )
 
 // LogInAgain is the act a subscription's line opens lit on, where it is offered: `spend a reset`
@@ -86,10 +87,11 @@ func (f SubscriptionsFrame) Hit(mouse terminal.Mouse) (row, act int, ok bool) {
 // SubscriptionsPage is `config · subscriptions` (menu.config_subscriptions): each subscription under
 // its company, named bold, with the main screen's meter, then `+ add a subscription`, bright
 // only while highlighted.  The pointed row says the resets it holds beside its meter where there is
-// room, and opens a line under it: whose login it is and its plan, or when it ends while that is soon,
-// in amber, the resets where none fit beside the meter, then its acts, the one On lit and named on the
-// key line.  On the clock the page comes up out of the background as it opens, its name writing itself
-// out in its header; and the line it opens comes up under it.
+// room, and opens a dim line under it of its notes but those resets, where it has any, as many as fit, as
+// the line under its meter on the ak screen says them, then a line: whose login it is and its plan, or when it
+// ends while that is soon, in amber, the resets where none fit beside the meter, then its acts, the one
+// On lit and named on the key line.  On the clock the page comes up out of the background as it opens,
+// its name writing itself out in its header; and the lines it opens come up under it.
 func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame {
 	width, lit, clock, on := s.LayoutWidth(), view.At, view.Motion, view.On
 	if view.Away || lit >= len(view.Cells) {
@@ -130,6 +132,16 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 			held = ""
 		}
 		put(s.Highlight(line, true), spot)
+		// its limits but the resets in hand, its row's to say, or with no room its login's line
+		var limits []usage.Note
+		for _, note := range each.Notes {
+			if note.Text != each.Held {
+				limits = append(limits, note)
+			}
+		}
+		if fit := fitting(limits, width-4); len(fit) > 0 {
+			put(s.Fade("    "+s.Styled(strings.Join(fit, " · "), "dim"), 1-opening), pageSpot{row: i})
+		}
 		if acts = each.Acts(true); !slices.Contains(acts, on) {
 			on = ""
 		}

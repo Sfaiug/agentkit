@@ -107,7 +107,7 @@ class RoleGroups(unittest.TestCase):
         # The executor's own model is the one reviewer that comes last: beta reviews alpha.
         self.wide["reviewers"] = ["alpha", "beta"]
         self.assertEqual(self.pick(), ("alpha", "beta"))
-        # A reviewer on another provider beats the order marked: alpha executes, though beta
+        # A reviewer on another provider beats the executors' order: alpha executes, though beta
         # is marked first, so gamma, on beta's provider, reviews another provider's work.
         self.wide.update(workers=["beta", "alpha"], reviewers=["gamma"])
         self.assertEqual(self.pick(), ("alpha", "gamma"))

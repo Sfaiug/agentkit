@@ -29,8 +29,10 @@ class FreshFallback(unittest.TestCase):
         stack.enter_context(patch.object(config, "active_session", return_value=None))
         stack.enter_context(patch.object(config, "STATE", self.root / "state"))
         stack.enter_context(redirect_stderr(io.StringIO()))
-        # a review run in-process is no child of the run this test may be running under
-        stack.enter_context(patch.dict(os.environ, {"AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+        # a review run in-process is no child of the run this test may be running under, and
+        # picks as marked, whatever draw the caller's environment holds
+        stack.enter_context(patch.dict(os.environ, {"AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+                                                    "AK_PICK_DRAW": ""}))
         for name in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
             os.environ.pop(name, None)
         # one provider each, so one reviewer's meter moves without the others'

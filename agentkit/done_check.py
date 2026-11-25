@@ -237,7 +237,8 @@ def look(argv):
 
 
 def checker(cfg, name):
-    """`[done_check] model` (setting), else the reviewer a run of that seat's would draw now."""
+    """`[done_check] model` (setting), else the first of that seat's reviewers, as marked, that
+    can run now: the check is no run, so it has no draw (`usage.pick_order`)."""
     named = setting(cfg)["model"]
     if named:
         return named

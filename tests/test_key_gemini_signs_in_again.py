@@ -35,7 +35,7 @@ class GeminiSignsInAgain(unittest.TestCase):
         akconfig.write(home, ["gemini"], providers={
             "google": {"mode": "subscription", "accounts": ["default", "two"]}})
         now = time.time()
-        used = {"meters": [{"name": "weekly", "used": 30, "window_secs": 604800}]}
+        used = {"meters": [{"name": "weekly", "used": 30, "window_secs": 604800}], "error": None}
         home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "google": {"accounts": {"default": used, "two": used}}}})
         ends = int(now + 2 * 86400)       # inside the warning window

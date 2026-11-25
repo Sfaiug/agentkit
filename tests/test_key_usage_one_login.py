@@ -149,7 +149,7 @@ class Text(unittest.TestCase):
 
     def test_the_pick_order_and_the_review_pair_have_their_lines(self):
         lines = self.out.splitlines()
-        self.assertIn("pick order: " + ", ".join(ORDER), lines)
+        self.assertIn("drawn per run among: " + ", ".join(ORDER), lines)
         self.assertIn(f"review: {PAIR['executor']} by {PAIR['reviewer']}", lines)
 
 

@@ -12,7 +12,9 @@ from . import config, harness, history
 # A usage row's account is the login of the seat that owned its conversation when the tick read
 # it; its model and counts by type are NULL where its harness does not tell them; its listed_usd
 # is what its counts cost at listed prices as it was written, as a turn's row's
-# (`history.TURN_USAGE_SCHEMA`); its orchestrator and effort are `orchestrating`'s.
+# (`history.TURN_USAGE_SCHEMA`); its orchestrator and effort are `orchestrating`'s.  A turn row
+# is a seat's turn as its harness timed it, at the moment it ended, its event, repo, account,
+# orchestrator and effort as a usage row read from that file in that tick holds them.
 TABLES = {
     "seat_sources": ("path TEXT PRIMARY KEY", "harness TEXT", "repo TEXT", "cursor TEXT",
                      "account TEXT"),
@@ -20,6 +22,8 @@ TABLES = {
                    "account TEXT", "model TEXT", "input INTEGER", "cache_write INTEGER",
                    "cache_read INTEGER", "output INTEGER", "listed_usd REAL", "orchestrator TEXT",
                    "effort TEXT"),
+    "seat_turns": ("event TEXT PRIMARY KEY", "repo TEXT", "at REAL", "seconds REAL",
+                   "account TEXT", "orchestrator TEXT", "effort TEXT"),
 }
 
 
@@ -99,32 +103,57 @@ def read(since, until):
                         if not line.endswith(b"\n"):
                             break       # the harness may still be writing this line
                         start, offset = offset, stream.tell()
+                        place = f"{source}:{start}"
                         try:
-                            usage = plugin.seat_token_usage(json.loads(line), cursor)
+                            entry = json.loads(line)
+                        except ValueError:
+                            continue
+                        # A line SQLite cannot hold, a lone surrogate or a number past its
+                        # integers or a float, raises before it writes; the lines after it go on.
+                        try:
+                            at, key, seconds = plugin.seat_turn(entry) or (None,) * 3
+                            if (at := harness.moment(at)) is not None:
+                                # As first filed: a file read again from its start changes no turn.
+                                db.execute("INSERT OR IGNORE INTO seat_turns VALUES "
+                                           "(?, ?, ?, ?, ?, ?, ?)",
+                                           (f"{adapter}:{key or place}", repo, float(at), seconds,
+                                            account, orchestrator, effort))
+                        except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+                            pass
+                        kept = dict(cursor)
+                        try:
+                            usage = plugin.seat_token_usage(entry, cursor)
                             if usage is None:
                                 continue
                             at, key, tokens, model, counts = usage
-                            at = harness.moment(at)
-                            if at is None or not isinstance(tokens, int) or tokens < 0:
+                            if ((at := harness.moment(at)) is not None
+                                    and isinstance(tokens, int) and tokens >= 0):
+                                counts = counts or [None] * 4
+                                # A repeat counting more replaces all its line set, so the counts,
+                                # model, login, dollars and orchestrating stay those of the line
+                                # that set the tokens.
+                                db.execute("INSERT INTO seat_usage VALUES "
+                                           "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                                           "ON CONFLICT(event) DO UPDATE SET "
+                                           "tokens = excluded.tokens, account = excluded.account, "
+                                           "model = excluded.model, input = excluded.input, "
+                                           "cache_write = excluded.cache_write, "
+                                           "cache_read = excluded.cache_read, "
+                                           "output = excluded.output, "
+                                           "listed_usd = excluded.listed_usd, "
+                                           "orchestrator = excluded.orchestrator, "
+                                           "effort = excluded.effort "
+                                           "WHERE excluded.tokens > tokens",
+                                           (f"{adapter}:{key or place}", repo, at, tokens, account,
+                                            model, *counts, priced(model, counts), orchestrator,
+                                            effort))
                                 continue
-                        except (ValueError, TypeError, KeyError, AttributeError):
-                            continue
-                        event = f"{adapter}:{key or f'{source}:{start}'}"
-                        counts = counts or [None] * 4
-                        # A repeat counting more replaces all its line set, so the counts,
-                        # model, login, dollars and orchestrating stay those of the line that
-                        # set the tokens.
-                        db.execute("INSERT INTO seat_usage VALUES "
-                                   "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                                   "ON CONFLICT(event) DO UPDATE SET tokens = excluded.tokens, "
-                                   "account = excluded.account, model = excluded.model, "
-                                   "input = excluded.input, cache_write = excluded.cache_write, "
-                                   "cache_read = excluded.cache_read, output = excluded.output, "
-                                   "listed_usd = excluded.listed_usd, "
-                                   "orchestrator = excluded.orchestrator, "
-                                   "effort = excluded.effort WHERE excluded.tokens > tokens",
-                                   (event, repo, at, tokens, account, model, *counts,
-                                    priced(model, counts), orchestrator, effort))
+                        except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+                            pass
+                        # A line filing no row moves the cursor by nothing: a running count then
+                        # grows from the last line filed.
+                        cursor.clear()
+                        cursor.update(kept)
                     cursor.update(identity=identity, offset=offset)
                     db.execute("UPDATE seat_sources SET cursor = ? WHERE path = ?",
                                (json.dumps(cursor), source))

@@ -185,7 +185,8 @@ def history_start(state, log=None):
                       orchestrator_effort=config.launched_effort(state, orchestrator,
                                                                  "orchestrator"),
                       change=change_name(state), kind=run_kind(state),
-                      plan_line=state.get("plan_line"), no_review=int(run_record.no_review(state)), log=log)
+                      plan_line=state.get("plan_line"), no_review=int(run_record.no_review(state)),
+                      policy=state.get("policy"), log=log)
 
 
 def changed_files(state):

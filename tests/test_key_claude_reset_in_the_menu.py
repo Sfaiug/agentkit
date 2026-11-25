@@ -43,9 +43,10 @@ def under_grid(screen):
 
 
 def offered(screen):
-    """The spends on the line under Claude's highlighted row, as drawn, the lit one bracketed."""
+    """The spends on the line under Claude's highlighted row and the line of its limits, as
+    drawn, the lit one bracketed."""
     shown = lines(screen)
-    return [act.strip() for row, line in zip(shown, shown[1:]) if row.startswith("› Claude ")
+    return [act.strip() for row, line in zip(shown, shown[2:]) if row.startswith("› Claude ")
             for act in line.split("   ") if "spend a" in act]
 
 

@@ -51,7 +51,8 @@ class OwnPr(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_SESSION": "fix-api",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AGENTKIT_DISCORD_WEBHOOK": "off",
-            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "NO_COLOR": "1"}))
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "NO_COLOR": "1",
+            "AK_PICK_DRAW": ""}))
         self.stack.enter_context(redirect_stdout(io.StringIO()))
         config.ensure_dirs()
         self.cfg = config.load()

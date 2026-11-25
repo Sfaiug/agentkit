@@ -155,13 +155,22 @@ interactive)
     echo "antigravity.sh interactive: the TUI cannot be given a conversation id" >&2; exit 3; }
   resume=""; [ -n "${3:-}" ] && resume=$(printf -- '--conversation %q ' "$3")
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-  # Read the status command from this login's data directory, as agy does.
+  # The model by its full id, the one agy's own alias resolution makes of a model and an
+  # effort: with --agent the TUI resolves `--model <m> --effort <e>` only seconds after it
+  # draws, and a first prompt sent sooner fails with `plan model not specified`.  A model agy
+  # runs at no effort (`claude-sonnet-4-6`, effort `none`) is its own full id.
+  case $1 in *-"$2") model=$1 ;; *) model="$1-$2" ;; esac
+  [ "$2" = none ] && model=$1
+  # Read the status command from this login's data directory, as agy does.  `model` here is
+  # this session's alone (`settings.json` stays untouched) and is what agy's first status
+  # renders report before `--model` resolves, instead of the login's last pick.
   status=$(jq -c '.statusLine | objects | select(.command | strings | length > 0)' \
               "${TOKEN%/*}/settings.json" 2>/dev/null) || status=
   script=$(printf '%q' "$REPO/hooks/claude-status.sh")
-  settings=$(jq -cn --argjson status "${status:-null}" --arg script "$script" '
-    {statusLine: (if $status then $status | .command = ($script + " | { " + .command + "\n}")
-                 else {type: "command", command: ($script + " >/dev/null")} end)}') || exit 2
+  settings=$(jq -cn --arg model "$model" --argjson status "${status:-null}" --arg script "$script" '
+    {model: $model,
+     statusLine: (if $status then $status | .command = ($script + " | { " + .command + "\n}")
+                  else {type: "command", command: ($script + " >/dev/null")} end)}') || exit 2
   # The orchestrator rulebook this launch is handed.  agy 1.2.9 takes no system-prompt or
   # instructions flag; it takes `--agent <name>`, a custom agent whose agent.md is front
   # matter and then the system prompt, found under `.agents/agents/<name>/` of any directory
@@ -204,12 +213,6 @@ interactive)
       >"$agents/.agents/hooks.json" || {
     rm -rf -- ${agents:+"$agents"}
     echo "antigravity.sh interactive: no rulebook for this seat" >&2; exit 2; }
-  # The model by its full id, the one agy's own alias resolution makes of a model and an
-  # effort: with --agent the TUI resolves `--model <m> --effort <e>` only seconds after it
-  # draws, and a first prompt sent sooner fails with `plan model not specified`.  A model agy
-  # runs at no effort (`claude-sonnet-4-6`, effort `none`) is its own full id.
-  case $1 in *-"$2") model=$1 ;; *) model="$1-$2" ;; esac
-  [ "$2" = none ] && model=$1
   # A named account's seat carries what this file set above for it: the command runs later,
   # outside this adapter's environment.
   acct=""

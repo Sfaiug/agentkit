@@ -928,6 +928,9 @@ def screen(harness):
              else None,
              "folded": _pattern(block.get("folded"), path),
              "scrolled": _pattern(block.get("scrolled"), path),
+             # the top rule of a ruled composer scrolled past its height, opening it in place of
+             # its prompt row (`ruled_composer`)
+             "scrolled_top": _pattern(block.get("scrolled_top"), path),
              # it scrolls a draft taller than its composer's box inside it: the box is whole
              # on the screen, however tall the draft (`screen_state`)
              "scrolls": block.get("scrolls") is True,
@@ -1631,28 +1634,40 @@ def prompt_rows(rows):
 
 
 def ruled_composer(chrome, rows):
-    """(prompt row, closing rule row) of the composer a ruled harness draws, else (None, None).
+    """(opening row, closing rule row) of the composer a ruled harness draws, else (None, None).
 
-    It is the bottom-most prompt row whose first chrome row under it is a bare rule, so a
+    It opens on the bottom-most prompt row whose first chrome row under it is a bare rule, so a
     user's status line under that rule is never the composer, even where it starts with a
     prompt mark.  The box's prompt row and rules start at the pane's left edge, with at most
     one space after `│`, and a draft's rows are indented farther.  Only that edge and inset
     are removed: `rows` keep their remaining leading spaces (raw or plain),
     and only rows at the left edge are its prompt row and its chrome: nothing typed -- a run
     of rule glyphs, `---`, a prompt mark -- is ever the box, and every row between is the
-    composer's.
+    composer's.  A box scrolled past its height can open on its top rule instead, where its
+    harness counts the rows above there (`[screen] scrolled_top`): what it shows is its last
+    rows.
     """
+    # A box opened on such a rule, with no prompt row, read as no composer: six seats each held
+    # an ending ak had typed there and never gave its Enter, every later one waiting behind
+    # it.  The owner, 25 Nov 2026: "lots of sessions are not resuming … Find out the exact root
+    # cause and make sure to build a sustainable fix, so this does not happen again."
     if not chrome["ruled"]:
         return None, None
     cells = [re.sub(r"^│\s?", "", strip_sgr(row)).rstrip() for row in rows]
     for at in range(len(cells) - 1, -1, -1):
-        if re.match(rf"[{PROMPT}]", cells[at]):
+        if re.match(rf"[{PROMPT}]", cells[at]) or _scrolled_top(chrome, rows[at]):
             end = next((row for row in range(at + 1, len(cells))
                         if not cells[row].startswith(" ") and chrome_line(chrome, cells[row])),
                        len(cells))
             if end < len(cells) and re.fullmatch(RULE, cells[end]):
                 return at, end
     return None, None
+
+
+def _scrolled_top(chrome, row):
+    """Is that row a ruled box's top rule counting the rows above it (`[screen] scrolled_top`)?"""
+    return bool(chrome["scrolled_top"] and chrome["scrolled_top"].fullmatch(
+        re.sub(r"^│\s?", "", strip_sgr(row)).rstrip()))
 
 
 def chrome_below(chrome, rows):
@@ -1794,19 +1809,31 @@ def follow_model(cfg, name, asked=None):
     if not ran or since and not (ran[2] or 0) > max(since):
         return
     kept = record["orchestrator"]
+    at = config.at_efforts(cfg, record)
+    found = config.running(cfg, entry["harness"], ran[0])
+    for each in config.offered(cfg):
+        if each not in found:
+            try:
+                other = config.model(at, each)
+            except config.Error:
+                continue
+            if other["harness"] == entry["harness"] and plugin.same_model(other, ran[0], ran[1]):
+                found.append(each)
     try:
-        runs = (sorted(config.running(cfg, entry["harness"], ran[0]),
-                       key=lambda each: each != kept) or _taken_in(cfg, entry, ran, asked))
+        runs = sorted(found, key=lambda each: each != kept) or _taken_in(cfg, entry, ran, asked)
     except (config.Error, OSError):     # an add that failed: the record stays
         return
     if not runs:
         return
-    models = config.at_efforts(cfg, record)["models"]
-    chosen = next((each for each in runs if models[each].get("effort") == ran[1]), runs[0])
+    models = config.at_efforts(cfg, record)["models"] if not found else at["models"]
+    chosen = next((each for each in runs
+                   if models[each].get("effort") == ran[1]
+                   or plugin.same_model(models[each], ran[0], ran[1])), runs[0])
     if chosen != kept:
         config.update_session(name, orchestrator=chosen)
-    if ran[1] != models[chosen]["effort"] and ran[1] in config.efforts(
-            entry["harness"], ran[0], config.catalog_held):     # a look waits on no listing
+    if (not plugin.same_model(models[chosen], ran[0], ran[1])
+            and ran[1] != models[chosen]["effort"] and ran[1] in config.efforts(
+                entry["harness"], ran[0], config.catalog_held)):  # a look waits on no listing
         config.change_efforts(name, lambda data: config.orchestrating_at(
             cfg["models"], data, chosen, ran[1]))
 
@@ -3958,10 +3985,15 @@ def _pane_sent(session, harness, pane, text):
         # A dialog owns the screen: the line landed, and no Enter goes into it blind.
         return True
     # read whole where the composer can be read: a long line wraps past the bottom rows, and
-    # a line the harness took may be echoed above its empty composer
-    held = composer_draft(harness, pane) if harness is not None else None
-    if held is not None:
-        return re.sub(r"\s+", "", text) not in held
+    # a line the harness took may be echoed above its empty composer; a box opened on its
+    # scrolled top rule shows only the line's last rows
+    rows = _composer_rows(harness, pane) if harness is not None else None
+    if rows is not None:
+        chrome, whole, raws = screen(harness), re.sub(r"\s+", "", text), _content_rows(pane)
+        at, _ = ruled_composer(chrome, raws[-PANE_LINES:])
+        shown = at is not None and _scrolled_top(chrome, raws[-PANE_LINES:][at])
+        return (whole not in re.sub(r"\s+", "", "".join(rows))
+                and not (shown and _shows_end(rows, whole)))
     return not _holds_text(pane, text)
 
 
@@ -4299,10 +4331,15 @@ def _composer_rows(harness, pane, *, exact=False):
         at, stop = ruled_composer(chrome, raws)
         if not exact and at is None and marked and marked[0] + 1 == len(rows):
             at, stop = marked[0], len(rows)
-    if at is None or exact and (stop is None or any(dim_rows(raws, chrome["faint"])[at:stop])
+    # A box opened on its scrolled top rule shows only its last rows: never read whole, nor
+    # read empty, however blank those rows.
+    scrolled = at is not None and _scrolled_top(chrome, raws[at])
+    if at is None or exact and (stop is None or scrolled
+                               or any(dim_rows(raws, chrome["faint"])[at:stop])
                                or chrome["composer"] and chrome["composer"].fullmatch(rows[at])):
         return None
-    return _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop), exact=exact)
+    parts = _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop), exact=exact)
+    return None if scrolled and not parts else parts
 
 
 def _unscrolled(chrome, rows, *, exact=False):
@@ -4359,7 +4396,7 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
               and len(line) > chrome["folds_over"])
     if held and (held == whole or not exact and (
-            len(rows) > 1 and whole.endswith(held)
+            _shows_end(rows, whole)
             or folded and chrome["folded"].fullmatch(held))):
         return "line"
     # lines drawn joined are ak's only off a composer read whole: owner text can sit above a crop
@@ -4367,6 +4404,12 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
         (rows if exact else _composer_rows(harness, pane, exact=True)) or ()))
     return "line" if read and whole in [re.sub(r"\s+", "", typed)
                                         for typed in _joined(name, read)] else "other"
+
+
+def _shows_end(rows, whole):
+    """Those composer rows are the end of a line taller than its composer shows, `whole` being
+    the line without whitespace: rows of it, as `composer_holds` reads them, never one row."""
+    return len(rows) > 1 and whole.endswith(re.sub(r"\s+", "", "".join(rows)))
 
 
 def own_line(name, harness, session):
@@ -9162,13 +9205,14 @@ def main(argv):
         held = None
     else:
         config.ensure_dirs()
-        # A home a machine takes over from puts the lease on ak's remote where it holds none,
-        # before the lock: a tick that runs long holds that, and the lease must be written while
-        # it does.  Whatever ends the turn, the next firing's turn reads what the remote holds.
-        # So does one keeping a value it made, whatever its records say: `pause` holds it to
-        # its proof, which only its turns keep young.  None while a machine it gives home back
-        # to says it is steady: it stands still, and that machine's watch takes the lease.
-        if (standby.takes_over() or lease.proof_age() is not None) and not hand_back.due():
+        # A home that owes a proof it has not got (`pause.owes_proof`) puts the lease on ak's
+        # remote where it holds none, before the lock: a tick that runs long holds that, and the
+        # lease must be written while it does.  Whatever ends the turn, the next firing's turn
+        # reads what the remote holds.  So does one keeping a value it made, whatever its records
+        # say: `pause` holds it to its proof, which only its turns keep young.  None while a
+        # machine it gives home back to says it is steady: it stands still, and that machine's
+        # watch takes the lease.
+        if (pause.owes_proof() or lease.proof_age() is not None) and not hand_back.due():
             with suppress(Exception):
                 lease._turn()
         # ... and one that has not known for long that it is the home stands still, none of the
