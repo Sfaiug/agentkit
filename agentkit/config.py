@@ -484,27 +484,32 @@ def migrate_policy():
         tmp.replace(path)
 
 
-def policy(checkout=None, ref=RULES_REF):
-    """The POLICY numbers in force for a project: the front matter of AGENTS.md at `ref` of its
-    local checkout -- its default branch, unless a caller holds that to one commit -- else the
-    host's.  A checkout that is None, or whose git does not answer at launch, gives the host's
-    numbers, and preflight reports the repository as it does today: nothing is cloned or
-    resolved to read a number, so a clone with no origin/HEAD yet gives the host's too, never
-    what the branch it stands on says."""
-    numbers = host_policy()
+def policy(checkout=None):
+    """The POLICY numbers in force for a project: the front matter of AGENTS.md on the default
+    branch of its local checkout, else the host's.  A checkout that is None, or whose git does
+    not answer at launch, gives the host's numbers, and preflight reports the repository as it
+    does today: nothing is cloned or resolved to read a number, so a clone with no origin/HEAD
+    yet gives the host's too, never what the branch it stands on says."""
     if checkout is None:
-        return numbers
+        return host_policy()
     from . import gitcall     # here, not at the top: gitcall imports this module
     try:
         # one read for every number: each prompt of every seat asks (`orch.rulebook_due`), and
         # no fetch can land between reads to mix two commits' numbers
-        text = gitcall.git(checkout, "show", f"{ref}:AGENTS.md", check=False)
+        text = gitcall.git(checkout, "show", f"{RULES_REF}:AGENTS.md", check=False)
     except Exception:
-        return numbers
+        text = ""
+    return declared_policy(checkout, text)
+
+
+def declared_policy(checkout, text):
+    """The POLICY numbers the front matter of `text`, `checkout`'s AGENTS.md, declares, the
+    host's for the rest."""
+    from . import gitcall     # here, not at the top: gitcall imports this module
     declared = {key: gitcall.front_value(text, key) for key in (*POLICY, *POLICY_RENAMES)}
     return _policy_in(Path(checkout) / "AGENTS.md", {
-        **numbers, **{key: int(value) if re.fullmatch("[0-9]+", value) else value
-                      for key, value in declared.items() if value is not None}})
+        **host_policy(), **{key: int(value) if re.fullmatch("[0-9]+", value) else value
+                            for key, value in declared.items() if value is not None}})
 
 
 def _policy_in(path, data):
@@ -2696,15 +2701,11 @@ def seat_rulebook(session, repo=None):
         # `repo` is a new seat's, which no record says until it opens (`orch.for_seat`): a record
         # under its name is then the seat's before it, whose builders are not this one's
         seat, repo = (session, record.get("repo")) if repo is None else (None, repo)
-        try:
-            # its default branch's commit, once: a fetch between reading its numbers and its text
-            # off the moving ref would pair one revision's numbers with another's rules
-            commit = repo and gitcall.git(repo, "rev-parse", "--verify", "--quiet", RULES_REF,
-                                          check=False, env=gitcall.project_env(repo))
-        except Exception:     # a git that never answers: the host's numbers, as `policy` gives
-            commit = None
-        numbers = seat_numbers(seat, policy(repo, commit) if commit else said_policy())
-    project = gitcall.agents_body(repo, commit)
+        # its numbers and its text from one read: a fetch between two would hand it one
+        # revision's numbers beside another's rules
+        text = gitcall.agents_text(repo, RULES_REF)
+        numbers = seat_numbers(seat, declared_policy(repo, text) if repo else said_policy())
+    project = gitcall.agents_body(text)
     body = rulebook_text(numbers=numbers)
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
