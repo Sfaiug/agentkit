@@ -11,7 +11,7 @@ import (
 var sgr = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
 
 // Fade is text as a draw wrote it, every colour in it and the foreground its plain cells take, the
-// theme's text, amount (0 to 1) of the way to the theme's background: a page coming up out of it as
+// theme's text, amount (0 to 1) of the way to the screen's background: a page coming up out of it as
 // it opens, and the line a row opens.  Where colour cannot move it is as it is.
 func (s Screen) Fade(text string, amount float64) string {
 	if amount <= 0 || !s.Moves() {
@@ -19,7 +19,7 @@ func (s Screen) Fade(text string, amount float64) string {
 	}
 	numbers := func(role string) []int {
 		var out []int
-		for _, part := range channels(colourOf(role, s.theme)) {
+		for _, part := range channels(s.colour(role)) {
 			n, _ := strconv.Atoi(part)
 			out = append(out, n)
 		}

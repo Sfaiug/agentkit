@@ -92,9 +92,10 @@ func (k *Keyboard) give(modes string) {
 // though COLORTERM does not say (what AGENTKIT_TERMFEATURES says, else inside tmux what tmux says,
 // which takes a process), and whether its background is light, by its answer to OSC 11 within a
 // second, as a busy host can take most of one to pass it on, the answer kept for what cannot ask
-// (keep).  DA1, which every terminal answers and in turn, ends the wait with the answers.  Anything
-// typed meanwhile is kept for ReadKey.
-func (k *Keyboard) Sense() {
+// (keep), and whether the look reads on it (lookOn), but in a popup over a seat, painted whatever
+// it answers, as Python's terminal.sense.  DA1, which every terminal answers and in turn, ends the
+// wait with the answers.  Anything typed meanwhile is kept for ReadKey.
+func (k *Keyboard) Sense(popup bool) {
 	features, set := os.LookupEnv("AGENTKIT_TERMFEATURES")
 	if !set && os.Getenv("TMUX") != "" { // asked of the client this runs under, $TMUX kept
 		asked, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -113,15 +114,19 @@ func (k *Keyboard) Sense() {
 		heard = append(heard, each)
 	}
 	said := backgroundSaid.FindSubmatchIndex(heard)
-	in, light, background := black, false, ""
+	in, reading, background := black, own{}, ""
 	k.fits = false
 	if said != nil {
 		background = string(heard[said[2]:said[3]])
-		if light, k.fits = isLight(background); light {
+		rgb, light := backgroundOf(background)
+		if light {
 			in = white
 		}
-		if k.fits {
+		if k.fits = rgb != ""; k.fits {
 			keep(in)
+		}
+		if k.fits && !popup {
+			reading = lookOn(rgb, in)
 		}
 		heard = append(heard[:said[0]:said[0]], heard[said[1]:]...)
 	}
@@ -129,7 +134,7 @@ func (k *Keyboard) Sense() {
 		heard = append(heard[:at[0]:at[0]], heard[at[1]:]...)
 	}
 	k.keyed = append(heard, k.keyed...)
-	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in, background: background}
+	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in, background: background, own: reading}
 }
 
 // Screen is what Sense found, at the size the terminal is now, in the theme its background fits,

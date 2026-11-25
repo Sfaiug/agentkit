@@ -5,9 +5,12 @@ such path at least, a test of the project's own it edits or removes, a path both
 time record (`suite_times`) and the path itself call a test.  AGENTS.md, which holds ak's own
 rules for the project, is never one of them.  It brings those it edits, as the record spells them.
 Only on a target that declares both `health:` and `deployed:`, so ak reverts a release whose
-health breaks (`watch.after_merge_revert`), does such a change land on the tests it brings and its
-own quick checks, no whole suite (`land._looks`), its merge saying so with TRAILER.  What it
-breaks the next whole run finds as any red on the target.
+health breaks (`watch.after_merge_revert`), and whose project has a time record of its suite
+(`suite_times`), so a repository whose runner reports no tests completes whole landing checks and
+its sessions are told (`stop.untested`, `suite_times.unreported`; owner, 18 Nov 2026: "Keep
+trying to enforce"), does such a change land on the tests it brings and its own quick checks, no
+whole suite (`land._looks`), its merge saying so with TRAILER.  What it breaks the next whole run
+finds as any red on the target.
 
 A change that adds a test waits as before, even one a round timed before the change was on the
 target, and so does a change of tests alone, as the owner's yes was to changes of looks: a test is
@@ -52,13 +55,15 @@ TEST = {"test", "tests", "spec"}
 
 def changes(repo, target, heads):
     """{each of `heads` whose change against `target` is of looks alone: the tests it brings},
-    where `target` declares both `health:` and `deployed:`; none elsewhere, `heads` then never
-    read, nor where git cannot say.  Only a target with a `tests:` line has tests to bring."""
-    if not all(gitcall.declared_at(repo, target, key) for key in ("health", "deployed")):
+    where `target` declares both `health:` and `deployed:` and the project has a time record of
+    its suite (`suite_times`); none elsewhere, `heads` then never read, nor where git cannot say.
+    Only a target with a `tests:` line has tests to bring."""
+    if not (all(gitcall.declared_at(repo, target, key) for key in ("health", "deployed"))
+            and (times := suite_times.read(suite_times.handed(repo)))):
         return {}
     # A record's `./tests/a.py::part` is git's `tests/a.py`.
     timed = {PurePosixPath(file): file for file in (
-        test.partition("::")[0] for test in suite_times.read(suite_times.handed(repo)))
+        test.partition("::")[0] for test in times)
         } if gitcall.declared_at(repo, target, "tests") else {}
     alone = {}
     for head in heads:

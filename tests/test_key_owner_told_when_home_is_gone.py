@@ -1,12 +1,13 @@
-"""A standby's pass that fails with a reason pages the owner once the copy is 20 minutes old, by
-whichever of the machine's two clocks calls it younger: one page for each stamp of a pass that
-ended well, naming the home, the copy's age and why the pass failed, as the pass printed it.  A
-page, sent or refused, changes nothing the pass prints, nor its exit 1, and a refused one goes out
-at a later failed pass; whatever keeps the page from being asked for, the pass says so in one line
-more.  No stamp, or one of another home, pages nobody.  Black-box, through
-tests/fixtures/twohomes.py, whose machine takes its clocks from AK_NOW (`wall seconds-since-boot
-boot`), and tests/fixtures/sink.py, the owner's webhook.  A refused page's retry is made due at
-once, as its wait passing leaves it.
+"""A standby's pass that fails with a reason pages the owner once every pass has failed for 20
+minutes, by whichever of the machine's two clocks calls it younger, here from a first failed pass
+as the copy is taken (tests/test_key_standby_pages_once_failing_on_end.py counts from others): one
+page for each stamp of a pass that ended well, naming the home, the copy's age and why the pass
+failed, as the pass printed it.  A page, sent or refused, changes nothing the pass prints, nor its
+exit 1, and a refused one goes out at a later failed pass; whatever keeps the page from being
+asked for, the pass says so in one line more.  No stamp, or one of another home, pages nobody.
+Black-box, through tests/fixtures/twohomes.py, whose machine takes its clocks from AK_NOW (`wall
+seconds-since-boot boot`), and tests/fixtures/sink.py, the owner's webhook.  A refused page's
+retry is made due at once, as its wait passing leaves it.
 """
 
 import json
@@ -44,6 +45,7 @@ class TheOwnerIsToldWhenTheHomeIsGone(unittest.TestCase):
         done = self.passes(0)
         self.assertEqual(done.code, 0, done.out + done.err)
         home.silence()
+        self.failed(0)
 
     def passes(self, wall, since=None):
         """A pass `wall` minutes after the first, by the wall clock, and by the clock since boot
@@ -59,7 +61,7 @@ class TheOwnerIsToldWhenTheHomeIsGone(unittest.TestCase):
         why, = re.findall(rf"the pass from {self.home.name} failed: (.+)", done.err)
         return done, why
 
-    def test_one_page_once_the_copy_is_20_minutes_old(self):
+    def test_one_page_once_passes_failed_for_20_minutes(self):
         unpaged, _ = self.failed(19)
         self.assertEqual(self.sink.pages(), [])
         paged, why = self.failed(20)
@@ -86,18 +88,6 @@ class TheOwnerIsToldWhenTheHomeIsGone(unittest.TestCase):
         self.assertRegex(page, minutes(23))
         self.failed(60)
         self.assertEqual(len(self.sink.pages()), 2)
-
-    def test_a_pass_that_ended_well_meanwhile_makes_a_new_page(self):
-        self.failed(20)
-        self.home.answer()
-        done = self.passes(25)
-        self.assertEqual(done.code, 0, done.out + done.err)
-        self.home.silence()
-        self.failed(44)
-        self.assertEqual(len(self.sink.pages()), 1)
-        self.failed(45)
-        _, page = self.sink.pages()
-        self.assertRegex(page, minutes(20))
 
     def test_the_younger_clock_decides(self):
         self.failed(120, since=10)
