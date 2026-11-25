@@ -27,15 +27,15 @@ def days(cfg, since, until):
     own cap of that name (`scope`) none, whose `used` is a number from 0 to 100 and whose `at` is
     a number, in the order of `at`, then of the row; any other row is no reading.  A step is two
     of a login's readings next to each other: it counts where both name one plan (`usage._text`)
-    and the second holds no less than the first,
-    rising by the difference, as a step across two plans, from or to a reading naming none, or
+    and the second holds no less than the first, rising by the difference, as a step across two
+    plans, from or to a reading naming none, or
     down (a week that began again) says nothing of what its tokens took.  It holds the login's
     rows of its provider's harnesses (`spend._ours`) after its first reading and by its second:
     a seat row its `tokens`, a turn row its four counts summed, each a whole number or a turn
     row's NULL, summing above zero, any other row no row; one holding a row of no model counts
     for nothing, as what that row ran is unknown.  Read in one transaction of the history, so a
     row written meanwhile is in all three reads or none; none where it cannot answer, as one
-    whose readings keep no plan or scope, no write having migrated it since."""
+    whose readings keep no plan, no write having migrated it since."""
     def harness(turn):
         """The harness a turn's `harness` receipt names, None where it is no text."""
         try:
@@ -52,11 +52,15 @@ def days(cfg, since, until):
     try:
         with closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")     # one snapshot for the three reads; in WAL no write waits
+            # a history no write has added `scope` to yet names no model's own cap
+            scope = "scope" if db.execute("SELECT 1 FROM pragma_table_info('meter_readings') "
+                                          "WHERE name = 'scope'").fetchone() else "NULL"
             readings = db.execute(
                 "SELECT provider, account, meter, at, used, plan FROM meter_readings "
-                "WHERE source = 'probe' AND scope IS NULL AND typeof(used) IN ('integer', 'real') "
-                "AND used >= 0 AND used <= 100 AND typeof(at) IN ('integer', 'real') AND at >= ? "
-                "AND at <= ? ORDER BY at, rowid", (since, until)).fetchall()
+                f"WHERE source = 'probe' AND {scope} IS NULL AND typeof(used) IN "
+                "('integer', 'real') AND used >= 0 AND used <= 100 AND typeof(at) IN "
+                "('integer', 'real') AND at >= ? AND at <= ? ORDER BY at, rowid",
+                (since, until)).fetchall()
             seats = db.execute("SELECT account, event, model, at, tokens FROM seat_usage "
                                "WHERE at > ? AND at <= ?", (since, until)).fetchall()
             turns = db.execute("SELECT account, turn, model, at, input, cache_write, cache_read, "

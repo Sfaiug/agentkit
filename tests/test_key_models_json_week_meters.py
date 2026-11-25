@@ -14,7 +14,8 @@ tokens that ran meanwhile (`week_meters`): {provider: {plan: {"points", "tokens"
   row of no model (none or an empty text) counts for nothing.
 - A plan's points are its steps' summed with `math.fsum`, to six significant digits, however many
   logins and days they span; a plan with no step that counts is not listed, nor a provider with
-  none.  A history whose readings keep no plan gives `{}`, and `ak models --json` exits 0.
+  none.  A history whose readings keep no plan gives `{}`, and `ak models --json` exits 0; one
+  keeping a plan but no `scope` yet names no model's own cap.
 
 Black-box: the program `AK_BIN` names, on tests/fixtures/meters.py's harness, `echo` running
 acme's models and a copy, `chime`, brine's, the logins' shared weeks held in the usage cache and
@@ -89,12 +90,15 @@ class ModelsJsonWeekMeters(unittest.TestCase):
         self.rows["turn_usage"].append((str(turn), account, model, THEN - ago * HOUR, *counts))
 
     def week_meters(self, tables=TABLES):
-        """`ak models --json`'s `week_meters`, the rows written into history.db first."""
-        with closing(sqlite3.connect(self.home.path / ".agentkit/history.db")) as db, db:
+        """`ak models --json`'s `week_meters`, the rows written into history.db first, read-only
+        so that no migration ahead of the read changes the tables as written."""
+        path = self.home.path / ".agentkit/history.db"
+        with closing(sqlite3.connect(path)) as db, db:
             for table, columns in tables.items():
                 db.execute(f"CREATE TABLE {table} ({columns})")
                 for row in self.rows[table]:
                     db.execute(f"INSERT INTO {table} VALUES ({', '.join('?' * len(row))})", row)
+        path.chmod(0o444)
         done = self.home.ak("models", "--json", env=ENV)
         self.assertEqual(done.code, 0, done.out + done.err)
         return json.loads(done.out)["week_meters"]
@@ -143,8 +147,10 @@ class ModelsJsonWeekMeters(unittest.TestCase):
         for n, used in enumerate((0, 9.5, 0, 0.1, 0, 0.2, 0, 0.2)):
             self.read(100 - 10 * n, used, plan="Ultra", account="second")
         # a provider whose steps count for nothing is not listed
-        self.read(50, 30, plan="", provider="brine")
-        self.read(40, 32, plan="", provider="brine")
+        self.read(50, 30, plan=None, provider="brine")
+        self.read(40, 32, plan=None, provider="brine")
+        self.read(30, 34, plan="", provider="brine")
+        self.read(20, 36, plan="", provider="brine")
         self.assertEqual(self.week_meters(), {
             "acme": {"Pro": {"points": 13, "tokens": {"anvil-1": 10 + 1_000_000}},
                      "Ultra": {"points": 10, "tokens": {}}}})
@@ -158,6 +164,15 @@ class ModelsJsonWeekMeters(unittest.TestCase):
         self.read(0, 0.00025, account="second")
         self.assertEqual(self.week_meters(),
                          {"acme": {"Max": {"points": 10.1003, "tokens": {}}}})
+
+    def test_a_history_whose_readings_keep_a_plan_but_no_scope_names_no_cap(self):
+        self.read(50, 10)
+        self.seat(47, 5)
+        self.read(46, 20)
+        self.rows["meter_readings"] = [row[:-1] for row in self.rows["meter_readings"]]
+        self.assertEqual(self.week_meters({**TABLES, "meter_readings": TABLES[
+            "meter_readings"].replace("scope, ", "")}),
+            {"acme": {"Max": {"points": 10, "tokens": {"anvil-1": 5}}}})
 
     def test_a_history_whose_readings_keep_no_plan_gives_none(self):
         self.read(50, 10)
