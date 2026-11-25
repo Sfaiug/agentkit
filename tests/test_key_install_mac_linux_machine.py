@@ -172,7 +172,7 @@ class Mac:
         home.fake("brew", BREW.format(python=python, log=shlex.quote(str(home.log("brew"))),
                                       limactl=shlex.quote(str(staged)),
                                       bin=shlex.quote(str(home.bin))))
-        home.fake("uname", "#!/bin/sh\necho Darwin\n")
+        home.fake("uname", "#!/bin/sh\ncase $1 in -m) echo arm64 ;; *) echo Darwin ;; esac\n")
         home.fake("launchctl", LAUNCHCTL.format(python=sys.executable, root=str(home.root)))
         home.fake("sysctl", SYSCTL.format(cpus=cpus, memory=memory_gib * GIB,
                                           boot=shlex.quote(str(home.root / "boot")),
