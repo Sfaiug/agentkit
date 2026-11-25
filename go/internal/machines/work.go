@@ -26,6 +26,15 @@ func (m Machine) Work() ([]string, bool) {
 	return m.Takes(work), known
 }
 
+// MaxRuns is the most model turns m runs at once (`[machines."NAME"] max_runs`) as decimal digits,
+// "" for no cap, as Python's machines.max_runs; false where config.toml cannot be read.
+func (m Machine) MaxRuns() (string, bool) {
+	if m.Name == Here {
+		return "", true
+	}
+	return config.MachineMaxRuns(m.Name)
+}
+
 // Takes is the marks as m takes them: turns never where its probe last said macOS, though the
 // machines ak rents take theirs whatever a probe said.
 func (m Machine) Takes(work []string) []string {

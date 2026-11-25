@@ -269,8 +269,9 @@ func load() (*table, error) {
 	return root, nil
 }
 
-// workIn refuses work marks no machine knows, even on a table placement never reads, as Python's
-// config._work_in does: a mistyped word would otherwise send no work there without a word.
+// workIn refuses work marks no machine knows, and bad machine caps, even on a table placement
+// never reads, as Python's config._work_in does: a mistyped word would otherwise send no work
+// there without a word.
 func workIn(root *table) error {
 	labels, tables := []string{"google_cloud"}, []any{root.values["google_cloud"]}
 	if named, ok := root.values["machines"].(*table); ok {
@@ -283,16 +284,19 @@ func workIn(root *table) error {
 		if !ok {
 			continue
 		}
-		work, ok := marks.values["work"]
-		if !ok {
-			continue
+		if work, ok := marks.values["work"]; ok {
+			words, known := work.([]any)
+			for _, word := range words {
+				known = known && (word == "turns" || word == "tests")
+			}
+			if !known {
+				return fmt.Errorf("[%s].work must list only turns and tests (got %s)", labels[i], valueRepr(work))
+			}
 		}
-		words, known := work.([]any)
-		for _, word := range words {
-			known = known && (word == "turns" || word == "tests")
-		}
-		if !known {
-			return fmt.Errorf("[%s].work must list only turns and tests (got %s)", labels[i], valueRepr(work))
+		if labels[i] != "google_cloud" {
+			if cap, ok := marks.values["max_runs"]; ok && capOf(cap) == "" {
+				return fmt.Errorf("[%s].max_runs must be a whole number of 1 or more (got %s)", labels[i], valueRepr(cap))
+			}
 		}
 	}
 	return nil

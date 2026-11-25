@@ -99,6 +99,19 @@ func start(cwd string, cpus, memoryMB float64, command string, handed, turn map[
 		work, first, holds, lasting = "turns", 1, []string{strconv.FormatFloat(cpus, 'f', -1, 64)}, lentFor*time.Second
 	}
 	aliases := takers(work)
+	caps := map[string]string{}
+	if turn != nil {
+		for _, alias := range aliases {
+			cap, ok := config.MachineMaxRuns(alias)
+			if !ok {
+				aliases = nil
+				break
+			}
+			if cap != "" {
+				caps[alias] = cap
+			}
+		}
+	}
 	if len(aliases) == 0 && !googlecloud.Rents(work) {
 		return nil, "no suite helper set up", nil
 	}
@@ -141,10 +154,13 @@ func start(cwd string, cpus, memoryMB float64, command string, handed, turn map[
 	for _, i := range order {
 		there := *away
 		there.Alias, there.Count, there.CPUs, there.MemoryMB, there.Most = aliases[i], fits[i].count, fits[i].cpus, fits[i].mb, fits[i].most
-		if one {
-			holds = []string{strconv.Itoa(there.CPUs)}
+		sendHolds := holds
+		if cap := caps[there.Alias]; cap != "" {
+			sendHolds = append(slices.Clone(holds), cap)
+		} else if one {
+			sendHolds = []string{strconv.Itoa(there.CPUs)}
 		}
-		sent := there.send(cwd, files, holds)
+		sent := there.send(cwd, files, sendHolds)
 		// asked again once prepared, which may take 30 minutes, as the work starts then
 		if sent == 0 && lasts(ends, there.Alias, lasting) {
 			say(fmt.Sprintf("suite on %s: %d pieces, %d CPUs and %d MiB each", there.Alias, there.Count, there.CPUs, there.MemoryMB))
