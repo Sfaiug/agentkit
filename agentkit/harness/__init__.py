@@ -1065,7 +1065,8 @@ class Harness:
 
     def seat_token_usage(self, entry, cursor):
         """One log entry's (time, unique event id, tokens, model, [input, cache write, cache
-        read, output]), model and counts None where unknown; or None.  cursor survives readings."""
+        read, output]), model and counts None where unknown; or None.  cursor survives readings;
+        what an entry changed in it is undone where its usage files no row."""
         hook = self._hook("seat_token_usage")
         return hook(entry, cursor) if hook else None
 

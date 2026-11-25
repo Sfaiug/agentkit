@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"agentkit/internal/run"
+	"agentkit/internal/terminal"
 )
 
 // A Note is something the line under the ak screen's grid says of a subscription, ranked by how much
@@ -35,6 +36,10 @@ func (r *Readings) Detail(provider, account string) []Note {
 	notes := []Note{{-1, creditsNote(prov)}, {0, resets}, {1, inHand(prov)}}
 	notes = append(notes, r.scoped(provider, prov, week)...)
 	notes = append(notes, sessionNote(prov, r.now), Note{1, fault(prov)}, Note{1, asOf(prov, r.now)})
+	// each on one line a screen can draw, whatever a model's name or an error holds
+	for at := range notes {
+		notes[at].Text = terminal.Plain(notes[at].Text)
+	}
 	return slices.DeleteFunc(notes, func(note Note) bool { return note.Text == "" })
 }
 

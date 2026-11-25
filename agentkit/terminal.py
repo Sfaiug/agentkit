@@ -845,7 +845,7 @@ _UNSEEN = False    # the key read last was pressed while it was (`unseen`)
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
 _PAINTED = []
-_POINTED = Spot()  # ... the `Spot` the pointer was on when it was drawn
+_POINTED = Spot()  # ... the `Spot` it was on when its move or click was last answered
 TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
                    # one written over since (`over`); empty, nothing on it is known
@@ -1147,7 +1147,7 @@ def read_key(timeout=None, wake=None):
     again, and Enter or space -- a click on its key-line item too -- while the pointer is on
     no row (`away`) only brings it back, answered as a draw.
     """
-    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN, _UP
+    global _PRESSED, _ASKED, _POINTER, _POINTED, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN, _UP
     key, _NEXT = _NEXT, None
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
@@ -1180,7 +1180,11 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            moved = _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
+            # nothing new only on the spot last answered with the pointer's light drawn there: a
+            # draw since may have moved another row under the still pointer, lighting that row
+            # and telling the screen nothing
+            on = under(key, _SPOTS)[:2]
+            moved = _POINTER is None or on != _POINTED[:2] or on != under(_POINTER, _SPOTS)[:2]
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()
@@ -1203,7 +1207,7 @@ def read_key(timeout=None, wake=None):
         if _POINTER:
             _point(key)
         return key
-    _AWAY, _POINTER = False, key if key.name == "click" and not _UNSEEN else None
+    _AWAY, _POINTER, _POINTED = False, key if key.name == "click" and not _UNSEEN else None, spot
     if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
                     and spot.cell in ("⏎", "enter", "␣", "space")):
         _ASKED = True
@@ -1214,8 +1218,9 @@ def read_key(timeout=None, wake=None):
 def _point(key):
     """The pointer at `key`, a move or a click: on no row of a screen that has rows, lines or
     cells that are rows of their own (`under`), it puts out the highlight (`away`)."""
-    global _POINTER, _AWAY
-    _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
+    global _POINTER, _AWAY, _POINTED
+    _POINTER, _POINTED = key, under(key, _SPOTS)
+    _AWAY = _POINTED.what is None and any(
         what is not None or any(own for _, _, _, *own in places)
         for what, places, *_ in _SPOTS.values())
 
@@ -1413,18 +1418,18 @@ def lit(lines, spots):
     cell -- is the pointer moved off it, held for `read_key` to answer, and `show` draws that;
     till then the pointer is on nothing drawn, so no move within one spot lets that one go.
     """
-    global _SPOTS, _POINTED, _SHOWN, _PAINTED, _HELD, _POINTER
+    global _SPOTS, _SHOWN, _PAINTED, _HELD, _POINTER
     on = pointer_spot(_SPOTS).what
     _SHOWN = _PAINTED = lines = list(lines)
-    _SPOTS, _POINTED = spots, pointer_spot(spots)
-    if (_HELD is None and on is not None and _POINTED.what is None
+    _SPOTS, pointed = spots, pointer_spot(spots)
+    if (_HELD is None and on is not None and pointed.what is None
             and spots.get(_POINTER.row, (None,))[0] == on):
         _HELD, _POINTER = (_POINTER._replace(name="point"), time.monotonic()), None
-    if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple)
-            or _CARD and _POINTED.what is not None or not 0 < _POINTER.row <= len(lines)):
+    if (pointed.cell is None or isinstance(pointed.cell, tuple)
+            or _CARD and pointed.what is not None or not 0 < _POINTER.row <= len(lines)):
         return lines
     _PAINTED = [*lines[:_POINTER.row - 1],
-                selected(lines[_POINTER.row - 1], _POINTED.first, _POINTED.last),
+                selected(lines[_POINTER.row - 1], pointed.first, pointed.last),
                 *lines[_POINTER.row:]]
     return _PAINTED
 

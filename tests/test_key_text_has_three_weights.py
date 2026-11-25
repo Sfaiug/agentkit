@@ -46,7 +46,7 @@ class TextHasThreeWeights(unittest.TestCase):
         now = time.time()
         home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {"anthropic": {
             "meters": [{"name": "weekly", "used": 60, "window_secs": 604800}], "resets": 1,
-            "probed_at": now}}})
+            "error": None, "probed_at": now}}})
         home.write(".agentkit/state/logins.json", {"anthropic": {"default": {
             "email": "owner@acme.test", "plan": "max 20x", "checked_at": now}}})
         home.write(".agentkit/state/plan-acme.md",

@@ -48,8 +48,8 @@ class MarksEveryFontCarries(unittest.TestCase):
         week = {"name": "weekly", "window_secs": 604800}
         home.write(".agentkit/state/usage.json", {
             "fetched_at": NOW, "reset_checked_at": NOW, "providers": {
-                "anthropic": {"meters": [{**week, "used": 100, "exhausted": True}]},
-                "openai": {"meters": [{**week, "used": 40}], "resets": 1}}})
+                "anthropic": {"meters": [{**week, "used": 100, "exhausted": True}], "error": None},
+                "openai": {"meters": [{**week, "used": 40}], "resets": 1, "error": None}}})
         login = {"default": {"email": "owner@acme.test", "ends": int(NOW + 2 * 86400),
                              "plan": None, "checked_at": NOW}}
         home.write(".agentkit/state/logins.json", {"anthropic": login, "openai": login})

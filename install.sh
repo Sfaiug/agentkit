@@ -35,6 +35,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 OS=$(uname -s)
+# macOS keeps sysctl in /usr/sbin, which a PATH may leave out.
+[ "$OS" != Darwin ] || PATH=$PATH:/usr/sbin
 . "$REPO/tools/linux-machine.sh"
 TTY=0; if [ -t 0 ] && [ -t 1 ]; then TTY=1; fi
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -96,11 +98,10 @@ fi
 MACHINE=0
 if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   ARCH=$(uname -m)
-  # Under Rosetta `uname -m` reads x86_64 and hw.optional.arm64 still says Apple silicon, from
-  # a sysctl macOS keeps in /usr/sbin, which a PATH may leave out.
+  # Under Rosetta `uname -m` reads x86_64 and hw.optional.arm64 still says Apple silicon.
   # type -P names apt-get's file behind a wrapper function, and -x refuses one it cannot run.
   if [ "$OS" = Darwin ] && { [ "$ARCH" = arm64 ] ||
-       [ "$(PATH=$PATH:/usr/sbin sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; }; then
+       [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; }; then
     MACHINE=1 ROLE=client ALIAS=$LINUX_MACHINE
   elif [ "$OS" != Linux ] || [ ! -x "$(type -P apt-get)" ]; then
     echo "install.sh: ak installs on Debian, Ubuntu and a Mac with Apple silicon;" \
