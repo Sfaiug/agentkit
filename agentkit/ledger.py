@@ -30,6 +30,16 @@ def _whole(value, low=0):
     return isinstance(value, int) and not isinstance(value, bool) and value >= low
 
 
+def _round_order(row):
+    """SQLite `ORDER BY round` order: NULL before numbers before text before blobs."""
+    round = row.get("round")
+    if round is None:
+        return (0, 0)
+    if isinstance(round, (int, float)) and not isinstance(round, bool):
+        return (1, round)
+    return (2 if isinstance(round, str) else 3, round)
+
+
 def counted():
     """{"since", "until", "teams", "sizes"}: the window; per team, most tasks first, each role's
     {"name", "effort"} as its first run's row names them (the reviewer's effort its first
@@ -61,16 +71,17 @@ def counted():
         first_reviews = reviewed.get(task[0]["run_id"], ())
         by_run = [[row for row in reviewed.get(run["run_id"], ()) if _whole(row.get("round"), 1)]
                   for run in task]
-        first = {**task[0], "reviewer_effort": first_reviews[0].get("effort")
-                 if first_reviews else None}
+        first_effort = min(first_reviews, key=_round_order, default=None)
+        first_round = min(by_run[0], key=_round_order, default=None)
+        first = {**task[0], "reviewer_effort": first_effort and first_effort.get("effort")}
         roles = {role: {"name": first.get(role), "effort": first.get(f"{role}_effort")}
                  for role in ROLES}
         team = teams.setdefault(repr(roles), {
             **roles, "tasks": 0, "first_run": 0, "live": 0, "first_pass": 0, "reviews": 0,
             "issues": 0, "hours": dict.fromkeys(HOURS, 0)})
         team["first_run"] += history.merged(task[0])
-        team["first_pass"] += bool(by_run[0] and by_run[0][0]["round"] == 1
-                                   and by_run[0][0].get("verdict") == "PASS")
+        team["first_pass"] += bool(first_round and first_round["round"] == 1
+                                   and first_round.get("verdict") == "PASS")
         team["reviews"] += sum(map(len, by_run))
         team["issues"] += sum(row["blocking"] for rows in by_run for row in rows
                               if _whole(row.get("blocking")))
