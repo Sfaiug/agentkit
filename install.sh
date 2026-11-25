@@ -169,8 +169,9 @@ echo "installed: $AK (0700) and $BIN/ak -> $REPO/bin/ak"
 # PATH for login and non-login shells.  Debian's ~/.bashrc returns early when the shell is not
 # interactive, so `ssh host ak` only sees a line placed above that return -- hence prepend.
 path_line="export PATH=\"\$HOME/.local/bin:\$HOME/.npm-global/bin:\$PATH\""
-case "$OS" in Darwin) rcs="$HOME/.zshrc $HOME/.zprofile" ;; *) rcs="$HOME/.bashrc $HOME/.profile" ;; esac
+case "$OS" in Darwin) rcs=".zshrc .zprofile" ;; *) rcs=".bashrc .profile" ;; esac
 for rc in $rcs; do
+  rc=$HOME/$rc
   [ -e "$rc" ] || : >"$rc"
   grep -qF 'agentkit PATH' -- "$rc" && continue
   tmp=$(mktemp)

@@ -111,6 +111,19 @@ class FreshServer(unittest.TestCase):
         self.assertEqual(self.stamp.read_text(), "1000\n")
 
 
+class SpacedHome(unittest.TestCase):
+    def test_a_home_whose_path_holds_a_space_gets_the_path_line(self):
+        home = Home()
+        self.addCleanup(home.close)
+        installer.prepare(home)
+        home.path = home.path.rename(home.root / "acme user")
+        home.env["HOME"] = str(home.path)
+        done = installer.run(home, "--server")
+        self.assertEqual(done.code, 0, done.out + done.err)
+        rc = ".zshrc" if sys.platform == "darwin" else ".bashrc"
+        self.assertIn("agentkit PATH", (home.path / rc).read_text())
+
+
 class Roles(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
