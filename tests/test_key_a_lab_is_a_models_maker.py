@@ -1,6 +1,7 @@
 """Two models of one maker are one lab, whichever provider runs them: the reviewer is of another
 lab than the writer's where one is marked (the owner, 18 Nov 2026).  A model's lab is the maker
-the lineup last stored names for it; a model no lineup holds is of its provider's.
+the lineup last stored names for it; a model no lineup holds whose id opens with no family word
+is of its provider's (tests/test_key_an_unlisted_model_is_of_its_familys_lab.py).
 
 nova, Acme's, builds on claude's provider.  Two reviewers have room: dart, another model of
 Acme's on codex's provider, listed first, and bolt, Bolt's, on nova's

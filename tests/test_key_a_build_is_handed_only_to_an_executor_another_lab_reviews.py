@@ -83,7 +83,8 @@ class ARefusedSubscriptionKeepsNoPaygReviewerOut(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         week = [meter(10, time.time() + 86400)]
-        home = staged(cls, {"opus": {"mode": "payg"}, "astra": {}, "bolt": {"harness": "claude"}},
+        home = staged(cls, {"opus": {"mode": "payg"}, "astra": {},
+                            "bolt": {"harness": "claude", "model": "claude-bolt-1"}},
                       ["astra", "opus"], {"claude": week, "codex": week},
                       workers=["astra", "bolt"], claude=["work", "pass"], codex=GONE)
         cls.done = home.ak("run", str(taskfile.write(home, cls.rig.path)), "--no-merge",

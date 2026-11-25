@@ -1452,8 +1452,18 @@ def model_label(harness, model, said=""):
 
 
 def families():
-    """The family word of each manifest ak reads, the words `spoken` leaves out of a name."""
+    """The family word of each manifest ak reads, the words `spoken` and `staffing.lab` match
+    through `family`."""
     return look.once("families", lambda: [found.get("family") for _, found in manifests()])
+
+
+def family(name, words=None):
+    """The first of `words` (else `families()`) that `name` opens with, matched without case
+    before the end, `-` or a space; None where none matches."""
+    return next((word for word in (families() if words is None else words)
+                 if isinstance(word, str) and word
+                 and name[:len(word)].lower() == word.lower()
+                 and name[len(word):len(word) + 1] in ("", "-", " ")), None)
 
 
 def release_label(name):
@@ -1465,15 +1475,14 @@ def release_label(name):
 
 def spoken(name, families):
     """`name` as ak says a model's: without its maker's family word, the first of `families`
-    it opens with, unless only numbers follow.  A hyphen is a space, between two numbers a
-    point, and a word in small letters opens with a capital: where the family word is `Acme`,
-    `acme-nova-7-1` is `Nova 7.1`, `ACME-7.2-Vega` is `7.2 Vega` and `acme-7` is `Acme 7`."""
-    for family in families:
-        if (isinstance(family, str) and family and name[:len(family)].lower() == family.lower()
-                and name[len(family):len(family) + 1] in ("", "-", " ")):
-            rest = name[len(family) + 1:]
-            name = family + name[len(family):] if not rest.strip("0123456789.- ") else rest
-            break
+    it opens with (`family`), unless only numbers follow.  A hyphen is a space, between two
+    numbers a point, and a word in small letters opens with a capital: where the family word is
+    `Acme`, `acme-nova-7-1` is `Nova 7.1`, `ACME-7.2-Vega` is `7.2 Vega` and `acme-7` is
+    `Acme 7`."""
+    word = family(name, families)
+    if word:
+        rest = name[len(word) + 1:]
+        name = word + name[len(word):] if not rest.strip("0123456789.- ") else rest
     name = re.sub(r"(?<=[0-9])-(?=[0-9])", ".", name).replace("-", " ")
     return " ".join(word[:1].upper() + word[1:] if word.islower() else word
                     for word in name.split())
