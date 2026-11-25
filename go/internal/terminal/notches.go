@@ -15,7 +15,7 @@ func (k *Keyboard) notches(key Key) (Key, bool) {
 		}
 		var kept []byte
 		var ok bool
-		each, kept, ok = spell(first, k.next)
+		each, kept, ok = k.spell(first)
 		k.keyed = append(kept, k.keyed...)
 		if ok && !wheel(each) {
 			k.Unread(each)

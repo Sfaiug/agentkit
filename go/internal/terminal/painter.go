@@ -51,23 +51,29 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	}
 	var frame strings.Builder
 	if tall {
-		frame.WriteString("\x1b[H")
+		newline := "\n"
+		if screen.pad > 0 {
+			frame.WriteString(screen.at(1, 1))
+			newline = "\n\x1b[" + strconv.Itoa(1+screen.pad) + "G\x1b[1K"
+		} else {
+			frame.WriteString("\x1b[H")
+		}
 		for at, under := range onto(lines, screen) {
 			if !under {
-				frame.WriteString(cleared(lines[at], screen) + "\n")
+				frame.WriteString(cleared(lines[at], screen) + newline)
 			}
 		}
 		frame.WriteString("\x1b[J")
 	} else if rows := differing(lines, held, screen); whole || rows != "" || len(lines) < len(p.up) || past {
 		frame.WriteString(rows)
 		// Addressing a row past the last lands on the last, where a clear would erase it.
-		if len(lines) < screen.Height() {
-			frame.WriteString("\x1b[" + strconv.Itoa(len(lines)+1) + ";1H\x1b[J")
+		if len(lines) < screen.Height()+screen.pad {
+			frame.WriteString(screen.at(len(lines)+1, 1) + "\x1b[J")
 		}
 	}
 	for _, span := range over {
 		if !held(span.Row-1) || !slices.Contains(p.over, span) {
-			frame.WriteString("\x1b[" + strconv.Itoa(span.Row) + ";" + strconv.Itoa(span.Column) + "H" + span.Text)
+			frame.WriteString(screen.at(span.Row, span.Column) + span.Text)
 		}
 	}
 	if frame.Len() == 0 {

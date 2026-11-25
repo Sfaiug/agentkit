@@ -103,11 +103,11 @@ func (s Screen) Highlight(line string, mark bool) string {
 // A Screen is one output's colour depth, background, glyphs and size, read once: a screen asks for
 // a colour by its role and a glyph by its word, never an RGB or a code.
 type Screen struct {
-	depth, width, height int
-	ascii                bool
-	theme                theme
-	background           string // the terminal's answer to OSC 11 (Sense), "" where it gave none
-	own                  own    // where the look reads on the terminal's own background (lookOn)
+	depth, width, height, pad int // pad: blank cells a popup leaves inside its border (AGENTKIT_PADDING)
+	ascii                     bool
+	theme                     theme
+	background                string // the terminal's answer to OSC 11 (Sense), "" where it gave none
+	own                       own    // where the look reads on the terminal's own background (lookOn)
 }
 
 // For is out as a screen that never asks its terminal what it is: in the shades kept (kept).

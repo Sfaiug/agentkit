@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -93,8 +94,9 @@ func (k *Keyboard) give(modes string) {
 // which takes a process), and whether its background is light, by its answer to OSC 11 within a
 // second, as a busy host can take most of one to pass it on, the answer kept for what cannot ask
 // (keep), and whether the look reads on it (lookOn), but in a popup over a seat, painted whatever
-// it answers, as Python's terminal.sense.  DA1, which every terminal answers and in turn, ends the
-// wait with the answers.  Anything typed meanwhile is kept for ReadKey.
+// it answers and inset by AGENTKIT_PADDING, as Python's terminal.screens and terminal.sense.  DA1,
+// which every terminal answers and in turn, ends the wait with the answers.  Anything typed
+// meanwhile is kept for ReadKey.
 func (k *Keyboard) Sense(popup bool) {
 	features, set := os.LookupEnv("AGENTKIT_TERMFEATURES")
 	if !set && os.Getenv("TMUX") != "" { // asked of the client this runs under, $TMUX kept
@@ -134,19 +136,26 @@ func (k *Keyboard) Sense(popup bool) {
 		heard = append(heard[:at[0]:at[0]], heard[at[1]:]...)
 	}
 	k.keyed = append(heard, k.keyed...)
-	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in, background: background, own: reading}
+	pad := 0
+	if popup {
+		if wanted, err := strconv.Atoi(strings.TrimSpace(os.Getenv("AGENTKIT_PADDING"))); err == nil && wanted > 0 {
+			pad = wanted
+		}
+	}
+	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), pad: pad, ascii: !utf8(), theme: in, background: background, own: reading}
 }
 
 // Screen is what Sense found, at the size the terminal is now, in the theme its background fits,
 // or where it did not say, the one kept now: another menu may keep one meanwhile.
 func (k *Keyboard) Screen() Screen {
 	screen := k.sensed
-	screen.width, screen.height = width(os.Stdout), height(os.Stdout)
+	cols, rows := width(os.Stdout), height(os.Stdout)
+	screen.width, screen.height = max(1, cols-2*screen.pad), max(1, rows-2*screen.pad)
 	if !k.fits {
 		screen.theme = kept()
 	}
 	k.mu.Lock()
-	k.size = [2]int{screen.width, screen.height}
+	k.size = [2]int{cols, rows}
 	k.mu.Unlock()
 	return screen
 }
@@ -208,7 +217,7 @@ func (k *Keyboard) readKey() Key {
 				return Key{Name: "eof"}
 			}
 		}
-		key, kept, ok := spell(first, k.next)
+		key, kept, ok := k.spell(first)
 		k.keyed = append(kept, k.keyed...)
 		if ok && wheel(key) {
 			key, ok = k.notches(key)
@@ -217,6 +226,17 @@ func (k *Keyboard) readKey() Key {
 			return key
 		}
 	}
+}
+
+// spell decodes one key, moving a pointer report back from the terminal's cells to the screen's
+// inside its padding.
+func (k *Keyboard) spell(first byte) (Key, []byte, bool) {
+	key, kept, ok := spell(first, k.next)
+	if ok && key.Name == "pointer" && k.sensed.pad > 0 {
+		key.Mouse.Column -= k.sensed.pad
+		key.Mouse.Row -= k.sensed.pad
+	}
+	return key, kept, ok
 }
 
 // answer answers the signal heard first, and whether there was one: what is left is a resize or a
