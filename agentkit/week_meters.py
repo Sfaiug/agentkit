@@ -43,8 +43,11 @@ def days(cfg, since, until, *, meters=None):
         with closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")     # one snapshot for the three reads; in WAL no write waits
             logins = _readings(db, meters, since, until)
-            seats = db.execute("SELECT account, event, model, at, tokens FROM seat_usage "
-                               "WHERE at > ? AND at <= ?", (since, until)).fetchall()
+            # seat_tokens creates `seat_usage` separately; absent means no seat rows yet
+            seats = (db.execute("SELECT account, event, model, at, tokens FROM seat_usage "
+                                "WHERE at > ? AND at <= ?", (since, until)).fetchall()
+                     if db.execute("SELECT 1 FROM pragma_table_info('seat_usage')").fetchone()
+                     else [])
             turns = db.execute("SELECT account, turn, model, at, input, cache_write, cache_read, "
                                "output FROM turn_usage WHERE at > ? AND at <= ?",
                                (since, until)).fetchall()
