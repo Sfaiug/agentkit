@@ -699,6 +699,20 @@ def notes(row, said):
         (f"{missing} missing", missing), ("no harness", not row["yours"])) if true]
 
 
+def by_plan(days):
+    """`ak models --json`'s `week_meters`, {provider: {plan: {"points", "tokens"}}}: `days`,
+    `week_meters.days`'s, summed by plan, the points to six significant digits."""
+    plans = {}
+    for provider, plan, points, tokens in days:
+        summed = plans.setdefault(provider, {}).setdefault(plan, [0, {}])
+        summed[0] += points
+        for model, count in tokens.items():
+            summed[1][model] = summed[1].get(model, 0) + count
+    return {provider: {plan: {"points": float(f"{float(points):.6g}"), "tokens": tokens}
+                       for plan, (points, tokens) in found.items()}
+            for provider, found in plans.items()}
+
+
 def main(argv):
     if command_help.show("models", argv):
         return 0
@@ -713,7 +727,8 @@ def main(argv):
     found, own = answer(rows, marked, cfg=cfg, task_usage=(logins, shares)), live(cfg)
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     if "--json" in flags:
-        from . import ledger    # here, not at the top: the boards and the table need no database
+        # here, not at the top: the boards and the table need no database
+        from . import ledger, week_meters
         from .own import by_role
 
         def drawn(row, said):
@@ -735,7 +750,8 @@ def main(argv):
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()},
-            "runs": runs, "own": by_role(runs["teams"], team_now(cfg, seat))},
+            "runs": runs, "own": by_role(runs["teams"], team_now(cfg, seat)),
+            "week_meters": by_plan(week_meters.days(cfg, runs["since"], runs["until"]))},
             sys.stdout, indent=2)
         print()
         return 0
