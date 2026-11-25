@@ -148,6 +148,16 @@ class DoneWaitsForTheCheck(unittest.TestCase):
         akconfig.write(self.home, ["fable"], extra='[done_check]\nmodel = "fable"')
         self.assertEqual(self.home.ak("orch", "check", "acme").code, 2)
         self.assertNotEqual(self.why(), DONE)
+        with Home() as home:    # its thread named by its launch receipt alone, beside one it left
+            fakeadapter.install(home, codex="pass", claude="pass")
+            Seat(home, "acme", model="astra", alive=False, record={
+                "codex_launch": TOKEN, "conversation": None,
+                "left": [{"harness": "claude", "conversation": CONVERSATION}]})
+            codex_seat(home)
+            home.write(".agentkit/state/plan-acme.md", f"- [x] {PLANNED}\n")
+            akconfig.write(home, ["opus"], extra='[done_check]\nmodel = "opus"')
+            self.assertEqual(home.ak("orch", "check", "acme").code, 2)
+            self.assertNotEqual(self.why(home=home), DONE)
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_a_check_ending_on_a_gap_after_a_rename_stands_under_the_new_name(self):
