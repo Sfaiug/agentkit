@@ -1,17 +1,18 @@
 """A home standing still, its firing of the tick (`ak watch`) paused, asks each machine a record
 there says takes over from it, then the home the stamp of its last pass as a standby names, where
 it has no such record of that name, whether it holds ak's lease (`ak standby --home`), and where
-one answers that it does, becomes that machine's client: it first leaves there a record saying it
-copies that machine and, where its own record says `yes`, that home goes back to it, `back`, or,
-where it says `back`, that it takes over, `yes`, as the record reads once that machine has given
-its stamp, which that machine's pass may write meanwhile; then writes `1` to the `cgroup.kill` of
-ak's slice, makes the standby's folder, adds the standby's job to its crontab, its other lines
-kept byte for byte, and installs itself as a client of that machine, which ends the asking: its
-firings after are a client's.  A machine that answers no, or nothing, ends nothing and changes
-nothing, nor does a home whose only record says `no`, standing still by a proof 20 minutes old,
-as that machine is not asked, nor one with no record whose stamp names no home: none, one whose
-first line is no stamp, or one naming what ssh would read as an option, which asks nobody; and a
-slice with no `cgroup.kill` gets none, the record there kept and nothing past it done.
+one answers that it does, one silent past AK_STANDBY_TIMEOUT answering no, becomes that machine's
+client: it first leaves there a record saying it copies that machine and, where its own record says
+`yes`, that home goes back to it, `back`, or, where it says `back`, that it takes over, `yes`, as
+the record reads once that machine has given its stamp, which that machine's pass may write
+meanwhile; then writes `1` to the `cgroup.kill` of ak's slice, makes the standby's folder, adds the
+standby's job to its crontab, its other lines kept byte for byte, and installs itself as a client
+of that machine, which ends the asking: its firings after are a client's.  A machine that answers
+no, or nothing, ends nothing and changes nothing, nor does a home whose only record says `no`,
+standing still by a proof 20 minutes old, as that machine is not asked, nor one with no record
+whose stamp names no home: none, one whose first line is no stamp, or one naming what ssh would
+read as an option, which asks nobody; and a slice with no `cgroup.kill` gets none, the record there
+kept and nothing past it done.
 
 Black-box: the program `AK_BIN` names runs on the machines of tests/fixtures/twohomes.py, whose
 installs share one origin, each machine's clock from AK_NOW, given before its first command, with
@@ -47,13 +48,13 @@ TABLE = b"0 4 * * * acme-backup\n*/3 * * * * ak watch # agentkit watch\n"
 
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
 class AStillHomeBecomesAClient(Firings, unittest.TestCase):
-    def pair(self, takes="yes", kill=True):
+    def pair(self, takes="yes", kill=True, others=()):
         """The machines acme-mini, keeping a record of acme-vm saying `takes`, none for None,
-        and, where `kill`, an empty `cgroup.kill` in its slice; and acme-vm, which fired at
-        minute 0 and created the lease."""
-        names = "acme-mini", "acme-vm"
+        and, where `kill`, an empty `cgroup.kill` in its slice; acme-vm, which fired at minute 0
+        and created the lease; and the machines `others` names, after them."""
+        names = "acme-mini", "acme-vm", *others
         machines = self.machines(*names, now=dict.fromkeys(names, now(0)))
-        mini, vm = machines
+        mini, vm = machines[:2]
         vm.write(RECORDS / "acme-mini", f"{now(0)}\nyes\n")
         self.runs(vm, now(0))
         self.assertIn(REF, vm.install.refs())
@@ -161,6 +162,21 @@ exec {shlex.quote(vm.install.ak)} "$@"
     def test_a_record_that_turns_to_back_as_the_standby_gives_its_stamp_tells_it_yes(self):
         # back, as acme-vm's pass tells acme-mini, acme-vm's own record of it saying `yes`
         self.stepped_down("yes", "yes", rewritten="back")
+
+    def test_a_machine_that_takes_ssh_and_answers_nothing_leaves_the_next_asked(self):
+        machines = self.pair(others=("acme-box",))
+        mini, vm, box = machines
+        self.record(mini, "yes", "acme-box")     # asked first, by its name
+        box.hang()
+        vm.env["AK_NOW"] = now(1)
+        for unset in "", "0", "x", "100", "9" * 5000:   # none of 1 to 99: ak runs as without one
+            done = mini.ak("standby", "--began", env={"AK_STANDBY_TIMEOUT": unset,
+                                                      "AK_NOW": now(1)}, raw=True)
+            self.assertEqual(done.code, 0, unset[:9])
+        mini.env["AK_STANDBY_TIMEOUT"] = "20"
+        self.paused(mini, now(1))
+        del mini.env["AK_STANDBY_TIMEOUT"]
+        self.client(mini, vm, "back")
 
     def test_a_standby_whose_proof_is_10_minutes_old_ends_nothing(self):
         mini, vm = self.pair()

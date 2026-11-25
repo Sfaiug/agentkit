@@ -61,10 +61,14 @@ def _machines():
 
 def _asked(alias, *words):
     """Whether `ak standby` with `words` exits 0 on `alias`, asked as a pass sends `--copied`:
-    past `standby.TIMEOUT` raises."""
-    return subprocess.run(standby._home(alias, *words), stdin=subprocess.DEVNULL,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                          timeout=standby.TIMEOUT).returncode == 0
+    silence past `standby.TIMEOUT` is a no, so a machine that stalls, asked first by every
+    paused firing, never keeps one after it from being asked."""
+    try:
+        return subprocess.run(standby._home(alias, *words), stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              timeout=standby.TIMEOUT).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def _kill():
