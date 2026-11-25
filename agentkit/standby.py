@@ -154,6 +154,9 @@ COPIES = "copies"
 # A standby whose copy is this old takes no lease: the owner has been told, and ak waits for a
 # machine to come back.
 GONE = 60 * 60
+# The bytes of a record or a stamp read at most: more than any ak writes, whose boot from
+# `pair_clock.NOW` Linux keeps under 128 KiB, as a damaged one may be any size.
+MOST = 2**20
 # The words of `ak standby --copied HOST WALL SINCE BOOT yes|no|back`, each matched whole: a host
 # name of at most 64 characters, as Linux's, this machine's stamp as `--began` prints it, and
 # whether that host takes over: `back` as `yes` does, and home goes back to it once it is steady.
@@ -398,10 +401,8 @@ def _record(path):
     """The stamp of the record at `path` and its word of TAKES, both None for one that cannot be
     read."""
     try:
-        # A MiB at most, more than any record ak writes, whose boot from `pair_clock.NOW` Linux
-        # keeps under 128 KiB: a damaged one may be any size.
-        held = config.read_regular(path, 2**20 + 1)
-        line, takes = held.decode().splitlines() if len(held) <= 2**20 else (None, None)
+        held = config.read_regular(path, MOST + 1)
+        line, takes = held.decode().splitlines() if len(held) <= MOST else (None, None)
     except (OSError, ValueError):     # one that may not be read, or not two lines of text
         line = takes = None
     stamp = pair_clock.read(line) if re.fullmatch(TAKES, takes or "") else None
@@ -520,9 +521,14 @@ def _stamp(own, *lines):
 def _last():
     """The stamp of the last pass that ended well, the home it copied, and why ak here stayed
     where it was, if it did; no stamp nor home for none yet, one cut short or one whose first
-    line is no stamp, and no home for a name no pass takes, which ssh would read as an option."""
+    line is no stamp, and no home for a name no pass takes, which ssh would read as an option.
+    Of one longer than MOST, only the whole lines in its first MOST bytes are read: what follows
+    them may be anything, but those still say which home it copied."""
     try:
-        line, of, *stayed = config.read_regular(config.TMP / FOLDER / COPIED).decode().splitlines()
+        held = config.read_regular(config.TMP / FOLDER / COPIED, MOST + 1)
+        if len(held) > MOST:
+            held = held[:MOST].rpartition(b"\n")[0]
+        line, of, *stayed = held.decode().splitlines()
     except (OSError, ValueError):     # none yet, or one cut short
         return None, None, []
     stamp = pair_clock.read(line)

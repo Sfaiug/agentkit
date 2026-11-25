@@ -9162,13 +9162,14 @@ def main(argv):
         held = None
     else:
         config.ensure_dirs()
-        # A home a machine takes over from puts the lease on ak's remote where it holds none,
-        # before the lock: a tick that runs long holds that, and the lease must be written while
-        # it does.  Whatever ends the turn, the next firing's turn reads what the remote holds.
-        # So does one keeping a value it made, whatever its records say: `pause` holds it to
-        # its proof, which only its turns keep young.  None while a machine it gives home back
-        # to says it is steady: it stands still, and that machine's watch takes the lease.
-        if (standby.takes_over() or lease.proof_age() is not None) and not hand_back.due():
+        # A home that owes a proof it has not got (`pause.owes_proof`) puts the lease on ak's
+        # remote where it holds none, before the lock: a tick that runs long holds that, and the
+        # lease must be written while it does.  Whatever ends the turn, the next firing's turn
+        # reads what the remote holds.  So does one keeping a value it made, whatever its records
+        # say: `pause` holds it to its proof, which only its turns keep young.  None while a
+        # machine it gives home back to says it is steady: it stands still, and that machine's
+        # watch takes the lease.
+        if (pause.owes_proof() or lease.proof_age() is not None) and not hand_back.due():
             with suppress(Exception):
                 lease._turn()
         # ... and one that has not known for long that it is the home stands still, none of the
