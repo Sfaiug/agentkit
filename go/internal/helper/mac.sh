@@ -146,7 +146,7 @@ admitted() {
 expire() {
   find "$MIRRORS" -mindepth 1 -maxdepth 1 -type d -mtime +7 2>/dev/null | while read -r old; do
     locked "$old.lock" find "$old" -maxdepth 0 -mtime +7 -exec rm -rf {} +
-    [ -d "$old" ] || tags "ak-helper-${old##*/}" | drop
+    [ -d "$old" ] || tags "$(named "ak-helper-${old##*/}")" | drop
   done
 }
 # history KEY COPY, under the copy's lock: the parcel's history into the repository's copy. Refs

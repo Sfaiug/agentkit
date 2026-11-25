@@ -30,9 +30,9 @@ DOCKER = r"""#!/bin/bash
 cd "$(dirname "$0")/../docker" || exit 1
 case $1 in
 build)    # build -q -t IMAGE -f RECIPE CONTEXT
-  : >"started-$4"
+  : >"started-${4##*/}"
   while [ -e together ] && [ "$(ls started-* | wc -l)" -lt 2 ]; do sleep 0.1; done
-  touch "images/$4" ;;
+  mkdir -p "images/${4%/*}" && touch "images/$4" ;;
 image) [ "$2" != inspect ] || [ -e "images/$3" ] ;;
 run) : >asked; while [ -e starting ]; do sleep 0.1; done ;;
 ps) ls containers ;;
@@ -126,8 +126,8 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
             suites = [pool.submit(self.helper, "prepare", key, image, name)
                       for key, image, name in (("a", IMAGE, "acme"), ("b", OTHER, "widgets"))]
             self.assertEqual([suite.result().returncode for suite in suites], [0, 0])
-        self.assertEqual(sorted(path.name for path in (self.machine / "docker/images").iterdir()),
-                         [f"{image}-{os.getuid()}-{os.getgid()}" for image in (IMAGE, OTHER)])
+        self.assertEqual(sorted(path.name for path in (self.machine / "docker/images").glob("*/*")),
+                         [IMAGE, OTHER])
 
     def test_a_running_piece_counts_the_whole_memory_it_was_given(self):
         self.running("ak-other-1-2", 1, 40)    # the machine holds 1 GiB: the piece may grow to 40

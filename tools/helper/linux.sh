@@ -60,13 +60,11 @@ linux() {
     free -m | awk -v given="$given" '$1 == "Mem:" {print int($2 - $2 / 10 - given / 1048576)}'
   }
   running() { [ "$(docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
-  # named IMAGE, for `prepare`: this user's build of IMAGE, as every user of this docker sees its
-  # images and one built for another holds no account for this one (`build`).
-  named() { echo "$1-$(id -u)-$(id -g)"; }
-  # tags NAME: the images of the repository NAME but another user's (`named`), theirs to drop.
-  tags() {
-    docker image ls --format '{{.Repository}}:{{.Tag}}' "$1" | grep -E "(:[^-]*|$(named ''))\$"
-  }
+  # named NAME: the repository or image NAME as this user's own, as every user of this docker
+  # sees its images: one built for another holds no account for this one (`build`), and `images`
+  # drops from a repository whatever this user's suites do not name.
+  named() { echo "$(id -u)-$(id -g)/$1"; }
+  tags() { docker image ls --format '{{.Repository}}:{{.Tag}}' "$1"; }
   # drop: deletes the images named on stdin, but those a suite here prepared and has not finished
   # with; docker keeps those a container uses.
   drop() {
@@ -89,13 +87,13 @@ linux() {
   # building KEY IMAGE, from `prepare` after `images`: the build, under its image's own lock, so
   # the minutes a new machine's first build of one image take hold up no other's. No `drop` takes
   # the image after: each runs under the build lock, reading the name this suite wrote before its
-  # `images` took that lock. A turn, whose parcel names its harness, is turned away where the
-  # image holds no account for the user it would run as, its recipe taking no `uid`: ak runs it
-  # on its own host.
+  # `images` took that lock. A turn, whose parcel names its harness, is turned away where a
+  # container of the image has no account for the user it would run as (`start_turn`), its
+  # recipe taking no `uid` and its entrypoint making none: ak runs it on its own host.
   building() {
     locked "$ROOT/build-${2//[:\/]/-}.lock" build "$1" "$2" || exit
-    [ ! -f "$ROOT/$1/harness" ] || docker run --rm --user "$(id -u):$(id -g)" --entrypoint id \
-      "$2" -un >/dev/null 2>&1 || exit 253
+    [ ! -f "$ROOT/$1/harness" ] ||
+      docker run --rm --user "$(id -u):$(id -g)" "$2" id -un >/dev/null 2>&1 || exit 253
   }
   # images KEY IMAGE, under the build lock: the repository's other images go once no suite here
   # names them.

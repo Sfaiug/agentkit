@@ -1,6 +1,6 @@
 """A turn on a machine runs as the machine's own user, who has an account in its container: the
-helper there builds the image for that user, with a recipe that takes the `uid` and `gid` it hands.
-A machine whose image has no account for its user takes no turn: it runs here.
+helper there builds that user an image of its own, with a recipe that takes the `uid` and `gid` it
+hands. A machine whose image has no account for its user takes no turn: it runs here.
 
 Black-box, on the machine of tests/fixtures/akmachine.py as another user than this host's: each
 harness stand-in writes where it ran and as whom to `who` in its out dir.
@@ -26,7 +26,7 @@ REVIEW = {"sh": WHO, "final": "Handed in.", "hand_in": [["done"]]}
 
 class AMachineTurnHasAnAccount(unittest.TestCase):
     def run_task(self, recipe):
-        """Where a task's turns ran and as whom, and what the machine's images were built for."""
+        """Where a task's turns ran and as whom, and what each user's images were built for."""
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
@@ -48,16 +48,18 @@ class AMachineTurnHasAnAccount(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
         run = taskfile.only_run(home)
         return (sorted(path.read_text().strip() for path in run.rglob("who")),
-                [image.read_text() for image in machine.glob("docker/images/*")])
+                {image.parent.name: image.read_text()
+                 for image in machine.glob("docker/images/*/*")})
 
     def test_a_recipe_that_takes_the_user_gives_the_turns_an_account(self):
         self.assertEqual(self.run_task(akmachine.RECIPE),
-                         ([f"docker {USER}:{USER}"] * 2, [f"uid={USER} gid={USER}"]))
+                         ([f"docker {USER}:{USER}"] * 2,
+                          {f"{USER}-{USER}": f"uid={USER} gid={USER}"}))
 
     def test_an_image_without_the_user_s_account_leaves_the_turns_here(self):
         # the machine built the image, whose recipe took nothing of the user it was built for
         self.assertEqual(self.run_task("FROM docker.io/library/alpine:3.20\n"),
-                         ([f"here {os.getuid()}:{os.getgid()}"] * 2, [""]))
+                         ([f"here {os.getuid()}:{os.getgid()}"] * 2, {f"{USER}-{USER}": ""}))
 
 
 if __name__ == "__main__":

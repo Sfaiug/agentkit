@@ -48,13 +48,15 @@ held = {path.name: path.read_text() for path in containers.glob("*")}    # name:
 if words[:2] == ["image", "inspect"]:
     sys.exit(not (images / words[2]).exists())
 elif words[:2] == ["image", "ls"]:
-    print("".join(f"{path.name}\n" for path in images.glob(f"{words[-1]}:*")), end="")
+    for path in images.glob(f"{words[-1]}:*"):
+        print(path.relative_to(images))
 elif words[:2] == ["image", "rm"]:
     for ref in words[2:]:
         (images / ref).unlink()
 elif words[0] == "build":    # build -q -t IMAGE -f RECIPE [--build-arg NAME=VALUE]... CONTEXT
     assert Path(words[5]).is_file() and Path(words[-1]).is_dir()
     takes = re.findall(r"^ARG (\w+)", Path(words[5]).read_text(), re.M)
+    (images / words[3]).parent.mkdir(exist_ok=True)
     # an image holds what its recipe took of what it was built for
     (images / words[3]).write_text(" ".join(
         arg for arg in words[7:-1:2] if arg.partition("=")[0] in takes))
@@ -89,7 +91,7 @@ elif words[0] == "run":
     image, *command = words
     if not (images / image).exists():
         sys.exit(125)
-    if "--entrypoint" in flags:    # `id -un` as --user: whether the image holds that user's account
+    if command == ["id", "-un"]:    # as --user: whether the image holds that user's account
         uid = flags["--user"].partition(":")[0]
         sys.exit(uid != "0" and f"uid={uid}" not in (images / image).read_text().split())
     _, script, *args = command
