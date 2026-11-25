@@ -4,7 +4,7 @@
 reads as executors off does: its project's numbers, else the host's, with executor_lines 0.  A
 seat with a builder reads as before, and so does one with no builder where orchestrator_lines is
 0, where nobody could build, and a seat launched before its record is saved, whatever a seat
-before it under its name saved.  Black-box: Claude's prompt hook as ak's adapter registers it,
+before it under its name saved; an unnamed seat, saved first, launches on that record.  Black-box: Claude's prompt hook as ak's adapter registers it,
 fired for a seat that holds no rulebook yet, so it is told its rulebook whole
 (tests/fixtures/hookdrive.py), and a seat opened from a terminal on the echo harness
 (tests/test_key_open_seat_rulebook.py); this test fails against `/bin/false`.
@@ -78,6 +78,20 @@ class NoBuilder(unittest.TestCase):
             self.assertEqual(json.loads((state / "session-demo.json").read_text())["workers"],
                              ["one"])
             self.assertIn(shipped_rules().rstrip(), (state / "rulebook-demo.md").read_text())
+
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_an_unnamed_seat_launches_on_its_record_whatever_project_it_inherited(self):
+        with echo_home() as home:
+            parent = Rig(home, "parent", files={"AGENTS.md": "Parent checkout rules.\n"})
+            child = Rig(home, "child", files={"AGENTS.md": "Child checkout rules.\n"})
+            opened = home.ak("orch", "--model", "two", "--workers", "one", tty=True, input="\n",
+                             cwd=child.path, env={"AGENTKIT_SEAT_REPO": str(parent.path)})
+            self.assertEqual(opened.code, 0, opened.err)
+            state = home.path / ".agentkit/state"
+            record, = state.glob("session-*.json")
+            self.assertEqual(json.loads(record.read_text())["repo"], str(child.path))
+            book, = state.glob("rulebook-*.md")
+            self.assertIn("Child checkout rules.", book.read_text())
 
 
 if __name__ == "__main__":
