@@ -187,11 +187,11 @@ class KeptUp(unittest.TestCase):
         self.assertIn(self.service, self.mac.loaded())
         self.mac.hangs()
         self.assertEqual(self.minutes(1, 9), [[]] * 9)
-        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.assertEqual(self.minutes(10, 10), [["stop", "edit", "start"]])
 
     def test_a_machine_not_running_starts(self):
         self.mac.stops()
-        self.assertEqual(self.minutes(0, 0), [["start"]])
+        self.assertEqual(self.minutes(0, 0), [["edit", "start"]])
         self.assertTrue(self.mac.answers())
 
     def test_a_running_machine_that_answers_is_left_as_it_is(self):
@@ -210,7 +210,7 @@ class KeptUp(unittest.TestCase):
         self.minutes(0, 0)
         self.holds(".ssh/config", "Host lima-ak\n")
         self.holds(".lima/ak/ssh.config", "")
-        self.assertEqual(self.minutes(1, 10), [[]] * 9 + [["stop", "start"]])
+        self.assertEqual(self.minutes(1, 10), [[]] * 9 + [["stop", "edit", "start"]])
 
     def test_nine_minutes_without_an_answer_change_nothing(self):
         self.minutes(0, 0)
@@ -221,8 +221,8 @@ class KeptUp(unittest.TestCase):
         self.minutes(0, 0)
         self.mac.hangs()
         self.assertEqual(self.minutes(1, 9), [[]] * 9)
-        stop, start = self.mac.check(self.now + 600)
-        self.assertEqual((stop[0], start[0]), ("stop", "start"))
+        stop, edit, start = self.mac.check(self.now + 600)
+        self.assertEqual((stop[0], edit[0], start[0]), ("stop", "edit", "start"))
         self.assertTrue({"--force", "-f"} & set(stop), stop)
         self.assertTrue(self.mac.answers())
 
@@ -231,13 +231,13 @@ class KeptUp(unittest.TestCase):
         session in it: a restart that brought no answer is not tried again."""
         self.minutes(0, 0)
         self.mac.hangs()
-        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.assertEqual(self.minutes(10, 10), [["stop", "edit", "start"]])
         self.mac.hangs()    # started, and still no answer
         self.assertEqual(self.minutes(11, 40), [[]] * 30)
         self.mac.started(self.now - 3600)    # it answers again
         self.assertEqual(self.minutes(41, 41), [[]])
         self.mac.hangs()
-        self.assertEqual(self.minutes(42, 51), [[]] * 9 + [["stop", "start"]])
+        self.assertEqual(self.minutes(42, 51), [[]] * 9 + [["stop", "edit", "start"]])
 
     def test_one_stopped_by_force_is_left_running_though_its_start_failed(self):
         """Lima's start fails with the machine left running when something it waits for in the
@@ -249,7 +249,7 @@ class KeptUp(unittest.TestCase):
         self.minutes(0, 0)
         self.mac.hangs()
         self.assertEqual([call[0] for call in self.mac.check(self.now + 600, fails=True)],
-                         ["stop", "start"])
+                         ["stop", "edit", "start"])
         self.mac.hangs()
         self.assertEqual(self.minutes(11, 11), [[]])
 
@@ -257,7 +257,7 @@ class KeptUp(unittest.TestCase):
         """Setting a Mac's clock moves its boot time with it."""
         self.minutes(0, 0)
         self.mac.hangs()
-        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.assertEqual(self.minutes(10, 10), [["stop", "edit", "start"]])
         self.mac.hangs()
         (self.mac.home.root / "boot").write_text(str(self.now - 3660))
         self.assertEqual(self.minutes(11, 21), [[]] * 11)
@@ -265,43 +265,43 @@ class KeptUp(unittest.TestCase):
     def test_a_stop_by_force_from_before_the_mac_started_does_not_count(self):
         self.minutes(0, 0)
         self.mac.hangs()
-        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.assertEqual(self.minutes(10, 10), [["stop", "edit", "start"]])
         self.mac.started(self.now + 3600)    # before it answered again
         self.mac.hangs()
-        self.assertEqual(self.minutes(69, 70), [[], ["stop", "start"]])
+        self.assertEqual(self.minutes(69, 70), [[], ["stop", "edit", "start"]])
         self.mac.started(self.now + 4140)    # again, by a clock set back to before that stop
         self.mac.hangs()
-        self.assertEqual(self.minutes(79, 80), [[], ["stop", "start"]])
+        self.assertEqual(self.minutes(79, 80), [[], ["stop", "edit", "start"]])
 
     def test_the_answer_or_start_after_a_stop_by_force_counts_even_by_a_clock_set_back(self):
         self.minutes(0, 0)
         self.mac.hangs()
-        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.assertEqual(self.minutes(10, 10), [["stop", "edit", "start"]])
         self.assertEqual(self.minutes(9, 9), [[]])    # it answers, the clock set back a minute
         self.mac.hangs()
-        self.assertEqual(self.minutes(18, 19), [[], ["stop", "start"]])
+        self.assertEqual(self.minutes(18, 19), [[], ["stop", "edit", "start"]])
         self.mac.stops()
-        self.assertEqual(self.minutes(18, 18), [["start"]])    # the clock set back again
+        self.assertEqual(self.minutes(18, 18), [["edit", "start"]])    # the clock set back again
         self.mac.hangs()
-        self.assertEqual(self.minutes(27, 28), [[], ["stop", "start"]])
+        self.assertEqual(self.minutes(27, 28), [[], ["stop", "edit", "start"]])
 
     def test_the_ten_minutes_count_across_runs_from_the_last_answer(self):
         self.assertEqual(self.minutes(0, 0) + self.minutes(5, 5), [[], []])
         self.mac.hangs()
-        self.assertEqual(self.minutes(14, 15), [[], ["stop", "start"]])
+        self.assertEqual(self.minutes(14, 15), [[], ["stop", "edit", "start"]])
 
     def test_an_install_while_it_hangs_keeps_its_last_answer(self):
         self.minutes(0, 0)
         self.mac.hangs()
         self.mac.at(self.now + 540)
         self.mac.install()
-        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.assertEqual(self.minutes(10, 10), [["stop", "edit", "start"]])
 
     def test_a_broken_machine_that_has_not_answered_for_ten_minutes_too(self):
         self.minutes(0, 0)
         self.mac.breaks()
         self.assertEqual(self.minutes(1, 9), [[]] * 9)
-        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.assertEqual(self.minutes(10, 10), [["stop", "edit", "start"]])
         self.assertTrue(self.mac.answers())
 
     def test_silence_from_before_the_mac_started_does_not_count(self):
@@ -309,7 +309,7 @@ class KeptUp(unittest.TestCase):
         self.mac.started(self.now + 3600)    # off for an hour
         self.mac.hangs()
         self.assertEqual(self.minutes(61, 69), [[]] * 9)
-        self.assertEqual(self.minutes(70, 70), [["stop", "start"]])
+        self.assertEqual(self.minutes(70, 70), [["stop", "edit", "start"]])
 
     def test_silence_before_a_check_found_it_stopped_does_not_count_whoever_starts_it(self):
         """Another start may come right after the check's look at its status."""
@@ -321,7 +321,7 @@ class KeptUp(unittest.TestCase):
                                       f' printf Running >{shlex.quote(str(root / "machine"))}\n')
         self.assertEqual(self.minutes(9, 9), [[]])
         shutil.copy(root / "limactl", self.mac.home.bin / "limactl")
-        self.assertEqual(self.minutes(10, 19), [[]] * 9 + [["stop", "start"]])
+        self.assertEqual(self.minutes(10, 19), [[]] * 9 + [["stop", "edit", "start"]])
 
 class RunningBefore(unittest.TestCase):
     """A Mac whose machine Lima started with it before ak's check came: the check has no answer
@@ -341,7 +341,7 @@ class RunningBefore(unittest.TestCase):
         self.assertNotIn("start", [call[0] for call in mac.lima()])
         calls = [[call[0] for call in mac.check(BOOT + 3600 + minute * 60)]
                  for minute in range(11)]
-        self.assertEqual(calls, [[]] * 10 + [["stop", "start"]])
+        self.assertEqual(calls, [[]] * 10 + [["stop", "edit", "start"]])
 
 class ItsOwnStore(unittest.TestCase):
     """A Mac whose Lima keeps its machines where LIMA_HOME names, which launchd passes on to
@@ -356,7 +356,7 @@ class ItsOwnStore(unittest.TestCase):
         mac.hangs()
         calls = [[call[0] for call in mac.check(BOOT + 3600 + minute * 60)]
                  for minute in range(1, 11)]
-        self.assertEqual(calls, [[]] * 9 + [["stop", "start"]])
+        self.assertEqual(calls, [[]] * 9 + [["stop", "edit", "start"]])
 
 if __name__ == "__main__":
     unittest.main()
