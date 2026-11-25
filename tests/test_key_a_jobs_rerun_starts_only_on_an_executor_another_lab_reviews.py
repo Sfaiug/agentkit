@@ -79,12 +79,13 @@ class TheRerunStartsOnTheReviewersOtherModel(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        resumed(cls, {"astra": {}, "nova": "codex"}, ["astra", "nova"], ["astra"])
+        resumed(cls, {"astra": {}, "nova": {"harness": "codex", "model": "gpt-nova-1"}},
+                ["astra", "nova"], ["astra"])
 
     def test_the_rerun_starts_on_nova(self):
         self.assertEqual(self.task["rerun_executor"], "nova")
         self.assertNotEqual(self.task["run_id"], self.run_dir.name)
-        self.assertIn(("executor", "nova"),
+        self.assertIn(("executor", "gpt-nova-1"),
                       [(run["role"], run["argv"][0]) for run in self.fakes["codex"].runs()])
 
 

@@ -255,6 +255,19 @@ def unpark(launched, payload):
     so each thing is read once, in this order, and the record's harness is asked what
     `watch.recorded_error` and `watch.limit_ended` ask, on that one record -- both read it
     again, and the plan `limit_ended` asks writes.
+
+    That 19 Nov turn was a long one, its login parked while it ran.  Asked on 22 Nov whether
+    this should stay with turns begun after the parking, the owner: "Keep building", for a turn
+    already running, "judged by when its last request was sent".  The harness fires Stop once
+    the model has finished responding (StopFailure for a request that failed), and asks the
+    model again only once every result of the tools its message before asked for is written
+    down: so at a Stop the request the model last answered went out after every tool's result
+    the record holds outside a sidechain, whether or not that answer's own entry is there yet.
+    On 25 Nov 2026 (version 2.1.332, a turn running `sleep 15`) it was not: the Stop hook
+    started with the record ending at the result, the answer's entry written 0.1 s later.  So
+    the refusals that go are those made before the later of the turn's start and that result
+    (`last_result`, its plugin's), asked last of the same record: no answer shows one made
+    after it wrong.
     """
     try:
         if (payload.get("terminationReason") not in (None, "", "NO_TOOL_CALL")
@@ -276,7 +289,9 @@ def unpark(launched, payload):
         conversation = plugin.conversation(record, cwd)
         if (plugin.error(record, cwd, conversation) == ""
                 and plugin.wrapped_up(record, cwd, conversation) is None):
-            usage.answered(cfg, entry["provider"], told or None, record["orchestrator"], turn)
+            result = plugin.last_result(record, cwd, conversation)
+            usage.answered(cfg, entry["provider"], told or None, record["orchestrator"],
+                           turn if result is None else max(turn, result))
     except Exception:
         pass        # the login stays parked as it was; the Stop is no less judged
 

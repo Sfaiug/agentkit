@@ -1022,6 +1022,95 @@ print(json.dumps({"login": json.loads((home / "auth.json").read_text()), "args":
         self.assertEqual(self.answer()["word"], "done")
         self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
 
+    def test_pick_order_excludes_a_model_whose_only_unspent_spare_failed_auth(self):
+        os.environ[config.SESSION_ENV] = NAME
+        self.meters(100, 40)
+        self.auth.side_effect = lambda harness, **kw: (
+            kw.get("account") != "second", "fixture login")
+        self.assertEqual(usage.account(self.cfg, "anthropic", model="opus"), ("default", False))
+        providers = usage.collect(self.cfg)
+        self.assertTrue(usage.model_exhausted(self.cfg, "opus", providers)[0])
+        self.assertEqual(usage.pick_order(self.cfg, providers, ["opus"], quiet=True), [])
+        # Another spare that does authenticate still leaves the model eligible.
+        self.cfg["providers"]["anthropic"]["accounts"].append("third")
+        config.save(self.cfg)
+        self.cached(lambda p: p["anthropic"]["accounts"].update(
+            third=p["anthropic"]["accounts"]["second"]))
+        self.assertEqual(usage.account(self.cfg, "anthropic", model="opus"), ("third", True))
+        self.assertEqual(usage.pick_order(self.cfg, usage.collect(self.cfg), ["opus"], quiet=True),
+                         ["opus"])
+
+    def test_seat_choice_and_config_screen_skip_worker_auth_probes(self):
+        from agentkit import menu
+        os.environ[config.SESSION_ENV] = NAME
+        # Seat login spent, spare at 20% authenticates interactively but not as a worker.
+        self.auth.side_effect = lambda harness, **kw: (
+            kw.get("seat") is True or kw.get("account") != "second", "fixture login")
+        providers = usage.collect(self.cfg)
+        self.assertEqual(orch.opening_account(self.cfg, "opus", providers, prompting=False),
+                         "second")
+        self.assertEqual(orch.choose(self.cfg, providers)[0], "opus")
+        self.assertEqual(orch.spent_note(self.cfg, "opus", providers), "")
+        # Drawing the config screen from held meters runs no auth probe on the display thread.
+        self.meters(30, 40)
+        held = usage.held(self.cfg)
+        probes = []
+        self.auth.side_effect = lambda *a, **kw: (probes.append(kw) is None, "valid")
+        menu.config_body(self.cfg, selected=config.active_session(self.cfg), providers=held, rows=())
+        self.assertEqual(probes, [])
+
+    def test_new_seat_and_staffing_capacity_agree_with_their_selected_login(self):
+        from agentkit import staffing
+        os.environ[config.SESSION_ENV] = NAME
+        # Signed-out spare with a spent Fable cap must not make orch.choose pick opus over astra.
+        self.cached(lambda p: p["anthropic"]["accounts"]["second"]["meters"].append(
+            dict(p["anthropic"]["accounts"]["second"]["meters"][0],
+                 name="weekly_scoped", scope="Fable", used=100)))
+        self.cached(lambda p: p["openai"].update(
+            meters=[dict(p["anthropic"]["accounts"]["second"]["meters"][0], name="weekly")]))
+        self.auth.side_effect = lambda harness, **kw: (
+            kw.get("account") != "second", "fixture login")
+        for credits in (0, 12):
+            self.cached(lambda p: p["anthropic"]["accounts"]["default"].update(credits=credits))
+            with patch.object(orch, "fresh_command", return_value=(["true"], None)) as launch:
+                orch.create(self.cfg, "next-seat", self.root, prompting=False, dry_run=True)
+            self.assertEqual(launch.call_args.args[1], "astra")
+        # Staffing capacity reads model_budget off the worker's selected login.
+        available = [("opus", "anthropic")]
+        for spare_ok, used, want_login, want_models in (
+                (False, 40, "default", available),
+                (True, 99, "second", [])):
+            self.meters(30, used)
+            self.cached(lambda p: p["anthropic"]["accounts"]["second"]["meters"][0].update(
+                name="session", window_secs=usage.SESSION_SECS))
+            if spare_ok:
+                self.cached(lambda p: p["anthropic"]["accounts"]["default"]["meters"].append(
+                    dict(p["anthropic"]["accounts"]["default"]["meters"][0],
+                         name="weekly_scoped", scope="Fable", used=100)))
+            self.auth.side_effect = lambda harness, **kw: (
+                kw.get("account") != "second" or spare_ok, "fixture login")
+            providers = usage.collect(self.cfg)
+            self.assertEqual(usage.account(self.cfg, "anthropic", "opus"), (want_login, True))
+            self.assertEqual(staffing.executable_models(self.cfg, providers, ["opus"], self.now),
+                             want_models)
+            self.assertEqual(staffing.reviewable_models(self.cfg, providers, ["opus"], self.now),
+                             want_models)
+        # Capacity checks exhaustion and budget on the same login: expiring spare auth cannot
+        # split exhaustion onto the spare and weekly budget onto the exhausted seat login.
+        self.meters(30, 40)
+        self.cached(lambda p: (
+            p["anthropic"]["accounts"]["default"]["meters"].append(dict(
+                p["anthropic"]["accounts"]["default"]["meters"][0],
+                name="session", window_secs=usage.SESSION_SECS, used=100)),
+            p["anthropic"]["accounts"]["second"]["meters"][0].update(
+                name="session", window_secs=usage.SESSION_SECS)))
+        providers = usage.collect(self.cfg)
+        for capacity in (staffing.executable_models, staffing.reviewable_models):
+            replies = iter((True,))
+            self.auth.side_effect = lambda harness, **kw: (
+                kw.get("account") != "second" or next(replies, False), "fixture login")
+            self.assertEqual(capacity(self.cfg, providers, ["opus"], self.now), [])
+
 
 if __name__ == "__main__":
     unittest.main()

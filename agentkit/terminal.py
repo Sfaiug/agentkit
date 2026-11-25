@@ -16,7 +16,7 @@ from collections import namedtuple
 from functools import lru_cache, wraps
 from itertools import groupby
 
-from . import config, guard, motion, warm
+from . import config, guard, motion, reads, warm
 from .themes import BLACK, KEPT, ROLES, WHITE, fits
 
 # glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
@@ -52,9 +52,11 @@ KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
 _BACKGROUND = ""   # ... and that answer, "" where it gave none: what a frame up is drawn for
+LOOK = None        # ... each role's colour where the look reads on its background (reads.look)
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
+_POPUP = False     # ... and whether it is a popup over a seat: painted whatever it answers
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
 _ATTRIBUTES = re.compile(rb"\x1b\[\?[0-9;]*c")   # ... and to DA1, which follows it
@@ -108,9 +110,9 @@ def colour(word, tmux=False):
     """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
     force; with `tmux`, in a tmux format (a seat's bar, a popup's border), in the kept one
     whichever process writes it: tmux shows it on a terminal ak never asks, and the
-    menu's writes and the tick's never disagree."""
+    menu's writes and the tick's never disagree; without, LOOK's where the look reads."""
     role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
-    return ROLES[role][kept() if tmux else theme()]
+    return LOOK[role] if LOOK and not tmux else ROLES[role][kept() if tmux else theme()]
 
 
 def glyph(word):
@@ -159,12 +161,12 @@ def basic_colour(rgb):
     return str(30 + sum(1 << i for i in range(3) if int(rgb[2 * i:2 * i + 2], 16) >= 128))
 
 
-def faded(word, amount):
+def faded(word, amount, ground="background"):
     """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
-    background, or with a negative one that far toward the foreground, where it is lit; as
+    `ground`, or with a negative one that far toward the foreground, where it is lit; as
     `#RRGGBB` for `styled`."""
     rgb = word[1:] if word.startswith("#") else colour(word)
-    to, amount = bytes.fromhex(colour("background" if amount >= 0 else "text")), abs(amount)
+    to, amount = bytes.fromhex(colour(ground if amount >= 0 else "text")), abs(amount)
     return "#" + "".join(f"{round(c * (1 - amount) + t * amount):02x}"
                          for c, t in zip(bytes.fromhex(rgb), to))
 
@@ -213,10 +215,11 @@ class _Screen:
 
     Each write starts in the theme's background and text, puts them back after every reset and
     ends in the terminal's own colours: every cell a draw, a frame or a clear touches is on the
-    background and text of no colour is the theme's, whichever helper drew it, and the terminal is
-    its own again between writes, for whatever has it next -- a program ak starts, a signal, the
-    shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at
-    eight colours, whose tones read on any background.
+    background -- the terminal's own where the look reads there (`LOOK`) -- and text of no colour
+    is the theme's, whichever helper drew it, and the terminal is its own again between writes,
+    for whatever has it next -- a program ak starts, a signal, the shell.  Nothing is painted
+    while a `Keyboard` has given the terminal back (`_GIVEN`), nor at eight colours, whose tones
+    read on any background.
 
     Each place a screen writes at, and the start of each line it begins, is moved in by the
     padding, and painted it too: a place on the first column takes the padding to its left, and
@@ -244,10 +247,9 @@ class _Screen:
 
 
 def _painted(text):
-    """`text` on the background of the theme in force, in its text where it sets no colour
-    (`_Screen`)."""
-    back, fore = (ink(colour(role), ground)
-                  for role, ground in (("background", "48"), ("text", "38")))
+    """`text` on the background of the theme in force, none where the look reads (`LOOK`), in
+    its text where it sets no colour (`_Screen`)."""
+    back, fore = "49" if LOOK else ink(colour("background"), "48"), ink(colour("text"), "38")
     again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
 
     def put_back(code):
@@ -264,7 +266,8 @@ def _painted(text):
 
 def screens(popup=False):
     """Where stdout is a terminal, this process's screens leave for it through `_Screen`, painted;
-    in a `popup`, inside the cells it asks for (PAD_ENV) to be left blank inside its border.
+    in a `popup`, inside the cells it asks for (PAD_ENV) to be left blank inside its border, and
+    in its theme whatever its terminal answers (`sense`).
 
     tmux 3.5a borders a popup but pads nothing inside the border, so the screens leave the
     padding themselves: they lay out to the room inside it (`width`, `height`), what they write
@@ -272,11 +275,12 @@ def screens(popup=False):
     not set -- a phone's popup, which spares no cell, and every screen outside one -- nothing
     moves.
     """
-    global _PAD
+    global _PAD, _POPUP
     try:
         wanted = max(0, int(os.environ.get(PAD_ENV) or 0)) if popup else 0
     except ValueError:
         wanted = 0
+    _POPUP = popup
     if sys.stdout.isatty():
         _PAD, sys.stdout = wanted, _Screen(sys.stdout)
         if wanted:
@@ -1063,9 +1067,10 @@ def sense():
     answers are read here and never as keys: anything typed while they were awaited is kept for
     `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
     back up where it was drawn for what it found (`_last_frame`), the hold it was given back under
-    hiding the wait.
+    hiding the wait.  LOOK is the look on the background it answered, where it reads
+    (`reads.look`), but in a popup over a seat (`screens`), painted whatever it answers.
     """
-    global _RGB, THEME, _BACKGROUND, _KEYED
+    global _RGB, THEME, _BACKGROUND, LOOK, _KEYED
     features = os.environ.get(FEATURES_ENV)
     if features is None and os.environ.get("TMUX"):
         try:
@@ -1093,11 +1098,13 @@ def sense():
     _BACKGROUND = found.group(1).decode(errors="replace") if found else ""
     colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
                       found.group(1)) if found else None
-    THEME = None
+    THEME = LOOK = None
     if colour:
         red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
         THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK  # luma
         _keep(THEME)
+        LOOK = None if _POPUP else reads.look(
+            bytes(round(c * 255) for c in (red, green, blue)).hex(), THEME)
     _last_frame()
 
 

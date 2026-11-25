@@ -214,15 +214,17 @@ class UsualAccountFirst(unittest.TestCase):
         for name in names:
             usage._lock("anthropic", name).write_text(repr(self.now))
 
-    # Opus is spent on `default` and `second`; `third` has its week, Fable's cap aside.
+    # Opus is spent on `default` and `second`; `third` has its week, with or without Fable's cap.
     def test_a_login_removed_since_a_snapshot_is_not_read(self):
-        self.logins("default", "second", "third")
-        self.meters(100, 100, 0, cap=100)
-        held, cfg = usage.collect(self.cfg), config.load()
-        self.logins("default", "second")
-        self.assertIn("third", held["anthropic"]["accounts"])
-        self.assertEqual(usage.pick_order(cfg, held, ["opus"], quiet=True), [])
-        self.assertEqual(usage.account(cfg, "anthropic", "opus"), ("default", False))
+        for cap in (100, None):
+            with self.subTest(cap=cap):
+                self.logins("default", "second", "third")
+                self.meters(100, 100, 0, cap=cap)
+                held, cfg = usage.collect(self.cfg), config.load()
+                self.logins("default", "second")
+                self.assertIn("third", held["anthropic"]["accounts"])
+                self.assertEqual(usage.pick_order(cfg, held, ["opus"], quiet=True), [])
+                self.assertEqual(usage.account(cfg, "anthropic", "opus"), ("default", False))
 
     def test_a_login_added_since_a_config_copy_is_read(self):
         self.logins("default", "second", "third")

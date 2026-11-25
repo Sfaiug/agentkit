@@ -243,17 +243,21 @@ def refuse_outside_group(cfg, name, group, role):
 def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, quiet=False,
                 repo=None, workers=None, reviewers=None, draw=None):
     """Pick each role within its launch list; want_review=False switches review off.  Asked for
-    neither by name, with review on, the executor's pick reads the reviewer's list too
-    (`ready_order`'s `reviewed_by`).  `draw` is `usage.pick_order`'s."""
+    no executor by name, with review on, the executor's pick reads the reviewer named -- or the
+    reviewer's list when neither is named -- too (`ready_order`'s `reviewed_by`).  `draw` is
+    `usage.pick_order`'s."""
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
         refuse_outside_group(cfg, want_review, reviewers, "reviewer")
     exec_list, review_list = workers, reviewers if reviewers is not None else workers
     reviewed_by = None
-    if not want_exec and not want_review and want_review is not False:
-        # the executor's pick weighs the very reviewers the reviewer's pick reads
-        exec_list, review_list = config.pair_marks(cfg, workers, reviewers)
-        reviewed_by = review_list
+    if not want_exec and want_review is not False:
+        if want_review:
+            reviewed_by = [want_review]
+        else:
+            # the executor's pick weighs the very reviewers the reviewer's pick reads
+            exec_list, review_list = config.pair_marks(cfg, workers, reviewers)
+            reviewed_by = review_list
     order = ready_order(cfg, providers, exec_list, None if want_exec and want_review else log,
                         quiet=quiet, repo=repo, reviewers=reviewers, reviewed_by=reviewed_by,
                         draw=draw)
@@ -418,14 +422,27 @@ def review_writers(state):
 def lab(cfg, name, lineup=None):
     """Who makes the configured model `name`: the maker of the row of `lineup`, else of the
     lineup last stored (`matrix.listed`), whose `yours` holds its harness and model, as the
-    provider `config.company` names for it; where no row holds it, its provider.  A provider
-    running several makers' models is then as many labs, and one maker's models under two
-    providers one lab."""
+    provider `config.company` names for it.  Where no row holds it, the family word its id opens
+    with after any `provider/` prefix (`config.family`, `config.model_id`): the maker of a row
+    holding a model whose id opens with the same word, as `config.company` names it, else the
+    word itself; with no family word, its provider.  A provider running several makers' models is
+    then as many labs, and one maker's models under two providers one lab."""
     entry = config.model(cfg, name)
     mine = {"harness": entry["harness"], "model": entry["model"]}
     rows = matrix.listed()[0] if lineup is None else lineup
-    maker = next((row["maker"] for row in rows if mine in row["yours"]), None)
-    return config.company(cfg, maker) or entry["provider"]
+    row = next((row for row in rows if mine in row["yours"]), None)
+    if row is not None:
+        return config.company(cfg, row.get("maker")) or entry["provider"]
+    model = config.model_id(entry)
+    words = config.families() if model else ()
+    word = config.family(model.rsplit("/", 1)[-1], words) if model else None
+    if word:
+        maker = next((row["maker"] for row in rows if row.get("maker")
+                      and any((held := config.model_id(one))
+                              and config.family(held.rsplit("/", 1)[-1], words) == word
+                              for one in row["yours"])), None)
+        return config.company(cfg, maker) or word
+    return entry["provider"]
 
 
 def pair_tier(cfg, executor, reviewer, lineup=None):
@@ -744,20 +761,11 @@ def _cached_providers():
         return {}
 
 
-def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None):
-    """(model, provider) pairs that can execute now, in pick order.
-
-    An eligible worker counts when the pick order keeps it, which no refusal parked until a
-    future window keeps (`usage.model_exhausted`), and its budget is above zero with nothing
-    unknown about it.  The waiting words use this conservative estimate of capacity.  `log`
-    is told each worker left out because its harness cannot run, as `ready_order` says it.
-    """
+def _budgeted(cfg, providers, order, reads, now):
+    """(model, provider) pairs of `order` whose selected worker login has a positive known
+    budget, read off the same login `pick_order` picked it on (`reads`) so exhaustion and
+    budget never split across two logins."""
     from . import usage  # here, not at the top: usage imports staffing
-    try:
-        order = ready_order(cfg, providers, workers=workers, log=log, role="executor",
-                            quiet=True, reviewers=reviewers)
-    except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
-        return []
     available = []
     for name in order:
         try:
@@ -767,12 +775,31 @@ def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None)
         if not isinstance((providers or {}).get(provider), dict):
             continue
         try:
-            budget, reason = usage.model_budget(cfg, name, providers, now)
+            read = reads[name] if name in reads else usage._worker_reading(cfg, name, providers)
+            if name not in reads and usage.model_exhausted(cfg, name, read)[0]:
+                continue
+            budget, reason = usage.model_budget(cfg, name, read, now)
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
             continue
         if reason is None and budget > 0:
             available.append((name, provider))
     return available
+
+
+def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None):
+    """(model, provider) pairs that can execute now, in pick order.
+
+    An eligible worker counts when the pick order keeps it, which no refusal parked until a
+    future window keeps (`usage.model_exhausted`), and its budget is above zero with nothing
+    unknown about it.  The waiting words use this conservative estimate of capacity.  `log`
+    is told each worker left out because its harness cannot run, as `ready_order` says it.
+    """
+    try:
+        order = ready_order(cfg, providers, workers=workers, log=log, role="executor",
+                            quiet=True, reviewers=reviewers)
+    except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
+        return []
+    return _budgeted(cfg, providers, order, getattr(order, "reads", {}), now)
 
 
 def reviewable_models(cfg, providers, workers, now, executor=None, writers=None):
@@ -785,29 +812,15 @@ def reviewable_models(cfg, providers, workers, now, executor=None, writers=None)
     executor the legality check has nothing to check against, so every available model
     counts.  `writers` narrow the pick as `ready_order`'s do.
     """
-    from . import usage  # here, not at the top: usage imports staffing
     try:
         order = ready_order(cfg, providers, workers=workers, role="reviewer",
                             quiet=True, writers=writers)
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         return []
+    reads = getattr(order, "reads", {})
     if executor:
         order = reviewer_order(cfg, executor, order)
-    available = []
-    for name in order:
-        try:
-            provider = config.model(cfg, name)["provider"]
-        except config.Error:
-            continue
-        if not isinstance((providers or {}).get(provider), dict):
-            continue
-        try:
-            budget, reason = usage.model_budget(cfg, name, providers, now)
-        except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
-            continue
-        if reason is None and budget > 0:
-            available.append((name, provider))
-    return available
+    return _budgeted(cfg, providers, order, reads, now)
 
 
 def exhausted_waits_for(state, providers, cfg=None, workers=None, now=None):

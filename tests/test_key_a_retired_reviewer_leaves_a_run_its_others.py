@@ -31,7 +31,8 @@ class ARetiredReviewerLeavesARunItsOthers(unittest.TestCase):
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={"AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n"})
         GitHub(home).grant(rig.slug, "WRITE")
-        akconfig.write(home, {"opus": {}, "astra": {}, "nova": "claude"}, workers=["opus"],
+        nova = {"harness": "claude", "model": "claude-nova-1"}
+        akconfig.write(home, {"opus": {}, "astra": {}, "nova": nova}, workers=["opus"],
                        reviewers=["astra", "nova"])
         codex = fakeadapter.install(home, claude="work", codex="pass")["codex"]
         reviewing, go = codex.dir / "reviewing", codex.dir / "go"
@@ -44,7 +45,7 @@ class ARetiredReviewerLeavesARunItsOthers(unittest.TestCase):
         terminal.start()
         while not reviewing.exists() and terminal.is_alive():
             time.sleep(0.1)
-        akconfig.write(home, {"opus": {}, "nova": "claude"}, workers=["opus"], reviewers=["nova"])
+        akconfig.write(home, {"opus": {}, "nova": nova}, workers=["opus"], reviewers=["nova"])
         go.touch()
         terminal.join()
         (done,) = ended

@@ -40,6 +40,8 @@ else
   done
   case $online in "") ;; *[!0]*) power=1 ;; *) power=0 ;; esac
 fi
+# its host name, by which a listed machine that is the one ak runs on is known
+echo "name $(hostname)"
 echo "processor $(uname -m)"
 echo "disk_free_mb $(df -Pk "$HOME" | awk 'NR == 2 {print int($4 / 1024)}')"
 echo "battery $battery"

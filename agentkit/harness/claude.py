@@ -487,46 +487,16 @@ def running(record, cwd, conversation):
     return report if report and (not latest or report[2] > (latest[2] or 0)) else latest
 
 
-def last_sent(record, cwd, conversation):
-    """The earliest that conversation's last request to its model can have gone out: the time of
-    the last tool's result between the model's last message's first entry and its message
-    before that, or None where none stands there or a line read back to it cannot be read.
-
-    On 19 Nov 2026 a long turn went on answering the owner on a login ak had parked while it
-    ran ("even this session says out of usage").  Asked on 22 Nov whether an answered turn
-    should end only the refusals made before it began, the owner: "Keep building", for a turn
-    already running, "judged by when its last request was sent".
-
-    Claude Code sends a request only once every result the model's message before it asked for
-    is written down, and writes the message that request brings after it.  One message is
-    written as several entries sharing `message.id`, and a result of its own tools can stand
-    between them: no request waited for that one.
-    """
+def last_result(record, cwd, conversation):
+    """When the last tool's result outside a sidechain on that conversation's record was
+    written, where none of the owner's words stand after it, or None."""
     from . import last_entry, moment
     path = transcript(record, cwd, conversation)
-    last, kept = [], []
-
-    def pick(entry):
-        # Read back from the end: the model's last message, then what stands before it, up to
-        # the model's message before that one.
-        if entry.get("isSidechain"):
-            return False
-        if by_model(entry):
-            said = entry["message"].get("id")
-            if not last:
-                last.append(said)
-            elif said is None or said != last[0]:
-                return True
-            kept.clear()
-        elif last and not kept and holds_result(entry):
-            kept.append(entry)
-        return False
-    try:
-        if not path or last_entry(path, pick, strict=True) is False:
-            return None     # no file, or a line `json.loads` refuses
-    except FileNotFoundError:
-        return None         # gone since `transcript` named it
-    return moment(kept[0].get("timestamp")) if kept else None
+    # The owner's words end the read only to keep it short, as `wrapped_up`'s: a result
+    # before them is older than the turn their hook began.
+    entry = path and last_entry(path, lambda entry: not entry.get("isSidechain")
+                                and (holds_result(entry) or prompt(entry) is not None))
+    return moment(entry.get("timestamp")) if entry and holds_result(entry) else None
 
 
 def resumable(record, cwd, conversation):

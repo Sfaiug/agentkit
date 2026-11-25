@@ -33,7 +33,8 @@ class AForegroundRunMergedUnderARenamedReviewerExits0(unittest.TestCase):
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={"AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n"})
         GitHub(home).grant(rig.slug, "WRITE")
-        akconfig.write(home, {"opus": {}, "astra": {}, "nova": "claude"})
+        akconfig.write(home, {"opus": {}, "astra": {},
+                              "nova": {"harness": "claude", "model": "claude-nova-1"}})
         codex = fakeadapter.install(home, claude="work", codex="pass")["codex"]
         reviewing, go = codex.dir / "reviewing", codex.dir / "go"
         codex.behave({**fakeadapter.PASS, "sh": f"touch {shlex.quote(str(reviewing))}; "

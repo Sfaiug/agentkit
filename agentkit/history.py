@@ -1012,23 +1012,36 @@ def reviewed_runs(harness, model):
         return {}
 
 
-def first_review_efforts():
-    """{run_id: the effort its first review ran at, None where none was recorded}: of its lowest
-    round, the first written; {} where the database cannot answer."""
+def _reviews_read():
+    """({run_id: [dict(row), ...]}, {run_id: effort}) from one read of `reviews`: each run's
+    rows in the order written, and the effort of the first row SQLite's `ORDER BY round, rowid`
+    picks; ({}, {}) where the database cannot answer."""
     _ensure_migrated()      # a reviews table from before rounds and efforts has neither column
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
-                first = {}
-                for run_id, effort in connection.execute(
-                        "SELECT run_id, effort FROM reviews ORDER BY round, rowid"):
-                    first.setdefault(run_id, effort)
-                return first
+                cursor = connection.execute(
+                    "SELECT ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY round, rowid), "
+                    "reviews.* FROM reviews ORDER BY rowid")
+                columns = [column[0] for column in cursor.description[1:]]
+                by_run, first = {}, {}
+                for rank, *values in cursor:
+                    row = dict(zip(columns, values))
+                    if rank == 1:
+                        first[row["run_id"]] = row.get("effort")
+                    by_run.setdefault(row["run_id"], []).append(row)
+                return by_run, first
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
-        return {}
+        return {}, {}
+
+
+def reviews():
+    """{run_id: [dict(row), ...]}: every `reviews` row, in the order written; {} where the
+    database cannot answer."""
+    return _reviews_read()[0]
 
 
 def merged(row):

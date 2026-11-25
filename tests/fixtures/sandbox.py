@@ -40,7 +40,7 @@ def _passwd(home):
 @contextmanager
 def account_home(home, *, places=()):
     """Give boxes a temporary passwd home and declared writable fixture state."""
-    account, command = box.pwd.getpwuid(os.getuid()), box.command
+    command = box.command
 
     @contextmanager
     def boxed(*args, **kwargs):
@@ -52,7 +52,7 @@ def account_home(home, *, places=()):
 
     with _passwd(home) as passwd, \
             patch.object(box.pwd, "getpwuid", return_value=box.pwd.struct_passwd(
-                (*account[:5], str(home), account.pw_shell))), \
+                ("acme", "x", os.getuid(), os.getgid(), "Fixture", str(home), "/bin/sh"))), \
             patch.object(box, "command", boxed):
         yield
 

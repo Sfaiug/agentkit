@@ -28,7 +28,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import staffing, turns, usage
+from agentkit import config, staffing, turns, usage
 
 
 def meters(**used):
@@ -169,6 +169,99 @@ class ReviewersBesideWriters(Sandbox):
                                                 workers=["astra", "fable"],
                                                 reviewers=["astra", "opus"]),
                          ("fable", "opus"))
+
+    def test_a_named_reviewer_takes_another_labs_payg_executor_over_its_own_labs_sub(self):
+        self.cfg["providers"]["beta"]["mode"] = "payg"
+        self.cfg["models"]["fable"]["mode"] = "payg"
+        self.providers = meters(acme=10, beta=10)
+        self.assertEqual(staffing.pick_models(self.cfg, self.providers, None, "opus",
+                                              self.logs.append, quiet=True,
+                                              workers=["opus", "astra"],
+                                              reviewers=["opus", "astra"]),
+                         ("astra", "opus"))
+        self.assertEqual(self.logs,
+                         ["skipped opus: a marked reviewer of another lab can review astra"])
+        self.logs.clear()
+        self.assertEqual(staffing.pick_models(self.cfg, self.providers, None, "opus",
+                                              self.logs.append, quiet=True,
+                                              workers=["opus", "fable"], reviewers=["opus"]),
+                         ("opus", "opus"))
+        self.assertEqual(self.logs, [])
+        self.providers = meters(acme=10, beta=100)
+        self.assertEqual(staffing.pick_models(self.cfg, self.providers, None, "opus",
+                                              self.logs.append, quiet=True,
+                                              workers=["opus", "astra"],
+                                              reviewers=["opus", "astra"]),
+                         ("opus", "opus"))
+        self.assertEqual(self.logs, [])
+        with self.assertRaises(config.Error):
+            staffing.pick_models(self.cfg, self.providers, None, "astra", None, quiet=True,
+                                 workers=["opus", "astra"], reviewers=["opus"])
+        self.providers = meters(acme=10, beta=10)
+        self.providers.harnesses = {("test", "acme"): "acme is not logged in"}
+        with self.assertRaises(config.Error):
+            staffing.pick_models(self.cfg, self.providers, None, "opus", None, quiet=True,
+                                 workers=["opus", "astra"], reviewers=["opus"])
+
+
+class UnlistedModelLab(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.cfg = {
+            "defaults": {"orchestrator": "nova", "workers": ["nova", "dart", "bolt"]},
+            "models": {
+                "nova": {"harness": "claude", "model": "claude-nova-2", "effort": "high",
+                         "provider": "anthropic"},
+                "dart": {"harness": "opencode", "model": "dune/CLAUDE-dart-2", "effort": "high",
+                         "provider": "dune"},
+                "near": {"harness": "opencode", "model": "claudette-1", "effort": "high",
+                         "provider": "dune"},
+                "bolt": {"harness": "codex", "model": "bolt-3", "effort": "high",
+                         "provider": "openai"},
+            },
+            "providers": {"anthropic": {}, "dune": {"maker": "Dune"}, "openai": {}},
+        }
+
+    def test_family_word_matches_spoken_and_resolves_unlisted_models(self):
+        self.assertEqual(config.family("CLAUDE-nova-2", ["Claude"]), "Claude")
+        self.assertEqual(config.family("claude", ["Claude"]), "Claude")
+        self.assertIsNone(config.family("claudette-1", ["Claude"]))
+        self.assertEqual(config.spoken("claude-nova-7-1", ["Claude"]), "Nova 7.1")
+        self.assertEqual(config.spoken("gpt-5-5", ["GPT"]), "GPT 5.5")
+        # With no lineup, the family word itself names the lab; no family word keeps the provider.
+        self.assertEqual(staffing.lab(self.cfg, "nova", []), "Claude")
+        self.assertEqual(staffing.lab(self.cfg, "dart", []), "Claude")
+        self.assertEqual(staffing.lab(self.cfg, "near", []), "dune")
+        self.assertEqual(staffing.lab(self.cfg, "bolt", []), "openai")
+        self.assertEqual(staffing.pair_tier(self.cfg, "nova", "dart", []), 1)
+        self.assertEqual(staffing.pair_tier(self.cfg, "nova", "bolt", []), 0)
+
+    def test_unlisted_model_takes_the_maker_of_a_row_holding_its_family(self):
+        lineup = [{"release": "claude-nova-2", "name": "Nova 2", "board_name": "Claude Nova 2",
+                   "maker": "Acme", "effort": "high", "values": {},
+                   "yours": [{"harness": "claude", "model": "claude-nova-2"}]}]
+        self.assertEqual(staffing.lab(self.cfg, "nova", lineup), "acme")
+        self.assertEqual(staffing.lab(self.cfg, "dart", lineup), "acme")
+        self.assertEqual(staffing.lab(self.cfg, "near", lineup), "dune")
+        self.assertEqual(staffing.lab(self.cfg, "bolt", lineup), "openai")
+        # A row holding dart itself wins over any family word.
+        held = [*lineup, {"release": "dart-2", "name": "Dart 2", "board_name": "Dart 2",
+                          "maker": "Dune", "effort": "high", "values": {},
+                          "yours": [{"harness": "opencode", "model": "dune/CLAUDE-dart-2"}]}]
+        self.assertEqual(staffing.lab(self.cfg, "dart", held), "dune")
+
+    def test_entries_without_a_model_id_fall_back_to_their_provider(self):
+        self.cfg["models"]["num"] = {"harness": "claude", "model": 7, "effort": "high",
+                                     "provider": "dune"}
+        self.cfg["models"]["def_a"] = {"harness": "claude", "model": "default", "effort": "high",
+                                       "provider": "anthropic"}
+        self.cfg["models"]["def_b"] = {"harness": "codex", "model": "default", "effort": "high",
+                                       "provider": "openai"}
+        self.assertEqual(staffing.lab(self.cfg, "num", []), "dune")
+        with patch.object(config, "families", return_value=["Default", "Claude"]):
+            self.assertEqual(staffing.lab(self.cfg, "def_a", []), "anthropic")
+            self.assertEqual(staffing.lab(self.cfg, "def_b", []), "openai")
+            self.assertEqual(staffing.pair_tier(self.cfg, "def_a", "def_b", []), 0)
 
 
 if __name__ == "__main__":

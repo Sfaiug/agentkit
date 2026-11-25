@@ -44,13 +44,13 @@ answers or not.
 A pass that ends well stamps when it began, and from which home, then why ak here stayed where it
 was, if it did, and at its end does with the last move here what the end of a tick does on a home
 (`versions.final`): a pass of the version that move put live makes it final.
-That is all a pass keeps: one that fails, however it fails, writes nothing of its own and makes
-nothing final, for it cannot tell a silent home from code that is broken, and `ak standby`, which
-reads the copy's age from the stamp, shows passes failing as an age that goes on growing.  One
-that fails with a reason, once the copy is `SILENT` old by the clock calling it younger, asks
-`notify.page` to tell the owner, under a key of the home and the stamp: notify alone keeps whether
-that went out, and sends it once.  A pass's exit is its copy's alone: the copy is what a takeover
-needs first.
+One that fails, however it fails, stamps nothing and makes nothing final, for it cannot tell a
+silent home from code that is broken, and `ak standby`, which reads the copy's age from the stamp,
+shows passes failing as an age that goes on growing.  One that fails with a reason keeps when it
+failed, beside the stamp and naming it, where none kept names the stamp, and asks `notify.page` to
+tell the owner once every pass has failed since one at least `SILENT` ago, by the clock calling it
+younger, under a key of the home and the stamp: notify alone keeps whether that went out, and
+sends it once.  A pass's exit is its copy's alone: the copy is what a takeover needs first.
 
 A home keeps a record of each machine that says it copied it (`_keep`), which `ak standby` and the
 Machines page list there (`copies`), and of which its tick pages the owner once its copy is GONE old
@@ -137,14 +137,16 @@ while folders:
 # ak's lease, nor a wait too long for a selector.
 TIMEOUT = int((re.fullmatch(r"[1-9][0-9]?", os.environ.get("AK_STANDBY_TIMEOUT", ""))
                or ["300"])[0])
-# The copy's age at which a failed pass pages the owner: on a Mac, ak's own check starts a dead
-# Linux machine again after 10 minutes without an answer, and 20 leave it the time to come back.
+# How long every pass has failed, from the first to fail after the stamp, when a failed pass pages
+# the owner: on a Mac, ak's own check starts a dead Linux machine again after 10 minutes without an
+# answer, and 20 leave it the time to come back.  Not the copy's age: a pass over a home at work
+# takes 5 to 15 minutes, so one failing after a slow one would page, and the next heal it.
 SILENT = 20 * 60
 # This machine's own folder of the copy, in ak's tmp folder: the stamp of the last pass that ended
-# well, and the lock a pass holds, which the kernel lets go of when the pass ends, however it ends.
-# Names, not paths: each follows HOME, as config's places do.  install.sh keeps the runs, checkouts
-# and work of a client with this folder, a standby.
-FOLDER, COPIED, LOCK = "standby", "copied", "lock"
+# well, when the first pass to fail after it failed, and the lock a pass holds, which the kernel
+# lets go of when the pass ends, however it ends.  Names, not paths: each follows HOME, as config's
+# places do.  install.sh keeps the runs, checkouts and work of a client with this folder, a standby.
+FOLDER, COPIED, FAILING, LOCK = "standby", "copied", "failing", "lock"
 # A home's own, in ak's tmp folder, which no pass copies, beside FOLDER and never in it, as FOLDER
 # there is what makes a client a standby: a record of each machine that says it copied this one,
 # named by its host name.
@@ -373,16 +375,7 @@ def _keep(host, line, takes):
     folder = config.TMP / COPIES
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        # a name no host name is, as none begins with a dot, so no listing shows one
-        handle, new = tempfile.mkstemp(dir=folder, prefix=".")
-        try:
-            with open(handle, "w") as record:
-                record.write(f"{line}\n{takes}\n")
-            os.replace(new, folder / host)
-        except OSError:
-            with contextlib.suppress(OSError):  # a folder no longer writable keeps it, unlisted
-                os.unlink(new)
-            raise
+        _stamp(folder / host, line, takes)
     except OSError as error:
         print(f"ak standby: the record of {host} could not be written: {error.strerror}",
               file=sys.stderr)
@@ -510,12 +503,19 @@ def tell():
                                 owed=True)
 
 
-def _stamp(own, *lines):
-    """The stamp of a pass that ended well, whole or not at all: a write cut short leaves the
-    last."""
-    new = own / f"{COPIED}.new"
-    new.write_bytes("".join(f"{line}\n" for line in lines).encode())
-    new.replace(own / COPIED)
+def _stamp(path, *lines):
+    """`lines` at `path`, whole or not at all: a write cut short leaves the last.  Through a file
+    made new, as one already at a fixed name, a named pipe, would hold the write up."""
+    # a name no host name is, as none begins with a dot, so no listing of records shows one
+    handle, new = tempfile.mkstemp(dir=path.parent, prefix=".")
+    try:
+        with open(handle, "wb") as file:
+            file.write("".join(f"{line}\n" for line in lines).encode())
+        os.replace(new, path)
+    except OSError:
+        with contextlib.suppress(OSError):  # a folder no longer writable keeps it, unlisted
+            os.unlink(new)
+        raise
 
 
 def _last():
@@ -542,19 +542,36 @@ def _copied(alias):
     return stamp if of == alias else None, stayed
 
 
+def _failing(stamp):
+    """When the first pass to fail since the one that ended well at `stamp` failed: now, kept,
+    where what is kept names another stamp, is cut short or cannot be read.  One that cannot be
+    kept begins the count at every pass, which pages nobody early and fails none."""
+    path = config.TMP / FOLDER / FAILING
+    with contextlib.suppress(OSError, ValueError):  # ValueError: not two whole lines of text
+        held = config.read_regular(path, MOST + 1)
+        # each line whole, as a line cut short may still read as a stamp, of another boot
+        named, first, end = held.decode().split("\n") if len(held) <= MOST else ()
+        if (named, end) == (stamp.line(), "") and (first := pair_clock.read(first)):
+            return first
+    first = pair_clock.now()
+    with contextlib.suppress(OSError):
+        _stamp(path, stamp.line(), first.line())
+    return first
+
+
 def _page(alias, why):
-    """Tell the owner the pass from `alias` failed, `why`, once the copy is SILENT old: asked
-    again at every failed pass, notify sends it once per stamp, and owed still after a move of
-    ak here, which leaves the copy no younger.  What notify says of a page the webhook did not
-    take is not the pass's: the next failed pass asks again."""
+    """Tell the owner the pass from `alias` failed, `why`, once every pass has failed for SILENT:
+    asked again at every failed pass, notify sends it once per stamp, and owed still after a move
+    of ak here, which ends no failing.  What notify says of a page the webhook did not take is not
+    the pass's: the next failed pass asks again."""
     try:
         stamp = _copied(alias)[0]
         # no age is read across a boot Linux cannot say, which may have gone since the pass began
-        if not stamp or (age := stamp.age_at_least()) < SILENT:
+        if not stamp or _failing(stamp).age_at_least() < SILENT:
             return
         # red, as the page of a project down is
-        line = (f"\U0001f534 the copy of {alias} is {terminal.format_age(age)} old; the pass from "
-                f"it failed: {why}")
+        line = (f"\U0001f534 the copy of {alias} is {terminal.format_age(stamp.age_at_least())} "
+                f"old; the pass from it failed: {why}")
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             notify.page(f"standby:{alias}:{stamp.line()}", alias, line, line=line, owed=True)
     except Exception as exc:    # whatever it meets, the pass's exit is its copy's
@@ -678,9 +695,9 @@ def main(argv):
             print(f"ak standby: the pass from {alias} failed: {why}", file=sys.stderr)
             _page(alias, why)
             return 1
-        _stamp(own, began.line(), alias)
+        _stamp(own / COPIED, began.line(), alias)
         if why := update.follow(alias)[1]:
-            _stamp(own, began.line(), alias, why)
+            _stamp(own / COPIED, began.line(), alias, why)
         versions.final(time.time())
         if held:
             with contextlib.suppress(OSError, subprocess.SubprocessError):

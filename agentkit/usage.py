@@ -1486,7 +1486,8 @@ def _logins(cfg, provider, prov):
     provider's reading, holds, in the order listed: {} for a provider listing none, which is
     one login read off its own reading."""
     held = _record(prov.get("accounts"))
-    return {account: held[account] for account in config.accounts(cfg, provider)
+    return {account: {k: v for k, v in held[account].items() if k != "accounts"}
+            for account in config.accounts(cfg, provider)
             if isinstance(held.get(account), dict)}
 
 
@@ -1524,6 +1525,20 @@ def _login(cfg, provider, model, prov):
                          and worker.auth_ok(harness, account=a, provider=provider)[0]
                          is not False), own)
     return best, readings[best]
+
+
+def _worker_reading(cfg, name, providers):
+    """`providers` with `name`'s provider read off the login a worker turn of `name` runs on
+    (`_login`), where config.toml lists one that `prov` holds; the provider's own reading
+    otherwise, its `accounts` left out."""
+    provider = config.model(cfg, name)["provider"]
+    prov = providers.get(provider)
+    if not isinstance(prov, dict) or "accounts" not in prov:
+        return providers
+    reading = _login(cfg, provider, name, prov)[1]
+    if reading is None:
+        reading = {key: value for key, value in prov.items() if key != "accounts"}
+    return {**providers, provider: reading}
 
 
 def _read(cfg, name, providers):
@@ -1820,7 +1835,7 @@ def provider_budget(prov, now=None):
 
 def model_budget(cfg, name, providers, now=None):
     """(budget, unknown reason) from this worker's tightest budget."""
-    providers = _read(cfg, name, providers)
+    providers = _worker_reading(cfg, name, providers)
     meters, _ = _gating_meters(cfg, name, providers)
     prov = providers.get(config.model(cfg, name)["provider"], {})
     return provider_budget({**prov, "meters": meters}, now)
@@ -1835,7 +1850,7 @@ def model_exhausted(cfg, name, providers):
     Tier B requires a later probe before spending a full meter again, even without a reset
     timestamp. Tier A retains its existing cached flags in `model_spent`.
     """
-    providers = _read(cfg, name, providers)
+    providers = _worker_reading(cfg, name, providers)
     meters, _ = _gating_meters(cfg, name, providers)
     provider = config.model(cfg, name)["provider"]
     prov = providers.get(provider, {})
@@ -1857,20 +1872,6 @@ def running_low(meters, every):
     will spend nobody knows before it ends, and the drain read so far is what there is."""
     return any(100.0 - m["used"] < max(LOW_FLOOR, (_rate(m) or 0.0) * every / 3600.0)
                for m in meters if _number(m.get("used")) is not None)
-
-
-def _worker_reading(cfg, name, providers):
-    """`providers` with `name`'s provider read off the login a worker turn of `name` runs on
-    (`_login`), where it lists several logins and one is held; `providers` unchanged otherwise."""
-    provider = config.model(cfg, name)["provider"]
-    prov = providers.get(provider)
-    if not isinstance(prov, dict) or "accounts" not in prov:
-        return providers
-    reading = _login(cfg, provider, name, prov)[1]
-    if reading is None:
-        return providers
-    return {**providers, provider: {key: value for key, value in reading.items()
-                                    if key != "accounts"}}
 
 
 def model_low(cfg, name, providers):
@@ -1936,6 +1937,15 @@ def marked(cfg, workers=None, role="executor", reviewers=None):
             config.reviewers(cfg) if role == "reviewer" else config.workers(cfg))
 
 
+class _Order(list):
+    """A `pick_order` list carrying `reads`: the per-model login readings it picked on, so a
+    caller checking budget beside the pick (`staffing._budgeted`) reads the same login."""
+
+    def __init__(self, items, reads):
+        super().__init__(items)
+        self.reads = reads
+
+
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
                repo=None, skip=(), reviewers=None, draw=None):
     """The workers for a role in an order drawn from a text, the role and each one's name alone,
@@ -1972,11 +1982,13 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
         return (harness_plugin(entry["harness"]).mode(entry) or entry.get("mode")
                 or cfg["providers"][entry["provider"]].get("mode", "subscription"))
 
-    def pace(name):
-        return model_pace(cfg, name, providers)[0]
-
     off = matrix.off(cfg)
-    gates = {n: (True, matrix.OFF) if n in off else model_exhausted(cfg, n, providers)
+    reads = {n: _worker_reading(cfg, n, providers) for n in tier_b if n not in off}
+
+    def pace(name):
+        return model_pace(cfg, name, reads[name])[0]
+
+    gates = {n: (True, matrix.OFF) if n in off else model_exhausted(cfg, n, reads[n])
              for n in tier_b}
     if not quiet:
         for name, (exhausted, reason) in gates.items():
@@ -1989,7 +2001,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     if not quiet:
         now = time.time()
         for name in candidates:
-            budget, reason = model_budget(cfg, name, providers, now)
+            budget, reason = model_budget(cfg, name, reads[name], now)
             if reason is not None:
                 provider = config.model(cfg, name)["provider"]
                 print(f"pick {role}: {name} ({provider}) budget {budget:g} unknown: "
@@ -2005,14 +2017,14 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
         return hashlib.sha256(text + f"\0{role}\0{name}".encode()).digest() if text else b""
 
     def rank(name):
-        read = _worker_reading(cfg, name, providers)
+        read = reads[name]
         return (on_credits(cfg, name, read), model_low(cfg, name, read), drawn(name))
 
     # The owner, 24 Nov 2026: "we dont want exec or revie rounds to abort becuase usage ran out
     # [...] like when 1% remaining, pick the other, unless the other also 1%".  The 1% was an
     # example, and 1% of a five-hour window is less than one turn takes: running low is
     # `model_low`'s line, ak's one, LOW_FLOOR or what the drain eats until ak reads it again.
-    return sorted(candidates, key=rank)
+    return _Order(sorted(candidates, key=rank), reads)
 
 
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
