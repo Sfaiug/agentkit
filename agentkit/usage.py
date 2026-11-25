@@ -1859,8 +1859,24 @@ def running_low(meters, every):
                for m in meters if _number(m.get("used")) is not None)
 
 
+def _worker_reading(cfg, name, providers):
+    """`providers` with `name`'s provider read off the login a worker turn of `name` runs on
+    (`_login`), where it lists several logins and one is held; `providers` unchanged otherwise."""
+    provider = config.model(cfg, name)["provider"]
+    prov = providers.get(provider)
+    if not isinstance(prov, dict) or "accounts" not in prov:
+        return providers
+    reading = _login(cfg, provider, name, prov)[1]
+    if reading is None:
+        return providers
+    return {**providers, provider: {key: value for key, value in reading.items()
+                                    if key != "accounts"}}
+
+
 def model_low(cfg, name, providers):
-    """`running_low` for the meters gating this model, at its provider's probe cadence."""
+    """`running_low` for the meters gating this model, at its provider's probe cadence, read off
+    the login a worker turn of it runs on (`_worker_reading`) where its provider lists several."""
+    providers = _worker_reading(cfg, name, providers)
     meters, _ = _gating_meters(cfg, name, providers)
     return running_low(meters, _probe_every(cfg, config.model(cfg, name)["provider"]))
 
@@ -1923,8 +1939,11 @@ def marked(cfg, workers=None, role="executor", reviewers=None):
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
                repo=None, skip=(), reviewers=None, draw=None):
     """The workers for a role in an order drawn from a text, the role and each one's name alone,
-    a model on credits (`on_credits`) after every one with a window left; nothing else orders
-    them, and the lab rule over it is `staffing.best_pair`'s.  The owner, 24 Nov 2026: "exec if
+    a model on credits (`on_credits`) after every one with a window left, low or not, and within
+    each of those one running low (`model_low`) after every one that is not; nothing else orders
+    them, and the lab rule over it is `staffing.best_pair`'s.  One whose meters report nothing
+    is not running low, and where every one runs low the draw alone orders them: nothing waits
+    for a meter that is not spent.  The owner, 24 Nov 2026: "exec if
     multiple, then choose randomly 50/50 no preferance".  The text is `AK_PICK_DRAW` where the
     environment sets it, the tests' seam, else `draw`, else the id of the run this thread serves
     (`gitcall._RUN_CONTEXT`): so every pick for one run, in whichever process, gives one order,
@@ -1985,7 +2004,15 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     def drawn(name):     # not `hash`, which each process salts anew
         return hashlib.sha256(text + f"\0{role}\0{name}".encode()).digest() if text else b""
 
-    return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers), drawn(n)))
+    def rank(name):
+        read = _worker_reading(cfg, name, providers)
+        return (on_credits(cfg, name, read), model_low(cfg, name, read), drawn(name))
+
+    # The owner, 24 Nov 2026: "we dont want exec or revie rounds to abort becuase usage ran out
+    # [...] like when 1% remaining, pick the other, unless the other also 1%".  The 1% was an
+    # example, and 1% of a five-hour window is less than one turn takes: running low is
+    # `model_low`'s line, ak's one, LOW_FLOOR or what the drain eats until ak reads it again.
+    return sorted(candidates, key=rank)
 
 
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
