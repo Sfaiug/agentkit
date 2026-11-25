@@ -33,11 +33,12 @@ type Seat struct {
 	draft                               *Draft
 
 	// where it moves this frame (moving): its mark as drawn now, "" where it holds still, and its
-	// line moved (0 to 1) from the share it stood at, its count from counted, its head lit
+	// line moved (0 to 1) from the share it stood at, its count from counted, its head as tip
+	// draws it, nil as the rest
 	mark        string
 	from, moved float64
 	counted     int
-	lit         bool
+	tip         func(string) string
 }
 
 // A Cell is a subscription on the grid: Left is 1 to 100 with a meter, 0 for credits, -1 for none;
