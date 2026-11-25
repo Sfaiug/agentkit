@@ -4,8 +4,8 @@
 brings no Python at all works: the adapter script runs it, the adapter manifest says what its
 screen, its quota, its update and its conversation are, and the defaults here answer the rest.
 A harness that needs Python puts it in `agentkit/harness/<name>.py` and implements only the
-hooks it has something to say about -- `claude.py` the transcript it writes, which dates a
-conversation's last request (`last_sent`), and the counts by model its results report, `codex.py` the launch receipt its thread is proven by,
+hooks it has something to say about -- `claude.py` the transcript it writes and the counts by
+model its results report, `codex.py` the launch receipt its thread is proven by,
 `grokbuild.py` the session directory it opens and the result its turns' tokens are by type,
 `muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe,
 the receipt its SessionStart hook writes its session into, the session each turn's end names,
@@ -156,12 +156,11 @@ def model_report(conversation):
     return None
 
 
-def last_entry(path, pick, strict=False):
+def last_entry(path, pick):
     """The last line of that JSON-lines file `pick` takes, read back from its end, or None.
 
     A conversation's file grows for as long as the conversation does, and a tick wants only
     its last event: a line still being written, or one that is not JSON, is passed over.
-    `strict`, a line `json.loads` refuses, one of no bytes aside, ends the read with False.
     """
     with open(path, "rb") as fh:
         end, rest = fh.seek(0, 2), b""
@@ -173,9 +172,7 @@ def last_entry(path, pick, strict=False):
             for line in reversed(lines):
                 try:
                     entry = json.loads(line)
-                except (ValueError, RecursionError) if strict else ValueError:
-                    if strict and line:
-                        return False
+                except ValueError:
                     continue
                 if isinstance(entry, dict) and pick(entry):
                     return entry
@@ -976,10 +973,11 @@ class Harness:
         hook = self._hook("same_model")
         return bool(hook(entry, model, effort)) if hook else False
 
-    def last_sent(self, record, cwd, conversation):
-        """When that conversation's last request to its model went out, in seconds since the
-        epoch (moment), or None where its harness's plugin does not say."""
-        hook = self._hook("last_sent")
+    def last_result(self, record, cwd, conversation):
+        """When that conversation's last tool's result was written, where none of the owner's
+        words came after it, in seconds since the epoch (moment), or None where its harness's
+        plugin does not say."""
+        hook = self._hook("last_result")
         return hook(record, cwd, conversation) if hook else None
 
     def holds(self, record):
