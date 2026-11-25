@@ -261,17 +261,25 @@ def same_model(entry, model, effort):
     """Whether `entry` launches on the same full agy id as `(model, effort)`: e.g. a
     configured `gemini-3.1-pro-high` at `high`, or `acme-wide` at `xhigh`, matches what
     agy reports for that launch without adding a duplicate entry."""
-    return bool(effort) and _full_id(entry["model"], entry.get("effort")) == _full_id(model, effort)
+    own, own_effort = entry.get("model"), entry.get("effort")
+    return (isinstance(own, str) and isinstance(model, str) and isinstance(effort, str)
+            and bool(effort) and (own_effort is None or isinstance(own_effort, str))
+            and _full_id(own, own_effort) == _full_id(model, effort))
 
 
 def _fold(model):
     """A full agy model id (`<model>-<effort>`, or bare for no effort) as `(model, effort)`:
     the id itself where the harness lists it at no effort, else split on its trailing effort
-    word as `adapters/antigravity.sh`'s `models` folds `agy models`."""
+    word (any effort the harness or that model lists) as `adapters/antigravity.sh`'s `models`
+    folds `agy models`."""
     if config.efforts("antigravity", model, config.catalog_held) == ["none"]:
         return model, "none"
     bare, _, effort = model.rpartition("-")
-    return (bare, effort) if bare and effort in config.efforts("antigravity") else (model, "none")
+    if bare and effort != "none" and (
+            effort in config.efforts("antigravity")
+            or effort in config.efforts("antigravity", bare, config.catalog_held)):
+        return bare, effort
+    return model, "none"
 
 
 def running(record, cwd, conversation):

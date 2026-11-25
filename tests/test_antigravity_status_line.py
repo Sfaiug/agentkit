@@ -115,12 +115,15 @@ class AntigravityStatusLine(Sandbox):
         listing.parent.mkdir(parents=True, exist_ok=True)
         listing.write_text(json.dumps({"models": [
             {"id": "acme-solo-high", "label": "Acme Solo", "efforts": ["none"]},
+            {"id": "acme-wide", "label": "Acme Wide", "efforts": ["high", "xhigh"]},
             {"id": "gemini-3.1-pro", "label": "Gemini 3.1 Pro", "efforts": ["low"]},
         ]}))
         for reported, expected in (
                 ("gemini-3.8-flash-high", ("gemini-3.8-flash", "high")),
                 ("claude-sonnet-4-6", ("claude-sonnet-4-6", "none")),
                 ("acme-solo-high", ("acme-solo-high", "none")),
+                # an effort listed for that model folds even when outside harness fallback levels
+                ("acme-wide-xhigh", ("acme-wide", "xhigh")),
                 # default login's cache listing only low must not stop high from folding
                 ("gemini-3.1-pro-high", ("gemini-3.1-pro", "high"))):
             self.payload["model"] = {"id": reported, "display_name": reported}
@@ -132,6 +135,8 @@ class AntigravityStatusLine(Sandbox):
             {"model": "gemini-3.1-pro-high", "effort": "high"}, "gemini-3.1-pro", "high"))
         self.assertFalse(antigravity.same_model(
             {"model": "gemini-4-argon", "effort": "high"}, "gemini-4-argon", "low"))
+        self.assertFalse(antigravity.same_model(
+            {"model": 123, "effort": "high"}, "gemini-4-argon", "low"))
         # a label with no effort still goes down the label path
         self.payload["model"] = {"id": "Gemini 3.8 Flash (High)",
                                  "display_name": "Gemini 3.8 Flash (High)"}
