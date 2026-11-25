@@ -3,13 +3,14 @@
 The owner, 25 Nov 2026: every harness ak launches runs in bypass permission mode.  A turn asks
 no one, so a harness waiting on an approval would hang it.  Offline: `adapters/<harness>.sh run`
 starts a fake of that harness alone, first on PATH, which writes down each call's arguments and
-what it read; the rest of PATH is the system's own directories, less any holding the host's
-`codex` or `muse`, and HOME is temporary, so no real harness runs.
+what it read; after it on PATH come the system's own programs, each linked but the host's
+`codex` and `muse`, and HOME is temporary, so no real harness runs.
 """
 
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -20,10 +21,10 @@ from fixtures.akbin import SYSTEM
 
 REPO = Path(__file__).resolve().parents[1]
 PROMPT = "fix the api\n"
-FAKE = """#!{python}
-import json, sys
-with open({log!r}, "a") as log:
-    log.write(json.dumps({{"args": sys.argv[1:], "stdin": sys.stdin.read()}}) + "\\n")
+# The fake's own words, run by this interpreter: one JSON line per call to the file it is given.
+RECORD = """import json, sys
+with open(sys.argv[1], "a") as log:
+    log.write(json.dumps({"args": sys.argv[2:], "stdin": sys.stdin.read()}) + "\\n")
 """
 
 
@@ -34,19 +35,26 @@ class HeadlessTurnsKeepTheirBypassFlag(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="ak-test-bypass-")
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        (root / "bin").mkdir()
-        (root / "acme").mkdir()
-        log, fake, prompt = root / "calls", root / "bin" / harness, root / "prompt.md"
-        fake.write_text(FAKE.format(python=sys.executable, log=str(log)))
+        fakes, tools = root / "fakes", root / "tools"
+        for folder in (fakes, tools, root / "acme"):
+            folder.mkdir()
+        log, fake, prompt = root / "calls", fakes / harness, root / "prompt.md"
+        record = shlex.join([sys.executable, "-c", RECORD, str(log)])
+        fake.write_text(f'#!/bin/sh\nexec {record} "$@"\n')
         fake.chmod(0o755)
         prompt.write_text(PROMPT)
-        path = [str(root / "bin"), *(d for d in SYSTEM if not any(
-            os.path.exists(os.path.join(d, h)) for h in ("codex", "muse")))]
+        # Linked one by one, the first of a name as PATH would find it: a directory holding a
+        # harness of the host's still lends the adapter its tools.
+        for folder in SYSTEM:
+            for program in Path(folder).glob("*"):
+                link = tools / program.name
+                if program.name not in ("codex", "muse") and not link.is_symlink():
+                    link.symlink_to(program)
         proc = subprocess.run(
             ["bash", str(REPO / "adapters" / f"{harness}.sh"), "run", "acme-model", "high",
              str(root / "acme"), str(prompt), str(root / "out")],
-            env={"HOME": str(root), "PATH": os.pathsep.join(path)}, stdin=subprocess.DEVNULL,
-            capture_output=True, text=True, timeout=60)
+            env={"HOME": str(root), "PATH": f"{fakes}{os.pathsep}{tools}"},
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         calls = [json.loads(line) for line in log.read_text().splitlines()]
         carrying = [call["args"] for call in calls
