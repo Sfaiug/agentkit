@@ -3,9 +3,10 @@ task is a run of kind `task` judged in the window with every later run of its ch
 or running too, of the team of its first run (the run its change is named for, whatever start a
 relaunch ties with), its orchestrator, executor and reviewer each a model at an effort (the
 reviewer's its first review's).  Per team: its tasks, those merged on their first run, those
-merged on any, and the hours every run of them spent.  A follow-up, a seat's own pull request and
-a task whose first run ended outside the window, or recorded no end, count nowhere, nor do its
-relaunches.
+merged on any, those whose first run's first review (round 1) passed, the reviews of a round
+over every run of them, their blocking issues summed, and the hours every run of them spent.  A
+follow-up, a seat's own pull request and a task whose first run ended outside the window, or
+recorded no end, count nowhere, nor do its relaunches.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
 runs and their reviews written into the Home's history.db; judged by the output and exit code.
@@ -68,8 +69,8 @@ REVIEWS = [("fix-api", 1, "medium"), ("fix-api", 2, "high"), ("write-cache", 1, 
 
 
 def history(home, runs, reviews):
-    """The Home's history.db holding `runs` and a review per (run_id, round, effort) of
-    `reviews`."""
+    """The Home's history.db holding `runs` and a review per (run_id, round, effort[, verdict,
+    blocking]) of `reviews`."""
     connection = sqlite3.connect(home.path / ".agentkit/history.db")
     with connection:
         connection.execute(f"CREATE TABLE runs ({', '.join(RUN)})")
@@ -77,34 +78,72 @@ def history(home, runs, reviews):
                                [tuple(row.values()) for row in runs])
         connection.execute("CREATE TABLE reviews (run_id, review_id, harness, model, "
                            "blocking, followup, note, round, verdict, effort)")
+        rows = []
+        for index, (run_id, round, effort, *rest) in enumerate(reviews):
+            verdict = rest[0] if rest else "PASS"
+            blocking = rest[1] if len(rest) > 1 else 0
+            rows.append((run_id, f"{run_id}-{index}", blocking, round, verdict, effort))
         connection.executemany(
-            "INSERT INTO reviews VALUES (?, ?, 'codex', 'crux-2', 0, 0, 0, ?, 'PASS', ?)",
-            [(run_id, f"{run_id}-{round}", round, effort) for run_id, round, effort in reviews])
+            "INSERT INTO reviews VALUES (?, ?, 'codex', 'crux-2', ?, 0, 0, ?, ?, ?)", rows)
     connection.close()
 
 
-def team(executor_effort, tasks, first_run, live, runs):
+def team(executor_effort, tasks, first_run, live, runs, first_pass, reviews, issues=0,
+         reviewer_effort="medium"):
     return {"orchestrator": {"name": "nova", "effort": "high"},
             "executor": {"name": "bolt", "effort": executor_effort},
-            "reviewer": {"name": "crux", "effort": "medium"},
+            "reviewer": {"name": "crux", "effort": reviewer_effort},
             "tasks": tasks, "first_run": first_run, "live": live,
+            "first_pass": first_pass, "reviews": reviews, "issues": issues,
             "hours": {"build": runs, "review": runs / 2, "checks": runs / 4, "waiting": runs}}
+
+
+def counted(runs, reviews):
+    with Home() as home:
+        fakeadapter.install(home, claude="pass")
+        akconfig.write(home, {"mid": {"harness": "claude", "model": "acme-mid-5",
+                                      "effort": "low"}})
+        home.write(".agentkit/state/boards.json", boards())
+        history(home, runs, reviews)
+        return home.ak("models", "--json", env=ENV)
 
 
 class ModelsJsonCountsTasksByTeam(unittest.TestCase):
     def test_each_team_s_tasks_first_run_live_and_hours(self):
-        with Home() as home:
-            fakeadapter.install(home, claude="pass")
-            akconfig.write(home, {"mid": {"harness": "claude", "model": "acme-mid-5",
-                                          "effort": "low"}})
-            home.write(".agentkit/state/boards.json", boards())
-            history(home, RUNS, REVIEWS)
-            done = home.ak("models", "--json", env=ENV)
+        done = counted(RUNS, REVIEWS)
         self.assertEqual(done.code, 0, done.err)
         runs = json.loads(done.out)["runs"]
         self.assertEqual(runs["until"] - runs["since"], 30 * DAY)
         self.assertTrue(NOW <= runs["until"] <= time.time())
-        self.assertCountEqual(runs["teams"], [team("max", 3, 1, 2, 4.0), team("low", 1, 0, 0, 3.0)])
+        self.assertCountEqual(runs["teams"], [
+            team("max", 3, 1, 2, 4.0, 3, 4), team("low", 1, 0, 0, 3.0, 1, 1)])
+
+    def test_each_team_s_first_pass_reviews_and_issues(self):
+        runs = [
+            run("fix-api", 5),
+            run("fix-docs", 4),
+            run("fix-legacy", 3.5),
+            run("write-cache", 3, executor_effort="low", **FAILED),
+            run("finish-cache", 2, change="write-cache", executor="crux"),
+            run("fix-api-again", 1, kind="follow-up"),
+        ]
+        reviews = [
+            ("fix-api", 1, "medium", "PASS", 0),           # first review passed
+            ("fix-docs", 1, "medium", "FAIL", 2),          # first failed, second passed; text
+            ("fix-docs", 2, "high", "PASS", "two"),        # blocking counts no issues
+            ("fix-legacy", None, None, "FAIL", 5),         # no round: counts nothing, keeps
+            ("fix-legacy", 1, "high", "PASS", 0),          # unrecorded reviewer effort
+            ("write-cache", 1, "medium", "FAIL", 3),       # relaunch's reviews join its team
+            ("finish-cache", 1, "high", "FAIL", 1),
+            ("finish-cache", 2, "high", "PASS", 0),
+            ("fix-api-again", 1, "medium", "PASS", 4),     # follow-up's reviews in no team
+        ]
+        done = counted(runs, reviews)
+        self.assertEqual(done.code, 0, done.err)
+        self.assertCountEqual(json.loads(done.out)["runs"]["teams"], [
+            team("max", 2, 2, 2, 2.0, 1, 3, 2),
+            team("max", 1, 1, 1, 1.0, 1, 1, 0, reviewer_effort=None),
+            team("low", 1, 0, 1, 2.0, 0, 3, 4)])
 
 
 if __name__ == "__main__":

@@ -46,47 +46,79 @@ REVIEWS = [(row["run_id"], 1, "" if row["run_id"] == "fix-cache" else "medium")
            for row in RUNS if row["run_id"] != "fix-menu"]
 
 
-def summed(tasks, live):
+def summed(tasks, live, first_pass=None, reviews=None, issues=0):
     return {"tasks": tasks, "live": live,
+            "first_pass": tasks if first_pass is None else first_pass,
+            "reviews": tasks if reviews is None else reviews, "issues": issues,
             "hours": {"build": tasks, "review": tasks / 2, "checks": tasks / 4, "waiting": tasks}}
 
 
-def row(name, effort, in_use, tasks, live):
-    return {"name": name, "effort": effort, "in_use": in_use, **summed(tasks, live)}
+def row(name, effort, in_use, tasks, live, first_pass=None, reviews=None, issues=0):
+    return {"name": name, "effort": effort, "in_use": in_use,
+            **summed(tasks, live, first_pass, reviews, issues)}
+
+
+def own_of(runs, reviews):
+    with Home() as home:
+        fakeadapter.install(home, claude="pass", codex="pass")
+        akconfig.write(home, {"nova": "claude", "bolt": {"harness": "codex", "effort": "max",
+                                                         "review_effort": "high"},
+                              "crux": {"harness": "codex", "effort": "medium"},
+                              "dune": {"harness": "codex", "effort": "low"}},
+                       orchestrator="nova", workers=["dune", "bolt"],
+                       reviewers=["crux", "bolt"])
+        home.write(".agentkit/state/boards.json", boards())
+        history(home, runs, reviews)
+        return home.ak("models", "--json", env=ENV)
 
 
 class ModelsJsonOwnRows(unittest.TestCase):
     def test_each_role_s_rows_with_the_team_now(self):
-        with Home() as home:
-            fakeadapter.install(home, claude="pass", codex="pass")
-            akconfig.write(home, {"nova": "claude", "bolt": {"harness": "codex", "effort": "max",
-                                                             "review_effort": "high"},
-                                  "crux": {"harness": "codex", "effort": "medium"},
-                                  "dune": {"harness": "codex", "effort": "low"}},
-                           orchestrator="nova", workers=["dune", "bolt"],
-                           reviewers=["crux", "bolt"])
-            home.write(".agentkit/state/boards.json", boards())
-            history(home, RUNS, REVIEWS)
-            done = home.ak("models", "--json", env=ENV)
+        done = own_of(RUNS, REVIEWS)
         self.assertEqual(done.code, 0, done.err)
         own = json.loads(done.out)["own"]
         # fix-api, fix-docs, and those of an effort not recorded: fix-login, fix-cache, fix-menu
-        # and fix-cli
-        self.assertEqual(own["team"], summed(6, 3))
+        # and fix-cli; fix-menu was never reviewed
+        self.assertEqual(own["team"], summed(6, 3, 5, 5))
         self.assertEqual(own["orchestrator"], [
-            row("nova", "high", True, 5, 2), row("nova", None, False, 1, 1),
+            row("nova", "high", True, 5, 2, 4, 4), row("nova", None, False, 1, 1),
             row("sage", "high", False, 1, 1)])
         # flux built for echo alone, and bolt's build for echo is in none of bolt's rows; dune,
         # held, did nothing
         self.assertEqual(own["executor"], [
-            row("dune", "low", True, 0, 0), row("bolt", "max", True, 5, 3),
+            row("dune", "low", True, 0, 0), row("bolt", "max", True, 5, 3, 4, 4),
             row("gale", "high", False, 2, 2), row("ash", "high", False, 1, 0),
             row("bolt", "high", False, 1, 0), row("bolt", "low", False, 1, 1),
             row("bolt", None, False, 1, 0)])
         # a blank effort and none are one row; bolt, held for both roles, reviewed nothing
         self.assertEqual(own["reviewer"], [
             row("crux", "medium", True, 4, 2), row("bolt", "high", True, 0, 0),
-            row("crux", None, False, 2, 1), row("echo", "medium", False, 1, 1)])
+            row("crux", None, False, 2, 1, 1, 1), row("echo", "medium", False, 1, 1)])
+
+    def test_a_role_s_row_sums_first_pass_reviews_and_issues_over_its_teams(self):
+        runs = [
+            run("fix-api", 1),
+            run("fix-docs", 1, orchestrator_effort=None),
+            run("fix-cache", 1, **FAILED),
+            run("fix-mail", 1, reviewer="echo"),            # another reviewer: outside bolt's row
+        ]
+        reviews = [
+            ("fix-api", 1, "medium", "PASS", 0),
+            ("fix-docs", 1, "medium", "FAIL", 2), ("fix-docs", 2, "high", "PASS", 0),
+            ("fix-cache", 1, "", "FAIL", 3), ("fix-cache", 2, "", "FAIL", 1),
+            ("fix-mail", 1, "medium", "PASS", 5),
+        ]
+        done = own_of(runs, reviews)
+        self.assertEqual(done.code, 0, done.err)
+        own = json.loads(done.out)["own"]
+        self.assertEqual(own["team"], summed(3, 2, 1, 5, 6))
+        self.assertEqual(own["orchestrator"], [
+            row("nova", "high", True, 2, 1, 1, 3, 4), row("nova", None, False, 1, 1, 0, 2, 2)])
+        self.assertEqual(own["executor"], [
+            row("dune", "low", True, 0, 0), row("bolt", "max", True, 3, 2, 1, 5, 6)])
+        self.assertEqual(own["reviewer"], [
+            row("crux", "medium", True, 2, 2, 1, 3, 2), row("bolt", "high", True, 0, 0),
+            row("crux", None, False, 1, 0, 0, 2, 4), row("echo", "medium", False, 1, 1, 1, 1, 5)])
 
 
 if __name__ == "__main__":
