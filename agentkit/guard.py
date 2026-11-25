@@ -384,23 +384,23 @@ def gh_refusal(args, gh="gh"):
     own = config.current_session()
     command = gh_command(args) if own else None
     if command == ["pr", "create"]:
-        return pr_create_refusal(args)
+        return pr_create_refusal(args, own)
     if command != ["pr", "merge"] or own == resolve(config.inbox()):
         return None
     return ("ak refused `gh pr merge`: merging is ak's job once a PR passes review with green "
             "checks. Leave it to land through the line; a seat runs no `gh pr merge` of its own.")
 
 
-def pr_create_refusal(args):
-    """Why a seat may not open this pull request, or None: its branch adds more lines than the
+def pr_create_refusal(args, seat):
+    """Why `seat` may not open this pull request, or None: its branch adds more lines than the
     seat builds, as the review gate counts and limits them (`transitions.seat_lines`, with the
-    project's `config.policy`), against the PR's base, so no PR is left open to close.  It reads
-    `--base`/`-B` (else the default branch, origin/HEAD) and `--head`/`-H` (else the branch
-    checked out).  What it cannot measure runs and meets the gate: an option it does not know
-    (`pr_create_options`), a checkout of no project ak knows, a repository named by
-    `--repo`/`-R` or GH_REPO (which one gh means hangs on its host settings, not on the
-    checkout), a base with no `origin/` ref here, and a head that is no local branch -- a fork's
-    `owner:branch`, or a detached HEAD."""
+    project's `config.policy` as the seat holds it, `config.seat_numbers`), against the PR's
+    base, so no PR is left open to close.  It reads `--base`/`-B` (else the default branch,
+    origin/HEAD) and `--head`/`-H` (else the branch checked out).  What it cannot measure runs
+    and meets the gate: an option it does not know (`pr_create_options`), a checkout of no project
+    ak knows, a repository named by `--repo`/`-R` or GH_REPO (which one gh means hangs on its host
+    settings, not on the checkout), a base with no `origin/` ref here, and a head that is no local
+    branch -- a fork's `owner:branch`, or a detached HEAD."""
     options = pr_create_options(args)
     if options is None:
         return None
@@ -419,7 +419,7 @@ def pr_create_refusal(args):
     if not (branch and all(gitcall.git(top, "rev-parse", "--verify", "--quiet", ref, check=False)
                            for ref in (target, head))):
         return None
-    numbers = config.policy(project)
+    numbers = config.seat_numbers(seat, config.policy(project))
     limit = numbers["orchestrator_lines"]
     read, over = transitions.seat_lines(top, target, head, limit)
     if not over:
