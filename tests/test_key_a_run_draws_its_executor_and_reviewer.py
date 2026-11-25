@@ -64,7 +64,9 @@ class ARunDrawsItsExecutor(unittest.TestCase):
         task = taskfile.write(self.home, rig.path, title)
         done = self.home.ak("run", str(task), "--no-merge", *flags, env={"AK_PICK_DRAW": None},
                             timeout=300)
-        run_dir, = set(taskfile.runs(self.home)) - known
+        new = set(taskfile.runs(self.home)) - known
+        self.assertEqual(len(new), 1, done.out + done.err)
+        run_dir, = new
         until_true(lambda: ended(record(run_dir)), bound=300)
         return done, record(run_dir), run_dir.name
 

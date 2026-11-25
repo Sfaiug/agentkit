@@ -1,8 +1,9 @@
 """A model may review its own work, but only as the last choice.
 
 The reviewer is picked from the run's models in this order: a model of another lab,
-then another model of the executor's lab, in the order marked within each, then the
-executor's own model; with no lineup stored, as here, each provider is a lab. Nothing refuses or parks a run only because the one
+then another model of the executor's lab, in the run's draw within each (`usage.pick_order`;
+with no draw, as here, as marked), then the executor's own model; with no lineup stored, as
+here, each provider is a lab. Nothing refuses or parks a run only because the one
 reviewer left is the executor's own, and the launch line and `ak run status`
 say `self-reviewed` where a round was reviewed by the executor's own model.
 
@@ -40,7 +41,9 @@ class SelfReviewLast(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            # picks as marked, whatever draw the caller's environment holds
+            "AK_PICK_DRAW": ""}))
         (self.root / "home").mkdir()
         self.cfg = {"defaults": {"orchestrator": "seat",
                                  "workers": ["acme-one", "acme-two", "beta-one"]},

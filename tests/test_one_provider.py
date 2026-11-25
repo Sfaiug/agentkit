@@ -36,7 +36,9 @@ class OneProvider(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
+            # picks as marked, whatever draw the caller's environment holds
+            "AK_PICK_DRAW": ""}))
         # the usage table reads ak's state: this temporary one's, never the caller's
         self.stack.enter_context(patch.object(config, "STATE", self.root / "state"))
         self.stack.enter_context(redirect_stderr(io.StringIO()))

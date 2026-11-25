@@ -6,7 +6,8 @@ adapter, pid or model call appears anywhere in here. What is pinned is that a ru
 its executor, its reviewer, every handover and every fixer only from the `workers` list
 its session held at launch -- never a wider list from the process's own seat, never one
 the session record grew later -- parks `exhausted` with the reason when that list holds
-nobody eligible, and re-picks both roles as one pair on a handover, in the order marked.
+nobody eligible, and re-picks both roles as one pair on a handover, in the run's draw (with no
+draw, as here, as marked).
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout

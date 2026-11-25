@@ -100,9 +100,10 @@ class Antigravity(unittest.TestCase):
         (self.bin / "agy").write_text(STUB)
         (self.bin / "agy").chmod(0o755)
         # the usual login unless a test names another: a worker on a named account carries its
-        # name, and the probes run in-process here would hand it to the adapter
+        # name, and the probes run in-process here would hand it to the adapter; and picks come
+        # as marked, whatever draw the caller's environment holds
         self.env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
-                    "AGENTKIT_SESSION": "fakesession", "AGENTKIT_ACCOUNT": ""}
+                    "AGENTKIT_SESSION": "fakesession", "AGENTKIT_ACCOUNT": "", "AK_PICK_DRAW": ""}
         self.argv_log = self.root / "argv.log"
         self.token = self.home / ".gemini/antigravity-cli/antigravity-oauth-token"
 

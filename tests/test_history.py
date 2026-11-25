@@ -27,6 +27,10 @@ class HistoryTests(unittest.TestCase):
         self.patch.start()
         self.addCleanup(self.patch.stop)
         self.addCleanup(self.tmp.cleanup)
+        # picks as marked, whatever draw the caller's environment holds
+        env = patch.dict(os.environ, {"AK_PICK_DRAW": ""})
+        env.start()
+        self.addCleanup(env.stop)
         self.addCleanup(history._OPEN.clear)    # the steps this process counts
 
     def row(self, run_id="r1"):

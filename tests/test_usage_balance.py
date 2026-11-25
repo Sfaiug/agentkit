@@ -34,7 +34,8 @@ class WeeklyBalance(unittest.TestCase):
         # the caller's: payg, so it stays out while any subscription is at or behind pace.
         opencode = tempfile.TemporaryDirectory(prefix=".ak-test-usage-opencode-", dir=REPO)
         self.addCleanup(opencode.cleanup)
-        env = patch.dict(os.environ, {"OPENCODE_CONFIG_DIR": opencode.name})
+        # and its picks come as marked, whatever draw the caller's environment holds
+        env = patch.dict(os.environ, {"OPENCODE_CONFIG_DIR": opencode.name, "AK_PICK_DRAW": ""})
         env.start()
         self.addCleanup(env.stop)
         # the usage table reads ak's state: this temporary one's, never the caller's

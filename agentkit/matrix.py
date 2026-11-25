@@ -667,8 +667,8 @@ def row_of(rows, entry, effort):
 def uses(cfg, record, found):
     """{role: (model, effort, row)} seat `record`, or [defaults], uses off `found` (`answer`): its
     orchestrator, named even once the config drops it, else its first mark the config holds, as
-    a pick takes the marks in their order, None for none; the effort the seat runs it at; and
-    its row (`row_of`)."""
+    a pick for no run takes them (each run draws its own: `usage.pick_order`), None for none;
+    the effort the seat runs it at; and its row (`row_of`)."""
     cfg, workers = config.at_efforts(cfg, record), record["workers"]
     used = {}
     for role, names in (("orchestrate", [record["orchestrator"]]), ("execute", workers),
