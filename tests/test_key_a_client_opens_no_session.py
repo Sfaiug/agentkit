@@ -7,11 +7,12 @@ HOME as it found it.  With the record removed `ak orch NAME` opens the seat.
 A client's seats are on its home, and a standby's ~/.agentkit is a copy of that home's, seat
 records among them: on 22 Nov 2026 a standby opened all 21 of its home's sessions a second time.
 What a standby takes over with is that copy: a new seat refused only at its start had replaced
-the seat's record by then, and removed its plan and pictures, and one refused after each harness
-had reconciled its records had dropped, from another seat's, a conversation no launch of ak's
-handed out.  The copy's watch.json holds the home's boot too, from which the machine that takes
-over resumes each seat owing work: the menu's popup (`ak attach --overlay`) on a client opens no
-session and leaves that boot's recovery, so with the record removed the next one resumes the seat.
+the seat's record by then, and removed its plan and pictures; and a request refused after the
+records were read through their harnesses had dropped, from another seat's, a conversation no
+launch of ak's handed out.  The copy's watch.json holds the home's boot too, from which the
+machine that takes over resumes each seat owing work: the menu's popup (`ak attach --overlay`) on
+a client opens no session and leaves that boot's recovery, so with the record removed the next
+one resumes the seat.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, a seat
 is only its record (tests/fixtures/akseat.py), and what opened is the sessions on ak's tmux server.
 """

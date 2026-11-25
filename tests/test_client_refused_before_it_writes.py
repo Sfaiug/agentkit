@@ -1,11 +1,11 @@
-"""A client refused a session has written nothing: each of orch's ways to a seat's start asks
-`refuse_client` before it touches a record, a read through `orch.records` among that, which
-writes what a harness reconciles.  For a seat tmux lost, `resume` and `ensure(saved=True)`, and
-for a new one, `ensure` and `create`, each raises naming the home and leaves HOME as it was: in
-it a seat's record whose conversation no launch handed out, which its harness reconciling drops,
-and the name that seat had, which `create` given no names taken lists the seats for.
-`start` itself refuses a caller that did not ask, as one added later would, and tmux is asked
-nothing.
+"""A client refused a session has written nothing.  For a seat tmux lost, `orch.resume` and
+`orch.ensure(saved=True)`, and for a new seat, `orch.ensure` and `orch.create`, each raises
+naming the home and leaves HOME as it was: each asks `orch.refuse_client` before it writes, and
+before it reads through `orch.records`, which writes what a harness reconciles.  So HOME holds a
+seat's record whose conversation no launch handed out, which its harness reconciling drops, and
+the name that seat had before a rename, for which `create`, given no names taken, lists the
+seats.  `orch.start` itself refuses a caller that did not ask, as one added later would, before
+it asks tmux for anything.
 
 `ak orch` from outside is tests/test_key_a_client_opens_no_session.py's.
 Offline: fixtures.sandbox's HOME, where tmux holds no seat.

@@ -1974,7 +1974,7 @@ def held_names():
 def refuse_client():
     """Refuse a client a session: its seats are on its home, and a standby's records are a copy
     of that home's, which it carries on from once it takes over.  So three ask before they
-    touch the copy.  `resume` of a seat tmux lost, and `ak orch` of a new seat (`main`), before
+    touch the copy.  `resume` of a seat tmux lost, and `ak orch` for a new seat (`main`), before
     `records`, which writes what a harness reconciles of a record: refused after it, either had
     dropped another seat's conversation from the copy.  And a new seat (`refuse_held`): refused
     only at its start, it had replaced the copy's record by then, and removed its plan.  `start`
@@ -2502,7 +2502,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     name = config.resolve_session(name)
     session = find(name)
     if not session:
-        # tmux lost it: it comes back only in a new session, asked for before `records` writes
+        # tmux lost it: it comes back only in a new session, which a client is refused before
+        # `records` writes
         refuse_client()
     record = (config.session_records() if detached else records()).get(name) or {}
     if detached:
@@ -5163,8 +5164,8 @@ def main(argv):
             # launched with where it was given one, and fresh where it was not.
             # Naming a model or a worker list is the one way to ask for a new seat by that name.
             return resume(cfg, name, dry_run=dry_run)
-    # A new seat from here on, asked for before its questions: the names taken, listed for the
-    # first (`taken_names`), are read through `records`, which writes.
+    # A new seat from here on, which a client is refused before its questions: the names taken,
+    # listed for the first (`taken_names`), are read through `records`, which writes.
     refuse_client()
     if not dry_run and not (typed_here() and not config.current_session()):
         # An agent's guessed `ak orch help` or `ak orch roles` once opened a real seat, which
