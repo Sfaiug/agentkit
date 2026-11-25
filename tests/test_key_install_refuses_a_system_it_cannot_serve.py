@@ -1,0 +1,70 @@
+"""A server install on a system ak cannot set up stops at its first line, having written nothing.
+
+ak sets a server's packages up with apt-get, and a Mac's server is a Linux machine ak makes only
+on Apple silicon.  Anywhere else a server install, rather than install half and fail later, far
+from the cause, says first, on stderr, that ak installs on Debian, Ubuntu and a Mac with Apple
+silicon, and what this machine is by `uname -s` and `uname -m`, and exits 1, HOME as empty as it
+was.  Black-box: install.sh of the checkout `AK_BIN` names runs from outside in an empty HOME
+that is the account's own (tests/fixtures/installer.py), on a PATH of the host's own tools but
+`apt-get`, with a fake `uname`.
+"""
+
+import os
+import shutil
+import sys
+from pathlib import Path
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import installer
+from fixtures.akbin import SYSTEM, Home
+
+LINUX = ("Linux", os.uname().machine)
+INTEL_MAC = ("Darwin", "x86_64")
+
+
+class Refused(unittest.TestCase):
+    def setUp(self):
+        self.home = home = Home()
+        self.addCleanup(home.close)
+        installer.prepare(home)
+        installer.own_home(home)
+        (home.bin / "apt-get").unlink()
+        shutil.rmtree(home.path)
+        home.path.mkdir()
+        # the Home's PATH, whose host tools a server install may run all of, but a Debian
+        # host's apt-get, which is among them
+        tools = home.root / "tools"
+        tools.mkdir()
+        for folder in filter(os.path.isdir, (Path(sys.executable).parent, *SYSTEM)):
+            for tool in Path(folder).iterdir():
+                if tool.name != "apt-get" and not os.path.lexists(tools / tool.name):
+                    (tools / tool.name).symlink_to(tool)
+        home.env["PATH"] = os.pathsep.join([str(home.bin), str(tools)])
+
+    def install(self, system, machine):
+        self.home.fake("uname",
+                       f"#!/bin/sh\ncase $1 in -m) echo {machine} ;; *) echo {system} ;; esac\n")
+        return installer.run(self.home)
+
+    def test_a_linux_without_apt_get_or_an_intel_mac_is_refused_first_with_home_untouched(self):
+        for system, machine in (LINUX, INTEL_MAC):
+            with self.subTest(system=system, machine=machine):
+                done = self.install(system, machine)
+                self.assertEqual(done.code, 1, done.out + done.err)
+                self.assertEqual(done.out, "")
+                first = done.err.partition("\n")[0]
+                for named in ("Debian", "Ubuntu", "Mac with Apple silicon", f"{system} {machine}"):
+                    self.assertIn(named, first)
+                self.assertEqual(list(self.home.path.iterdir()), [])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "a Linux host's install")
+    def test_with_apt_get_the_same_install_goes_on_past_that_line(self):
+        self.home.refuse("apt-get")
+        done = self.install(*LINUX)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertTrue((self.home.path / ".agentkit" / "config.toml").is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()

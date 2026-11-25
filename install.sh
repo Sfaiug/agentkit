@@ -90,10 +90,19 @@ if [ -z "$ROLE" ]; then
 fi
 # ak's worker box, landing gate and limits exist only on Linux, so a Mac's server is its own
 # Linux machine: the Mac is that machine's client, and the server install runs in it once the
-# packages below are in.  A sandbox HOME touches no machine.
+# packages below are in.  A sandbox HOME touches no machine.  ak makes that machine only on
+# Apple silicon and sets a server's packages up only with apt-get, so any other system is
+# refused here, before anything is written, rather than half installed.
 MACHINE=0
-if [ "$OS" = Darwin ] && [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
-  MACHINE=1 ROLE=client ALIAS=$LINUX_MACHINE
+if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
+  ARCH=$(uname -m)
+  if [ "$OS/$ARCH" = Darwin/arm64 ]; then
+    MACHINE=1 ROLE=client ALIAS=$LINUX_MACHINE
+  elif [ "$OS" != Linux ] || ! have apt-get; then
+    echo "install.sh: ak installs on Debian, Ubuntu and a Mac with Apple silicon;" \
+      "this machine is $OS $ARCH" >&2
+    exit 1
+  fi
 fi
 [ "$ROLE" = client ] && [ -z "$ALIAS" ] && ALIAS=$SERVER_NAME
 MODE=server
@@ -280,11 +289,7 @@ UNATTENDED
     have tailscale || curl -fsSL https://tailscale.com/install.sh | sh ||
       note "tailscale did not install; the Mac and the phone reach this box some other way"
   else
-    if [ "$ROLE" = server ]; then
-      note "no apt-get here; install tmux mosh git gh jq python3 node chromium yourself"
-    else
-      note "no apt-get here; install ssh mosh git rsync python3 yourself"
-    fi
+    note "no apt-get here; install ssh mosh git rsync python3 yourself"
   fi
   # npm's global prefix under $HOME: `npm i -g` needs no sudo and the bin dir is ours to export
   if [ "$ROLE" = server ] && have npm; then
