@@ -6,6 +6,7 @@ screen sets no background of its own (`terminal._painted`); elsewhere it is pain
 theme.  The rule is tests/test_the_look_reads.py's.
 """
 
+from fractions import Fraction
 from functools import lru_cache
 
 from .themes import ROLES, WHITE
@@ -39,12 +40,25 @@ def _moved(background, role, theme, k):
                                          ROLES["background"][theme])))).hex()
 
 
+@lru_cache(maxsize=None)
+def _ks(theme):
+    """Each `k` from 1 down that the highlight is tried at, exact: 1, each where a channel turns,
+    half way between two of its values, and half way on to the next, so every colour the move
+    passes through is tried, a turn's own too, where two channels turn at once."""
+    far = (abs(to - base) for to, base in zip(*(bytes.fromhex(ROLES[role][theme])
+                                                 for role in ("selection", "background"))))
+    turns = sorted({Fraction(2 * n + 1, 2 * d) for d in far for n in range(d)} | {0, 1},
+                   reverse=True)
+    return [k for high, low in zip(turns, turns[1:]) for k in (high, (high + low) / 2)]
+
+
 def look(background, theme):
-    """(`k`, each role's colour) on a terminal whose own background is `background`, rrggbb, in
-    the `theme` it fits, None where the look does not read on it: each text role has there what
-    it has on the theme's own background, or READS, and on a highlight, the background moved `k`
-    times what the theme's selection is from its own, what it has on that selection, or READS,
-    the highlight having with the background what the selection has, or SHOWS."""
+    """Each role's colour on a terminal whose own background is `background`, rrggbb, in the
+    `theme` it fits, None where the look does not read on it: each text role has there what it
+    has on the theme's own background, or READS, and on a highlight, the background moved `k`
+    times what the theme's selection is from its own at the largest `k` up to 1 where it holds,
+    what it has on that selection, or READS, the highlight having with the background what the
+    selection has, or SHOWS.  The border moves whole."""
     own = {role: shades[theme] for role, shades in ROLES.items()}
 
     def keeps(on, theirs):
@@ -52,9 +66,9 @@ def look(background, theme):
                    for role in TEXT)
     shows = min(contrast(own["selection"], own["background"]), SHOWS)
     if keeps(background, own["background"]):
-        for k in (n / 100 for n in range(100, 0, -1)):
+        for k in _ks(theme):
             lit = _moved(background, "selection", theme, k)
             if contrast(lit, background) >= shows and keeps(lit, own["selection"]):
-                return k, {**own, "background": background, "selection": lit,
-                           "border": _moved(background, "border", theme, 1)}
+                return {**own, "background": background, "selection": lit,
+                        "border": _moved(background, "border", theme, 1)}
     return None
