@@ -329,7 +329,7 @@ class OneProvider(unittest.TestCase):
         with patch.object(terminal, "width", return_value=100):
             text = usage.render(cfg, providers, order)
         self.assertNotIn("preferring Fable", text)
-        self.assertIn("pick order: opus, fable\nreview: opus by fable", text)
+        self.assertIn("drawn per run among: opus, fable\nreview: opus by fable", text)
         self.assertNotIn("one provider", text)          # the same company is any other
         # the opt-out is stale: same-company fable still reviews, and an alias of
         # fable leaves opus reviewing itself rather than no pair at all
@@ -521,7 +521,7 @@ class OneProvider(unittest.TestCase):
         with patch.object(terminal, "width", return_value=100):
             self.providers = self.meters(b=100)
             rendered = usage.render(self.cfg, self.providers, ["alpha", "beta"])
-        self.assertIn("pick order: alpha, beta\nreview: alpha by beta", rendered)
+        self.assertIn("drawn per run among: alpha, beta\nreview: alpha by beta", rendered)
         self.assertNotIn("one provider", rendered)      # a pair on one provider is not remarked on
 
     def test_usage_text_names_a_self_pair_self_reviewed(self):

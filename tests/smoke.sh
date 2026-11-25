@@ -72,6 +72,8 @@ export AK_MAX_RUNS=0
 # every `ak` this suite runs and everything those runs start in turn; the three checks that
 # need a delivered POST point it at a local recorder of their own instead.  Check 5d proves it.
 export AK_NOTIFY_SINK=dry-run
+# Every pick here takes the marks as marked, never by the minute a run's id holds.
+export AK_PICK_DRAW=
 
 # Suites run side by side, each on a HOME, tmux socket and fakes of its own, and check 4 on a
 # branch of its own, so what two suites name has to differ too.  A run id is the minute plus the
@@ -2446,7 +2448,7 @@ if grep -qi 'week elapsed' "$UT" && grep -q 'session  *resets held  *headroom  *
    grep -qE "^Claude .*fable, opus +48% +- +- +$WHEN +86% +- +0 +0\.5 +[0-9]+\.[0-9] slack +on track$" "$UT" &&
    grep -qE "^ChatGPT +astra +37% +- +- +$WHEN +45% +- +0 +0\.4 +[0-9]+\.[0-9] slack +runs out in ~2d$" "$UT" &&
    grep -qE '^Muse +spark +- +- +- +- +- +- +0 +- +unknown +unknown$' "$UT" &&
-   grep -q '^pick order: opus, astra, spark, grok$' "$UT" && ! grep -qw sol "$UT"; then
+   grep -q '^drawn per run among: opus, astra, spark, grok$' "$UT" && ! grep -qw sol "$UT"; then
   ok "8e ak usage in words: $(grep '^ChatGPT ' "$UT")"
 else
   no "8e ak usage table"; sed 's/^/      /' "$UT" | head -6

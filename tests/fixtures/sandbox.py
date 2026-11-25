@@ -123,7 +123,9 @@ class Sandbox(unittest.TestCase):
                                  "NO_COLOR": "1", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                                  "TMUX_TMPDIR": sockets.name,
                                  # this HOME's OpenCode config, never the caller's: mimo is payg
-                                 "OPENCODE_CONFIG_DIR": str(self.root / ".config/opencode")}))
+                                 "OPENCODE_CONFIG_DIR": str(self.root / ".config/opencode"),
+                                 # picks as marked, never by the minute a run's id holds
+                                 "AK_PICK_DRAW": ""}))
         # the owner's commands, never those of the seat the suite happens to be started in
         os.environ.pop(config.SESSION_ENV, None)
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):

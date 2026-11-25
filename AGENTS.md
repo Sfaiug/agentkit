@@ -40,14 +40,14 @@ Mistakes no check catches and no one area of code holds; one that becomes a chec
 - agentkit is public: tests, docs and commits use invented names (`acme`, `fix-api`), never a real checkout, product or seat.
 - A final check stopped for silence names the hung process after `still running:`: fix the hang, or hand in blocked if origin/main hangs too; gate changes are their own task.
 - Decide from exit codes and files, never another program's output text, except the stop hook's `?` at a turn's end.
-- A test never asserts a plain word is absent from output that prints paths (worktree paths carry the run's title), nor a wall-clock duration (host load breaks it at landing). Inject the clock (`tests/fixtures/sandbox.py`, `tests/fixtures/clock.py`).
+- A test never asserts a plain word absent from output that prints paths (worktree paths carry the run's title), nor a wall-clock duration (host load breaks it). Inject the clock (`tests/fixtures/sandbox.py`, `tests/fixtures/clock.py`).
 - When review keeps finding races or recovery paths, delete state or simplify.
 - Refuse an input nobody uses (a linked AGENTS.md) plainly, never re-creating another system's semantics; a task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"): a reviewer measures every word.
 - A Go milestone answers to the keys its task names: exit 3 fails it only where they reach, a difference from Python only on input real homes hold; its PR names the rest for the shadow run.
 
 ## Owner rules
 
-- Models are plugins. Each run takes its executor and reviewer from that role's marks that can run now, in the order marked, the reviewer of another lab where one marked has usage (18, 22 Nov). Every run records who built and reviewed at which effort, for the owner to compare; ak's runs give "Costs only" (5 Nov), and ak spends no turn testing models. The owner: "Data collection yes, no recommendation." (3 Nov); no benchmark (24 Nov). [18 Sep–24 Nov 2026]
+- Models are plugins. Each run takes its executor and reviewer from that role's marks that can run now, drawn at random per run, the reviewer of another lab where one marked has usage (18, 22 Nov). Every run records who built and reviewed at which effort, for the owner to compare; ak's runs give "Costs only" (5 Nov), and ak spends no turn testing models. The owner: "Data collection yes, no recommendation." (3 Nov); "randomly 50/50 no preferance" (24 Nov). [18 Sep–24 Nov 2026]
 - Every screen follows `docs/cli-design.md`, the one home of how a screen reads. [15, 16 Sep, 18 Oct]
 - A notes intake, if built, is an optional add-on on the ak screen, using ak's providers. [1 Oct]
 - ak ends a wait when that merges, closes, ends or its date comes; a merge on a project with `health:`, once live or past its window. [4, 9 Oct, 17 Nov 2026]

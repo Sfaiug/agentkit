@@ -42,7 +42,7 @@ class WorkerList(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
-            "AK_MAX_RUNS": "0",
+            "AK_MAX_RUNS": "0", "AK_PICK_DRAW": "",
             "AGENTKIT_DISCORD_WEBHOOK": "off", "PYTHONDONTWRITEBYTECODE": "1"}))
         # the park test drives a whole run: what the host reads must not decide whether
         # its launch is admitted, or a loaded machine parks the test instead of the run

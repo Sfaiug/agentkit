@@ -1247,7 +1247,8 @@ def preset_models(cfg, opts, log, run_dir):
         want_review = False if run_record.review_off(state) else opts["--review"]
         try:
             executor, reviewer = pick_models(cfg, providers, opts["--exec"], want_review,
-                                             log, quiet=True, workers=workers, reviewers=reviewers)
+                                             log, quiet=True, workers=workers, reviewers=reviewers,
+                                             draw=run_dir.name)
         except QuotaDry:
             refusal = run_refusal(cfg, providers, workers, opts["--exec"], want_review,
                                   reviewers)
@@ -1264,7 +1265,7 @@ def preset_models(cfg, opts, log, run_dir):
     return executor, reviewer
 
 
-def preset_review_model(cfg, opts, workers=None, *, reviewers=None, writer=None):
+def preset_review_model(cfg, opts, workers=None, *, reviewers=None, writer=None, draw=None):
     """The reviewer for a --review-pr launch, picked in the parent, or None.
 
     Same shape as the pick inside review_pr, minus the checkout the parent has not
@@ -1272,7 +1273,7 @@ def preset_review_model(cfg, opts, workers=None, *, reviewers=None, writer=None)
     means the child picks exactly as it always did; an explicit one that cannot run is
     refused here.  `writer`, the seat's own PR's orchestrator as preflight recorded it,
     is picked beside as the child picks beside it, so the launch line names the
-    reviewer the child will keep.
+    reviewer the child will keep, and `draw`, the run's id, draws as the child does.
     """
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
@@ -1281,7 +1282,7 @@ def preset_review_model(cfg, opts, workers=None, *, reviewers=None, writer=None)
         providers = collect_usage(cfg)
         order = reviewer_order(cfg, writer, ready_order(
             cfg, providers, reviewers if reviewers is not None else workers,
-            role="reviewer", quiet=True, writers=writer))
+            role="reviewer", quiet=True, writers=writer, draw=draw))
         if not opts["--review"]:
             return order[0] if order else None
         config.model(cfg, opts["--review"])
@@ -3161,7 +3162,8 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
                 reviewer = (None if run_record.review_off(receipt) else
                             preset_review_model(cfg, opts, run_workers(cfg, receipt),
                                                 reviewers=receipt.get("reviewers"),
-                                                writer=receipt.get("own_orchestrator")))
+                                                writer=receipt.get("own_orchestrator"),
+                                                draw=run_dir.name))
             except config.Error as exc:
                 refused(run_dir, exc, logger(run_dir), cfg, printed=True)
                 raise

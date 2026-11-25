@@ -541,7 +541,7 @@ class HistoryTests(unittest.TestCase):
         with patch.object(usage, "rows", return_value=[]), \
                 patch.object(usage, "review_pair", return_value=None):
             rendered = usage.render({}, {}, ["opus", "astra", "fable"], repo="project")
-        self.assertIn("pick order: opus, astra, fable", rendered)
+        self.assertIn("drawn per run among: opus, astra, fable", rendered)
         for role in ("orchestrator", "executor", "reviewer"):
             self.assertNotIn(f": {role}:", rendered)
         self.assertNotIn("% over", rendered)
