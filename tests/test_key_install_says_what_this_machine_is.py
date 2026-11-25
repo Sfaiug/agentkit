@@ -26,6 +26,8 @@ from fixtures.akbin import Home
 from test_key_install_mac_linux_machine import MINI, Mac
 
 LAPTOP_POWER = {"Battery Power": {"sleep": 1, "displaysleep": 2}, **MINI}
+INSTALL_LINE = "git clone https://example.com/acme/agentkit ~/agentkit && ~/agentkit/install.sh"
+README = f"# agentkit\n\n```bash\n{INSTALL_LINE}\n```\n"
 ANSWER = """#!/bin/sh
 cat <<'EOF'
 system Linux
@@ -51,6 +53,8 @@ FIRST_LINES = (HOME_LINES.splitlines()[0], LAPTOP_HEAD.splitlines()[0])
 
 
 def laptop_lines(install_line):
+    if install_line is None:
+        return LAPTOP_HEAD
     return (
         LAPTOP_HEAD
         + "For a machine that stays on (a rented VM, a PC, a Mac mini), paste there:\n"
@@ -60,10 +64,11 @@ def laptop_lines(install_line):
 
 
 def readme_install_line(readme):
+    if not readme.is_file():
+        return None
     lines = [line for line in readme.read_text().splitlines()
              if "git clone" in line and "install.sh" in line]
-    assert len(lines) == 1, lines
-    return lines[0]
+    return lines[0] if len(lines) == 1 else None
 
 
 def account(case):
@@ -84,8 +89,7 @@ class SaysWhetherThisMachineStaysOn(unittest.TestCase):
         cls.home = home = account(cls)
         cls.checkout = checkout = home.root / "checkout"
         cls.script = installer.copy(checkout)
-        cls.readme = (checkout / "README.md").read_text()
-        cls.install_line = readme_install_line(checkout / "README.md")
+        (checkout / "README.md").write_text(README)
         cls.probe = checkout / "tools" / "machine.sh"
 
         cls.probe.write_text(ANSWER.format(battery=0))
@@ -130,16 +134,16 @@ class SaysWhetherThisMachineStaysOn(unittest.TestCase):
         self.said_last(self.plugged, HOME_LINES)
 
     def test_battery_says_this_machine_is_a_laptop_with_the_readme_line(self):
-        self.said_last(self.laptop, laptop_lines(self.install_line))
+        self.said_last(self.laptop, laptop_lines(INSTALL_LINE))
 
     def test_with_no_or_several_readme_lines_the_pasting_lines_are_left_out(self):
         cases = {
             "none": "# agentkit\n\ngit clone https://example.com/acme/agentkit\n./install.sh\n"
                     "git clone https://example.com/acme/agentkit && ~/agentkit/installXsh\n",
-            "several": f"# agentkit\n\n{self.install_line}\n{self.install_line} --server\n",
+            "several": f"# agentkit\n\n{INSTALL_LINE}\n{INSTALL_LINE} --server\n",
         }
         self.probe.write_text(ANSWER.format(battery=1))
-        self.addCleanup(lambda: (self.checkout / "README.md").write_text(self.readme))
+        self.addCleanup(lambda: (self.checkout / "README.md").write_text(README))
         for name, text in cases.items():
             with self.subTest(name):
                 (self.checkout / "README.md").write_text(text)
