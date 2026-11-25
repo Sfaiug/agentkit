@@ -13,11 +13,12 @@ pointer, the owner (10 Nov): "it looks and feels like you can press it, but you 
 cell so drawn takes the click, all of it, its padding too, and what no
 click acts on -- a model's name on `c`, the arrows' words on the key line -- is not lit, the
 pointer there as on blank space; a key of the key line is lit as its text with a cell before and
-after.  Black-box: the program `AK_BIN` names runs in a person's terminal that sets no background
-(tests/fixtures/akterm.py), over seats (tests/fixtures/akseat.py) and faked harnesses
-(tests/fixtures/fakeadapter.py), each cell judged by how it looks once the screen rests
-(tests/fixtures/aklooks.py); the pointer's moves and clicks are typed as the SGR reports a
-terminal sends.
+after.  A row a draw moves under the still pointer, or moves lit from under it, is lit as
+the pointer next lands on it, and alone.  Black-box: the program `AK_BIN` names runs in a
+person's terminal that sets no background (tests/fixtures/akterm.py), over seats
+(tests/fixtures/akseat.py) and faked harnesses (tests/fixtures/fakeadapter.py), each cell judged
+by how it looks once the screen rests (tests/fixtures/aklooks.py); the pointer's moves and
+clicks are typed as the SGR reports a terminal sends.
 This test fails against `/bin/false`.
 """
 
@@ -259,6 +260,45 @@ class OneHighlight(unittest.TestCase):
         shown = self.calm(lambda shown: col in lit_rows(shown).get(row, []))
         self.assertEqual(lit_rows(shown), {row: span})
         self.assertEqual(shown[row - 1], keyed)
+
+    def moved_under(self):
+        """Subscriptions over three Claude logins, lit on the first, whose 5-hour window opens a
+        line of its limits over its account line, then the pointer on Claude II: lit, it opens
+        one line where the first's two close, so Claude III rises under the still pointer.  The
+        looks then, and the pointer's column and row."""
+        accounts = ("default", "two", "three")
+        akconfig.write(self.home, {"fable": "claude", "astra": "codex"}, providers={
+            "anthropic": {"mode": "subscription", "accounts": list(accounts)}})
+        now = time.time()
+        week = {"name": "weekly", "used": 40, "window_secs": 604800}
+        window = {"name": "session", "used": 25, "window_secs": 18000, "resets_at": now + 3600}
+        self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
+            "anthropic": {"accounts": {account: {"meters": [week, window] if account == "default"
+                                                 else [week], "error": None}
+                                       for account in accounts}}}})
+        self.home.write(".agentkit/state/logins.json", {"anthropic": {
+            account: {"email": f"{account}@acme.test", "checked_at": now} for account in accounts}})
+        self.config()
+        self.term.keys("Down", "Down", "Down")      # past 6 Astra and `Models`
+        self.calm(lambda shown: starts(shown, "› Subscriptions"))
+        self.term.keys("Enter")
+        col, row = self.row(self.rest(lambda shown: starts(shown, "› Claude I ")), "Claude II ")
+        self.term.type(point(col + 2, row))
+        shown = self.rest(lambda shown: starts(shown, "› Claude II "))
+        self.assertTrue(starts(shown, "  Claude III ", row))
+        return shown, col + 2, row
+
+    def test_a_move_on_the_row_a_draw_moved_under_the_pointer_lights_it(self):
+        _, col, row = self.moved_under()
+        self.term.type(point(col + 1, row))
+        self.rest(lambda shown: starts(shown, "› Claude III "))
+
+    def test_a_move_back_onto_the_row_a_draw_moved_from_under_it_lights_it_alone(self):
+        shown, col, _ = self.moved_under()
+        _, row = self.row(shown, "› Claude II ")
+        self.term.type(point(col, row))
+        shown = self.rest(lambda shown: col in lit_rows(shown).get(row, []))
+        self.assertEqual([at for at, columns in lit_rows(shown).items() if col in columns], [row])
 
     def test_an_act_filling_a_narrow_line_is_lit_on_that_line_alone(self):
         self.chatgpt()

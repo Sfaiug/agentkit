@@ -1180,9 +1180,11 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            # told from the spot last answered, not the one drawn under it since: a draw that
-            # moves another row under the still pointer has told the screen nothing of it
-            moved = _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
+            # nothing new only on the spot last answered with the pointer's light drawn there: a
+            # draw since may have moved another row under the still pointer, lighting that row
+            # and telling the screen nothing
+            on = under(key, _SPOTS)[:2]
+            moved = _POINTER is None or on != _POINTED[:2] or on != under(_POINTER, _SPOTS)[:2]
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()
