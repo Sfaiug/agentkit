@@ -109,6 +109,40 @@ class AntigravityStatusLine(Sandbox):
             self.render(status)
             self.assertEqual(antigravity.running({}, None, "conv-acme")[:2], (model, effort))
 
+    def test_pre_resolution_id_reports_fold_or_keep_no_effort_models(self):
+        status = self.launch()
+        listing = config.STATE / "listings/antigravity/default.json"
+        listing.parent.mkdir(parents=True, exist_ok=True)
+        listing.write_text(json.dumps({"models": [
+            {"id": "acme-solo-high", "label": "Acme Solo", "efforts": ["none"]},
+            {"id": "acme-wide", "label": "Acme Wide", "efforts": ["high", "xhigh"]},
+            {"id": "gemini-3.1-pro", "label": "Gemini 3.1 Pro", "efforts": ["low"]},
+        ]}))
+        for reported, expected in (
+                ("gemini-3.8-flash-high", ("gemini-3.8-flash", "high")),
+                ("claude-sonnet-4-6", ("claude-sonnet-4-6", "none")),
+                ("acme-solo-high", ("acme-solo-high", "none")),
+                # an effort listed for that model folds even when outside harness fallback levels
+                ("acme-wide-xhigh", ("acme-wide", "xhigh")),
+                # default login's cache listing only low must not stop high from folding
+                ("gemini-3.1-pro-high", ("gemini-3.1-pro", "high"))):
+            self.payload["model"] = {"id": reported, "display_name": reported}
+            self.render(status)
+            self.assertEqual(antigravity.running({}, None, "conv-acme")[:2], expected, reported)
+        self.assertTrue(antigravity.same_model(
+            {"model": "acme-wide", "effort": "xhigh"}, "acme-wide-xhigh", "none"))
+        self.assertTrue(antigravity.same_model(
+            {"model": "gemini-3.1-pro-high", "effort": "high"}, "gemini-3.1-pro", "high"))
+        self.assertFalse(antigravity.same_model(
+            {"model": "gemini-4-argon", "effort": "high"}, "gemini-4-argon", "low"))
+        self.assertFalse(antigravity.same_model(
+            {"model": 123, "effort": "high"}, "gemini-4-argon", "low"))
+        # a label with no effort still goes down the label path
+        self.payload["model"] = {"id": "Gemini 3.8 Flash (High)",
+                                 "display_name": "Gemini 3.8 Flash (High)"}
+        self.render(status)
+        self.assertEqual(antigravity.running({}, None, "conv-acme")[:2], ("gemini-3.8-flash", None))
+
     def test_gc_keeps_a_learned_conversations_report_until_the_next_launch(self):
         config.save_session(self.cfg, "acme", "gemini", ["gemini"])
         token = antigravity.launched("acme", self.root, None)[antigravity.LAUNCH_ENV]
