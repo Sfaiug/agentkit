@@ -1574,6 +1574,18 @@ def relight(spots=None):
     over(f"\0337{rows}\0338" if rows else "")
 
 
+def counting(word, done, total):
+    """How far a job ak counts on the drawing thread has got, `done` of `total`, over the screen
+    up as it was: its header names that screen then the step under way, `config · applying 2
+    of 7` (header_line), and its rule is filled by the share done (rule_line), as an update
+    fills it.  No other row is written, and the next draw writes these two again (`over`).
+    Read a line at a time, nothing is said."""
+    if taken():
+        name = " · ".join(filter(None, (_UP_OF and _UP_OF[0], f"{word} {done + 1} of {total}")))
+        over(f"\0337\033[1;1H{_cleared(header_line(name, time.strftime('%H:%M')))}"
+             f"\033[2;1H{_cleared(rule_line(filled=done / total))}\0338")
+
+
 def _cleared(line):
     """`line`, then its row's tail cleared, so no cell that is text before and after is ever blank
     between.  A line ending on the last column gets no clear: it leaves the cursor on that column,

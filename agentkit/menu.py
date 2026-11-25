@@ -6625,7 +6625,8 @@ def apply_defaults(cfg, ask):
     it at that effort (orch.switch_orchestrator), the only way a seat's orchestrator effort
     changes, so a move refused or failed leaves its record on the one its harness runs, its
     other changes kept.  Listed: it has a row on the main screen, gone from tmux
-    too.  Each one's bar names what it took at once (handback.redress_seat).
+    too.  Each one's bar names what it took at once (handback.redress_seat).  Before each is
+    changed, the header counts it and the rule fills by those done (terminal.counting).
     config.toml is not written.  What to say under the rows (said_once): {each reason a seat was
     refused for: the seats it held}, in the order the seats are listed, a reason no seat
     holds said alone."""
@@ -6665,7 +6666,8 @@ def apply_defaults(cfg, ask):
         return config.orchestrating_at(cfg["models"], {"efforts": efforts}, own, at)
 
     held = {}
-    for name in seats:
+    for done, name in enumerate(seats):
+        terminal.counting("applying", done, len(seats))
         try:
             config.change_efforts(name, given)
             # reviewers [defaults] does not name follow the executors there and here alike
