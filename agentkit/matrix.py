@@ -680,6 +680,17 @@ def uses(cfg, record, found):
     return used
 
 
+def team_now(cfg, record):
+    """{role (ledger.ROLES): [(name, effort)]}: the models seat `record`, or [defaults], holds
+    for each role in the order held, each at the effort a run launched now records
+    (`config.run_marks`), None for none (`config.launched_effort`); off no board, unlike `uses`."""
+    marks = config.run_marks(cfg, record)
+    return {role: [(name, config.launched_effort(marks, name, role)) for name in names]
+            for role, names in (("orchestrator", [record["orchestrator"]]),
+                                ("executor", record["workers"]),
+                                ("reviewer", record.get("reviewers", record["workers"])))}
+
+
 def notes(row, said):
     """What `ak models --json` notes beside a row of `said`, `answer`'s for a role."""
     missing = sum(one["how"] == "missing" for one in row["measures"].values())
@@ -700,13 +711,16 @@ def main(argv):
     marked = compared(cfg)
     logins, shares = _task_usage(cfg)
     found, own = answer(rows, marked, cfg=cfg, task_usage=(logins, shares)), live(cfg)
+    seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     if "--json" in flags:
         from . import ledger    # here, not at the top: the boards and the table need no database
+        from .own import by_role
 
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
                                                  "cost", "board_cost", "cost_rule")},
                     "notes": notes(row, said)}
+        runs = ledger.by_team()
         json.dump({**{role: {
             "best": said["best"] and said["best"]["quality"], "cost_unit": said["cost_unit"],
             **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
@@ -721,11 +735,10 @@ def main(argv):
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()},
-            "runs": ledger.by_team()},
+            "runs": runs, "own": by_role(runs["teams"], team_now(cfg, seat))},
             sys.stdout, indent=2)
         print()
         return 0
-    seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     used, unit = uses(cfg, seat, found), menu.models_unit()     # the screen's, as it was left
     body, _ = menu.models_body(menu.models_said(cfg, found, used, unit), unit)
     bars = [line for role in found

@@ -67,6 +67,22 @@ REVIEWS = [("fix-api", 1, "medium"), ("fix-api", 2, "high"), ("write-cache", 1, 
            ("fix-soon", 1, "medium"), ("fix-undated", 1, "medium")]
 
 
+def history(home, runs, reviews):
+    """The Home's history.db holding `runs` and a review per (run_id, round, effort) of
+    `reviews`."""
+    connection = sqlite3.connect(home.path / ".agentkit/history.db")
+    with connection:
+        connection.execute(f"CREATE TABLE runs ({', '.join(RUN)})")
+        connection.executemany(f"INSERT INTO runs VALUES ({', '.join('?' * len(RUN))})",
+                               [tuple(row.values()) for row in runs])
+        connection.execute("CREATE TABLE reviews (run_id, review_id, harness, model, "
+                           "blocking, followup, note, round, verdict, effort)")
+        connection.executemany(
+            "INSERT INTO reviews VALUES (?, ?, 'codex', 'crux-2', 0, 0, 0, ?, 'PASS', ?)",
+            [(run_id, f"{run_id}-{round}", round, effort) for run_id, round, effort in reviews])
+    connection.close()
+
+
 def team(executor_effort, tasks, first_run, live, runs):
     return {"orchestrator": {"name": "nova", "effort": "high"},
             "executor": {"name": "bolt", "effort": executor_effort},
@@ -82,18 +98,7 @@ class ModelsJsonCountsTasksByTeam(unittest.TestCase):
             akconfig.write(home, {"mid": {"harness": "claude", "model": "acme-mid-5",
                                           "effort": "low"}})
             home.write(".agentkit/state/boards.json", boards())
-            connection = sqlite3.connect(home.path / ".agentkit/history.db")
-            with connection:
-                connection.execute(f"CREATE TABLE runs ({', '.join(RUN)})")
-                connection.executemany(f"INSERT INTO runs VALUES ({', '.join('?' * len(RUN))})",
-                                       [tuple(row.values()) for row in RUNS])
-                connection.execute("CREATE TABLE reviews (run_id, review_id, harness, model, "
-                                   "blocking, followup, note, round, verdict, effort)")
-                connection.executemany(
-                    "INSERT INTO reviews VALUES (?, ?, 'codex', 'crux-2', 0, 0, 0, ?, 'PASS', ?)",
-                    [(run_id, f"{run_id}-{round}", round, effort)
-                     for run_id, round, effort in REVIEWS])
-            connection.close()
+            history(home, RUNS, REVIEWS)
             done = home.ak("models", "--json", env=ENV)
         self.assertEqual(done.code, 0, done.err)
         runs = json.loads(done.out)["runs"]
