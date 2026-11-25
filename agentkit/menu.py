@@ -4397,16 +4397,17 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         cells a word as wide as its model's widest, so a step moves no column after it."""
         mark = (4 if tall else 3) if selected else 0
         wide = {number: max([terminal.cells(head) - mark, *(
-            tall + 2 + max(map(terminal.cells, (efforts[key], *levels[key[0]]))) if tall
-            else terminal.cells(efforts[key]) for key in beside if key[1] == number)])
+            (tall + 2 if levelled[key] else 0) + max(map(terminal.cells,
+                                                         (efforts[key], *levels[key[0]])))
+            if tall else terminal.cells(efforts[key]) for key in beside if key[1] == number)])
             for number, head in enumerate(orch.ROLE_HEADS, 3)}
         return {**{number - 3: mark for number in wide if mark}, **wide}
     tall = max((len(levelled[key]) for key in beside), default=0)   # the cells, before every word
     width = widths(tall)
     if 2 + label + 6 + sum(width.values()) > room:       # the bars give way, the words stay
         tall, width = 0, widths(0)
-    # each role's words in one column after the most cells any model has, a cell-less one's too
-    leads = {key: "".join(cells) + " " * (tall + 2 - len(cells)) if tall else ""
+    # a barred model's word after the most cells any model has; one with no cells beside its mark
+    leads = {key: "".join(cells) + " " * (tall + 2 - len(cells)) if tall and cells else ""
              for key, cells in levelled.items()}
     roles = 6 + sum(width.values())
     folded = 2 + 1 + roles > room
