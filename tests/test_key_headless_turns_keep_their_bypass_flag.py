@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -21,7 +22,8 @@ from fixtures.akbin import SYSTEM
 
 REPO = Path(__file__).resolve().parents[1]
 PROMPT = "fix the api\n"
-# The fake's own words, run by this interpreter: one JSON line per call to the file it is given.
+# The fake's own words, run by this interpreter isolated from the caller's directory and
+# environment: one JSON line per call to the file it is given.
 RECORD = """import json, sys
 with open(sys.argv[1], "a") as log:
     log.write(json.dumps({"args": sys.argv[2:], "stdin": sys.stdin.read()}) + "\\n")
@@ -39,17 +41,16 @@ class HeadlessTurnsKeepTheirBypassFlag(unittest.TestCase):
         for folder in (fakes, tools, root / "acme"):
             folder.mkdir()
         log, fake, prompt = root / "calls", fakes / harness, root / "prompt.md"
-        record = shlex.join([sys.executable, "-c", RECORD, str(log)])
+        record = shlex.join([sys.executable, "-I", "-c", RECORD, str(log)])
         fake.write_text(f'#!/bin/sh\nexec {record} "$@"\n')
         fake.chmod(0o755)
         prompt.write_text(PROMPT)
-        # Linked one by one, the first of a name as PATH would find it: a directory holding a
-        # harness of the host's still lends the adapter its tools.
-        for folder in SYSTEM:
-            for program in Path(folder).glob("*"):
-                link = tools / program.name
-                if program.name not in ("codex", "muse") and not link.is_symlink():
-                    link.symlink_to(program)
+        # Each name linked to what PATH would find, its first executable file, less the host's
+        # harnesses: a directory holding one still lends the adapter its tools.
+        system = os.pathsep.join(SYSTEM)
+        for name in {program.name for folder in SYSTEM for program in Path(folder).glob("*")}:
+            if name not in ("codex", "muse") and (found := shutil.which(name, path=system)):
+                (tools / name).symlink_to(found)
         proc = subprocess.run(
             ["bash", str(REPO / "adapters" / f"{harness}.sh"), "run", "acme-model", "high",
              str(root / "acme"), str(prompt), str(root / "out")],
