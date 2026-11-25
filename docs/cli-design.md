@@ -8,10 +8,10 @@ code and tests.
 
 Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit` and
 the screen's name left, the clock right. Under it: one `border` rule,
-the rows, one blank line, and the key line, always last. On the main screen and on `c`, the
-usage sits under the header.
-The rule is ak's one progress indicator. It fills while ak updates itself, and the rainbow
-glides along it while a screen loads. Ctrl-b m's popup's border is rounded. Helpers:
+the rows, one blank line, and the key line last. On the main screen and `c`, usage sits
+under the header. The rule is ak's one progress indicator. A counted job fills it, the header
+saying how far; the rainbow glides along it while a screen loads. Ctrl-b m's popup's border
+is rounded. Helpers:
 `terminal.header_line`, `terminal.rule_line`, `terminal.key_line`, `terminal.layout_width`.
 
 Example: `agentkit                                                              14:02`
