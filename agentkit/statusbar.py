@@ -110,9 +110,8 @@ def layout():
     back on the theme's (its window's).  tmux resizes a pane only when the height changes, so a
     seat's pane changes size once -- when it is dressed, or a seat dressed with one line at its
     first write since -- and never later."""
-    text, selection = (terminal.colour(role, tmux=True) for role in ("text", "selection"))
     return (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
-            ("mode-style", f"fg=#{text},bg=#{selection}"),
+            ("mode-style", orch.look_options()["mode-style"]),
             ("message-style", "default"), ("message-command-style", "default"),
             ("status-format[0]", FORMATS[0]), ("status-format[1]", FORMATS[1]))
 

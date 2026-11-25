@@ -8,7 +8,8 @@ scrolling back is the text on the selection; Ctrl-b m's popup is bordered in the
 the seat dim under it till it closes.  Each follows the theme a menu kept last: the bar and the
 selection by the bar's next draw, which writes them together, the popup from the next one
 opened, whichever ak kept the theme.  A session on the same server that ak did not start keeps
-the styles it had.
+the styles it had: those it holds itself, and the bar's, which it takes from the server.  What
+tmux marks it takes from the server in the theme (tests/test_key_what_tmux_marks_is_in_the_look.py).
 
 Black-box: the program AK_BIN names, in a person's terminal of 24-bit colour whose background
 a test sets (tests/fixtures/akterm.py), attached by `ak orch acme` to a working seat
@@ -63,6 +64,8 @@ class TheBarIsInItsTheme(unittest.TestCase):
         Seat(home, "acme", screen="claude-working-pane.txt")
         done = home.tmux("new-session", "-d", "-s", "other", "sleep 86400")   # not ak's
         assert done.code == 0, done.err
+        done = home.tmux("set-option", "-w", "-t", "=other:", "mode-style", "bg=blue,fg=white")
+        assert done.code == 0, done.err     # its owner's own, by hand
         cls.others = others(home)
         home.fake("claude", "#!/bin/sh\nexec sleep 600\n")
         done = home.ak("orch", "beta", "--model", "opus", "--workers", "opus", tty=True)
