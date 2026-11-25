@@ -3,7 +3,8 @@ its target -- added, edited, removed, either side of a rename -- a stylesheet, a
 font or prose, or a page it edits whose words and styles alone change (`_markup`); or, beside one
 such path at least, a test of the project's own it edits or removes, a path both the project's
 time record (`suite_times`) and the path itself call a test.  AGENTS.md, which holds ak's own
-rules for the project, is never one of them.  It brings those it edits, as the record spells them.
+rules for the project, is never one of them, nor a schema path (`change_rules.schema`), which a
+revert cannot undo.  It brings those it edits, as the record spells them.
 Only on a target that declares both `health:` and `deployed:`, so ak reverts a release whose
 health breaks (`watch.after_merge_revert`), and whose project has a time record of its suite
 (`suite_times`), so a repository whose runner reports no tests completes whole landing checks and
@@ -75,7 +76,7 @@ def changes(repo, target, heads):
         for meta, path in zip(fields[::2], fields[1::2]):
             *_, before, after, status = meta.split()    # `:<mode> <mode> <blob> <blob> <status>`
             named[PurePosixPath(path)] = status, before, after
-        if any(path.name == "AGENTS.md" for path in named):
+        if any(path.name == "AGENTS.md" or change_rules.schema(path) for path in named):
             continue
         tests = {path for path in named
                  if path in timed and TEST & {*path.parent.parts, *re.split(r"[._-]", path.stem)}}
