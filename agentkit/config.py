@@ -1333,9 +1333,9 @@ def at_efforts(cfg, record):
 
 
 def launched_effort(record, name, role):
-    """The effort run `record`'s receipt holds for model `name` in `role` (run_marks), the one
-    at_efforts runs it at; None where it holds none, or none that is a word: unlike at_efforts,
-    no entry's own stands in."""
+    """The effort run `record`'s receipt (run_marks), or a seat's record, holds for model `name`
+    in `role`, the one at_efforts runs it at; None where it holds none, or none that is a word:
+    unlike at_efforts, no entry's own stands in."""
     held = record.get("efforts")
     if not name or not isinstance(held, dict):      # no model, as worker_effort; no names held
         return None
