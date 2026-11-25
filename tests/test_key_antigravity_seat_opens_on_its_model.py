@@ -25,13 +25,17 @@ class AntigravitySeatOpensOnItsModel(unittest.TestCase):
         akconfig.write(home, {
             "argon": {"harness": "antigravity", "model": "gemini-4-argon", "effort": "high"},
             "solo": {"harness": "antigravity", "model": "acme-solo-high", "effort": "none"},
+            "wide": {"harness": "antigravity", "model": "acme-wide", "effort": "xhigh"},
+            "pro": {"harness": "antigravity", "model": "gemini-3.1-pro-high", "effort": "high"},
         })
-        # A held listing naming both a no-effort model whose id ends in `-high` and a bare id of
-        # the same stem: folding the no-effort id would add `acme-solo` to config.toml and move
-        # the seat to it.
+        # A held listing covering: a no-effort id ending in `-high` beside its stem, a model
+        # whose effort word `models` caches at `none`, and a stem whose fully-qualified id is
+        # configured directly.  None of them may add a duplicate or move its seat on startup.
         home.write(".agentkit/state/listings/antigravity/default.json", {"models": [
             {"id": "acme-solo-high", "label": "Acme Solo", "efforts": ["none"]},
             {"id": "acme-solo", "label": "Acme Solo", "efforts": ["low", "medium", "high"]},
+            {"id": "acme-wide-xhigh", "label": "Acme Wide (XHigh)", "efforts": ["none"]},
+            {"id": "gemini-3.1-pro", "label": "Gemini 3.1 Pro", "efforts": ["high"]},
         ]})
         owner = """jq -r '"owner: " + .model.id'"""
         original_settings = {"model": "Gemini 3.8 Flash (High)",
@@ -80,14 +84,20 @@ class AntigravitySeatOpensOnItsModel(unittest.TestCase):
         self.assertEqual(record(seat.name)["efforts"]["argon"]["effort"], "high")
         self.assertEqual(akconfig.read(home)["models"], before_models)
 
-        # 2. A model listed at no effort whose id ends in `-high`: stays on itself, nothing added.
-        solo, solo_id, solo_cmd, solo_env = launch("acme-solo", "solo", "none")
-        self.assertEqual(solo_id, "acme-solo-high")
-        render(solo, solo_cmd, solo_env, solo_id)
-        done = home.ak("orch", "why", solo.name)
-        self.assertEqual(done.code, 0, done.err)
-        self.assertEqual(record(solo.name)["orchestrator"], "solo")
-        self.assertEqual(akconfig.read(home)["models"], before_models)
+        # 2. A no-effort id ending in `-high`, an effort cached at `none`, and an already-full
+        # configured id each stay on their own entry with no new `[models.*]` table.
+        for name, key, effort, expected_id in (
+                ("acme-solo", "solo", "none", "acme-solo-high"),
+                ("acme-wide", "wide", "xhigh", "acme-wide-xhigh"),
+                ("acme-pro", "pro", "high", "gemini-3.1-pro-high")):
+            other, other_id, other_cmd, other_env = launch(name, key, effort)
+            self.assertEqual(other_id, expected_id)
+            render(other, other_cmd, other_env, other_id)
+            done = home.ak("orch", "why", other.name)
+            self.assertEqual(done.code, 0, done.err)
+            self.assertEqual(record(other.name)["orchestrator"], key)
+            self.assertEqual(record(other.name)["efforts"][key]["effort"], effort)
+            self.assertEqual(akconfig.read(home)["models"], before_models)
 
         # Login's settings.json is untouched.
         self.assertEqual(json.loads((home.path / ".gemini/antigravity-cli/settings.json").read_text()),

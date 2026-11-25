@@ -1809,19 +1809,31 @@ def follow_model(cfg, name, asked=None):
     if not ran or since and not (ran[2] or 0) > max(since):
         return
     kept = record["orchestrator"]
+    at = config.at_efforts(cfg, record)
+    found = config.running(cfg, entry["harness"], ran[0])
+    for each in config.offered(cfg):
+        if each not in found:
+            try:
+                other = config.model(at, each)
+            except config.Error:
+                continue
+            if other["harness"] == entry["harness"] and plugin.same_model(other, ran[0], ran[1]):
+                found.append(each)
     try:
-        runs = (sorted(config.running(cfg, entry["harness"], ran[0]),
-                       key=lambda each: each != kept) or _taken_in(cfg, entry, ran, asked))
+        runs = sorted(found, key=lambda each: each != kept) or _taken_in(cfg, entry, ran, asked)
     except (config.Error, OSError):     # an add that failed: the record stays
         return
     if not runs:
         return
-    models = config.at_efforts(cfg, record)["models"]
-    chosen = next((each for each in runs if models[each].get("effort") == ran[1]), runs[0])
+    models = config.at_efforts(cfg, record)["models"] if not found else at["models"]
+    chosen = next((each for each in runs
+                   if models[each].get("effort") == ran[1]
+                   or plugin.same_model(models[each], ran[0], ran[1])), runs[0])
     if chosen != kept:
         config.update_session(name, orchestrator=chosen)
-    if ran[1] != models[chosen]["effort"] and ran[1] in config.efforts(
-            entry["harness"], ran[0], config.catalog_held):     # a look waits on no listing
+    if (not plugin.same_model(models[chosen], ran[0], ran[1])
+            and ran[1] != models[chosen]["effort"] and ran[1] in config.efforts(
+                entry["harness"], ran[0], config.catalog_held)):  # a look waits on no listing
         config.change_efforts(name, lambda data: config.orchestrating_at(
             cfg["models"], data, chosen, ran[1]))
 
