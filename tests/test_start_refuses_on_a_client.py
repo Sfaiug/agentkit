@@ -1,8 +1,9 @@
 """`orch.start` itself refuses on a client: a caller that comes to it without asking, as one added
 later would, starts nothing, and tmux is asked nothing.
 
-Each way to a start there is asks before it writes (tests/test_key_a_client_opens_no_session.py),
-so only a caller that does not ask reaches this refusal: here, the test.
+`ak orch NAME` asks before it writes, for a seat tmux lost and for a new one
+(tests/test_key_a_client_opens_no_session.py), so its refusal is never this one, which only a
+caller that does not ask reaches: here, the test.
 Offline: fixtures.sandbox's HOME, and a tmux that fails the test when asked.
 """
 

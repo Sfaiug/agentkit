@@ -656,9 +656,9 @@ def resume_after_boot(cfg, dry_run=False, log=print):
     """
     from . import menu as menu_mod    # here, not at the top: the menu imports this module
     boot = boot_id()
-    # A client opens no session (`orch.refuse_client`), and its state is a copy of its home's,
-    # that home's boot in it: claimed here, the boot would be spent on seats that cannot start,
-    # and a standby taking over, its record of a server removed, would resume none of them.
+    # A client opens no session (`orch.refuse_client`), and a standby's state is a copy of its
+    # home's, that home's boot in it: claimed here, the boot would be spent on seats that cannot
+    # start, and the standby taking over, its record of a server removed, would resume none.
     if not boot or config.server_alias():
         return
     with nullcontext() if dry_run else state_lock():

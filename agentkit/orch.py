@@ -1973,10 +1973,11 @@ def held_names():
 
 def refuse_client():
     """Refuse a client a session: its seats are on its home, and a standby's records are a copy
-    of that home's, which it carries on from once it takes over.  So what leads to a start asks
-    before it writes, `resume` and a new seat (`refuse_held`): one refused only at its start
-    had replaced the copy's record by then, and removed its plan.  `start` asks for every caller
-    that did not: on 22 Nov 2026 one opened a home's 21 sessions a second time on its standby."""
+    of that home's, which it carries on from once it takes over.  So `resume`, of a seat tmux
+    lost, and a new seat (`refuse_held`) ask before they write: a new seat refused only at its
+    start had replaced the copy's record by then, and removed its plan.  `start` asks for every
+    caller that did not: on 22 Nov 2026 one opened a home's 21 sessions a second time on its
+    standby."""
     if alias := config.server_alias():
         raise config.Error(f"this machine is a client of {alias} and opens no session: "
                            f"its sessions are on {alias}")
@@ -3674,8 +3675,8 @@ def maintenance(log=print):
     finished is in `r`, in the project overview and in `ak run status`.
     """
     if config.server_alias():
-        # A client's runs and seats are a copy of its home's, and no process or session of
-        # theirs is here: reaped, stamped and swept they would all read as gone.
+        # A client's state may be a copy of its home's, no process or session of whose runs and
+        # seats is here: reaped, stamped and swept, each would read as gone.
         return
     try:
         config.ensure_dirs()
