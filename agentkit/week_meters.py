@@ -18,7 +18,7 @@ from . import config, history, rates, spend, staffing, usage
 DAY = 86400
 
 
-def days(cfg, since, until):
+def days(cfg, since, until, *, meters=None):
     """[(provider, plan, points, {model: tokens})] of each login, plan and day (the whole days
     since 1970 in UTC of a step's second reading) between `since` and `until` with a step that
     counts: the points its steps rose, exactly, so that days summed and rounded once are what
@@ -37,7 +37,8 @@ def days(cfg, since, until):
     for nothing, as what that row ran is unknown.  Read in one transaction of the history, so a
     row written meanwhile is in all three reads or none; none where it cannot answer, as one
     whose readings keep no plan, no write having migrated it since."""
-    meters, ours = _meters(cfg)
+    meters = shared_weeks(cfg) if meters is None else meters
+    ours = _ours(cfg)
     try:
         with closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")     # one snapshot for the three reads; in WAL no write waits
@@ -77,7 +78,7 @@ def days(cfg, since, until):
             for (provider, _, plan, _), (points, tokens) in found.items()]
 
 
-def run_usage(cfg, since, until, fitted):
+def run_usage(cfg, since, until, fitted, *, meters=None):
     """{(run_id, role): ({(provider, plan): points}, unrated)} of the `turn_usage` rows in
     (since, until] naming a run and a role, valued at `fitted`, `rates.fitted`'s exact rates.
 
@@ -86,7 +87,8 @@ def run_usage(cfg, since, until, fitted):
     that names a plan with a rate for its model, its tokens take `tokens * rate / MILLION`
     points under `(provider, plan)`, summed exactly (a plan taking none not named); else its
     tokens are `unrated`.  {} where the history cannot answer."""
-    meters, ours = _meters(cfg)
+    meters = shared_weeks(cfg) if meters is None else meters
+    ours = _ours(cfg)
     try:
         with closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")
@@ -118,15 +120,19 @@ def run_usage(cfg, since, until, fitted):
     return {key: (points, unrated) for key, (points, unrated) in used.items()}
 
 
-def _meters(cfg):
-    """Each configured provider's logins' shared weeks (`usage.week_names`), and each of those
-    providers' harness match (`spend._ours`)."""
+def shared_weeks(cfg):
+    """{(provider, account, meter)} of each configured provider's logins' shared week now
+    (`usage.week_names`), read once so `days` and `run_usage` select the same readings."""
     held = {name: prov for name, prov in staffing._cached_providers().items()
             if name in cfg["providers"]}
-    meters = {(provider, account or config.DEFAULT_ACCOUNT, meter)
-              for provider, accounts in usage.week_names(cfg, held).items()
-              for account, meter in accounts.items() if meter is not None}
-    return meters, {provider: spend._ours(cfg, provider) for provider, *_ in meters}
+    return {(provider, account or config.DEFAULT_ACCOUNT, meter)
+            for provider, accounts in usage.week_names(cfg, held).items()
+            for account, meter in accounts.items() if meter is not None}
+
+
+def _ours(cfg):
+    """{provider: harness match (`spend._ours`)} of every configured provider."""
+    return {provider: spend._ours(cfg, provider) for provider in cfg["providers"]}
 
 
 def _readings(db, meters, since, until):

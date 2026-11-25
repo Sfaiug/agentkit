@@ -754,9 +754,11 @@ def main(argv):
     runs = ledger.counted()
     mine = own.by_role(runs["teams"], team_now(cfg, seat))
     if "--json" in flags:
-        days = week_meters.days(cfg, runs["since"], runs["until"])
+        meters = week_meters.shared_weeks(cfg)
+        days = week_meters.days(cfg, runs["since"], runs["until"], meters=meters)
         fits = rates.fitted(days)
-        used = run_usage(week_meters.run_usage(cfg, runs["since"], runs["until"], fits))
+        used = run_usage(week_meters.run_usage(
+            cfg, runs["since"], runs["until"], fits, meters=meters))
 
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",

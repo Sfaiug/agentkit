@@ -18,6 +18,7 @@ Black-box: tests/test_key_models_json_week_meters.py's Home, `turn_usage` holdin
 `role`; judged by the output and exit code.  Fails against /bin/false.
 """
 
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -79,11 +80,11 @@ class ModelsJsonRunUsage(WeekMeters):
         self.turn(40, (3_000, 0, 0, 0), model=None)         # names no model
         self.turn(40, (4_000, 0, 0, 0), model="")           # blank model
         self.turn(40, (5_000, 0, 0, 0), model="anvil-9")    # model with no rate on Max
-        # brine/Plus: two models in one day alone -> rates is {}, so bolt-1 has no rate
-        self.read(50, 0, plan="Plus", provider="brine")
-        self.seat(45, 50_000, model="bolt-1", harness="chime")
-        self.seat(45, 50_000, model="bolt-2", harness="chime")
-        self.read(40, 10, plan="Plus", provider="brine")
+        # brine absent from the usage cache (no readable shared week): its tokens are unrated
+        cache = self.home.path / ".agentkit/state/usage.json"
+        cached = json.loads(cache.read_text())
+        del cached["providers"]["brine"]
+        cache.write_text(json.dumps(cached))
         self.turn(35, (6_000, 0, 0, 0), model="bolt-1", harness="chime", role="reviewer")
         self.assertEqual(self.usage(), {
             "executor": {"points": {}, "unrated": 15_000},
