@@ -622,26 +622,23 @@ def _refused(reasons):
 
 
 def _close():
-    """Hand ak's own tmux server here one file of commands, a line for each session it lists, by
-    its id.  At a session's line tmux ends it where it has an option of its own under a seat's
-    mark (`orch.MARK`), without which the line fails there, and tmux's format reads that mark as
-    `1` for it then: a seat `orch.start` opened, which on a client carries on a conversation its
-    home carries on too.  A session's name decides nothing, nor a mark every session inherits,
-    nor one set or cleared between the listing and the session's line.  Nothing is read back, and
-    the pass goes on the same whatever tmux did: a session made since the listing, and one tmux
-    did not end, failing or not running, is the next pass's.  A pass run inside a session it
-    ends ends with it, as any command does whose terminal closes."""
-    # A session's id is its server's alone, and a server started since the listing numbers its
-    # own from $0 again: each line ends nothing on a server but the one that listed it, by pid.
-    _, out = orch.tmux_out("list-sessions", "-F", "#{pid} #{session_id}")
-    asked = "".join(f"show-options -t '{sid}' {orch.MARK} ; if-shell -F -t '{sid}' "
-                    f"'#{{&&:#{{==:#{{pid}},{pid}}},#{{==:#{{{orch.MARK}}},1}}}}' "
-                    f"\"kill-session -t '{sid}'\"\n"
-                    for pid, sid in re.findall(r"^([0-9]+) (\$[0-9]+)$", out, re.M))
-    # On stdin, as `orch.tagged` hands tmux its file: no size caps it, and each line is a command
-    # list of its own, so one that fails stops no other session's.
-    if asked:
-        orch.tmux_out("source-file", "-", input=asked)
+    """Have ak's own tmux server here list its sessions and, at each one's turn, by its id, end it
+    where tmux's format reads a seat's mark (`orch.MARK`) as `1` for it then and it has an option
+    of its own under that mark, without which its turn fails there: a seat `orch.start` opened,
+    which on a client carries on a conversation its home carries on too.  A session's name
+    decides nothing, nor a mark every session inherits, nor one set or cleared between the
+    listing and the session's turn.  Nothing is read back, and the pass goes on the same whatever
+    tmux did: a session made since the listing, and one tmux did not end, failing or not running,
+    is the next pass's.  A pass run inside a session it ends ends with it, as any command does
+    whose terminal closes."""
+    # One call, so the server that lists is the one that ends: one started at the socket between
+    # two calls numbers its sessions from $0 again, under the pid of one gone.  `run-shell -C`
+    # reads what its loop (`#{S:}`) lists as one command list, so each session's turn is a `{}`
+    # of its own, which one failing stops alone; `#{l:}` keeps the mark's reading for that turn.
+    session = "'#{session_id}'"
+    turn = (f"if-shell -F -t {session} '#{{l:#{{==:#{{{orch.MARK}}},1}}}}' "
+            f"{{ show-options -t {session} {orch.MARK} ; kill-session -t {session} #}}\n")
+    orch.tmux_out("run-shell", "-C", f"#{{S:{turn}}}")
 
 
 def main(argv):

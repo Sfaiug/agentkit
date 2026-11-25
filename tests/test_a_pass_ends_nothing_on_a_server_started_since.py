@@ -1,7 +1,7 @@
-"""A pass ends no session of a tmux server other than the one that listed it (`standby._close`):
-a server started at ak's socket since the listing numbers its sessions from $0 again, so a
-session made there may carry a listed id and a seat's mark of its own, and is the next pass's.
-Real tmux: the listing is of one server, then the socket names another, as a restart leaves it.
+"""A pass ends the seats of the tmux server it lists and nothing on one started at ak's socket
+after it asked tmux anything (`standby._close`): such a server numbers its sessions from $0 again,
+maybe under the pid of the one gone, so a session made there may carry a listed id and a seat's
+mark of its own, and is the next pass's.  Real tmux: after each call the socket names another.
 """
 
 import os
@@ -49,6 +49,7 @@ class AServerStartedSinceTheListing(unittest.TestCase):
                 listed = {"TMUX_TMPDIR": str(first), orch.SOCKET_ENV: "acme"}
                 with patch.dict(os.environ, listed), patch.object(orch, "tmux_out", restarted):
                     standby._close()
+                self.assertEqual(tmux(first, "list-sessions", "-F", "#{session_name}"), [])
                 self.assertEqual(tmux(since, "list-sessions", "-F", "#{session_name}"), ["fix-api"])
             finally:
                 for at in (first, since):
