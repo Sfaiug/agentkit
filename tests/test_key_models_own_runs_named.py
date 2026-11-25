@@ -1,11 +1,11 @@
-"""`ak models` names each row of ak's own numbers as every screen names that model at its effort:
-a run recorded at effort `none` is the model's name alone, and a configured name holding ` @ `
-is a name, never a model and an effort, nor a row of the model's runs at that effort: in
-`--json` too, where its own @ is doubled.
+"""`ak models` names each row of its role tables as every screen names that model at its effort:
+one at effort `none` is the model's name alone, and a configured name holding ` @ ` is a name,
+never a model and an effort.  `--json` keys ak's own numbers by model and effort (`live`) alike,
+such a name's own @ doubled, never a row of the model's runs at that effort.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
-judged runs written into the Home's history.db; judged by the output and exit code.  Fails
-against /bin/false.
+judged runs, or the tasks as tests/test_key_models_json_counts_tasks_by_team.py writes them,
+in the Home's history.db; judged by the output and exit code.  Fails against /bin/false.
 """
 
 import json
@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, boards
+from test_key_models_json_counts_tasks_by_team import history, run
 
 HAIKU = {"harness": "claude", "model": "claude-haiku-4-5", "effort": "none"}
 # a run haiku executed at effort none, merged in round 1
@@ -35,17 +36,32 @@ def ran(home, *runs):
     connection.close()
 
 
+HEAD = "tasks went live per task live".split()
+
+
 class OwnRunsNamed(unittest.TestCase):
     def test_effort_none_and_a_name_holding_an_at_are_said_as_the_model_s_name(self):
         with Home() as home:
             fakeadapter.install(home, claude="pass")
-            akconfig.write(home, {"haiku": HAIKU, "haiku @ custom": HAIKU})
+            akconfig.write(home, {"haiku": {**HAIKU, "effort": "max"}, "haiku @ max": HAIKU},
+                           orchestrator="haiku @ max", workers=["haiku"])
             home.write(".agentkit/state/boards.json", boards())
-            ran(home, {})
+            # a task of the team now, its orchestrator at effort none; then one `haiku @ max`
+            # built at an effort not recorded
+            team = {"orchestrator": "haiku @ max", "orchestrator_effort": "none",
+                    "executor": "haiku", "reviewer": "haiku"}
+            history(home, [run("fix-api", 1, **team),
+                           run("fix-docs", 1, **{**team, "executor": "haiku @ max",
+                                                 "executor_effort": None})],
+                    [("fix-api", 1, "max"), ("fix-docs", 1, "max")])
             done = home.ak("models", env={**ENV, "COLUMNS": "100"})
         self.assertEqual(done.code, 0, done.err)
-        self.assertEqual([" ".join(line.split()) for line in done.out.splitlines()[-2:]],
-                         ["Haiku 4.5 - 100% of 1 -", "Haiku 4.5 - - -"])
+        shown = [line.split() for line in done.out.splitlines()]
+        self.assertEqual(shown[shown.index(["ORCHESTRATOR", *HEAD]):], [
+            ["ORCHESTRATOR", *HEAD], ["●", "Haiku", "4.5", "1"], [],
+            ["BUILDER", *HEAD], ["■", "Haiku", "4.5", "max", "1"], ["□", "Haiku", "4.5", "1"],
+            [],
+            ["REVIEWER", *HEAD], ["■", "Haiku", "4.5", "max", "1"]])
 
     def test_a_run_at_an_effort_stays_apart_from_a_name_holding_it(self):
         with Home() as home:
@@ -55,10 +71,7 @@ class OwnRunsNamed(unittest.TestCase):
             ran(home, {"executor_effort": "max"},
                 {"run_id": "acme-unrecorded", "executor": "haiku @ max", "executor_effort": None})
             done = home.ak("models", "--json", env=ENV)
-            shown = home.ak("models", env={**ENV, "COLUMNS": "100"})
-        self.assertEqual((done.code, shown.code), (0, 0), done.err + shown.err)
-        self.assertEqual([" ".join(line.split()) for line in shown.out.splitlines()[-2:]],
-                         ["Haiku 4.5 max - 100% of 1 -", "Haiku 4.5 - 100% of 1 -"])
+        self.assertEqual(done.code, 0, done.err)
         live = json.loads(done.out)["live"]
         self.assertEqual({key: roles["execute"] for key, roles in live.items()},
                          {"haiku @ max": {"runs": 1, "round_1": 100},
