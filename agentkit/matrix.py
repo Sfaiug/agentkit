@@ -11,6 +11,7 @@ Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
 import contextlib
 import decimal
 import fcntl
+import fractions
 import functools
 import json
 import math
@@ -699,32 +700,13 @@ def by_plan(days, fits=None):
             for provider, found in plans.items()}
 
 
-def run_usage(by_run):
-    """`ak models --json`'s `runs`' `usage`, {role: {"points": {provider: {plan: points}},
-    "unrated": tokens}} for `executor` and `reviewer` from `by_run`, `week_meters.run_usage`'s:
-    each role's points summed exactly per provider and plan and printed as rates print
-    (`_printed`), a plan with none not named, and `unrated` whole tokens."""
-    roles = {role: [{}, 0] for role in ("executor", "reviewer")}
-    for (_, role), (points, unrated) in by_run.items():
-        if role in roles:
-            summed, missed = roles[role]
-            for plan, value in points.items():
-                summed[plan] = summed.get(plan, 0) + value
-            roles[role][1] = missed + unrated
-    out = {}
-    for role, (summed, unrated) in roles.items():
-        plans = {}
-        for (provider, plan), value in summed.items():
-            if value:
-                plans.setdefault(provider, {})[plan] = _printed(value)
-        out[role] = {"points": plans, "unrated": unrated}
-    return out
-
-
 def dumped(value, at="\n"):
-    """`value` as JSON, as `json.dumps(value, indent=2)` writes it but each Decimal in it as its
-    digits, which json writes of no Decimal; `at` begins each of its lines but the first."""
+    """`value` as JSON, as `json.dumps(value, indent=2)` writes it but each Decimal as its
+    digits and each Fraction rounded once to six significant digits (`_printed`), which json
+    writes of neither; `at` begins each of its lines but the first."""
     inner = at + "  "
+    if isinstance(value, fractions.Fraction):
+        value = _printed(value)
     if isinstance(value, decimal.Decimal):
         return str(value)
     if isinstance(value, dict) and value:
@@ -751,14 +733,15 @@ def main(argv):
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     # here, not at the top: the boards and the screen need no database
     from . import ledger, own, week_meters
-    runs = ledger.counted()
-    mine = own.by_role(runs["teams"], team_now(cfg, seat))
     if "--json" in flags:
+        until = time.time()
+        since = until - ledger.WINDOW
         meters = week_meters.shared_weeks(cfg)
-        days = week_meters.days(cfg, runs["since"], runs["until"], meters=meters)
+        days = week_meters.days(cfg, since, until, meters=meters)
         fits = rates.fitted(days)
-        used = run_usage(week_meters.run_usage(
-            cfg, runs["since"], runs["until"], fits, meters=meters))
+        by_run = week_meters.run_usage(cfg, since, until, fits, meters=meters)
+        runs = ledger.counted(by_run, until=until)
+        mine = own.by_role(runs["teams"], team_now(cfg, seat))
 
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
@@ -778,10 +761,11 @@ def main(argv):
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()},
-            "runs": {**runs, "usage": used}, "own": mine,
+            "runs": runs, "own": mine,
             "week_meters": by_plan(days, fits)}))
         print()
         return 0
+    mine = own.by_role(ledger.counted()["teams"], team_now(cfg, seat))
     used, unit = uses(cfg, seat, found), menu.models_unit()     # the screen's, as it was left
     body, _ = menu.models_body(menu.models_said(cfg, found, used, unit), unit)
     bars = [line for role in found
