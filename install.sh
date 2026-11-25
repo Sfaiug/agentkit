@@ -96,10 +96,11 @@ fi
 MACHINE=0
 if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   ARCH=$(uname -m)
-  # Under Rosetta `uname -m` reads x86_64 and hw.optional.arm64 still says Apple silicon.
+  # Under Rosetta `uname -m` reads x86_64 and hw.optional.arm64 still says Apple silicon, from
+  # a sysctl macOS keeps in /usr/sbin, which a PATH may leave out.
   # type -P names apt-get's file behind a wrapper function, and -x refuses one it cannot run.
   if [ "$OS" = Darwin ] && { [ "$ARCH" = arm64 ] ||
-                             [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; }; then
+       [ "$(PATH=$PATH:/usr/sbin sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; }; then
     MACHINE=1 ROLE=client ALIAS=$LINUX_MACHINE
   elif [ "$OS" != Linux ] || [ ! -x "$(type -P apt-get)" ]; then
     echo "install.sh: ak installs on Debian, Ubuntu and a Mac with Apple silicon;" \
