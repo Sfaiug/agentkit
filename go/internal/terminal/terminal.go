@@ -100,6 +100,7 @@ type Screen struct {
 	depth, width, height int
 	ascii                bool
 	theme                theme
+	background           string // the terminal's answer to OSC 11 (Sense), "" where it gave none
 }
 
 // For is out as a screen that never asks its terminal what it is: in the shades kept (kept).

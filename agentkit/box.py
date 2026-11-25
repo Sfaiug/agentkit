@@ -143,7 +143,14 @@ def _warm(cache, scratch, hidden):
 
 def _homes(env, cwd):
     base = Path(cwd or os.getcwd())
-    return {base / (env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
+    homes = {base / (env.get("HOME") or Path.home())}
+    try:
+        homes.add(Path(pwd.getpwuid(os.getuid()).pw_dir))
+    except KeyError:
+        # A user that is only a number (a container started as its host's user, 25 Nov 2026)
+        # has no account, so no home but the one its environment names.
+        pass
+    return homes
 
 
 def _credentials(env, cwd, agent=None):

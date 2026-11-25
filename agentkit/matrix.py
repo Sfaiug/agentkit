@@ -1,13 +1,15 @@
 """Every current model on the boards, a row per release and effort with the installed harnesses'
 models that are it (`lineup`), answered per role on quality and cost (`answer`), using
 `quality.pick`.  Only the models of your
-companies you left on are compared (`compared`) or used (`off`): the owner, 5 Nov 2026.  ak's
-own run numbers stand beside, per configured model, the effort its runs recorded and role, with
-their count, and never rank (tests/test_matrix_live_column.py).
+companies you left on are compared (`compared`) or used (`off`): the owner, 5 Nov 2026.  Under
+the boards `ak models` prints each role's models by the tasks they did with the team now
+(own.py); `--json` carries beside them ak's own run numbers per configured model, the effort its
+runs recorded and role, with their count, which never rank (`live`).
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
 """
 
 import contextlib
+import decimal
 import fcntl
 import functools
 import json
@@ -16,7 +18,7 @@ import re
 import sys
 import time
 
-from . import catalog, command_help, config, quality, record, terminal
+from . import catalog, command_help, config, quality, rates, record, terminal
 from .boards import PREFIX, collect, effort_rank
 
 # the config's word for each role ak answers: `config.ROLE_EFFORTS` keys its efforts by these
@@ -538,7 +540,6 @@ def refuse_off(cfg, name):
                            "in config.toml")
 
 
-LIVE_HEADERS = ("model", "orch", "exec", "review")
 # the run's column holding the effort the role ran it at (None where it was not recorded); a
 # review's effort is its review row's
 EFFORT_OF = {"orchestrate": "own_orchestrator_effort", "execute": "executor_effort"}
@@ -580,33 +581,6 @@ def live(cfg, now=None):
 def share(runs, in_round_1):
     """`{"runs", "round_1"}`: how many runs, and the share of them in round 1; None with none."""
     return {"runs": runs, "round_1": round(100 * in_round_1 / runs)} if runs else None
-
-
-def live_cell(found):
-    """`55% of 320`: the share merged in round 1 and the runs it rests on; `-` where it ran none."""
-    return "-" if found is None else f"{found['round_1']}% of {found['runs']}"
-
-
-def live_lines(own, cfg):
-    """The second table: each configured model's own numbers per role, `55% of 320`, its row
-    named as every screen names a model and its effort (`config.model_said`): `Nova 7.1 max`
-    for `live`'s `("nova", "max")`."""
-    lines_of = [LIVE_HEADERS] + [
-        (config.model_said(cfg, name, effort), *(live_cell(found[role]) for role in quality.ROLES))
-        for (name, effort), found in own.items()]
-    widths = [max(terminal.cells(line[i]) for line in lines_of) for i in range(len(LIVE_HEADERS))]
-    head, *lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
-                    for line in lines_of]
-    room = terminal.layout_width()
-
-    def fit(text):
-        # a row wider than the terminal wraps rather than run past its edge
-        return [text] if terminal.cells(text) <= room else terminal.wrap(text, room)
-    said = ("ak's own runs, never ranking: merged in round 1 of the runs it executed, let "
-            "through in round 1 of those it reviewed, merged in round 1 of its seat's own pull "
-            "requests")
-    return [terminal.styled(part, "dim") for part in (*terminal.wrap(said, room), *fit(head))] \
-        + [part for line in lines for part in fit(line)]
 
 
 def stored():
@@ -667,8 +641,8 @@ def row_of(rows, entry, effort):
 def uses(cfg, record, found):
     """{role: (model, effort, row)} seat `record`, or [defaults], uses off `found` (`answer`): its
     orchestrator, named even once the config drops it, else its first mark the config holds, as
-    a pick takes the marks in their order, None for none; the effort the seat runs it at; and
-    its row (`row_of`)."""
+    a pick for no run takes them (each run draws its own: `usage.pick_order`), None for none;
+    the effort the seat runs it at; and its row (`row_of`)."""
     cfg, workers = config.at_efforts(cfg, record), record["workers"]
     used = {}
     for role, names in (("orchestrate", [record["orchestrator"]]), ("execute", workers),
@@ -680,12 +654,62 @@ def uses(cfg, record, found):
     return used
 
 
+def team_now(cfg, record):
+    """{role (ledger.ROLES): [(name, effort)]}: the models seat `record`, or [defaults], holds
+    for each role in the order held, each at the effort a run launched now records
+    (`config.run_marks`), None for none (`config.launched_effort`); off no board, unlike `uses`."""
+    marks = config.run_marks(cfg, record)
+    return {role: [(name, config.launched_effort(marks, name, role)) for name in names]
+            for role, names in (("orchestrator", [record["orchestrator"]]),
+                                ("executor", record["workers"]),
+                                ("reviewer", record.get("reviewers", record["workers"])))}
+
+
 def notes(row, said):
     """What `ak models --json` notes beside a row of `said`, `answer`'s for a role."""
     missing = sum(one["how"] == "missing" for one in row["measures"].values())
     return [word for word, true in (
         ("pick", row is said["pick"]),
         (f"{missing} missing", missing), ("no harness", not row["yours"])) if true]
+
+
+def by_plan(days):
+    """`ak models --json`'s `week_meters`, {provider: {plan: {"points", "tokens", "rates"}}}:
+    `days`, `week_meters.days`'s, summed by plan, the points to six significant digits, and the
+    rates fitted from them (`rates.fitted`), each rounded once from the fit's exact value to six
+    significant digits as a Decimal, as a float holds none below its own smallest, and one past a
+    float's largest as that largest."""
+    fits, plans = rates.fitted(days), {}
+    for provider, plan, points, tokens in days:
+        summed = plans.setdefault(provider, {}).setdefault(plan, [0, {}])
+        summed[0] += points
+        for model, count in tokens.items():
+            summed[1][model] = summed[1].get(model, 0) + count
+
+    def printed(rate):
+        if rate > sys.float_info.max:
+            return sys.float_info.max
+        return decimal.Context(prec=6).divide(rate.numerator, rate.denominator)
+    return {provider: {plan: {"points": float(f"{float(points):.6g}"), "tokens": tokens,
+                              "rates": {model: printed(rate)
+                                        for model, rate in fits[provider, plan].items()}}
+                       for plan, (points, tokens) in found.items()}
+            for provider, found in plans.items()}
+
+
+def dumped(value, at="\n"):
+    """`value` as JSON, as `json.dumps(value, indent=2)` writes it but each Decimal in it as its
+    digits, which json writes of no Decimal; `at` begins each of its lines but the first."""
+    inner = at + "  "
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, dict) and value:
+        return "{" + ",".join(
+            f"{inner}{json.dumps(key if isinstance(key, str) else json.dumps(key))}: "
+            f"{dumped(item, inner)}" for key, item in value.items()) + at + "}"
+    if isinstance(value, (list, tuple)) and value:
+        return "[" + ",".join(inner + dumped(item, inner) for item in value) + at + "]"
+    return json.dumps(value)
 
 
 def main(argv):
@@ -699,15 +723,18 @@ def main(argv):
     _, rows = refresh(cfg, refresh="--refresh" in flags)
     marked = compared(cfg)
     logins, shares = _task_usage(cfg)
-    found, own = answer(rows, marked, cfg=cfg, task_usage=(logins, shares)), live(cfg)
+    found = answer(rows, marked, cfg=cfg, task_usage=(logins, shares))
+    seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
+    # here, not at the top: the boards and the screen need no database
+    from . import ledger, own, week_meters
+    runs = ledger.counted()
+    mine = own.by_role(runs["teams"], team_now(cfg, seat))
     if "--json" in flags:
-        from . import ledger    # here, not at the top: the boards and the table need no database
-
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
                                                  "cost", "board_cost", "cost_rule")},
                     "notes": notes(row, said)}
-        json.dump({**{role: {
+        sys.stdout.write(dumped({**{role: {
             "best": said["best"] and said["best"]["quality"], "cost_unit": said["cost_unit"],
             **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
             "others": [{**drawn(row, said), "why": why, "by": by and {
@@ -717,20 +744,19 @@ def main(argv):
             # `name @ effort`, the name alone for no effort, a name's own @ doubled so that a
             # model named `acme @ max` never takes the key of acme's runs at max
             "live": {name.replace("@", "@@") + (f" @ {effort}" if effort else ""): roles
-                     for (name, effort), roles in own.items()},
+                     for (name, effort), roles in live(cfg).items()},
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()},
-            "runs": ledger.by_team()},
-            sys.stdout, indent=2)
+            "runs": runs, "own": mine,
+            "week_meters": by_plan(week_meters.days(cfg, runs["since"], runs["until"]))}))
         print()
         return 0
-    seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     used, unit = uses(cfg, seat, found), menu.models_unit()     # the screen's, as it was left
     body, _ = menu.models_body(menu.models_said(cfg, found, used, unit), unit)
     bars = [line for role in found
             for line in menu.models_bars(found[role], role, used[role][2], used[role][2], unit)]
     print("\n".join([*body, *bars, "", *menu.models_read(marked, len(ours(cfg)),
                                                    stored().get("fetched_at")),
-                      *(["", *live_lines(own, cfg)] if own else [])]))
+                      "", *own.lines(mine, cfg, terminal.layout_width())]))
     return 0

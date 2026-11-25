@@ -1,7 +1,8 @@
 """`ak models` prints the models screen's lines, what each role uses and each role's bars (tests/
-test_key_models_bars.py), how many models it compares, then ak's own numbers per configured
-model, each row named as every screen names that model; `--json` gives each role's best and
-line of best quality for the money too.
+test_key_models_bars.py), how many models it compares, then each role's models by the tasks they
+did with the team now (tests/test_key_models_own_tables.py): with no task yet, the models it
+uses; `--json` gives each role's best and line of best quality for the money, and ak's own
+numbers per configured model.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up;
 judged by the output and exit code.  Fails against /bin/false.
@@ -21,7 +22,11 @@ from test_key_models_answer import ENV, NOW, boards
 ROLES = [*(f"  {role:<12}  Acme Mid 5 low  not on the boards"
            for role in ("orchestrator", "executor", "reviewer")), ""]
 COMPARED = f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"
-OWN = ["model      orch exec review", "Acme Mid 5 -    -    -", "Bolt 3     -    -    -"]
+HEAD = "tasks  went live  per task live"
+OWN = ["Your team now has no task yet", "",
+       f"ORCHESTRATOR      {HEAD}", "● Acme Mid 5 low      0", "",
+       f"BUILDER           {HEAD}", "■ Acme Mid 5 low      0", "■ Bolt 3 low          0", "",
+       f"REVIEWER          {HEAD}", "■ Acme Mid 5 low      0", "■ Bolt 3 low          0"]
 
 
 class ModelsCommand(unittest.TestCase):
@@ -41,19 +46,19 @@ class ModelsCommand(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         return done.out
 
-    def test_each_role_s_answer_then_ak_s_own_numbers(self):
+    def test_each_role_s_answer_then_each_role_s_models_by_their_tasks(self):
         shown = [line.rstrip() for line in self.models().splitlines()]
         self.assertEqual(shown[:len(ROLES)], ROLES)
-        self.assertEqual(shown[shown.index(COMPARED) - 1:shown.index(COMPARED) + 2],
-                         ["", COMPARED, ""])
-        self.assertEqual(shown[-3:], OWN)
+        self.assertEqual(shown[shown.index(COMPARED) - 1:], ["", COMPARED, "", *OWN])
 
     def test_json_gives_each_role_s_front_and_ak_s_own_numbers(self):
         found = json.loads(self.models("--json"))
-        # Subscription measurements and the tasks by team (tests/
-        # test_key_models_json_counts_tasks_by_team.py) have their own keys; this remains Go's
-        # older claim.
-        self.assertEqual(sorted(found.keys() - {"usage", "task_usage", "runs"}),
+        # Subscription measurements, the tasks by team (tests/
+        # test_key_models_json_counts_tasks_by_team.py), each role's rows of them
+        # (tests/test_key_models_json_own_rows.py) and what the plans' week meters rose (tests/
+        # test_key_models_json_week_meters.py) have their own keys; this remains Go's older claim.
+        self.assertEqual(sorted(found.keys() - {"usage", "task_usage", "runs", "own",
+                                                "week_meters"}),
                          ["execute", "live", "orchestrate", "review"])
         self.assertEqual(round(found["execute"]["best"], 1), 100.0)
         self.assertEqual([(row["name"], row["effort"], round(row["quality"], 1), row["cost"],

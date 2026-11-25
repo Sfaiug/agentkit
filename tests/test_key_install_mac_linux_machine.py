@@ -8,6 +8,8 @@ one of its own where Lima takes one, and the Mac's checkout at the same commit, 
 Mac's or none where the Mac has none; runs the Linux server install in it, with a terminal when it
 has one; starts it with the Mac; and records it as the Mac's server, reached over a local ssh
 alias.  A second install finds it and changes nothing already right; a client stays a client.
+A machine made before its folder gets it as ak next starts it, Lima editing a stopped machine's
+file only, and an install that finds it running without says how to bring that on.
 Black-box: install.sh of the checkout `AK_BIN` names, or of a Mac's own copy of it, runs in an
 answer-key Home that is the account's own (tests/fixtures/installer.py), on a Mac of fakes:
 `uname`, `df`, `brew`, `fdesetup`, a `sysctl` whose boot time is `<root>/boot` and whose boot's
@@ -35,9 +37,10 @@ GIB = 1024 ** 3
 # The machine is a directory: `shell` runs its command in the home there, but for ak's own
 # install, which it only records, with whether it had a terminal; `create` and `autostart` leave
 # the files Lima leaves, and `create` refuses a folder that is no full path, as Lima 2.2.1 does
-# `{{.Dir}}` in a store named relatively.  `<root>/machine` says Running once it starts, Stopped
-# once it stops; a start clears a hang (`<root>/hung`), but not of one already running, and
-# refuses a Broken one.
+# `{{.Dir}}` in a store named relatively.  The machine's file holds each `--set` of its `create`
+# and of each `edit` while it is not running, which exits `EDIT_EXIT`, else 0; Lima edits no
+# running machine.  `<root>/machine` says Running once it starts, Stopped once it stops; a start
+# clears a hang (`<root>/hung`), but not of one already running, and refuses a Broken one.
 # `<root>/memory` holds its GiB, Lima's default 4 until a call's `--memory=` writes it, whatever
 # the machine's state, and `list` reports it in bytes.
 LIMACTL = """#!{python}
@@ -49,18 +52,26 @@ with open(root / "logs/limactl.log", "a") as log:
 machine = root / "machine"
 memory = root / "memory"
 status = machine.read_text() if machine.exists() else "Stopped"
+lima = Path(os.environ.get("LIMA_HOME") or os.environ["HOME"] + "/.lima", "ak")
 for arg in args:
     if arg.startswith("--memory="):
         memory.write_text(arg.split("=", 1)[1])
 if args[:2] == ["autostart", "--help"]:
     sys.exit(0)
 if args[0] == "create":
-    lima = Path(os.environ.get("LIMA_HOME") or os.environ["HOME"] + "/.lima", "ak")
     if "{{{{.Dir}}}}" in args[args.index("--set") + 1] and not lima.is_absolute():
         sys.exit("field `mounts[0].location` must be an absolute path")
     lima.mkdir(parents=True)
-    (lima / "lima.yaml").write_text("")
+    (lima / "lima.yaml").write_text(args[args.index("--set") + 1] + "\\n")
     (lima / "ssh.config").write_text("Host lima-ak\\n")
+elif args[0] == "edit" and status == "Running":
+    sys.exit("cannot edit a running instance")
+elif args[0] == "edit":
+    code = int(os.environ.get("EDIT_EXIT", "0"))
+    if not code:
+        with open(lima / "lima.yaml", "a") as file:
+            file.write(args[args.index("--set") + 1] + "\\n")
+    sys.exit(code)
 elif args[0] == "list":
     words = [word for arg in args for word in arg.split("=", 1)]
     gib = int(memory.read_text()) if memory.exists() else 4
@@ -172,7 +183,7 @@ class Mac:
         home.fake("brew", BREW.format(python=python, log=shlex.quote(str(home.log("brew"))),
                                       limactl=shlex.quote(str(staged)),
                                       bin=shlex.quote(str(home.bin))))
-        home.fake("uname", "#!/bin/sh\necho Darwin\n")
+        home.fake("uname", "#!/bin/sh\ncase $1 in -m) echo arm64 ;; *) echo Darwin ;; esac\n")
         home.fake("launchctl", LAUNCHCTL.format(python=sys.executable, root=str(home.root)))
         home.fake("sysctl", SYSCTL.format(cpus=cpus, memory=memory_gib * GIB,
                                           boot=shlex.quote(str(home.root / "boot")),
@@ -353,6 +364,43 @@ class KeptMachine(unittest.TestCase):
         self.assertNotEqual(done.code, 0, done.out)
         self.assertEqual(version.read_text(), "gitdir: /home/acme/agentkit.git/worktrees/acme\n")
         self.assertIsNone(mac.server())
+
+
+class MadeBefore(unittest.TestCase):
+    """A machine made before its file named the free-space folder, by an earlier install or by
+    hand, gets it as ak next starts it: Lima edits the file of a stopped machine only.  Till then
+    an install that finds it running says so."""
+
+    def install(self, status, file="", edit_exit=0):
+        """The limactl calls of an install on a Mac whose machine is `status` with `file`, and
+        the lines of what it said that name `limactl stop ak`."""
+        mac = Mac()
+        self.addCleanup(mac.close)
+        lima = mac.home.path / ".lima/ak"
+        lima.mkdir(parents=True)
+        (lima / "lima.yaml").write_text(file)
+        (lima / "ssh.config").write_text("Host lima-ak\n")
+        shutil.copy(mac.home.root / "limactl", mac.home.bin / "limactl")
+        (mac.home.root / "machine").write_text(status)
+        mac.home.env["EDIT_EXIT"] = str(edit_exit)
+        done = mac.install()
+        self.assertEqual((mac.home.root / "machine").read_text(), "Running")
+        return mac.lima(), [line for line in done.out.splitlines() if "limactl stop ak" in line]
+
+    def test_a_stopped_one_gets_the_folder_as_it_starts_and_a_running_one_is_told_of(self):
+        for edit_exit in (0, 1):
+            with self.subTest(edit_exit=edit_exit):
+                calls, _ = self.install("Stopped", edit_exit=edit_exit)
+                started = [call for call in calls if call[0] in ("edit", "start")]
+                self.assertEqual([call[0] for call in started], ["edit", "start"])
+                edit = started[0]
+                self.assertEqual(edit[-1], "ak")
+                self.assertIn("/mnt/ak-free-space", edit[edit.index("--set") + 1])
+        calls, said = self.install("Running")
+        self.assertNotIn("edit", [call[0] for call in calls])
+        self.assertEqual(len(said), 1, said)
+        _, said = self.install("Running", file="mounts:\n- mountPoint: /mnt/ak-free-space\n")
+        self.assertEqual(said, [])
 
 
 class Client(unittest.TestCase):

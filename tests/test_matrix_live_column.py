@@ -1,5 +1,5 @@
-"""`ak models` shows ak's own numbers per configured model and role under the boards' answer, with
-their count, and they never rank.
+"""`ak models --json` gives ak's own numbers per configured model and role (`live`), with their
+count, and they never rank.
 
 Per model: of the runs it executed, the share merged in round 1; of the runs it reviewed, in
 whichever round, the share it let through in round 1; of the pull requests its seat wrote, the
@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import config, history, matrix, record, terminal
+from agentkit import config, history, matrix, record
 import test_model_rows as rows_test
 
 
@@ -88,24 +88,11 @@ class LiveColumn(Sandbox):
         self.assertIn(("gemini", None), own)    # every configured model, with nothing where it ran nothing
         self.assertEqual(own["gemini", None], {"orchestrate": None, "execute": None, "review": None})
 
-    def test_the_command_shows_them_under_the_answer_and_json_carries_them(self):
-        out = io.StringIO()
-        with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
-            self.assertEqual(matrix.main([]), 0)
-        lines = [terminal.plain(line) for line in out.getvalue().splitlines()]
-        text = "\n".join(lines)
-        self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
-        at = next(i for i, line in enumerate(lines) if line.startswith("ak's own runs, never ranking"))
-        heading = next(i for i, line in enumerate(lines) if line.split() == ["model", "orch", "exec", "review"])
-        self.assertLess(next(i for i, line in enumerate(lines) if "comparing all" in line), at)
-        self.assertLess(at, heading)
-        self.assertRegex(text, r"\nOpus 5\.5 +- +40% of 5 +67% of 3\n")
-        self.assertRegex(text, r"\nFable 5\.1 +33% of 3 +- +-\n")
+    def test_json_carries_them(self):
         out = io.StringIO()
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)
         self.assertEqual(json.loads(out.getvalue())["live"]["opus"]["execute"], {"runs": 5, "round_1": 40})
-
 
 if __name__ == "__main__":
     unittest.main()

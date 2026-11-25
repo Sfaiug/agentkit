@@ -51,6 +51,10 @@ class Check4PicksModelsWithBudget(unittest.TestCase):
             patcher = patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        # the pair as marked, as smoke.sh's check 4 picks it, whatever draw the caller's holds
+        patcher = patch.dict("os.environ", {"AK_PICK_DRAW": ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def pair(self, suite, host=None):
         """What the helper prints for this suite snapshot and host cache."""

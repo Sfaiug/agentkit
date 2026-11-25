@@ -20,6 +20,7 @@ fails against `/bin/false`.
 """
 
 import fcntl
+import itertools
 import re
 import sys
 from pathlib import Path
@@ -48,14 +49,15 @@ def lit(screen):
 
 
 def opened(label, line, keys=UNLIT):
-    """Whether a screen is Subscriptions with `label`'s row highlighted, the line under it
-    ending in `line`, and `keys` its key line: by default Enter naming nothing, as `− remove`
-    is lit only by a move."""
+    """Whether a screen is Subscriptions with `label`'s row highlighted, the last line it opens
+    (its acts', under any of its limits) ending in `line`, and `keys` its key line: by default
+    Enter naming nothing, as `− remove` is lit only by a move."""
     def shown(screen):
         drawn = lines(screen)
-        return (drawn[0].startswith(PAGE) and keys in drawn
-                and any(row.startswith(f"› {label} ") and below.endswith(line)
-                        for row, below in zip(drawn, drawn[1:])))
+        at = next((at for at, row in enumerate(drawn) if row.startswith(f"› {label} ")), len(drawn))
+        opens = [*itertools.takewhile(lambda below: below.startswith("    "), drawn[at + 1:])]
+        return (drawn[0].startswith(PAGE) and keys in drawn and bool(opens)
+                and opens[-1].endswith(line))
     return shown
 
 
@@ -79,7 +81,7 @@ class AMeterOpensItsSubscription(unittest.TestCase):
         self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
         self.config = akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
         now = time.time()
-        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}]}
+        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}], "error": None}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "anthropic": week, "openai": {**week, "resets": resets}}})
         self.home.write(".agentkit/state/logins.json", {provider: {"default": {

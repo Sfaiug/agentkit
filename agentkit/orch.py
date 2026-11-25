@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, suite_times, terminal, transitions, update, usage, versions
 from . import record as run_record
-from .harness import LAUNCH_KEYS, LAUNCHER, claims, entries, load as harness_plugin
+from .harness import LAUNCH_KEYS, LAUNCHER, claims, entries, load as harness_plugin, unread
 
 # tmux refuses a client message past 16 KiB, its header included ("command too long"): the most
 # one call's words may hold, with room left for that header
@@ -2150,7 +2150,7 @@ def server_conf():
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
             + "".join(f"set -gq {option} {tmux_word(value)}\n"
-                      for option, value in hook_options().items()) +
+                      for option, value in {**hook_options(), **look_options()}.items()) +
             "set -g allow-passthrough on\n"
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
             f"{tmux_word(small)} {tmux_word(large)}\n")
@@ -2179,6 +2179,26 @@ def hook_options():
             "remain-on-exit-format": WAY_BACK,
             **dict.fromkeys(("client-attached", "client-detached", "client-session-changed"),
                             job("front"))}
+
+
+def look_options():
+    """What tmux itself marks in a seat -- copy mode's selection, a search's matches and its mark,
+    its menu's pick, the pane borders, the clock, the pane numbers -- in the look's colours, in
+    the theme kept as the lines are made (`terminal.colour`'s `tmux`).  The server's defaults, so
+    every window of every seat takes them, one opened by hand or linked in among them, and none
+    is written over; a theme kept since reaches the server at its next load.  A tmux before 3.2
+    has no copy mode's and one before 3.4 no menu's: `-q` keeps that quiet."""
+    kept = terminal.kept()      # once: a theme a menu keeps meanwhile mixes no two in one load
+    text, selection, accent, ink, warning, border = (
+        "#" + terminal.ROLES[role][kept]
+        for role in ("text", "selection", "accent", "on-accent", "warning", "border"))
+    return {"mode-style": f"fg={text},bg={selection}",
+            **dict.fromkeys(("copy-mode-match-style", "menu-selected-style"), f"bg={selection}"),
+            "copy-mode-current-match-style": f"fg={ink},bg={accent}",
+            "copy-mode-mark-style": f"fg={ink},bg={warning}",
+            "pane-active-border-style": f"fg={accent}",
+            **dict.fromkeys(("clock-mode-colour", "display-panes-active-colour"), accent),
+            "pane-border-style": f"fg={border}", "display-panes-colour": border}
 
 
 def set_hook_options():
@@ -2581,7 +2601,10 @@ def seat_harness(record, cfg=None):
     try:
         return config.model(loaded() if cfg is None else cfg,
                             record.get("orchestrator"))["harness"]
-    except config.Error:
+    except config.Error as exc:
+        # its model left the config: its conversations are still on disk, but no harness ak
+        # knows reads them, so inside `strictly` they are unread, never empty
+        unread(ValueError(str(exc)))
         return None
 
 

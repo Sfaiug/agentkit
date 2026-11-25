@@ -51,6 +51,7 @@ KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
+_BACKGROUND = ""   # ... and that answer, "" where it gave none: what a frame up is drawn for
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
@@ -845,7 +846,7 @@ _UNSEEN = False    # the key read last was pressed while it was (`unseen`)
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
 _PAINTED = []
-_POINTED = Spot()  # ... the `Spot` the pointer was on when it was drawn
+_POINTED = Spot()  # ... the `Spot` it was on when its move or click was last answered
 TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
                    # one written over since (`over`); empty, nothing on it is known
@@ -1015,27 +1016,34 @@ class Keyboard:
 def hand_on():
     """What to add to the environment for the program an exec makes of this one to write the frame
     up as it takes the terminal (`_last_frame`): plain bytes, as another version of the code reads
-    them.  A frame not handed on is only an empty screen a moment longer: {} then, and where a
-    resize or a return from ^Z has asked for a draw not yet made, whether read (`read_key`) or not:
-    what is up is not laid out for the size there is.  The size is read first, as a resize after
-    the look is the new program's to find."""
+    them, under what it was drawn for (`_drawn_for`).  A frame not handed on is only an empty
+    screen a moment longer: {} then, and where a resize or a return from ^Z has asked for a draw
+    not yet made, whether read (`read_key`) or not: what is up is not laid out for the size there
+    is.  The size is read first, as a resize after the look is the new program's to find."""
     try:
-        size = f"{width()} {height()}"
+        drawn = _drawn_for()
         if not _UP or select.select([_TAKEN.again[0]], [], [], 0)[0]:
             return {}
-        return warm.cross(FRAME, "\n".join([size, *_PAINTED]).encode())
+        return warm.cross(FRAME, "\n".join([drawn, *_PAINTED]).encode())
     except Exception:
         return {}
+
+
+def _drawn_for():
+    """What a frame up is drawn for: the terminal's size, and its answer (`sense`), which picked
+    the shades its rows are in; so one the release before this handed on, under its size alone,
+    never goes up."""
+    return f"{width()} {height()} {_BACKGROUND}"
 
 
 def _last_frame():
     """The frame the program before this exec left up (`hand_on`), ending its hold: what the
     terminal holds is only known once the first `written` has written every row, in an update of
-    its own.  Written where the size is still the one it was laid out for, else that first frame
+    its own.  Written where the terminal is still the one it was drawn for, else that first frame
     ends the hold; through stdout, which knows a popup's padding."""
     try:
-        size, *rows = (warm.crossed(FRAME) or b"").decode().split("\n")
-        if size == f"{width()} {height()}":
+        drawn, *rows = (warm.crossed(FRAME) or b"").decode().split("\n")
+        if drawn == _drawn_for():
             sys.stdout.write(_differing(enumerate(rows, 1)) + RELEASE)
             sys.stdout.flush()
     except (OSError, ValueError, RuntimeError):
@@ -1054,9 +1062,10 @@ def sense():
     is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
     answers are read here and never as keys: anything typed while they were awaited is kept for
     `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
-    back up in what it found (`_last_frame`), the hold it was given back under hiding the wait.
+    back up where it was drawn for what it found (`_last_frame`), the hold it was given back under
+    hiding the wait.
     """
-    global _RGB, THEME, _KEYED
+    global _RGB, THEME, _BACKGROUND, _KEYED
     features = os.environ.get(FEATURES_ENV)
     if features is None and os.environ.get("TMUX"):
         try:
@@ -1081,6 +1090,7 @@ def sense():
     found = _ANSWER.search(heard)
     rest = heard[:found.start()] + heard[found.end():] if found else heard
     _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
+    _BACKGROUND = found.group(1).decode(errors="replace") if found else ""
     colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
                       found.group(1)) if found else None
     THEME = None
@@ -1136,18 +1146,19 @@ def read_key(timeout=None, wake=None):
     the rest of the click is no click (`Keyboard.give`).
 
     The pointer is answered, `point`, only once it is on another spot of the screen up than it
-    was when that was drawn (`lit`): another row, another cell, or off what it was on; a move
-    within one is read and let go, keeping to `timeout` however long the pointer goes on.  A
-    move is answered once a frame of the clock's (motion.FRAME) is due since the last, and once
-    what was sent after it is read through to where the pointer ended, or a frame after the
-    first of them, whichever is sooner, however soon the read's own time runs out: a flood of
-    moves is one draw, never a draw each.  One that is not due when nothing more is sent is
-    answered by a read after it; a key read past one, next.  Every other key but a click on
-    nothing hands the highlight to the keys, so the pointer lights nothing until it moves
-    again, and Enter or space -- a click on its key-line item too -- while the pointer is on
-    no row (`away`) only brings it back, answered as a draw.
+    was when that was drawn (`lit`): another row, another cell, off what it was on, or off rows
+    a draw since gave a screen that had none (`_off`); a move within one is read and let go,
+    keeping to `timeout` however long the pointer goes on.  A move is answered once a frame of
+    the clock's (motion.FRAME) is due since the last, and once what was sent after it is read
+    through to where the pointer ended, or a frame after the first of them, whichever is
+    sooner, however soon the read's own time runs out: a flood of moves is one draw, never a
+    draw each.  One that is not due when nothing more is sent is answered by a read after it; a
+    key read past one, next.  Every other key but a click on nothing hands the highlight to the
+    keys, so the pointer lights nothing until it moves again, and Enter or space -- a click on
+    its key-line item too -- while the pointer is on no row (`away`) only brings it back,
+    answered as a draw.
     """
-    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN, _UP
+    global _PRESSED, _ASKED, _POINTER, _POINTED, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN, _UP
     key, _NEXT = _NEXT, None
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
@@ -1180,7 +1191,12 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            moved = _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
+            # nothing new only on the spot last answered with the pointer's light drawn there and
+            # away as it was: a draw since may have moved another row under the still pointer,
+            # lighting that row and telling the screen nothing, or given a screen its first row
+            on = under(key, _SPOTS)
+            moved = (_POINTER is None or on[:2] != _POINTED[:2]
+                     or on[:2] != under(_POINTER, _SPOTS)[:2] or _off(on) != _AWAY)
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()
@@ -1203,7 +1219,7 @@ def read_key(timeout=None, wake=None):
         if _POINTER:
             _point(key)
         return key
-    _AWAY, _POINTER = False, key if key.name == "click" and not _UNSEEN else None
+    _AWAY, _POINTER, _POINTED = False, key if key.name == "click" and not _UNSEEN else None, spot
     if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
                     and spot.cell in ("⏎", "enter", "␣", "space")):
         _ASKED = True
@@ -1212,10 +1228,17 @@ def read_key(timeout=None, wake=None):
 
 
 def _point(key):
-    """The pointer at `key`, a move or a click: on no row of a screen that has rows, lines or
-    cells that are rows of their own (`under`), it puts out the highlight (`away`)."""
-    global _POINTER, _AWAY
-    _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
+    """The pointer at `key`, a move or a click: off every row (`_off`), it puts out the
+    highlight (`away`)."""
+    global _POINTER, _AWAY, _POINTED
+    _POINTER, _POINTED = key, under(key, _SPOTS)
+    _AWAY = _off(_POINTED)
+
+
+def _off(spot):
+    """Whether `spot` is on no row of a screen up that has rows, lines or cells that are rows of
+    their own (`under`)."""
+    return spot.what is None and any(
         what is not None or any(own for _, _, _, *own in places)
         for what, places, *_ in _SPOTS.values())
 
@@ -1413,18 +1436,18 @@ def lit(lines, spots):
     cell -- is the pointer moved off it, held for `read_key` to answer, and `show` draws that;
     till then the pointer is on nothing drawn, so no move within one spot lets that one go.
     """
-    global _SPOTS, _POINTED, _SHOWN, _PAINTED, _HELD, _POINTER
+    global _SPOTS, _SHOWN, _PAINTED, _HELD, _POINTER
     on = pointer_spot(_SPOTS).what
     _SHOWN = _PAINTED = lines = list(lines)
-    _SPOTS, _POINTED = spots, pointer_spot(spots)
-    if (_HELD is None and on is not None and _POINTED.what is None
+    _SPOTS, pointed = spots, pointer_spot(spots)
+    if (_HELD is None and on is not None and pointed.what is None
             and spots.get(_POINTER.row, (None,))[0] == on):
         _HELD, _POINTER = (_POINTER._replace(name="point"), time.monotonic()), None
-    if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple)
-            or _CARD and _POINTED.what is not None or not 0 < _POINTER.row <= len(lines)):
+    if (pointed.cell is None or isinstance(pointed.cell, tuple)
+            or _CARD and pointed.what is not None or not 0 < _POINTER.row <= len(lines)):
         return lines
     _PAINTED = [*lines[:_POINTER.row - 1],
-                selected(lines[_POINTER.row - 1], _POINTED.first, _POINTED.last),
+                selected(lines[_POINTER.row - 1], pointed.first, pointed.last),
                 *lines[_POINTER.row:]]
     return _PAINTED
 
@@ -1572,6 +1595,18 @@ def relight(spots=None):
     rows = "".join(f"\033[{row};1H{_cleared(line)}" for row, (line, was) in enumerate(zip(
         lit(_SHOWN, _SPOTS if spots is None else spots), before), 1) if line != was)
     over(f"\0337{rows}\0338" if rows else "")
+
+
+def counting(word, done, total):
+    """How far a job ak counts on the drawing thread has got, `done` of `total`, over the screen
+    up as it was: its header names that screen then the step under way, `config · applying 2
+    of 7` (header_line), and its rule is filled by the share done (rule_line), as an update
+    fills it.  No other row is written, and the next draw writes these two again (`over`).
+    Read a line at a time, nothing is said."""
+    if taken():
+        name = " · ".join(filter(None, (_UP_OF and _UP_OF[0], f"{word} {done + 1} of {total}")))
+        over(f"\0337\033[1;1H{_cleared(header_line(name, time.strftime('%H:%M')))}"
+             f"\033[2;1H{_cleared(rule_line(filled=done / total))}\0338")
 
 
 def _cleared(line):
