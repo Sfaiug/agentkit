@@ -1073,6 +1073,10 @@ def _held(path):
 
 def _held_models(harness, account):
     """Raw valid model rows (`id` str) kept for `account` on `harness`, or []."""
+    if not (isinstance(account, str) and account
+            and not any(bad in account for bad in ("/", "\\", "\0"))
+            and account not in (".", "..")):
+        return []
     rows = _held(_kept(harness) / f"{account}.json").get("models")
     if not isinstance(rows, list):
         return []
@@ -1080,19 +1084,15 @@ def _held_models(harness, account):
             if isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"]]
 
 
-def catalog_held_raw(harness, cfg=None, accounts=()):
-    """Raw live-listed model rows kept for `harness`, in login order (`accounts` first, then
-    configured logins), preserving each login's live label without manifest substitution."""
+def catalog_held_by_login(harness, cfg=None, first=None):
+    """Raw live-listed model rows kept for `harness`, one list per login: `first` (defaulting
+    to DEFAULT_ACCOUNT) first, then any other configured logins (`_logins`), preserving each
+    login's live label without manifest substitution."""
     if not _kept(harness).is_dir():
         return []
-    seen, rows = set(), []
-    for account in (*accounts, *_logins(cfg, harness)):
-        if (isinstance(account, str) and account and account not in seen
-                and not any(bad in account for bad in ("/", "\\", "\0"))
-                and account not in (".", "..")):
-            seen.add(account)
-            rows.extend(_held_models(harness, account))
-    return rows
+    own = first if isinstance(first, str) and first else DEFAULT_ACCOUNT
+    accounts = [own, *(account for account in _logins(cfg, harness) if account != own)]
+    return [_held_models(harness, account) for account in accounts]
 
 
 def catalog_held(harness, cfg=None):

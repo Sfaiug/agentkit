@@ -115,6 +115,7 @@ class AntigravityStatusLine(Sandbox):
              "efforts": ["none"]},
         ]}))
         (config.STATE / "listings/antigravity/acme.json").write_text(json.dumps({"models": [
+            {"id": "acme-flash", "label": "Gemini 3.8 Flash (High)", "efforts": ["none"]},
             {"id": "gemini-3.6-flash", "label": "Gemini 3.6 Flash",
              "efforts": ["low", "medium", "high"]},
         ]}))
@@ -124,6 +125,7 @@ class AntigravityStatusLine(Sandbox):
                 ({}, "Claude Sonnet 5.5 (High)", "claude-sonnet-5-5", "high"),
                 ({}, "Gemini 4 Argon (Low)", "gemini-4-argon", "low"),
                 ({}, "Gemini 3.8 Flash (High)", "gemini-3.8-flash", "high"),
+                ({"account": "default"}, "Gemini 3.8 Flash (High)", "gemini-3.8-flash", "high"),
                 ({}, "Gemini 3.7 Flash (High)", "gemini-3.7-flash", "high"),
                 ({}, "Claude Sonnet 4.6 (Thinking)", "claude-sonnet-4-6", None),
                 ({"account": "acme"}, "Gemini 3.6 Flash (Medium)", "gemini-3.6-flash", "medium")):

@@ -93,12 +93,15 @@ class AntigravityLiveLabelFollowed(unittest.TestCase):
         # A live-listed no-effort model whose own label ends in brackets resolves as-is.
         render("Claude Sonnet 4.6 (Thinking)")
         wait_for("sonnet", "none")
-        # A shipped-catalog model resolves beside an incomplete cache row, and is not
-        # redirected by another live ID whose label only matches after normalization.
+        # A shipped-catalog model resolves beside an incomplete cache row, is not redirected
+        # by another live ID whose label only matches after normalization, and still follows
+        # an effort change when absent from the held catalog.
         render("Gemini 4 Argon (Low)", "low")
         wait_for("argon", "low")
         render("Gemini 3.8 Flash (High)", "high")
         wait_for("gemini", "high")
+        render("Gemini 3.8 Flash (Low)", "low")
+        wait_for("gemini", "low")
         self.assertEqual(akconfig.read(home)["models"], before_models)
 
 

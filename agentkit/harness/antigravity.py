@@ -284,10 +284,11 @@ def _fold(model):
 
 def _resolve_label(record, said):
     """The model id for a resolved status-line label, else the label stripped of its bracketed
-    effort.  Exact raw labels from the seat's and configured logins' held listings win first
-    (preserving live renames a manifest label would shadow, and bracketed no-effort labels like
-    `Claude Sonnet 4.6 (Thinking)`), then the shipped `[catalog]` table, then normalized held
-    labels so an unrelated live row cannot redirect a shipped model."""
+    effort.  The seat's own login's exact raw label wins first (preserving live renames a
+    manifest label would shadow and bracketed no-effort labels like `Claude Sonnet 4.6
+    (Thinking)`), then the shipped `[catalog]` table, then other configured logins' exact raw
+    labels, then normalized held labels -- so neither another login nor a normalized live row
+    can redirect the seat's own or shipped model."""
     label = re.sub(r" \([^()]*\)$", "", said)
     candidates = (said, label) if label != said else (label,)
     try:
@@ -295,24 +296,33 @@ def _resolve_label(record, said):
     except (config.Error, OSError):
         cfg = None
     own = record.get("account") if isinstance(record, dict) else None
-    held = config.catalog_held_raw("antigravity", cfg, (own,) if own else ())
-    for candidate in candidates:
-        match = next((row["id"] for row in held if row.get("label") == candidate), None)
-        if match is not None:
-            return match
-    shipped = config.catalog_table("antigravity")
-    for rows, label_of in (
-            (shipped, lambda row: row["label"]),
-            (held, lambda row: (row["label"]
-                                if isinstance(row.get("label"), str) and row["label"]
-                                else row["id"]))):
+    groups = config.catalog_held_by_login("antigravity", cfg, own)
+    own_rows, other_groups = (groups[0], groups[1:]) if groups else ([], [])
+
+    def exact(rows):
+        for candidate in candidates:
+            match = next((row["id"] for row in rows if row.get("label") == candidate), None)
+            if match is not None:
+                return match
+        return None
+
+    def normalized(rows, label_of):
         for candidate in candidates:
             named = config.model_label("antigravity", "", candidate)
             match = next((row["id"] for row in rows
                           if config.model_label("antigravity", "", label_of(row)) == named), None)
             if match is not None:
                 return match
-    return label
+        return None
+
+    def raw_label(row):
+        return row["label"] if isinstance(row.get("label"), str) and row["label"] else row["id"]
+
+    return (exact(own_rows)
+            or normalized(config.catalog_table("antigravity"), lambda row: row["label"])
+            or next((found for rows in other_groups if (found := exact(rows))), None)
+            or next((found for rows in groups if (found := normalized(rows, raw_label))), None)
+            or label)
 
 
 def running(record, cwd, conversation):
