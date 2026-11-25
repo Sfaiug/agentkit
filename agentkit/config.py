@@ -2700,7 +2700,7 @@ def seat_rulebook(session, repo=None):
             # its default branch's commit, once: a fetch between reading its numbers and its text
             # off the moving ref would pair one revision's numbers with another's rules
             commit = repo and gitcall.git(repo, "rev-parse", "--verify", "--quiet", RULES_REF,
-                                          check=False)
+                                          check=False, env=gitcall.project_env(repo))
         except Exception:     # a git that never answers: the host's numbers, as `policy` gives
             commit = None
         numbers = seat_numbers(seat, policy(repo, commit) if commit else said_policy())
