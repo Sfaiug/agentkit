@@ -248,6 +248,8 @@ class AnswerClosesQuestion(Sandbox):
                     waits.callback(os.close, os.open(held, os.O_RDWR))
                     self.hook("Stop", script=script, agent_id=None,
                               env={"LOOK_HELD": str(held)}, **payload)
+                    # the stop hook's judge, which it waited on, ended there too
+                    self.looks[-1].unlink(missing_ok=True)
                 self.assertEqual(self.looks[-1].read_text(), "0\n")
 
     def test_prompt_never_waits_for_the_notice_lock_and_the_answer_lands_after_release(self):
