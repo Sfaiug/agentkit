@@ -69,18 +69,19 @@ class FailedPassesPageOnceFailingOnEnd(unittest.TestCase):
 
     def test_a_pass_that_ended_well_begins_the_count_again(self):
         self.failed(25)
-        self.ended_well(40)
         self.failed(45)
-        self.failed(64)
-        self.assertEqual(self.sink.pages(), [])
-        self.failed(65)
-        page, = self.sink.pages()
+        self.ended_well(50)
+        self.failed(55)
+        self.failed(74)
+        self.assertEqual(len(self.sink.pages()), 1)
+        self.failed(75)
+        _, page = self.sink.pages()
         self.assertRegex(page, minutes(25))
 
     def test_a_count_cut_short_begins_anew(self):
         unpaged, _ = self.failed(25)
         failing = self.here.path / FAILING
-        failing.write_text(failing.read_text().splitlines()[0] + "\n")
+        failing.write_bytes(failing.read_bytes()[:-2])     # in its boot, which still reads as one
         anew, _ = self.failed(45)
         self.assertEqual((anew.out, anew.err), (unpaged.out, unpaged.err))
         self.failed(64)

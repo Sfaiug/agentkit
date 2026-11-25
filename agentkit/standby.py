@@ -375,16 +375,7 @@ def _keep(host, line, takes):
     folder = config.TMP / COPIES
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        # a name no host name is, as none begins with a dot, so no listing shows one
-        handle, new = tempfile.mkstemp(dir=folder, prefix=".")
-        try:
-            with open(handle, "w") as record:
-                record.write(f"{line}\n{takes}\n")
-            os.replace(new, folder / host)
-        except OSError:
-            with contextlib.suppress(OSError):  # a folder no longer writable keeps it, unlisted
-                os.unlink(new)
-            raise
+        _stamp(folder / host, line, takes)
     except OSError as error:
         print(f"ak standby: the record of {host} could not be written: {error.strerror}",
               file=sys.stderr)
@@ -513,10 +504,18 @@ def tell():
 
 
 def _stamp(path, *lines):
-    """`lines` at `path`, whole or not at all: a write cut short leaves the last."""
-    new = path.with_name(f"{path.name}.new")
-    new.write_bytes("".join(f"{line}\n" for line in lines).encode())
-    new.replace(path)
+    """`lines` at `path`, whole or not at all: a write cut short leaves the last.  Through a file
+    made new, as one already at a fixed name, a named pipe, would hold the write up."""
+    # a name no host name is, as none begins with a dot, so no listing of records shows one
+    handle, new = tempfile.mkstemp(dir=path.parent, prefix=".")
+    try:
+        with open(handle, "wb") as file:
+            file.write("".join(f"{line}\n" for line in lines).encode())
+        os.replace(new, path)
+    except OSError:
+        with contextlib.suppress(OSError):  # a folder no longer writable keeps it, unlisted
+            os.unlink(new)
+        raise
 
 
 def _last():
@@ -548,9 +547,11 @@ def _failing(stamp):
     where what is kept names another stamp, is cut short or cannot be read.  One that cannot be
     kept begins the count at every pass, which pages nobody early and fails none."""
     path = config.TMP / FOLDER / FAILING
-    with contextlib.suppress(OSError, ValueError):  # ValueError: not two lines of text
-        named, first = config.read_regular(path, MOST).decode().splitlines()
-        if named == stamp.line() and (first := pair_clock.read(first)):
+    with contextlib.suppress(OSError, ValueError):  # ValueError: not two whole lines of text
+        held = config.read_regular(path, MOST + 1)
+        # each line whole, as a line cut short may still read as a stamp, of another boot
+        named, first, end = held.decode().split("\n") if len(held) <= MOST else ()
+        if (named, end) == (stamp.line(), "") and (first := pair_clock.read(first)):
             return first
     first = pair_clock.now()
     with contextlib.suppress(OSError):
