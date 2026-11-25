@@ -32,7 +32,8 @@ meanwhile may have made this machine a home, and asks whether ak's lease is this
 (`lease.ours`).  Where it is, the remote has said this machine is the home, whose state a copy of
 the old one would overwrite: the pass copies nothing and runs `install.sh --server`, exiting what
 the install exited, whose record of a server says whether this machine is a home after it, and
-where it exited 0 tells the owner (`_took_over`).  Else it watches its home's lease
+where it exited 0 tells the owner (`_took_over`).  Else it ends the seats open here (`_close`),
+then watches its home's lease
 (`lease.watch`), whose record is the lease's, kept whatever the pass does.  It may take the lease
 only where the stamp, read before it, says a pass from this home ended well less than GONE ago, by
 the clock calling it older: the machine that takes it carries on from its copy, and one holding
@@ -78,8 +79,8 @@ import sys
 import tempfile
 import time
 
-from . import (command_help, config, lease, machine_turn, move, notify, pair_clock, record,
-               terminal, update, versions)
+from . import (command_help, config, lease, machine_turn, move, notify, orch, pair_clock,
+               record, terminal, update, versions)
 
 # This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
 # a client of, its ak install and whether its install.sh is owed, the pages it sent and owes
@@ -607,6 +608,22 @@ def _shown():
     return 0
 
 
+def _close():
+    """End each session ak's own tmux server holds under a seat's mark (`orch.MARK`), by its id,
+    all in one tmux call.  A client's seats are on its home, and one open here the tick of this
+    machine, once it is the home, would take for a seat that needs no resuming
+    (`watch.resume_after_boot`).  Only the mark is asked: a session's name a record copied from
+    the home may share.  A pass run inside such a session ends with it, as any command does whose
+    terminal closes, and this machine's job makes the next."""
+    _, out = orch.tmux_out("list-sessions", "-F", f"#{{session_id}} #{{{orch.MARK}}}")
+    ids = [sid for sid, _, mark in (line.partition(" ") for line in out.splitlines())
+           if mark == "1" and re.fullmatch(r"\$[0-9]+", sid)]
+    # A file of commands on stdin, as `orch.tagged` asks: no size caps it, and each line is a
+    # list of its own, so a session gone since stops no other's end.
+    if ids:
+        orch.tmux_out("source-file", "-", input="".join(f"kill-session -t '{i}'\n" for i in ids))
+
+
 def _elsewhere(alias):
     """Why a pass from `alias` is refused by the record of a server: one reason, or none where the
     record names `alias`."""
@@ -683,6 +700,7 @@ def main(argv):
                 return code
             _took_over(alias, taken)
             return 0
+        _close()
         # Only from a copy under GONE old by the clock calling it older: an older one would carry
         # ak on from a state its home has moved past, then be copied over the home's own once it
         # is back.
