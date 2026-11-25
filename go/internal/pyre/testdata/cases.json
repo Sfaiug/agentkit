@@ -2617,8 +2617,8 @@
   },
   {
    "harness": "claude",
-   "key": "scrolled",
-   "pattern": "^─{3,} ↑ \\d+ more ─+(?: .+ ─+)?$",
+   "key": "scrolled_top",
+   "pattern": "─{3,} ↑ \\d+ more ─+(?: .+ ─+)?",
    "flags": "",
    "matches": []
   },
