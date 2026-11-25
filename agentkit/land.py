@@ -745,9 +745,12 @@ def check_line(turn, log=lambda _: None):
                 target = tip, run.git(repo, "rev-parse", f"{tip}^{{tree}}")
                 # Changes of looks alone go behind the deliveries, ahead of every member
                 # waiting for its verdict: each gets its own (`_looks`) before any suite starts.
+                # A run whose PASS took no review ran none of the tests a reviewer's PASS runs
+                # (`roundloop.chosen_tests`), so it lands through the whole suite instead.
                 ready = {saved["review"]["head_sha"]: member for member, saved in members[index:]
                          if saved.get("state") == "waiting" and not record.process_active(saved)
                          and (saved.get("review") or {}).get("verdict") == "PASS"
+                         and not saved["review"].get("no_review")
                          and not {"land", "fix"} & saved["waiting_on"].keys()}
                 # a head from a clone of its own is fetched as it is asked about: only on a
                 # target that lets any change of looks alone through
