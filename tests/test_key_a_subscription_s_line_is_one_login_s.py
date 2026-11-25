@@ -37,7 +37,9 @@ while True:
 ENDING = (("login first@acme.test ends", " · pro ", "→ log in again", "− remove"),
           ("second", "max"))
 LASTING = ("second@acme.test · max 5x ", "− remove"), ("first", "ends", "pro", "log in again")
-ROW = re.compile(r"\x1b\[\d+;\d+H|\x1b\[[JK]|\x1b\[\?2026[hl]|\n")     # where a row is written
+# each draw is one synchronized update; the pipe can begin or end part way through one
+UPDATE = re.compile(r"\x1b\[\?2026h(.*?)\x1b\[\?2026l", re.S)
+ROW = re.compile(r"\x1b\[\d+;\d+H|\x1b\[[JK]|\n")     # where a row of one is written
 SGR = re.compile(r"\x1b\[[\d;]*m")
 DRAWS = 40
 
@@ -69,16 +71,19 @@ class OneLoginsLine(unittest.TestCase):
         self.term.keys("Enter")
         self.term.wait("login first@acme.test ends")
         self.raw = self.home.root / "raw"
-        piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane,
-                               f"cat >>{shlex.quote(str(self.raw))}", server=SERVER)
+        # the path quoted for sh, then for tmux, which reads `%` as strftime and `#` as a format
+        named = shlex.quote(str(self.raw)).replace("%", "%%").replace("#", "##")
+        piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane, f"cat >>{named}",
+                               server=SERVER)
         self.assertEqual(piped.code, 0, piped.err)
 
     def lines(self):
-        """Each opened line written since the pipe began, as written: of each draw's update
-        whole, the pipe handing one over part by part."""
+        """Each opened line written since the pipe began, as written, of the updates it holds
+        whole."""
         out = SGR.sub("", self.raw.read_bytes().decode("utf-8", "replace")
-                      if self.raw.exists() else "").rpartition("\x1b[?2026l")[0]
-        return [row for row in ROW.split(out) if "@acme.test" in row]
+                      if self.raw.exists() else "")
+        return [row for update in UPDATE.findall(out) for row in ROW.split(update)
+                if "@acme.test" in row]
 
     def test_each_line_written_is_one_login_s(self):
         swap = subprocess.Popen([sys.executable, "-c", SWAP, str(self.path),
