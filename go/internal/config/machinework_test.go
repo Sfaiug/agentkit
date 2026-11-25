@@ -20,6 +20,10 @@ func TestAMachineTakesSuitesAsPythonReadsItsMarks(t *testing.T) {
 		{"[machines.acme]\nwork = ['turns']\n", false},
 		{"[machines.acme]\n[machines.beta]\nwork = ['builds']\n", false},
 		{"[machines.acme]\n[google_cloud]\nwork = 'tests'\n", false},
+		{"[machines.acme]\nmax_runs = 2\n", true},
+		{"[machines.acme]\nmax_runs = 9223372036854775808\n", true},
+		{"[machines.acme]\nmax_runs = 0\n", false},
+		{"[machines.acme]\n[machines.beta]\nmax_runs = true\n", false},
 	} {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
@@ -32,5 +36,20 @@ func TestAMachineTakesSuitesAsPythonReadsItsMarks(t *testing.T) {
 		if work, known := MachineWork("acme"); (known && slices.Contains(work, "tests")) != each.want {
 			t.Errorf("%q: work %v (known %v), want suites %v", each.toml, work, known, each.want)
 		}
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".agentkit"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"),
+		[]byte("[machines.acme]\nmax_runs = 9223372036854775808\n[machines.other]\n"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if cap, ok := MachineMaxRuns("acme"); !ok || cap != "9223372036854775808" {
+		t.Errorf("MachineMaxRuns(acme) = %q, %v", cap, ok)
+	}
+	if cap, ok := MachineMaxRuns("other"); !ok || cap != "" {
+		t.Errorf("MachineMaxRuns(other) = %q, %v", cap, ok)
 	}
 }

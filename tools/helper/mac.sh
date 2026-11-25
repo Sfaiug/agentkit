@@ -26,7 +26,7 @@ darwin() {
     rm -f "$ROOT/$1/cap"
     if [ -n "${3:-}" ]; then
       held=$(turns) || exit 253
-      [ "$(printf '%s\n' "$held" | awk 'NF {n++} END {print n + 0}')" -lt "$3" ] || exit 252
+      printf '%s\n' "$held" | under_cap "$3" || exit 252
       mkdir -p "$ROOT/$1" && echo "$3" >"$ROOT/$1/cap" || exit 253
     fi
   }
@@ -120,6 +120,15 @@ locked() { lock "$1" bash -c "$(declare -f)"'
 # held FLAG PID, under a lock: says it holds the lock by deleting FLAG, then keeps it until FLAG
 # is back or PID has ended.
 held() { rm "$1"; until [ -e "$1" ] || ! kill -0 "$2"; do sleep 0.1; done; rm -f "$1"; }
+# under_cap CAP: stdin lists active turn keys, one per line; exits 0 while fewer than CAP distinct
+# keys are listed, else 252. Compares decimal digits as text so any TOML integer works.
+under_cap() {
+  awk -v cap="$1" 'NF && !seen[$0]++ {n++} END {
+    n = sprintf("%.0f", n + 0)
+    sub(/^0+/, "", cap)
+    exit !(length(n) < length(cap) || (length(n) == length(cap) && "a" n < "a" cap))
+  }' || exit 252
+}
 # admitted START ARGS..., from `run` and `turn`: START ARGS, container $name, once $memory MiB fit
 # and, for a capped turn, fewer than $cap turns run here.
 admitted() {
@@ -136,7 +145,7 @@ admitted() {
   [ "$memory" -le "$room" ] || exit 252
   if [ -n "${cap:-}" ]; then
     running_turns=$(turns) || exit 253
-    [ "$(printf '%s\n' "$running_turns" | awk 'NF {n++} END {print n + 0}')" -lt "$cap" ] || exit 252
+    printf '%s\n' "$running_turns" | under_cap "$cap" || exit 252
   fi
   "$@" &
   vm=$!
@@ -257,8 +266,7 @@ prepare)   # KEY IMAGE REPO [CPUS a turn holds [CAP]], the parcel on stdin
   mkdir -p "$MIRRORS" && locked "$M.lock" git init -q --bare "$M" || exit 253
   locked "$ROOT/build.lock" images "$2" "$3" || exit
   building "$2" "$3" || exit
-  locked "$M.lock" history "$2" "$M" || exit
-  [ ! -f "$ROOT/$2/reserved" ] || touch "$ROOT/$2/reserved" ;;
+  locked "$M.lock" history "$2" "$M" ;;
 run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   D="$ROOT/$2" image=$3 name=$4 cpus=$5 memory=$6 M="$MIRRORS/$7" cap=
   shift 7

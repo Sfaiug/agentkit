@@ -53,7 +53,7 @@ linux() {
     rm -f "$ROOT/$1/reserved" "$ROOT/$1/cap"    # a suite preparing again (exit 3) is weighed without its own
     if [ -n "${3:-}" ]; then
       held=$(turns) || exit 253
-      count=$({
+      {
         printf '%s\n' "$held"
         find "$ROOT" -mindepth 2 -maxdepth 2 -name reserved -mmin -2 2>/dev/null |
           while IFS= read -r path; do
@@ -64,8 +64,7 @@ linux() {
           dir=${path%/*}
           [ -f "$dir/cap" ] && ! flock -n "$path" true && printf '%s\n' "${dir##*/}"
         done
-      } | awk 'NF && !seen[$0]++ {n++} END {print n + 0}')
-      [ "$count" -lt "$3" ] || exit 252
+      } | under_cap "$3" || exit 252
     fi
     spare=$(spare) || exit 253
     awk -v cpus="$(cpus)" -v spare="$spare" -v turn="${2:-}" \
