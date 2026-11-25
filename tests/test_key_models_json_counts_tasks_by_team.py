@@ -88,10 +88,11 @@ def history(home, runs, reviews):
     connection.close()
 
 
-def team(executor_effort, tasks, first_run, live, runs, first_pass, reviews, issues=0):
+def team(executor_effort, tasks, first_run, live, runs, first_pass, reviews, issues=0,
+         reviewer_effort="medium"):
     return {"orchestrator": {"name": "nova", "effort": "high"},
             "executor": {"name": "bolt", "effort": executor_effort},
-            "reviewer": {"name": "crux", "effort": "medium"},
+            "reviewer": {"name": "crux", "effort": reviewer_effort},
             "tasks": tasks, "first_run": first_run, "live": live,
             "first_pass": first_pass, "reviews": reviews, "issues": issues,
             "hours": {"build": runs, "review": runs / 2, "checks": runs / 4, "waiting": runs}}
@@ -121,15 +122,17 @@ class ModelsJsonCountsTasksByTeam(unittest.TestCase):
         runs = [
             run("fix-api", 5),
             run("fix-docs", 4),
+            run("fix-legacy", 3.5),
             run("write-cache", 3, executor_effort="low", **FAILED),
             run("finish-cache", 2, change="write-cache", executor="crux"),
             run("fix-api-again", 1, kind="follow-up"),
         ]
         reviews = [
-            ("fix-api", None, "high", "FAIL", 5),          # no round: counts nothing
             ("fix-api", 1, "medium", "PASS", 0),           # first review passed
             ("fix-docs", 1, "medium", "FAIL", 2),          # first failed, second passed; text
             ("fix-docs", 2, "high", "PASS", "two"),        # blocking counts no issues
+            ("fix-legacy", None, None, "FAIL", 5),         # no round: counts nothing, keeps
+            ("fix-legacy", 1, "high", "PASS", 0),          # unrecorded reviewer effort
             ("write-cache", 1, "medium", "FAIL", 3),       # relaunch's reviews join its team
             ("finish-cache", 1, "high", "FAIL", 1),
             ("finish-cache", 2, "high", "PASS", 0),
@@ -138,7 +141,9 @@ class ModelsJsonCountsTasksByTeam(unittest.TestCase):
         done = counted(runs, reviews)
         self.assertEqual(done.code, 0, done.err)
         self.assertCountEqual(json.loads(done.out)["runs"]["teams"], [
-            team("max", 2, 2, 2, 2.0, 1, 3, 2), team("low", 1, 0, 1, 2.0, 0, 3, 4)])
+            team("max", 2, 2, 2, 2.0, 1, 3, 2),
+            team("max", 1, 1, 1, 1.0, 1, 1, 0, reviewer_effort=None),
+            team("low", 1, 0, 1, 2.0, 0, 3, 4)])
 
 
 if __name__ == "__main__":

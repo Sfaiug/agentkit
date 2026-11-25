@@ -1013,8 +1013,8 @@ def reviewed_runs(harness, model):
 
 
 def reviews():
-    """{run_id: [dict(row), ...]}: every `reviews` row, in the order written; {} where the
-    database cannot answer."""
+    """{run_id: [dict(row), ...]}: every `reviews` row, by round then in the order written; {}
+    where the database cannot answer."""
     _ensure_migrated()      # a reviews table from before rounds and efforts has neither column
     try:
         with _LOCK:
@@ -1022,7 +1022,7 @@ def reviews():
             connection.row_factory = sqlite3.Row
             try:
                 by_run = {}
-                for row in connection.execute("SELECT * FROM reviews ORDER BY rowid"):
+                for row in connection.execute("SELECT * FROM reviews ORDER BY round, rowid"):
                     by_run.setdefault(row["run_id"], []).append(dict(row))
                 return by_run
             finally:

@@ -58,18 +58,19 @@ def counted():
         if start is None or not since <= (runs[start]["finished_at"] or 0) <= until:
             continue
         task = runs[start:]
+        first_reviews = reviewed.get(task[0]["run_id"], ())
         by_run = [[row for row in reviewed.get(run["run_id"], ()) if _whole(row.get("round"), 1)]
                   for run in task]
-        first_review = min(by_run[0], key=lambda row: row["round"], default=None)
-        first = {**task[0], "reviewer_effort": first_review and first_review.get("effort")}
+        first = {**task[0], "reviewer_effort": first_reviews[0].get("effort")
+                 if first_reviews else None}
         roles = {role: {"name": first.get(role), "effort": first.get(f"{role}_effort")}
                  for role in ROLES}
         team = teams.setdefault(repr(roles), {
             **roles, "tasks": 0, "first_run": 0, "live": 0, "first_pass": 0, "reviews": 0,
             "issues": 0, "hours": dict.fromkeys(HOURS, 0)})
         team["first_run"] += history.merged(task[0])
-        team["first_pass"] += bool(first_review and first_review["round"] == 1
-                                   and first_review.get("verdict") == "PASS")
+        team["first_pass"] += bool(by_run[0] and by_run[0][0]["round"] == 1
+                                   and by_run[0][0].get("verdict") == "PASS")
         team["reviews"] += sum(map(len, by_run))
         team["issues"] += sum(row["blocking"] for rows in by_run for row in rows
                               if _whole(row.get("blocking")))
