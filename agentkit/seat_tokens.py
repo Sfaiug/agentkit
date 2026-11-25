@@ -12,7 +12,9 @@ from . import config, harness, history
 # A usage row's account is the login of the seat that owned its conversation when the tick read
 # it; its model and counts by type are NULL where its harness does not tell them; its listed_usd
 # is what its counts cost at listed prices as it was written, as a turn's row's
-# (`history.TURN_USAGE_SCHEMA`); its orchestrator and effort are `orchestrating`'s.
+# (`history.TURN_USAGE_SCHEMA`); its orchestrator and effort are `orchestrating`'s.  A turn row
+# is a seat's turn as its harness timed it, at the moment it ended, its event, repo, account,
+# orchestrator and effort as a usage row read from that file in that tick holds them.
 TABLES = {
     "seat_sources": ("path TEXT PRIMARY KEY", "harness TEXT", "repo TEXT", "cursor TEXT",
                      "account TEXT"),
@@ -20,6 +22,8 @@ TABLES = {
                    "account TEXT", "model TEXT", "input INTEGER", "cache_write INTEGER",
                    "cache_read INTEGER", "output INTEGER", "listed_usd REAL", "orchestrator TEXT",
                    "effort TEXT"),
+    "seat_turns": ("event TEXT PRIMARY KEY", "repo TEXT", "at REAL", "seconds REAL",
+                   "account TEXT", "orchestrator TEXT", "effort TEXT"),
 }
 
 
@@ -99,8 +103,25 @@ def read(since, until):
                         if not line.endswith(b"\n"):
                             break       # the harness may still be writing this line
                         start, offset = offset, stream.tell()
+                        place = f"{source}:{start}"
                         try:
-                            usage = plugin.seat_token_usage(json.loads(line), cursor)
+                            entry = json.loads(line)
+                        except ValueError:
+                            continue
+                        try:
+                            at, key, seconds = plugin.seat_turn(entry) or (None,) * 3
+                            if (at := harness.moment(at)) is not None:
+                                # As first filed: a file read again from its start changes no
+                                # turn.  One SQLite cannot hold, a lone surrogate or a moment past
+                                # a float, raises before it writes, and the lines after it go on.
+                                db.execute("INSERT OR IGNORE INTO seat_turns VALUES "
+                                           "(?, ?, ?, ?, ?, ?, ?)",
+                                           (f"{adapter}:{key or place}", repo, float(at), seconds,
+                                            account, orchestrator, effort))
+                        except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+                            pass
+                        try:
+                            usage = plugin.seat_token_usage(entry, cursor)
                             if usage is None:
                                 continue
                             at, key, tokens, model, counts = usage
@@ -109,7 +130,7 @@ def read(since, until):
                                 continue
                         except (ValueError, TypeError, KeyError, AttributeError):
                             continue
-                        event = f"{adapter}:{key or f'{source}:{start}'}"
+                        event = f"{adapter}:{key or place}"
                         counts = counts or [None] * 4
                         # A repeat counting more replaces all its line set, so the counts,
                         # model, login, dollars and orchestrating stay those of the line that
