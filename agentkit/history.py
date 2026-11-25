@@ -286,6 +286,8 @@ READINGS_KEPT_FOR = 35 * 86400     # five weeks, of meters and of machines (read
 # the counts cost at the prices the stored boards listed for the model as they were written
 # (`_listed_usd`), NULL where they listed none or on a row from before it: a board drops a
 # model once its maker ships the next, and spend prices a row from the boards only without it.
+# `machine` is where the turn ran, as its kept readings name it (`readings.py`: this host's own
+# name or the listed machine name), NULL on a row from before it.
 TURN_USAGE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS turn_usage (
     turn TEXT,
@@ -301,7 +303,12 @@ CREATE TABLE IF NOT EXISTS turn_usage (
     output INTEGER
 )
 """
-TURN_USAGE_MIGRATIONS = (("listed_usd", "REAL"),)
+TURN_USAGE_MIGRATIONS = (("listed_usd", "REAL"), ("machine", "TEXT"))
+# In a run's directory: a folder holding one JSON line per turn launch (`log.jsonl`), naming the
+# turn's path inside its run directory and the machine it launched on.  Stored outside `out_dir`
+# in a folder `box.command` masks empty and read-only, so an adapter cannot collide with, corrupt
+# or spoof it even in a `--no-worktree` HOME checkout.
+TURN_MACHINES = "turn-machines"
 
 
 def path():
@@ -847,8 +854,8 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
                 # kept at once, so a later turn of the same session among `paths` sees them
                 connection.executemany(
                     "INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, "
-                    "input, cache_write, cache_read, output, listed_usd) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "input, cache_write, cache_read, output, listed_usd, machine) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     [(turn, run_id, role, *usage) for usage in usages])
     if not values:
         return
@@ -860,9 +867,9 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
 
 
 def _turn_usage(connection, plugin, run_id, out, priced):
-    """(account, model, began, at, input, cache write, cache read, output, listed usd) for each
-    model the turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them, `priced`
-    (`_listed_usd`) giving the last.
+    """(account, model, began, at, input, cache write, cache read, output, listed usd, machine)
+    for each model the turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them, `priced`
+    (`_listed_usd`) giving `listed_usd`.
 
     It began when its `harness` receipt was written and ended at its last event.  What a
     session's total exceeds is measured against the rows kept for the session's turns that began
@@ -904,9 +911,61 @@ def _turn_usage(connection, plugin, run_id, out, priced):
         account = (out / "account").read_text()
     except OSError:
         account = None
+    machine = _turn_machine(run_id, out)
     at = _moment(out / "events.jsonl")
-    return [(account, model, began, at, *numbers, priced(model, numbers))
+    return [(account, model, began, at, *numbers, priced(model, numbers), machine)
             for model, numbers in counts.items()]
+
+
+def _turn_key(run_dir, out_dir):
+    """`out_dir` relative to `run_dir` (POSIX), else its resolved path: survives a copy of
+    `.agentkit` onto different backing storage."""
+    resolved = Path(out_dir).resolve()
+    try:
+        return resolved.relative_to(Path(run_dir).resolve()).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
+def note_turn_machine(run_dir, out_dir, machine=None):
+    """Record which machine `out_dir` is launching on in `run_dir`'s `TURN_MACHINES` folder,
+    returning that folder path (or None on error) so `box.command` can hide it read-only.
+    `machine` is the listed name on another machine, else this host's own name (`readings.py`).
+    Appended per launch so a turn turned away by a machine records this host when it runs here,
+    and a killed turn keeps its own."""
+    try:
+        who = (machine or "").strip() or socket.gethostname()
+    except OSError:
+        who = None
+    folder = Path(run_dir) / TURN_MACHINES
+    line = ("\n" + json.dumps({"turn": _turn_key(run_dir, out_dir), "machine": who}) + "\n").encode()
+    with contextlib.suppress(OSError):
+        folder.mkdir(mode=0o700, exist_ok=True)
+        fd = os.open(folder / "log.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
+        return folder
+    return None
+
+
+def _turn_machine(run_id, out):
+    """The last machine recorded for `out` in its run's directory, or None."""
+    run_dir = config.RUNS / str(run_id)
+    want = _turn_key(run_dir, out)
+    found = None
+    with contextlib.suppress(OSError):
+        with (run_dir / TURN_MACHINES / "log.jsonl").open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict) and row.get("turn") == want:
+                    value = row.get("machine")
+                    found = value if isinstance(value, str) and value else None
+    return found
 
 
 def _listed_usd():

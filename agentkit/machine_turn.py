@@ -73,11 +73,12 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     it (`_program`), a checkout where a rebase, merge or cherry-pick stopped (`_stopped`), no login
     to lend, no recipe, no room there, a harness with no `sessions`, or a `session` to resume that
     this host does not hold, as here is where a later resume would look for it too.
-    `watch(argv, **kwargs)` runs ssh as the worker's watchdog runs a turn, into the out dir's
-    events.jsonl and stderr.log, its silence held while a command in the turn's container is
-    inside its declared timeout. A lost machine's turn fails, this host's files as they were, and
-    leaves `session`, the conversation it was given: the id it streamed names one that is nowhere.
-    One whose results came home leaves the conversation it reported, whatever its exit."""
+    `watch(argv, **kwargs)` runs ssh as the worker's watchdog runs a turn, handed
+    `machine=away.alias`, into the out dir's events.jsonl and stderr.log, its silence held while a
+    command in the turn's container is inside its declared timeout. A lost machine's turn fails,
+    this host's files as they were, and leaves `session`, the conversation it was given: the id it
+    streamed names one that is nowhere. One whose results came home leaves the conversation it
+    reported, whatever its exit."""
     harness = entry["harness"]
     try:
         on = any("turns" in machines.work(name) for name in [None, *machines.helpers()])
@@ -114,7 +115,8 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
             code, _, killed = watch(helper._remote(
                 away.alias, "turn", away.key, away.image, away.memory_mb, away.repo, *volumes,
                 "--", cwd, config.REPO, away.branch, away.default, *cmd),
-                declared=_declared(away), stdin=renewals, stdout=events, stderr=err)
+                declared=_declared(away), stdin=renewals, stdout=events, stderr=err,
+                machine=away.alias)
         if code == helper.FULL:    # its room went to another before it started: it runs here
             return None
         if not killed:    # the turn's own exit and conversation come home with its results
