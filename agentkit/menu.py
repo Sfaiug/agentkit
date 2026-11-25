@@ -2667,7 +2667,10 @@ def in_hand(prov):
     reading names their kinds it says them in its order: `1 weekly, 3 Fable resets in hand`."""
     held = int(usage._number(prov.get("resets")) or 0)
     kinds = ", ".join(f"{kind['left']:g} {kind['kind']}" for kind in prov.get("reset_kinds") or [])
-    return f"{kinds or held} reset{'' if held == 1 else 's'} in hand" if held > 0 else ""
+    said = f"{kinds or held} reset{'' if held == 1 else 's'} in hand" if held > 0 else ""
+    # its kinds are the reading's words: drawn as limit_notes draws them, by which it is found
+    # among those notes
+    return terminal.plain(said)
 
 
 def resets_note(meter, now):
