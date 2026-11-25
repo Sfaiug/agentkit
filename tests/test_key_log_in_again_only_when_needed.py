@@ -61,7 +61,7 @@ class LogInAgainOnlyWhenNeeded(unittest.TestCase):
         fakeadapter.install(self.home, claude="pass", codex="pass")
         akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
         now = time.time()
-        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}]}
+        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}], "error": None}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "anthropic": week, "openai": {**week, "resets": 1}}})
         self.ends = int(now + ends)

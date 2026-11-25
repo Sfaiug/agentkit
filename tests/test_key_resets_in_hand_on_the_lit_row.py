@@ -29,11 +29,13 @@ class ResetsInHandOnTheLitRow(unittest.TestCase):
         akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
         now = time.time()
 
-        def used(percent):
-            return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800}],
-                    "resets": 1, "probed_at": now}
+        def used(percent, *meters):
+            return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800},
+                               *meters], "resets": 1, "error": None, "probed_at": now}
+        # Claude's 5-hour window: a limit its lit row's line says, the resets in hand not among
+        window = {"name": "session", "used": 25, "window_secs": 18000, "resets_at": int(now + 3600)}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
-            "anthropic": used(16), "openai": used(57)}})
+            "anthropic": used(16, window), "openai": used(57)}})
         self.home.write(".agentkit/state/logins.json", {
             "anthropic": {"default": {"email": "owner@acme.test", "plan": "max 20x",
                                       "checked_at": now}},
@@ -57,6 +59,7 @@ class ResetsInHandOnTheLitRow(unittest.TestCase):
         self.assertEqual(body(self.page), [
             "Anthropic",
             "› Claude   ━━━━━━━━╸─  84% left · 1 reset in hand",
+            "    5h 75% left",
             "    owner@acme.test · ULTRA   → spend a reset   − remove",
             "OpenAI",
             "  ChatGPT  ━━━━╸─────  43% left",
