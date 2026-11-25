@@ -1439,8 +1439,8 @@ fi
 
 # --- (i) what this run could not do, in one place at the end -----------------
 # A run with no terminal cannot finish a device-code login or ask for a secret, and a newcomer
-# who is told "installed" and nothing else has no way to know that.  So the last thing every
-# install prints is the list of what is still missing and the one command that fixes each.
+# who is told "installed" and nothing else has no way to know that.  So every install's summary
+# lists what is still missing and the one command that fixes each.
 pending=""
 add_pending() { pending="$pending  $1"$'\n'; }
 [ -z "${CLIENT_PRUNE_PENDING:-}" ] || add_pending "$CLIENT_PRUNE_PENDING"
@@ -1497,4 +1497,33 @@ if [ -n "$pending" ]; then
     "$MODE" "$(printf '%s' "$pending" | grep -c .)" "$pending"
 else
   echo "summary: $MODE; nothing left to do; \`ak\` is the whole interface"
+fi
+
+# --- (j) whether this machine stays on, said last -----------------------------
+# ak works while its owner sleeps, so it needs one machine that stays on, and a laptop does not.
+# A Lima guest leaves it to the Mac that started it, which prints from its own tools/machine.sh
+# answer; nothing passes between the two installers.
+if [ -f "$REPO/tools/machine.sh" ] && { [ "${MACHINE:-0}" = 1 ] ||
+     { [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ] &&
+       [ ! -e "${AK_LIMA_CIDATA:-/mnt/lima-cidata}" ]; }; }; then
+  probe=$(bash "$REPO/tools/machine.sh" 2>/dev/null) || probe=""
+  battery=$(awk 'NF == 2 && $1 == "battery" { print $2 }' <<<"$probe")
+  case "$battery" in
+    0)
+      printf '%s\n' \
+        "This machine is ak's home. It has no battery, so ak takes it to stay on." \
+        "Type ak, press n and say what you want." ;;
+    1)
+      printf '%s\n' \
+        "This machine is a laptop. ak needs one machine that stays on: it works while you" \
+        "sleep, and a laptop does not. ak runs here while this laptop is awake."
+      install_line=$(awk 'index($0, "git clone") && index($0, "install.sh") { n++; line = $0 }
+        END { if (n == 1) print line }' "$REPO/README.md" 2>/dev/null || true)
+      if [ -n "$install_line" ]; then
+        printf '%s\n' \
+          "For a machine that stays on (a rented VM, a PC, a Mac mini), paste there:" \
+          "  $install_line" \
+          "then here: ./install.sh --client <its ssh name>"
+      fi ;;
+  esac
 fi
