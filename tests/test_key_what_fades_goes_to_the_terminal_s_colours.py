@@ -22,28 +22,38 @@ class WhatFadesGoesToTheTerminalsOwn(unittest.TestCase):
     setUpClass = classmethod(painted.AScreenIsPainted.setUpClass.__func__)
     at, open, rest = (getattr(painted.AScreenIsPainted, name) for name in ("at", "open", "rest"))
 
-    def fill(self, menu, row, but):
-        """Each fill on `row`, its three channels, once they are not `but`, the fills before."""
+    def fill(self, menu, row, *but):
+        """The three channels of the 24-bit colour every cell of `row` is on, to the terminal's
+        last column, none where they are on the terminal's own, once that is none of `but`: what
+        the row is on before the frame asked for, which a busy host draws late and tmux may be
+        read part way through (Terminal.wait)."""
         deadline = time.monotonic() + 30
-        while (found := {part for _, shown in looks(menu.screen(colours=True, blank=True))[row]
-                         for part in painted.fills(shown)}) == but:
-            self.assertLess(time.monotonic(), deadline, f"row {row} stayed on {but}")
+        while True:
+            cells = [painted.fills(shown)
+                     for _, shown in looks(menu.screen(colours=True, blank=True))[row]]
+            # to the last column: tmux keeps no cell past a row's text
+            cells += [set()] * (painted.SIZE[0] - len(cells))
+            rgb = bytes(int(channel) for part in cells[0] for channel in part.split(";")[2:])
+            if rgb not in but and cells == [painted.fill(rgb.hex() or None)] * len(cells):
+                return rgb
+            self.assertLess(time.monotonic(), deadline, f"row {row} stayed on {cells}")
             time.sleep(0.05)
-        return [bytes(map(int, part.split(";")[2:])) for part in found]
 
     def test_a_highlight_left_fades_to_the_terminal_s_own(self):
         menu = self.open()
         rows = self.rest(menu, "esc leave", painted.OPENED + 10)
         left = [plain(line).startswith("›") for line in rows].index(True)
         menu.keys("Down")
-        menu.wait(lambda shown: not shown.split("\n")[left].startswith("›"), 60)
-        self.at(painted.OPENED + 10.1)      # part way through the fade, which began at + 10
-        (part_way,) = self.fill(menu, left, {painted.sgr(LIT.hex(), "48")})
+        # each read once the screen rests: a fill the row only passes through is not one it is on
+        self.rest(menu, lambda shown: not shown.split("\n")[left].startswith("›"),
+                  painted.OPENED + 10.1)    # part way through the fade, which began at + 10
+        # the highlight until that frame is drawn, and none: a draw writes a row, then its fill
+        part_way = self.fill(menu, left, LIT, b"")
         for channel, own, lit in zip(part_way, OWN, LIT):
             self.assertTrue(min(own, lit) <= channel <= max(own, lit), part_way.hex())
         self.assertNotIn(part_way, (OWN, LIT))
-        self.at(painted.OPENED + 20)
-        self.assertEqual(self.fill(menu, left, {painted.sgr(part_way.hex(), "48")}), [])
+        self.rest(menu, "esc leave", painted.OPENED + 20)
+        self.assertEqual(self.fill(menu, left, part_way), b"")
 
 
 if __name__ == "__main__":
