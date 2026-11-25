@@ -88,7 +88,7 @@ editor = ["C-g"]
 # (Gemini 3.8 Flash · low)  /agents`, and `agentkit (GPT-OSS 120B (Medium))  /agents` for a
 # label with brackets of its own), then ` · 1 task(s) · /tasks` while a command agy moved to the
 # background runs.  Below about 58 columns only the key hint is drawn (agy 1.3.5, captured).
-footer = ['(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)?\s*(?:[^·]+ · (?:low|medium|high)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)',
+footer = ['(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)?\s*(?:[^·]+ · (?:low|medium|high|xhigh|max)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)',
           '\? for shortcuts']
 # What the composer holds: everything after its `>` down to the last rule on the screen, so a
 # `>` in a wrapped line is the line's own and a chooser's `> /usage` under that rule is not it,
@@ -102,7 +102,7 @@ draft = '(?:(?P<opening>^─+\n)> ?|\A(?:> ?)?(?!─))(?P<text>.*(?:\n(?!─+$).
 # `shell` in Claude's terms.  Read only off the composer's closing rule, that list and the footer
 # as captured at rest; under a turn's or a dialog's `esc to cancel`, or a footer too narrow to
 # name the model, nothing is evidence either way.
-held = '^─+\n(?:(?P<shell>(?:● \[\d\d:\d\d:\d\d\] .+ running\n)+)─+\n)?(?!esc to cancel).*(?:/agents| · (?:low|medium|high))(?: · \d+ task\(s\) · /tasks)?\Z'
+held = '^─+\n(?:(?P<shell>(?:● \[\d\d:\d\d:\d\d\] .+ running\n)+)─+\n)?(?!esc to cancel).*(?:/agents| · (?:low|medium|high|xhigh|max))(?: · \d+ task\(s\) · /tasks)?\Z'
 # A line taller than the composer scrolls in it, its last rows showing, and the prompt row says
 # how many are above (`> ↑ 13 more lines`, captured at 40 columns): never typed text.
 scrolled = '^(?:> ?)?[↑↓] \d+ more lines?$'
@@ -174,7 +174,7 @@ state = "draft"
 lines = 2
 none = ["esc to cancel"]
 row = '^─+$'
-newest = '^(?:[^·?]+ · (?:low|medium|high)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)$'
+newest = '^(?:[^·?]+ · (?:low|medium|high|xhigh|max)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)$'
 
 # The footer with the empty composer drawn over it; the terms pages of agy's first run keep
 # the footer and draw no composer, `press ctrl+c again to exit` under them included (captured).
@@ -238,14 +238,19 @@ signatures = [
 
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
 [effort]
-levels = ["low", "medium", "high"]
+levels = ["low", "medium", "high", "xhigh", "max"]
 
-# The models this harness runs when `agy models` cannot say: what agy 1.4.7 listed for a Google
-# AI Pro login, each effort-suffixed id folded into its model the way `models` in
-# adapters/antigravity.sh folds them, strongest last.  An id with no effort word is a model agy
-# runs at no effort, `none`.
+# The models this harness runs when `agy models` cannot say: what agy 1.5.17 listed, each
+# effort-suffixed id folded into its model the way `models` in adapters/antigravity.sh folds
+# them, strongest last.  An id with no effort word is a model agy runs at no effort, `none`.
 [catalog]
-"gemini-4-argon" = { efforts = ["low", "medium", "high"] }
+gemini-4-neon = { efforts = ["low", "medium", "high", "xhigh"] }
+gemini-4-carbon = { efforts = ["low", "medium", "high"] }
+gemini-4-argon = { efforts = ["low", "medium", "high"] }
+gemini-4-hydrogen = { efforts = ["low", "medium", "high", "xhigh"] }
+gemini-pro-orchestrator-neon = { label = "Orchestrator (Neon)", efforts = ["none"] }
+gemini-pro-orchestrator = { label = "Orchestrator (Carbon)", efforts = ["none"] }
+gemini-pro-orchestrator-argon = { label = "Orchestrator (Argon)", efforts = ["none"] }
 "gemini-3.8-flash" = { efforts = ["low", "medium", "high"] }
 claude-opus-5-5 = { efforts = ["low", "medium", "high"] }
 claude-sonnet-5-5 = { efforts = ["low", "medium", "high"] }

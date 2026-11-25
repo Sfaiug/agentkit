@@ -234,7 +234,7 @@
   {
    "harness": "antigravity",
    "key": "footer",
-   "pattern": "(?:(?:(?:\\? for shortcuts|esc to cancel|press ctrl\\+c again to exit)?\\s*(?:[^·]+ · (?:low|medium|high)|[\\w.-]+(?: \\((?:[^()]|\\([^()]*\\))*\\))?\\s+/agents(?: · \\d+ task\\(s\\) · /tasks)?))|(?:\\? for shortcuts))$",
+   "pattern": "(?:(?:(?:\\? for shortcuts|esc to cancel|press ctrl\\+c again to exit)?\\s*(?:[^·]+ · (?:low|medium|high|xhigh|max)|[\\w.-]+(?: \\((?:[^()]|\\([^()]*\\))*\\))?\\s+/agents(?: · \\d+ task\\(s\\) · /tasks)?))|(?:\\? for shortcuts))$",
    "flags": "i",
    "matches": [
     {
@@ -360,6 +360,33 @@
      "span": [
       17,
       43
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-cursor-model-dialog-pane.txt",
+     "row": 26,
+     "span": [
+      17,
+      57
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-cursor-prompt-pane.txt",
+     "row": 26,
+     "span": [
+      17,
+      57
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-cursor-quoted-dialog-pane.txt",
+     "row": 26,
+     "span": [
+      17,
+      57
      ],
      "groups": {}
     },
@@ -639,7 +666,7 @@
   {
    "harness": "antigravity",
    "key": "held",
-   "pattern": "^─+\\n(?:(?P<shell>(?:● \\[\\d\\d:\\d\\d:\\d\\d\\] .+ running\\n)+)─+\\n)?(?!esc to cancel).*(?:/agents| · (?:low|medium|high))(?: · \\d+ task\\(s\\) · /tasks)?\\Z",
+   "pattern": "^─+\\n(?:(?P<shell>(?:● \\[\\d\\d:\\d\\d:\\d\\d\\] .+ running\\n)+)─+\\n)?(?!esc to cancel).*(?:/agents| · (?:low|medium|high|xhigh|max))(?: · \\d+ task\\(s\\) · /tasks)?\\Z",
    "flags": "m",
    "matches": []
   },
@@ -1426,7 +1453,7 @@
   {
    "harness": "antigravity",
    "key": "rule draft.typed newest",
-   "pattern": "^(?:[^·?]+ · (?:low|medium|high)|[\\w.-]+(?: \\((?:[^()]|\\([^()]*\\))*\\))?\\s+/agents(?: · \\d+ task\\(s\\) · /tasks)?)$",
+   "pattern": "^(?:[^·?]+ · (?:low|medium|high|xhigh|max)|[\\w.-]+(?: \\((?:[^()]|\\([^()]*\\))*\\))?\\s+/agents(?: · \\d+ task\\(s\\) · /tasks)?)$",
    "flags": "",
    "matches": [
     {
