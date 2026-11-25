@@ -54,6 +54,7 @@
   "claude-scrolled-draft-pane.txt",
   "claude-scrolled-line-and-owner-words-pane.txt",
   "claude-scrolled-line-pane.txt",
+  "claude-scrolled-rule-line-pane.txt",
   "claude-session-limit-pane.txt",
   "claude-stall-pane.txt",
   "claude-stop-hooks-running-pane.txt",
@@ -1832,6 +1833,15 @@
      "groups": {}
     },
     {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 13,
+     "span": [
+      11,
+      112
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "claude-session-limit-pane.txt",
      "row": 48,
      "span": [
@@ -2452,6 +2462,15 @@
      "groups": {}
     },
     {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 23,
+     "span": [
+      13,
+      113
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "claude-session-limit-pane.txt",
      "row": 53,
      "span": [
@@ -2595,6 +2614,13 @@
      "groups": {}
     }
    ]
+  },
+  {
+   "harness": "claude",
+   "key": "scrolled_top",
+   "pattern": "─{3,} ↑ \\d+ more ─+(?: .+ ─+)?",
+   "flags": "",
+   "matches": []
   },
   {
    "harness": "claude",
@@ -5383,6 +5409,87 @@
     {
      "fixture": "claude-scrolled-line-pane.txt",
      "row": 29,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 7,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 8,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 9,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 15,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 16,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 17,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 18,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 19,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 20,
      "span": [
       0,
       3
@@ -15809,6 +15916,15 @@
      "span": [
       7,
       38
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-rule-line-pane.txt",
+     "row": 11,
+     "span": [
+      42,
+      65
      ],
      "groups": {}
     },
