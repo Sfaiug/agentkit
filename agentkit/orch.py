@@ -2093,11 +2093,16 @@ def tmux_conf():
     path = config.STATE / "tmux.conf"
     text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
             'set -as terminal-features ",*:RGB:hyperlinks:sync"\n' + server_conf())
+    data = text.encode()
     try:
-        if not path.exists() or path.read_text() != text:
-            path.write_text(text)
+        try:
+            same = path.read_bytes() == data
+        except FileNotFoundError:
+            same = False
+        if not same:
+            replace_file(path, data)
     except OSError as exc:
-        raise config.Error(f"cannot write the tmux config {path}: {exc}")
+        raise config.Error(f"cannot write the tmux config {path}: {exc}") from exc
     return path
 
 
@@ -3024,9 +3029,23 @@ def fetch_projects(fetched=None):
 
 def replace_file(path, data):
     """Write `data` to `path` whole: a reader sees the old file or the new one, never half."""
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_bytes(data)
-    tmp.replace(path)
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        try:
+            handle = os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)
+            raise
+        with handle:
+            handle.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def rulebook_news(session, conversation, whole=lambda news: news):
