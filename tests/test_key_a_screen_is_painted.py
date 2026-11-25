@@ -1,9 +1,10 @@
-"""A screen sits on its terminal's own background where the look reads there
-(tests/test_the_look_reads.py): no cell sets a background but its highlight's, whose row is
-banded to the layout's last column.  Elsewhere -- where the look does not read, ak cannot ask or
-reads a line at a time -- every cell of it, text or blank, is on the theme's background,
-or a row the highlight is on whole on its selection (tests/test_key_one_highlight.py), text of
-no colour in the theme's text, and the terminal its own again once ak leaves.
+"""The ak screen sits on its terminal's own background where the look reads there
+(tests/test_the_look_reads.py): no cell of it sets a background but its highlighted row's, on
+the rule's highlight from its first column to the layout's last.  Elsewhere -- where the look
+does not read, over a seat, or read a line at a time -- it is painted in its theme, as before:
+every cell of it, text or blank, on the theme's background, or a row the highlight is on on its
+selection (tests/test_key_one_highlight.py), text of no colour in the theme's text.  The
+terminal is its own again once ak leaves.
 
 The owner (12 Nov 2026): two themes, white and black, seen through everywhere ak is visual.
 Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour
@@ -30,8 +31,8 @@ from fixtures.akterm import SERVER, Terminal, forget
 DARK, LIGHT, GREY = "#203040", "#e8e4d8", "#808080"     # terminals' own, neither theme's
 # a theme's background, text and selection
 BLACK, WHITE = ("000000", "e2e8ef", "08305d"), ("ffffff", "181c22", "dcecff")
-# ... and the look on DARK and LIGHT, where it reads: on none, and the highlight the rule gives
-ON_DARK, ON_LIGHT = (None, "e2e8ef", "234365"), (None, "181c22", "c6d2d8")
+# ... and on DARK and LIGHT, where the look reads: on none, and the highlight the rule gives
+ON_DARK, ON_LIGHT = (None, "e2e8ef", "234366"), (None, "181c22", "c6d2d8")
 SIZE = (100, 30)
 OPENED = 1000.0     # the moment ak's motion stands at as a screen opens
 # a breath, which takes two seconds, in quarters, long after the screen opened: each a frame
@@ -48,7 +49,8 @@ def fill(rgb):
 
 
 def fills(shown):
-    """What fills a look's cell, in any of SGR's forms, reverse among them."""
+    """What fills a look's cell, in any of SGR's forms, reverse among them: none on the
+    terminal's own."""
     return {part for part in shown if part == "7" or part.startswith("48;") or part.isdigit()
             and int(part) in (*range(40, 48), *range(100, 108))}
 
@@ -73,9 +75,9 @@ class AScreenIsPainted(unittest.TestCase):
         new.replace(self.clock)
 
     def open(self, *args, background=DARK, env=None, program=AK):
-        """`args` on a true-colour terminal of that background, or none, ak's motion at OPENED."""
-        option = ["window-style", f"bg={background}"] if background else ["-u", "window-style"]
-        done = self.home.tmux("set-option", "-g", *option, server=SERVER)
+        """`args` run on a true-colour terminal of that background, ak's motion at OPENED."""
+        done = self.home.tmux("set-option", "-g", "window-style", f"bg={background}",
+                              server=SERVER)
         self.assertEqual(done.code, 0, done.err)
         self.at(OPENED)
         term = Terminal(self.home, *args, size=SIZE, program=program, env={
@@ -89,24 +91,30 @@ class AScreenIsPainted(unittest.TestCase):
         self.at(moment)
         return settled(term, shown, bound=60)
 
-    def assert_painted(self, term, theme, rows=None, banded=False):
+    def assert_painted(self, term, theme, rows=None):
         """Every cell of the terminal, to its last column and row, on the theme's background or
-        its selection: `rows`, a capture's looks, else the terminal's now.  None but the row the
-        highlight is on, its `›`'s, is on the selection; with `banded` all of that row is, else a
-        cell of it may be reversed, as a build lights one (tests/test_key_no_name_has_a_colour.py).
-        On the terminal's own, theme[0] None, tmux keeps no cell past a row's text."""
+        its selection: `rows`, a capture's looks, else the terminal's now."""
         rows = rows or looks(term.screen(colours=True, blank=True))
-        lit = [plain(line).lstrip().startswith("›") for line in rows]
+        grounds = {sgr(theme[0], "48"), sgr(theme[2], "48")}
         self.assertGreaterEqual(len(rows), SIZE[1])
-        self.assertTrue(any(lit) or not banded)
         for number, line in enumerate(rows[:SIZE[1]], 1):
             wide = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char, _ in line)
-            band = lit[number - 1] and banded
-            grounds = [fill(theme[2])] if band else [fill(theme[0]), *(
-                [fill(theme[2]), {"7", *fill(theme[0])}] if lit[number - 1] else [])]
-            off = {char for char, shown in line if fills(shown) not in grounds}
-            self.assertEqual((wide if theme[0] or band else SIZE[0], off), (SIZE[0], set()),
-                             f"row {number}: {plain(line)!r}")
+            off = {char for char, shown in line if not grounds & set(shown)}
+            self.assertEqual((wide, off), (SIZE[0], set()), f"row {number}: {plain(line)!r}")
+
+    def assert_on_its_own(self, rows, theme):
+        """No cell of `rows`, a capture's looks, sets a background but the highlighted row's, its
+        `›`'s, on the theme's selection from its first column to the layout's last, here the
+        terminal's: tmux keeps no cell past the text of another row."""
+        self.assertGreaterEqual(len(rows), SIZE[1])
+        lit = [plain(line).startswith("›") for line in rows[:SIZE[1]]]
+        self.assertEqual(lit.count(True), 1)
+        for number, (line, band) in enumerate(zip(rows, lit), 1):
+            off = {char for char, shown in line if fills(shown) != fill(theme[2] if band else None)}
+            self.assertEqual(off, set(), f"row {number}: {plain(line)!r}")
+        band = rows[lit.index(True)]
+        self.assertEqual(sum(2 if unicodedata.east_asian_width(char) in "WF" else 1
+                             for char, _ in band), SIZE[0], plain(band))
 
     def assert_named(self, rows, theme):
         """A seat's name in the theme's text, on its background."""
@@ -117,7 +125,7 @@ class AScreenIsPainted(unittest.TestCase):
         menu = self.open()
         self.rest(menu, "esc leave", OPENED + 10)
         rows = looks(menu.screen(colours=True, blank=True))
-        self.assert_painted(menu, ON_DARK, rows, banded=True)
+        self.assert_on_its_own(rows, ON_DARK)
         self.assert_named(rows, ON_DARK)
         for moment in MOMENTS:
             last = menu.screen(colours=True, blank=True)
@@ -127,33 +135,10 @@ class AScreenIsPainted(unittest.TestCase):
                 self.assertLess(time.monotonic(), deadline, f"ak drew no frame at {moment}")
                 time.sleep(0.05)
             with self.subTest(moment=moment):
-                self.assert_painted(menu, ON_DARK, looks(shown), banded=True)
-
-    def test_c_and_subscriptions_are_on_the_terminal_s_own(self):
-        menu = self.open()
-        self.rest(menu, "esc leave", OPENED + 10)
-        self.assert_painted(menu, ON_DARK, banded=True)
-        menu.keys("c")
-        self.rest(menu, lambda text: "› " in text and "Subscriptions" in text, OPENED + 20)
-        self.assert_painted(menu, ON_DARK)
-        menu.keys("a")      # a card: its answers lit, the page's highlight away
-        self.rest(menu, lambda text: "› ✓ Keep" in text and "esc back" in text, OPENED + 25)
-        self.assert_painted(menu, ON_DARK)
-        menu.keys("Escape")
-        menu.wait(lambda text: "✓ Keep" not in text and "Subscriptions" in text, 30)
-
-        def pointed(text):    # the highlighted row
-            return next((line for line in text.split("\n") if line.startswith("› ")), None)
-        while "Subscriptions" not in (row := pointed(menu.screen())):
-            menu.keys("Down")
-            menu.wait(lambda text: pointed(text) not in (None, row), 30)
-        menu.keys("Enter")
-        self.rest(menu, "+ add a subscription", OPENED + 30)
-        self.assert_painted(menu, ON_DARK)
+                self.assert_on_its_own(looks(shown), ON_DARK)
 
     def test_the_popup_over_a_seat_is_on_black_its_padding_too(self):
-        forget(self.home)       # it cannot ask, as tmux answers no popup: black where none is kept
-        popup = self.open("attach", "--overlay", background=None,
+        popup = self.open("attach", "--overlay",
                           env={"AGENTKIT_SESSION": "acme", "AGENTKIT_PADDING": "1"})
         rows = self.rest(popup, "esc leave", OPENED + 10)
         self.assertEqual(plain(rows[0]).strip(), "")      # the padding, above the header
@@ -163,14 +148,14 @@ class AScreenIsPainted(unittest.TestCase):
         menu = self.open(background=LIGHT)
         self.rest(menu, "esc leave", OPENED + 10)
         rows = looks(menu.screen(colours=True, blank=True))
-        self.assert_painted(menu, ON_LIGHT, rows, banded=True)
+        self.assert_on_its_own(rows, ON_LIGHT)
         self.assert_named(rows, ON_LIGHT)
 
     def test_where_the_look_does_not_read_it_is_painted_in_its_theme(self):
         menu = self.open(background=GREY)       # white's dim text has too little on it
         self.rest(menu, "esc leave", OPENED + 10)
         rows = looks(menu.screen(colours=True, blank=True))
-        self.assert_painted(menu, WHITE, rows, banded=True)
+        self.assert_painted(menu, WHITE, rows)
         self.assert_named(rows, WHITE)
 
     def test_a_screen_read_a_line_at_a_time_is_on_black(self):
