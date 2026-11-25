@@ -31,7 +31,7 @@ class Refused(unittest.TestCase):
         self.addCleanup(home.close)
         installer.prepare(home)
         installer.own_home(home)
-        (home.bin / "apt-get").chmod(0o644)     # on PATH, but no program
+        (home.bin / "apt-get").unlink()
         home.refuse("sysctl")                   # an Intel Mac's knows no hw.optional.arm64
         shutil.rmtree(home.path)
         home.path.mkdir()
@@ -50,16 +50,24 @@ class Refused(unittest.TestCase):
                        f"#!/bin/sh\ncase $1 in -m) echo {machine} ;; *) echo {system} ;; esac\n")
         return installer.run(self.home)
 
-    def test_a_linux_without_apt_get_or_an_intel_mac_is_refused_first_with_home_untouched(self):
-        for system, machine in (LINUX, INTEL_MAC):
-            with self.subTest(system=system, machine=machine):
-                done = self.install(system, machine)
-                self.assertEqual(done.code, 1, done.out + done.err)
-                self.assertEqual(done.out, "")
-                first = done.err.partition("\n")[0]
-                for named in ("Debian", "Ubuntu", "Mac with Apple silicon", f"{system} {machine}"):
-                    self.assertIn(named, first)
-                self.assertEqual(list(self.home.path.iterdir()), [])
+    def refused(self, system, machine):
+        done = self.install(system, machine)
+        self.assertEqual(done.code, 1, done.out + done.err)
+        self.assertEqual(done.out, "")
+        first = done.err.partition("\n")[0]
+        for named in ("Debian", "Ubuntu", "Mac with Apple silicon", f"{system} {machine}"):
+            self.assertIn(named, first)
+        self.assertEqual(list(self.home.path.iterdir()), [])
+
+    def test_a_linux_without_apt_get_is_refused_first_with_home_untouched(self):
+        self.refused(*LINUX)
+
+    def test_so_is_a_linux_whose_apt_get_on_path_is_no_program(self):
+        (self.home.bin / "apt-get").touch(mode=0o644)
+        self.refused(*LINUX)
+
+    def test_so_is_an_intel_mac(self):
+        self.refused(*INTEL_MAC)
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "a Linux host's install")
     def test_with_apt_get_the_same_install_goes_on_past_that_line(self):
