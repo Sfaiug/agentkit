@@ -282,6 +282,49 @@ def _fold(model):
     return model, "none"
 
 
+def _resolve_label(record, said):
+    """The model id for a resolved status-line label, else the label stripped of its bracketed
+    effort.  The seat's own login's exact raw label wins first (preserving live renames a
+    manifest label would shadow and bracketed no-effort labels like `Claude Sonnet 4.6
+    (Thinking)`), then the shipped `[catalog]` table, then other configured logins' exact raw
+    labels, then normalized held labels -- so neither another login nor a normalized live row
+    can redirect the seat's own or shipped model."""
+    label = re.sub(r" \([^()]*\)$", "", said)
+    candidates = (said, label) if label != said else (label,)
+    try:
+        cfg = config.load() if (config.HOME / config.CONFIG_NAME).is_file() else None
+    except (config.Error, OSError):
+        cfg = None
+    own = record.get("account") if isinstance(record, dict) else None
+    groups = config.catalog_held_by_login("antigravity", cfg, own)
+    own_rows, other_groups = (groups[0], groups[1:]) if groups else ([], [])
+
+    def exact(rows):
+        for candidate in candidates:
+            match = next((row["id"] for row in rows if row.get("label") == candidate), None)
+            if match is not None:
+                return match
+        return None
+
+    def normalized(rows, label_of):
+        for candidate in candidates:
+            named = config.model_label("antigravity", "", candidate)
+            match = next((row["id"] for row in rows
+                          if config.model_label("antigravity", "", label_of(row)) == named), None)
+            if match is not None:
+                return match
+        return None
+
+    def raw_label(row):
+        return row["label"] if isinstance(row.get("label"), str) and row["label"] else row["id"]
+
+    return (exact(own_rows)
+            or normalized(config.catalog_table("antigravity"), lambda row: row["label"])
+            or next((found for rows in other_groups if (found := exact(rows))), None)
+            or next((found for rows in groups if (found := normalized(rows, raw_label))), None)
+            or label)
+
+
 def running(record, cwd, conversation):
     """The newer of that conversation's last answer and its status-line report."""
     from . import model_report
@@ -295,11 +338,7 @@ def running(record, cwd, conversation):
             model, folded = _fold(said)
             if not effort or model != said:
                 return model, effort or folded, at
-        label = re.sub(r" \([^()]*\)$", "", said)
-        named = config.model_label("antigravity", "", label)
-        model = next((row["id"] for row in config.catalog_table("antigravity")
-                      if config.model_label("antigravity", "", row["label"]) == named), label)
-        return model, effort, at
+        return _resolve_label(record, said), effort, at
     return latest
 
 
