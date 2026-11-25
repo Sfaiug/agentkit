@@ -41,7 +41,6 @@ import shlex
 import shutil
 import signal
 import socket
-import stat
 import struct
 import subprocess
 import sys
@@ -2097,11 +2096,7 @@ def tmux_conf():
             'set -as terminal-features ",*:RGB:hyperlinks:sync"\n' + server_conf())
     data = text.encode()
     try:
-        try:
-            same = path.read_bytes() == data
-        except FileNotFoundError:
-            same = False
-        if not same:
+        if on_disk(path) != data:
             replace_file(path, data)
     except OSError as exc:
         raise config.Error(f"cannot write the tmux config {path}: {exc}") from exc
@@ -3034,14 +3029,10 @@ def replace_file(path, data):
 
     Temp names keep `path.name` at the start so interrupted seat-state writes remain recognizable
     to `gc.stale_seat_files`, falling back to a shorter prefix only when `path.name` leaves no
-    room within NAME_MAX.  Existing permissions are preserved (and new files get 0600) so an
-    unusual umask never publishes an unreadable replacement.
+    room within NAME_MAX.  Files are always published 0600 so an unusual umask never leaves an
+    unreadable state file behind.
     """
     path = Path(path)
-    try:
-        mode = stat.S_IMODE(path.stat().st_mode)
-    except FileNotFoundError:
-        mode = 0o600
     try:
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
     except OSError as exc:
@@ -3057,7 +3048,7 @@ def replace_file(path, data):
         with handle:
             handle.write(data)
             handle.flush()
-            os.fchmod(handle.fileno(), mode)
+            os.fchmod(handle.fileno(), 0o600)
         os.replace(tmp, path)
     except BaseException:
         try:

@@ -96,6 +96,33 @@ class TmuxConfAtomicWriteTest(unittest.TestCase):
             self.assertTrue(path.read_text().startswith("# written by"))
             self.assertTrue(path.stat().st_mode & stat.S_IRUSR)
 
+    def test_replace_file_recovers_unreadable_file_and_broken_symlinks(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            state = Path(scratch)
+            unreadable = state / "state.json"
+            unreadable.touch(mode=0o200)
+            orch.replace_file(unreadable, b'{"ok": true}\n')
+            self.assertEqual(stat.S_IMODE(unreadable.stat().st_mode), 0o600)
+            self.assertEqual(unreadable.read_text(), '{"ok": true}\n')
+
+            (state / "regular").touch()
+            target = state / "nightly.json"
+            for broken in (target.name, "regular/child"):
+                target.symlink_to(broken)
+                orch.replace_file(target, b'{"asked": 1}\n')
+                self.assertFalse(target.is_symlink())
+                self.assertEqual(target.read_text(), '{"asked": 1}\n')
+                target.unlink()
+
+            conf = state / "tmux.conf"
+            conf.symlink_to(conf.name)
+            with patch.object(config, "STATE", state), patch.object(
+                    config, "ensure_dirs"), patch.object(
+                        orch, "server_conf", return_value="set -g remain-on-exit on\n"):
+                orch.tmux_conf()
+            self.assertFalse(conf.is_symlink())
+            self.assertTrue(conf.read_text().startswith("# written by"))
+
 
 if __name__ == "__main__":
     unittest.main()
