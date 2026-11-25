@@ -21,6 +21,16 @@ linux_user() { printf '%s' "${USER:-$(id -un)}"; }
 # Lima keeps its machines in the store LIMA_HOME names, else ~/.lima.
 linux_store() { printf '%s' "${LIMA_HOME:-$HOME/.lima}"; }
 linux_dir() { printf '%s' "$(linux_store)/$LINUX_INSTANCE"; }
+# The one folder the machine sees, its own folder's `free-space`, empty and read-only, through
+# which ak in it counts its disk as full as the Mac's volume under it (host.disk_use): its mount as
+# the machine's file names it, which Lima makes as the machine starts.  Lima refuses a folder that
+# is no full path, as {{.Dir}} is not in a store named relatively, so a machine there has none.
+LINUX_FREE_SPACE=/mnt/ak-free-space
+linux_free_space() {
+  case $(linux_store) in /*) ;; *) return 1 ;; esac
+  printf '{"location": "{{.Dir}}/free-space", "mountPoint": "%s", "writable": false}' \
+    "$LINUX_FREE_SPACE"
+}
 
 # What the machine takes of the Mac's `total`: macOS keeps a quarter for the desktop and its
 # renders, and never less than `floor` until that would be more than half, so a small Mac still
@@ -33,7 +43,7 @@ linux_share() {   # linux_share <total> <floor>
 }
 
 linux_machine_up() {
-  local dir name cpus mem had when disk power settings gib=$((1024 * 1024 * 1024))
+  local dir name cpus mem had when disk power settings mount gib=$((1024 * 1024 * 1024))
   local daemons=${AK_LAUNCH_DAEMONS:-/Library/LaunchDaemons}
   dir=$(linux_dir) name=$(linux_user)
   if ! limactl autostart --help >/dev/null 2>&1; then
@@ -55,14 +65,9 @@ linux_machine_up() {
     cpus=$(linux_share "$(sysctl -n hw.ncpu)" 2) || return 1
     disk=$(linux_share $(($(df -Pk "$HOME" | awk 'NR == 2 { print $4 }') / 1024 / 1024)) 64) ||
       return 1
-    # Debian stable, which boots systemd; --mount-none: the machine sees none of the Mac's folders
-    # but its own folder's `free-space`, empty and read-only, through which ak in it counts its disk
-    # as full as the Mac's volume under it (host.disk_use).  Lima makes it as the machine starts, and
-    # refuses a folder that is no full path, as {{.Dir}} is not in a store named relatively.
+    # Debian stable, which boots systemd; --mount-none, but for its free-space folder.
     settings=".user.name = \"$name\" | .user.home = \"/home/$name\""
-    case $(linux_store) in /*)
-      settings+=' | .mounts = [{"location": "{{.Dir}}/free-space", "mountPoint": "/mnt/ak-free-space", "writable": false}]'
-    esac
+    if mount=$(linux_free_space); then settings+=" | .mounts = [$mount]"; fi
     limactl create --tty=false --name="$LINUX_INSTANCE" --cpus="$cpus" --memory="$mem" \
       --disk="$disk" --mount-none --set "$settings" template:debian || return 1
     echo "linux: this Mac's Linux machine has $cpus cores, ${mem} GiB of memory and ${disk} GiB of disk"
@@ -75,6 +80,12 @@ linux_machine_up() {
     [ "$(linux_machine_status)" != Running ] || when="from its next start"
     linux_machine_start --memory="$mem" || return 1
     echo "linux: this Mac's Linux machine takes $mem GiB of memory $when, not $((had / gib)) GiB, leaving macOS its share"
+  fi
+  # Lima's daemon, which starts the machine as the Mac boots, gives it no folder: one made before
+  # the folder gets it only from ak's next start.
+  if linux_free_space >/dev/null && [ "$(linux_machine_status)" = Running ] &&
+    ! grep -qF -- "$LINUX_FREE_SPACE" "$dir/lima.yaml"; then
+    echo "linux: this Mac's Linux machine does not see the Mac's free space yet, and gets the folder the next time ak starts it, which \`limactl stop $LINUX_INSTANCE\` brings on within a minute, ending what runs in it"
   fi
   linux_machine_start || return 1   # one already up stays as it is
   # A system LaunchDaemon starts it with the Mac, before anyone logs in; enabling asks for sudo.
@@ -188,6 +199,7 @@ linux_machine_check() {
     [ "$last" -le $(($(date +%s) - 600)) ] || return 0
     limactl stop --force "$LINUX_INSTANCE" || return
     echo "$(date +%s) $session" >"$answered"
+    linux_machine_mount
     limactl start --tty=false "$LINUX_INSTANCE"
     return
   fi
@@ -203,11 +215,25 @@ linux_machine_status() { limactl list --format '{{.Status}}' "$LINUX_INSTANCE"; 
 # already running stays as it is, and so does its last answer: it may hang.  Lima writes the flags
 # it is given into the machine's file even while it runs, where they hold from its next start.
 linux_machine_start() {   # linux_machine_start [<flag of limactl start>...]
-  if [ "$(linux_machine_status)" != Running ]; then
+  local status
+  status=$(linux_machine_status)
+  if [ "$status" != Running ]; then
+    [ "$status" != Stopped ] || linux_machine_mount
     limactl start --tty=false "$@" "$LINUX_INSTANCE" && date +%s >"$(linux_dir)/answered"
   elif [ $# -gt 0 ]; then
     limactl start --tty=false "$@" "$LINUX_INSTANCE"
   fi
+}
+
+# Lima changes a machine's file only while it is stopped, so ak gives a stopped one the free-space
+# folder as it starts it, one made before the folder too; any other the owner named stays.  A
+# Broken one may run still: its file waits for a stop.  What the edit says or exits with changes
+# nothing about the start.
+linux_machine_mount() {
+  local mount
+  mount=$(linux_free_space) || return 0
+  limactl edit --tty=false --set ".mounts = ((.mounts // []) | map(select(.mountPoint != \"$LINUX_FREE_SPACE\"))) + [$mount]" \
+    "$LINUX_INSTANCE" >/dev/null 2>&1 || true
 }
 
 # Whether the machine runs `true` within 30 s, asked through Lima's own ssh file, which Lima

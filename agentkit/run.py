@@ -163,6 +163,17 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         repo = Path(state["repo"]) if state.get("repo") else None
         wt = Path(state["worktree"])
         if repo:
+            try:
+                with gitcall.repository_lock(wt):
+                    pass
+            except Stopped:
+                raise
+            except config.Error as exc:
+                # A checkout git does not know (such as a worktree left behind without its
+                # clone) refuses every retry the same way: end exhausted as a stop does, so
+                # the tick stops retrying it and hands the ending to its seat.
+                msg = str(exc)
+                raise Exhausted(msg if str(wt) in msg else f"{wt}: {msg}") from None
             gitcall.no_auto_gc(wt)
         log(f"resuming at round {len(state['round_summaries']) + 1}/{state['rounds']}: {wt}"
             + (f" on {state['branch']}" if state.get("branch") else ""))

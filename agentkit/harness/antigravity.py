@@ -250,18 +250,56 @@ def timestamp(stamp):
     return None if seconds is None or nanos >= 1_000_000_000 else seconds + nanos / 1e9
 
 
+def _full_id(model, effort):
+    """The full id `adapters/antigravity.sh interactive` hands `--model` and `--settings`."""
+    if not effort or effort == "none" or model.endswith(f"-{effort}"):
+        return model
+    return f"{model}-{effort}"
+
+
+def same_model(entry, model, effort):
+    """Whether `entry` launches on the same full agy id as `(model, effort)`: e.g. a
+    configured `gemini-3.1-pro-high` at `high`, or `acme-wide` at `xhigh`, matches what
+    agy reports for that launch without adding a duplicate entry."""
+    own, own_effort = entry.get("model"), entry.get("effort")
+    return (isinstance(own, str) and isinstance(model, str) and isinstance(effort, str)
+            and bool(effort) and (own_effort is None or isinstance(own_effort, str))
+            and _full_id(own, own_effort) == _full_id(model, effort))
+
+
+def _fold(model):
+    """A full agy model id (`<model>-<effort>`, or bare for no effort) as `(model, effort)`:
+    the id itself where the harness lists it at no effort, else split on its trailing effort
+    word (any effort the harness or that model lists) as `adapters/antigravity.sh`'s `models`
+    folds `agy models`."""
+    if config.efforts("antigravity", model, config.catalog_held) == ["none"]:
+        return model, "none"
+    bare, _, effort = model.rpartition("-")
+    if bare and effort != "none" and (
+            effort in config.efforts("antigravity")
+            or effort in config.efforts("antigravity", bare, config.catalog_held)):
+        return bare, effort
+    return model, "none"
+
+
 def running(record, cwd, conversation):
     """The newer of that conversation's last answer and its status-line report."""
     from . import model_report
     latest, report = answered_model(conversation), model_report(conversation)
     if report and (not latest or report[2] > latest[2]):
-        # agy 1.5 reports its own labels with a bracketed effort, even as `model.id`: the row
-        # is the one named as that label is (config.model_label), off its own label or its id.
-        label = re.sub(r" \([^()]*\)$", "", report[0])
+        said, effort, at = report
+        # Before `--model` resolves, agy's status line echoes `--settings`'s `model` id
+        # verbatim with no effort; once resolved, it reports its own label with a bracketed
+        # effort, even as `model.id`.
+        if not re.search(r"\s", said):
+            model, folded = _fold(said)
+            if not effort or model != said:
+                return model, effort or folded, at
+        label = re.sub(r" \([^()]*\)$", "", said)
         named = config.model_label("antigravity", "", label)
         model = next((row["id"] for row in config.catalog_table("antigravity")
                       if config.model_label("antigravity", "", row["label"]) == named), label)
-        return model, report[1], report[2]
+        return model, effort, at
     return latest
 
 
@@ -285,11 +323,7 @@ def answered_model(conversation):
     at = timestamp(field(metadata, 8))
     if not execution or execution != field(metadata, 12) or not model or at is None:
         return None
-    model = model.decode(errors="replace")
-    # folded as adapters/antigravity.sh's `models` folds `agy models`
-    bare, _, effort = model.rpartition("-")
-    return (bare, effort, at) if bare and effort in config.efforts("antigravity") else (
-        model, "none", at)
+    return (*_fold(model.decode(errors="replace")), at)
 
 
 def steps(conversation, *kinds):

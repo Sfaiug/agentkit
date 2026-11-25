@@ -239,8 +239,11 @@ class Antigravity(unittest.TestCase):
         words = words[5:]
         self.assertEqual(words[:3], ["env", "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy"])
         self.assertEqual(words[words.index("--agent") + 1], "agentkit")
-        # the id agy's own alias resolution makes of the model and the effort
+        # the id agy's own alias resolution makes of the model and the effort, mirrored in
+        # --settings so agy's first status renders name it instead of settings.json's last pick
         self.assertEqual(words[words.index("--model") + 1], "gemini-3.8-flash-high")
+        self.assertEqual(json.loads(words[words.index("--settings") + 1])["model"],
+                         "gemini-3.8-flash-high")
         self.assertIn("--dangerously-skip-permissions", words)
         agents = Path(words[words.index("--add-dir") + 1])
         self.assertEqual(agents.parent, self.home / ".agentkit/state/antigravity")
@@ -299,9 +302,15 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("--conversation c-123", proc.stdout)
         self.assertIn("--model gemini-3.1-pro-high ", proc.stdout)   # already a full id
+        words = shlex.split(proc.stdout)
+        self.assertEqual(json.loads(words[words.index("--settings") + 1])["model"],
+                         "gemini-3.1-pro-high")
         # a model agy runs at no effort, configured `none`, is its own full id
         proc = self.adapter("interactive", "claude-sonnet-4-6", "none")
         self.assertIn("--model claude-sonnet-4-6 ", proc.stdout)
+        words = shlex.split(proc.stdout)
+        self.assertEqual(json.loads(words[words.index("--settings") + 1])["model"],
+                         "claude-sonnet-4-6")
         proc = self.adapter("interactive", "gemini-3.8-flash", "high", "launched-id", "new")
         self.assertEqual(proc.returncode, 3)
 

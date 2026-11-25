@@ -673,28 +673,52 @@ def notes(row, said):
         (f"{missing} missing", missing), ("no harness", not row["yours"])) if true]
 
 
-def by_plan(days):
+def _printed(value):
+    """Exact Fraction `value` rounded once to six significant digits as a Decimal, as a float holds
+    none below its own smallest, and one past a float's largest as that largest."""
+    if value > sys.float_info.max:
+        return sys.float_info.max
+    return decimal.Context(prec=6).divide(value.numerator, value.denominator)
+
+
+def by_plan(days, fits=None):
     """`ak models --json`'s `week_meters`, {provider: {plan: {"points", "tokens", "rates"}}}:
     `days`, `week_meters.days`'s, summed by plan, the points to six significant digits, and the
     rates fitted from them (`rates.fitted`), each rounded once from the fit's exact value to six
-    significant digits as a Decimal, as a float holds none below its own smallest, and one past a
-    float's largest as that largest."""
-    fits, plans = rates.fitted(days), {}
+    significant digits (`_printed`)."""
+    fits, plans = rates.fitted(days) if fits is None else fits, {}
     for provider, plan, points, tokens in days:
         summed = plans.setdefault(provider, {}).setdefault(plan, [0, {}])
         summed[0] += points
         for model, count in tokens.items():
             summed[1][model] = summed[1].get(model, 0) + count
-
-    def printed(rate):
-        if rate > sys.float_info.max:
-            return sys.float_info.max
-        return decimal.Context(prec=6).divide(rate.numerator, rate.denominator)
     return {provider: {plan: {"points": float(f"{float(points):.6g}"), "tokens": tokens,
-                              "rates": {model: printed(rate)
+                              "rates": {model: _printed(rate)
                                         for model, rate in fits[provider, plan].items()}}
                        for plan, (points, tokens) in found.items()}
             for provider, found in plans.items()}
+
+
+def run_usage(by_run):
+    """`ak models --json`'s `runs`' `usage`, {role: {"points": {provider: {plan: points}},
+    "unrated": tokens}} for `executor` and `reviewer` from `by_run`, `week_meters.run_usage`'s:
+    each role's points summed exactly per provider and plan and printed as rates print
+    (`_printed`), a plan with none not named, and `unrated` whole tokens."""
+    roles = {role: [{}, 0] for role in ("executor", "reviewer")}
+    for (_, role), (points, unrated) in by_run.items():
+        if role in roles:
+            summed, missed = roles[role]
+            for plan, value in points.items():
+                summed[plan] = summed.get(plan, 0) + value
+            roles[role][1] = missed + unrated
+    out = {}
+    for role, (summed, unrated) in roles.items():
+        plans = {}
+        for (provider, plan), value in summed.items():
+            if value:
+                plans.setdefault(provider, {})[plan] = _printed(value)
+        out[role] = {"points": plans, "unrated": unrated}
+    return out
 
 
 def dumped(value, at="\n"):
@@ -730,6 +754,12 @@ def main(argv):
     runs = ledger.counted()
     mine = own.by_role(runs["teams"], team_now(cfg, seat))
     if "--json" in flags:
+        meters = week_meters.shared_weeks(cfg)
+        days = week_meters.days(cfg, runs["since"], runs["until"], meters=meters)
+        fits = rates.fitted(days)
+        used = run_usage(week_meters.run_usage(
+            cfg, runs["since"], runs["until"], fits, meters=meters))
+
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
                                                  "cost", "board_cost", "cost_rule")},
@@ -748,8 +778,8 @@ def main(argv):
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()},
-            "runs": runs, "own": mine,
-            "week_meters": by_plan(week_meters.days(cfg, runs["since"], runs["until"]))}))
+            "runs": {**runs, "usage": used}, "own": mine,
+            "week_meters": by_plan(days, fits)}))
         print()
         return 0
     used, unit = uses(cfg, seat, found), menu.models_unit()     # the screen's, as it was left

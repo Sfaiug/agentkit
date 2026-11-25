@@ -93,9 +93,9 @@ class WeekMeters(unittest.TestCase):
         (turn / "harness").write_text(harness)
         self.rows["turn_usage"].append((str(turn), account, model, THEN - ago * HOUR, *counts))
 
-    def week_meters(self, tables=TABLES):
-        """`ak models --json`'s `week_meters`, the rows written into history.db first, read-only
-        so that no migration ahead of the read changes the tables as written."""
+    def answer(self, tables=TABLES):
+        """`ak models --json`, the rows written into history.db first, read-only so that no
+        migration ahead of the read changes the tables as written."""
         path = self.home.path / ".agentkit/history.db"
         with closing(sqlite3.connect(path)) as db, db:
             for table, columns in tables.items():
@@ -105,7 +105,11 @@ class WeekMeters(unittest.TestCase):
         path.chmod(0o444)
         done = self.home.ak("models", "--json", env=ENV)
         self.assertEqual(done.code, 0, done.out + done.err)
-        return json.loads(done.out)["week_meters"]
+        return json.loads(done.out)
+
+    def week_meters(self, tables=TABLES):
+        """`ak models --json`'s `week_meters`."""
+        return self.answer(tables)["week_meters"]
 
 
 class ModelsJsonWeekMeters(WeekMeters):
