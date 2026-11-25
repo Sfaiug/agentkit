@@ -272,8 +272,13 @@ def _fold(model):
     the id itself where the harness lists it at no effort, else split on its trailing effort
     word (any effort the harness or that model lists) as `adapters/antigravity.sh`'s `models`
     folds `agy models`."""
-    if config.efforts("antigravity", model, config.catalog_held) == ["none"]:
-        return model, "none"
+    for table in (config.catalog_held("antigravity"), config.catalog_table("antigravity")):
+        said = next((entry["efforts"] for entry in table
+                     if entry["id"] == model and entry["efforts"]), None)
+        if said:
+            if said == ["none"]:
+                return model, "none"
+            break
     bare, _, effort = model.rpartition("-")
     if bare and effort != "none" and (
             effort in config.efforts("antigravity")

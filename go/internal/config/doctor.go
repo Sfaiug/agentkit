@@ -108,11 +108,9 @@ func WrongEfforts(listed func(harness, model string) []string) ([]string, error)
 		entry := root.values["models"].(*table).values[name].(*table)
 		harness := entry.values["harness"].(string)
 		model, _ := entry.values["model"].(string)
-		takes := listed(harness, model)
-		if len(takes) == 0 {
-			if takes, err = Efforts(harness, model); err != nil {
-				return nil, err
-			}
+		takes, err := effortsWith(harness, model, listed)
+		if err != nil {
+			return nil, err
 		}
 		for _, key := range RoleEfforts {
 			value, set := entry.values[key]

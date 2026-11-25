@@ -189,12 +189,16 @@ class Catalog(unittest.TestCase):
     def test_agy_folds_each_effort_suffixed_id_into_its_model(self):
         self.stub("agy", listing=FIXTURES / "antigravity-models.txt")
         self.assertEqual(lines(self.models("antigravity")), [
+            ["gemini-4-neon", "Gemini 4 Neon", "low medium high xhigh"],
+            ["gemini-4-carbon", "Gemini 4 Carbon", "low medium high"],
+            ["gemini-4-argon", "Gemini 4 Argon", "low medium high"],
+            ["gemini-4-hydrogen", "Gemini 4 Hydrogen", "low medium high xhigh"],
+            ["gemini-pro-orchestrator-neon", "Orchestrator (Neon)", "none"],
+            ["gemini-pro-orchestrator", "Orchestrator (Carbon)", "none"],
+            ["gemini-pro-orchestrator-argon", "Orchestrator (Argon)", "none"],
             ["gemini-3.8-flash", "Gemini 3.8 Flash", "low medium high"],
-            ["gemini-3.7-flash", "Gemini 3.7 Flash", "low medium high"],
-            ["gemini-3.6-flash", "Gemini 3.6 Flash", "low medium high"],
-            ["gemini-3.1-pro", "Gemini 3.1 Pro", "low high"],
-            ["claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)", "none"],
-            ["claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)", "none"],
+            ["claude-opus-5-5", "Claude Opus 5.5", "low medium high"],
+            ["claude-sonnet-5-5", "Claude Sonnet 5.5", "low medium high"],
             ["gpt-oss-120b", "GPT-OSS 120B", "medium"],
         ])
         self.assertEqual(self.log.read_text(), "models\n")

@@ -1113,20 +1113,39 @@ def catalog_held(harness, cfg=None):
             for model in models.values()]
 
 
+def _suffixed_efforts(harness):
+    """Whether that harness accepts `<model>-<effort>` as a full id at effort `none`."""
+    block = manifest(harness).get("effort")
+    return isinstance(block, dict) and block.get("suffixed_ids") is True
+
+
 def efforts(harness, model=None, listing=None):
     """That harness's effort words, in the order the `c` screen cycles them -- or that model's.
 
     A model's are the first of these to say them: its harness's `listing` (catalog() unless
     given: catalog_now for a key, catalog_held for a draw), its adapter's `[catalog]` row --
-    `none` alone for one that runs at no effort -- its adapter's `[effort] levels`, the fixed
-    list, which holds every word the shipped defaults use.  Without a model nothing is listed.
+    `none` alone for one that runs at no effort, or for a `<model>-<effort>` full id where the
+    manifest sets `[effort] suffixed_ids = true` and `<model>` takes `<effort>` -- its adapter's
+    `[effort] levels`, the fixed list, which holds every word the shipped defaults use.  Without
+    a model nothing is listed.
     """
     if model is not None:
-        for table in ((listing or catalog)(harness), catalog_table(harness)):
+        tables = ((listing or catalog)(harness), catalog_table(harness))
+        for table in tables:
             said = next((entry["efforts"] for entry in table
                          if entry["id"] == model and entry["efforts"]), None)
             if said:
                 return list(said)
+        if isinstance(model, str) and _suffixed_efforts(harness):
+            bare, sep, suffix = model.rpartition("-")
+            if bare and sep and suffix != "none":
+                for table in tables:
+                    said = next((entry["efforts"] for entry in table
+                                 if entry["id"] == bare and entry["efforts"]), None)
+                    if said:
+                        if suffix in said:
+                            return ["none"]
+                        break
     block = manifest(harness).get("effort")
     levels = block.get("levels") if isinstance(block, dict) else None
     if isinstance(levels, list) and levels and all(

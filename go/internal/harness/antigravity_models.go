@@ -8,26 +8,28 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"agentkit/internal/config"
 )
 
 func init() {
 	verbs["antigravity models"] = antigravityModels
 }
 
-var (
-	// agyEffort is the effort word an id of `agy models` may end in, agyBracketed the label's own
-	// naming of it, and agyLadder those words weakest first.
-	agyEffort    = regexp.MustCompile(`-(low|medium|high)$`)
-	agyBracketed = regexp.MustCompile(` \([^)]*\)$`)
-	agyLadder    = []string{"low", "medium", "high"}
-)
+// agyBracketed is the label's own naming of the effort word folded off an id of `agy models`.
+var agyBracketed = regexp.MustCompile(` \([^)]*\)$`)
 
 // antigravityModels is adapters/antigravity.sh's `models`: `agy models` prints one id per model and
 // effort beside its label, strongest first (`gemini-3.8-flash-high<TAB>Gemini 3.8 Flash (High)`).
 // They fold into the model `run` hands to --model, labelled as its first line says it, with the
-// words it hands to --effort strongest last; an id with no effort word is a model agy runs at no
-// effort, `none`.  1 where the listing fails or says nothing: config.catalog decides what stands in.
+// words `[effort] levels` in adapters/antigravity.toml names, strongest last; an id with no effort
+// word is a model agy runs at no effort, `none`.  1 where the listing fails or says nothing:
+// config.catalog decides what stands in.
 func antigravityModels(_ []string, out, _ io.Writer) int {
+	levels, err := config.Efforts("antigravity", "")
+	if err != nil {
+		return 1
+	}
 	flags, env := antigravityLogin()
 	said, err := scriptCommand("agy", localBin(), env, "agy", append(flags, "models")...).Output()
 	if err != nil {
@@ -41,9 +43,9 @@ func antigravityModels(_ []string, out, _ io.Writer) int {
 			continue
 		}
 		id, label := fields[0], fields[1]
-		if at := agyEffort.FindStringIndex(id); at != nil {
-			took[id[:at[0]]] = append(took[id[:at[0]]], id[at[0]+1:])
-			id, label = id[:at[0]], agyBracketed.ReplaceAllString(label, "")
+		if cut := strings.LastIndex(id, "-"); cut > 0 && slices.Contains(levels, id[cut+1:]) {
+			took[id[:cut]] = append(took[id[:cut]], id[cut+1:])
+			id, label = id[:cut], agyBracketed.ReplaceAllString(label, "")
 		}
 		if _, seen := labels[id]; !seen {
 			order, labels[id] = append(order, id), label
@@ -54,7 +56,7 @@ func antigravityModels(_ []string, out, _ io.Writer) int {
 	}
 	for _, id := range order {
 		var words []string
-		for _, word := range agyLadder {
+		for _, word := range levels {
 			if slices.Contains(took[id], word) {
 				words = append(words, word)
 			}
