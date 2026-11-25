@@ -1668,9 +1668,11 @@ def _weekly(prov):
 
 def legible(prov, now):
     """This provider's meters a number can actually be read from: a numeric used% in a window
-    that has not rolled over."""
-    return [m for m in prov.get("meters") or []
-            if _number(m.get("used")) is not None and not _past(m, now)]
+    that has not rolled over.  A cache holds whatever was written to it, so meters that are no
+    list of meters give none rather than stop the screen reading them."""
+    meters = prov.get("meters")
+    return [m for m in meters if isinstance(m, dict) and _number(m.get("used")) is not None
+            and not _past(m, now)] if isinstance(meters, list) else []
 
 
 def readable(prov, now):
@@ -2383,10 +2385,16 @@ def plan_weeks(cfg, providers, now):
 def _weeks(cfg, providers, windows):
     """{provider: [`plan_weeks`'s {account: fit} of each of `windows`, (since, until) each, from
     the readings in it]}, every window of every provider priced in one `spend.weeks`."""
+    return spend.weeks(cfg, week_names(cfg, providers), windows)
+
+
+def week_names(cfg, providers):
+    """{provider: {account: the name of its login's shared week (`shared_week`), None where it
+    has none}} of each login of `providers` (`_accounts`): the meter its readings are of."""
     meters = {name: {} for name in providers}
     for _, name, prov, account in _accounts(cfg, providers):
         meters[name][account] = (shared_week(cfg, name, prov) or {}).get("name")
-    return spend.weeks(cfg, meters, windows)
+    return meters
 
 
 def plan_checks(cfg, providers, now):

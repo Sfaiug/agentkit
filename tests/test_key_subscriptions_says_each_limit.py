@@ -50,9 +50,8 @@ class SubscriptionsSaysEachLimit(unittest.TestCase):
                      "window_secs": WEEK, "scope": "Fable"},
                     {"name": "session", "used": 60, "resets_at": int(now + 3600),
                      "window_secs": FIVE_HOURS}, resets=1),
-                "two": reading(now, {"name": "weekly", "used": 20, "window_secs": WEEK},
-                               {"name": "session", "used": 25, "resets_at": int(now + 3600),
-                                "window_secs": FIVE_HOURS})}},
+                "two": reading(now, {"name": "session", "used": 25, "resets_at": int(now + 3600),
+                                     "window_secs": FIVE_HOURS})}},
             "openai": reading(now, {"name": "weekly", "used": 57, "window_secs": WEEK})}})
         login = {"email": "owner@acme.test", "ends": None, "plan": None, "checked_at": now}
         self.home.write(".agentkit/state/logins.json", {
@@ -88,15 +87,15 @@ class SubscriptionsSaysEachLimit(unittest.TestCase):
             "› Claude I   ━━━━━━────  60% left · 1 reset in hand",
             said,
             "    owner@acme.test   → spend a reset   − remove",
-            "  Claude II  ━━━━━━━━──  80% left"])
+            "  Claude II  — no weekly meter"])
 
         self.term.keys("Down")
         page = body(self.term.wait(lambda shown: "› Claude II " in shown
                                    and UNLIT in lines(shown)))
         self.assertEqual(page[1:6], [
             "  Claude I   ━━━━━━────  60% left",
-            "› Claude II  ━━━━━━━━──  80% left",
-            "    5h 75% left",
+            "› Claude II  — no weekly meter",
+            "    no weekly meter · 5h 75% left",
             "    owner@acme.test   − remove",
             "OpenAI"])
 
@@ -105,7 +104,7 @@ class SubscriptionsSaysEachLimit(unittest.TestCase):
                                    and UNLIT in lines(shown)))
         self.assertEqual(page[1:], [
             "  Claude I   ━━━━━━────  60% left",
-            "  Claude II  ━━━━━━━━──  80% left",
+            "  Claude II  — no weekly meter",
             "OpenAI",
             "› ChatGPT    ━━━━╸─────  43% left",
             "    owner@acme.test   − remove",
