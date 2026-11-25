@@ -86,13 +86,18 @@ class DoctorEffort(unittest.TestCase):
         self.assertFalse([line for line in lines if ", not " in line], lines)
 
     def test_a_suffixed_full_id_at_none_fits_when_its_base_model_takes_that_effort(self):
-        script = LISTING.replace("low medium", "low xhigh").format(
-            script=shlex.quote(str(ECHO / "echo.sh")))
+        script = LISTING.replace(
+            "echo-1\\tEcho 1\\tlow medium\\n",
+            "echo-1\\tEcho 1\\tlow xhigh\\necho-orch\\tOrchestrator\\tnone\\n",
+        ).format(script=shlex.quote(str(ECHO / "echo.sh")))
         manifest = ('\n[effort]\nlevels = ["low", "high", "xhigh", "max"]\nsuffixed_ids = true\n'
-                    '\n[catalog."echo-1"]\nefforts = ["low", "xhigh"]\n')
+                    '\n[catalog."echo-1"]\nefforts = ["low", "xhigh"]\n'
+                    '\n[catalog."echo-orch-neon"]\nefforts = ["none"]\n')
         env = self.adapters("suffixed-live", script=script, manifest=manifest)
         lines = self.doctor(env, {
-            "legacy": {"harness": "echo", "model": "echo-1-xhigh", "effort": "none"}})
+            "legacy": {"harness": "echo", "model": "echo-1-xhigh", "effort": "none"},
+            # an exact `[catalog]` entry sharing a stem with a live model still wins
+            "orch": {"harness": "echo", "model": "echo-orch-neon", "effort": "none"}})
         self.assertIn(FITS, lines)
         lines = self.doctor(env, {
             "wrong_effort": {"harness": "echo", "model": "echo-1-xhigh", "effort": "low"},

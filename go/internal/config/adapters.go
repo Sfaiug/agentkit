@@ -336,20 +336,40 @@ func SuffixedEfforts(harness string) bool {
 // `<model>-<effort>` full id where `[effort] suffixed_ids = true` and `<model>` takes `<effort>`,
 // else its `[effort] levels` where each is a word, else the fixed list.
 func Efforts(harness, model string) ([]string, error) {
+	return effortsWith(harness, model, nil)
+}
+
+// effortsWith is Python's config.efforts: exact `model` in `listed` then `[catalog]`, else,
+// where `[effort] suffixed_ids = true`, `none` if the first of `listed` or `[catalog]` naming
+// `<model>` of `<model>-<effort>` takes `<effort>`, else `[effort] levels`, else fixedEfforts.
+func effortsWith(harness, model string, listed func(harness, model string) []string) ([]string, error) {
+	if listed != nil {
+		if takes := listed(harness, model); len(takes) > 0 {
+			return takes, nil
+		}
+	}
 	manifests, err := manifests()
 	root := manifests[harness]
 	if err != nil || root == nil {
 		return fixedEfforts, err
 	}
-	if catalog, ok := root.values["catalog"].(*table); ok {
-		if listed := words(catalog, model, "efforts"); len(listed) > 0 {
-			return listed, nil
+	catalog, _ := root.values["catalog"].(*table)
+	if catalog != nil {
+		if takes := words(catalog, model, "efforts"); len(takes) > 0 {
+			return takes, nil
 		}
-		if SuffixedEfforts(harness) {
-			if cut := strings.LastIndex(model, "-"); cut > 0 && model[cut+1:] != "none" {
-				if listed := words(catalog, model[:cut], "efforts"); slices.Contains(listed, model[cut+1:]) {
-					return []string{"none"}, nil
-				}
+	}
+	if SuffixedEfforts(harness) {
+		if cut := strings.LastIndex(model, "-"); cut > 0 && model[cut+1:] != "none" {
+			var base []string
+			if listed != nil {
+				base = listed(harness, model[:cut])
+			}
+			if len(base) == 0 && catalog != nil {
+				base = words(catalog, model[:cut], "efforts")
+			}
+			if slices.Contains(base, model[cut+1:]) {
+				return []string{"none"}, nil
 			}
 		}
 	}
