@@ -304,6 +304,10 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 )
 """
 TURN_USAGE_MIGRATIONS = (("listed_usd", "REAL"), ("machine", "TEXT"))
+# In a run's directory (read-only to turns): one JSON line per turn launch, naming the turn's
+# resolved directory and the machine it launched on.  Stored outside `out_dir` so an adapter's
+# own files in `out_dir` cannot collide with, corrupt, or spoof it.
+TURN_MACHINES = "turn-machines.jsonl"
 
 
 def path():
@@ -906,13 +910,44 @@ def _turn_usage(connection, plugin, run_id, out, priced):
         account = (out / "account").read_text()
     except OSError:
         account = None
-    try:
-        machine = (out / "machine").read_text().strip() or None
-    except OSError:
-        machine = None
+    machine = _turn_machine(run_id, str(out.resolve()))
     at = _moment(out / "events.jsonl")
     return [(account, model, began, at, *numbers, priced(model, numbers), machine)
             for model, numbers in counts.items()]
+
+
+def note_turn_machine(run_dir, out_dir, machine=None):
+    """Record which machine `out_dir` is launching on, in `run_dir` (read-only to the turn):
+    `machine`, the listed name on another machine, else this host's own name (`readings.py`).
+    Appended per launch so a turn turned away by a machine records this host when it runs here,
+    and a killed turn keeps its own."""
+    try:
+        who = (machine or "").strip() or socket.gethostname()
+    except OSError:
+        who = None
+    line = ("\n" + json.dumps({"turn": str(Path(out_dir).resolve()), "machine": who}) + "\n").encode()
+    with contextlib.suppress(OSError):
+        fd = os.open(Path(run_dir) / TURN_MACHINES, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
+
+
+def _turn_machine(run_id, turn):
+    """The last machine recorded for `turn` in its run's directory, or None."""
+    found = None
+    with contextlib.suppress(OSError):
+        with (config.RUNS / str(run_id) / TURN_MACHINES).open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict) and row.get("turn") == turn:
+                    value = row.get("machine")
+                    found = value if isinstance(value, str) and value else None
+    return found
 
 
 def _listed_usd():

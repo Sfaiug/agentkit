@@ -326,9 +326,8 @@ def _home(away, harness, cwd, out_dir, home):
         for name, data in files.items():
             path = out_dir / name[4:]
             # a file that came home unchanged keeps its time: the `harness` receipt's is when
-            # the turn began; `machine` is written on this host at launch, never from the container
-            if name.startswith("out/") and name not in ("out/events.jsonl", "out/stderr.log",
-                                                        "out/machine") \
+            # the turn began
+            if name.startswith("out/") and name not in ("out/events.jsonl", "out/stderr.log") \
                     and not (path.is_file() and path.read_bytes() == data):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(data)

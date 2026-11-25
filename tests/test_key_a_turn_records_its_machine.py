@@ -78,9 +78,20 @@ class ATurnRecordsItsMachine(unittest.TestCase):
         return home, rig, machine
 
     def test_remote_and_local_turns_each_name_their_own_machine_and_old_rows_stay_empty(self):
+        # Adapters writing a `machine` file (even binary or spoofed) or `machine/` subdir in
+        # their own out dir neither interfere with collection nor spoof the recorded machine.
         home, rig, _ = self.stage(
-            claude={**fakeadapter.WORK, "sh": WHERE, "events": CLAUDE_EVENTS},
-            codex={**fakeadapter.PASS, "sh": WHERE, "events": CODEX_EVENTS})
+            claude=[{**fakeadapter.WORK,
+                     "sh": f'{WHERE}; mkdir -p "${{AK_HAND_IN%/*}}/machine" && '
+                           'printf "%s" "${container:-here}" >"${AK_HAND_IN%/*}/machine/artifact"',
+                     "events": CLAUDE_EVENTS},
+                    {**fakeadapter.WORK,
+                     "sh": f'{WHERE}; printf "spoofed-machine" >"${{AK_HAND_IN%/*}}/machine"',
+                     "events": CLAUDE_EVENTS}],
+            codex=[{**fakeadapter.PASS, "sh": WHERE, "events": CODEX_EVENTS},
+                   {**fakeadapter.PASS,
+                    "sh": f'{WHERE}; printf "\\377" >"${{AK_HAND_IN%/*}}/machine"',
+                    "events": CODEX_EVENTS}])
         # A pre-existing turn_usage table from before the machine column existed.
         with closing(sqlite3.connect(home.path / ".agentkit/history.db")) as db, db:
             db.execute(OLD_TURN_USAGE)
@@ -95,6 +106,8 @@ class ATurnRecordsItsMachine(unittest.TestCase):
         remote_run = taskfile.only_run(home)
         self.assertEqual(sorted(p.read_text().strip() for p in remote_run.rglob("where")),
                          ["docker", "docker"])
+        self.assertEqual([p.read_text().strip() for p in remote_run.rglob("machine/artifact")],
+                         ["docker"])
 
         # Second run: host is calm -> turns run on this host.
         local_done = home.ak("run", str(taskfile.write(home, rig.path, name="local.md")),

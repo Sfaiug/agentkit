@@ -1,11 +1,9 @@
 """One headless model call: role preamble + task text -> adapter -> final.md."""
 
-from contextlib import suppress
 import json
 import os
 import re
 import signal
-import socket
 import subprocess
 import sys
 import threading
@@ -855,13 +853,10 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     watch = {"silence": limit, "activity": out_dir / "events.jsonl",
              "heartbeats": paths.get("heartbeats", ()), "abort": lambda: watching(out_dir)}
     def launch(argv, *, machine=None, **kwargs):
-        # Where the turn runs, as readings.py names it: written at each launch so a turn a machine
-        # turned away gets this host's name when it runs here, and a killed turn keeps its own.
-        with suppress(OSError):
-            (out_dir / "machine").unlink(missing_ok=True)
-            (out_dir / "machine").write_text(machine or socket.gethostname())
         if os.path.isdir(run := gitcall.run_child_env().get(RUN_MARKER, "")):
+            from . import history     # here, not at the top: history imports gitcall, which imports worker
             Path(run, LAUNCHED).touch()
+            history.note_turn_machine(run, out_dir, machine)
         return limited(argv, None, **watch, **kwargs)
     away = machine_turn.call(entry, cmd, workspace, out_dir, turn_env, places, session, launch)
     if away:
