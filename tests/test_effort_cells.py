@@ -2,7 +2,7 @@
 
 Before each effort word stands a cell for every level that model offers, full up to its effort
 and the rest thin in the border's colour (`━━━──` for high of five, the bar's line, the owner's pick of 10 Nov
-2026), the words in one column; a model with one effort is its word alone.  A step lights each cell it
+2026), the barred words in one column; a model with one effort is its word alone, beside its mark.  A step lights each cell it
 fills and dims each it empties, in turn from the level before it, on the menu's animation clock,
 and a step onto the model's highest level sends one light through the word, once.  Without
 UTF-8 a full cell is `=` and an open one `-`, and under NO_COLOR nothing moves.
@@ -111,8 +111,10 @@ class EffortCells(unittest.TestCase):
         lines = screen.frame()
         self.assertEqual(row(lines, "haiku")[1].split(), [*FULL["haiku"].split(), "○",
                                                           *("■", "xhigh") * 2])
-        # its word still in the column the others' stand in
-        self.assertEqual(row(lines, "haiku")[1].rindex(" "), row(lines, "opus")[1].rindex(" "))
+        # its words stand where a bar's first cell stands
+        bars = [bar.start() for bar in re.finditer("[━─]+", row(lines, "opus")[1])]
+        self.assertEqual([word.start() for word in re.finditer("xhigh", row(lines, "haiku")[1])],
+                         bars[1:])
         screen.press(DOWN * 2 + RIGHT * 2, lambda lines: on_effort(lines, "haiku"))
         cells = moved(screen, SPACE)                    # onto none, its only effort
         lines = screen.frame()
