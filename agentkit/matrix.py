@@ -17,7 +17,7 @@ import re
 import sys
 import time
 
-from . import catalog, command_help, config, quality, record, terminal
+from . import catalog, command_help, config, quality, rates, record, terminal
 from .boards import PREFIX, collect, effort_rank
 
 # the config's word for each role ak answers: `config.ROLE_EFFORTS` keys its efforts by these
@@ -673,17 +673,21 @@ def notes(row, said):
 
 
 def by_plan(days):
-    """`ak models --json`'s `week_meters`, {provider: {plan: {"points", "tokens"}}}: `days`,
-    `week_meters.days`'s, summed by plan, the points to six significant digits."""
-    plans = {}
+    """`ak models --json`'s `week_meters`, {provider: {plan: {"points", "tokens", "rates"}}}:
+    `days`, `week_meters.days`'s, summed by plan, and the rates fitted from them (`rates.fitted`),
+    each number to six significant digits, one past a float's largest as that largest."""
+    fits, plans = rates.fitted(days), {}
     for provider, plan, points, tokens in days:
         summed = plans.setdefault(provider, {}).setdefault(plan, [0, {}])
         summed[0] += points
         for model, count in tokens.items():
             summed[1][model] = summed[1].get(model, 0) + count
-    return {provider: {plan: {"points": float(f"{float(points):.6g}"), "tokens": tokens}
-                       for plan, (points, tokens) in found.items()}
-            for provider, found in plans.items()}
+
+    def printed(number):
+        return float(f"{float(min(number, sys.float_info.max)):.6g}")
+    return {provider: {plan: {"points": printed(points), "tokens": tokens, "rates": {
+        model: printed(rate) for model, rate in fits[provider, plan].items()}}
+        for plan, (points, tokens) in found.items()} for provider, found in plans.items()}
 
 
 def main(argv):
