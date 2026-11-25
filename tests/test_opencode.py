@@ -329,6 +329,10 @@ cat "$dir/bridge-eval"
         proc = self.adapter("interactive", "mimo/mimo-v2.6-pro", "high")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         words = shlex.split(proc.stdout)
+        # permissions bypassed, as every harness ak launches: an option of the command the
+        # seat's wrapper runs, before any `--` of that command's
+        command = words[words.index("--") + 1:]
+        self.assertIn("--auto", command[:command.index("--")] if "--" in command else command)
         content = next(word for word in words
                        if word.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1]
         config_doc = json.loads(content)
