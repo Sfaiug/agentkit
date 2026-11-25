@@ -12,7 +12,7 @@ import (
 func (s Screen) lookOf(word string) (style, string) {
 	rgb, own := strings.CutPrefix(word, "#")
 	if !own {
-		return styles[word], colourOf(word, s.theme)
+		return styles[word], s.colour(word)
 	}
 	tone := 30
 	for i, text := range channels(rgb) {
@@ -36,17 +36,16 @@ func Pad(text string, room int) string {
 }
 
 // faded is a word's colour, as Styled draws it, or a `#RRGGBB`, amount (0 to 1) of the way to the
-// theme's background, or with a negative one that far toward its text, lit.
-func (s Screen) faded(word string, amount float64) string {
+// ground it is on, the background, or with a negative one that far toward its text, lit.
+func (s Screen) faded(word string, amount float64, ground string) string {
 	if role, ok := kinds[word]; ok {
 		word = role
 	}
 	_, rgb := s.lookOf(word)
-	toward := "background"
 	if amount < 0 {
-		toward, amount = "text", -amount
+		ground, amount = "text", -amount
 	}
-	to := channels(colourOf(toward, s.theme))
+	to := channels(s.colour(ground))
 	out := "#"
 	for i, text := range channels(rgb) {
 		value, _ := strconv.Atoi(text)
@@ -98,7 +97,7 @@ func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word
 		if s.depth > 8 {
 			ink := word
 			if lit && n == head-1 {
-				ink = s.faded(word, -0.5)
+				ink = s.faded(word, -0.5, "background")
 			}
 			line.WriteString(s.Styled(cells[n], ink))
 		}

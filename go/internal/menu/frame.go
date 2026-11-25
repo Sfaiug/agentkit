@@ -107,7 +107,12 @@ func Draw(view View, width, height int) Frame {
 	}
 	view = view.withNew()
 	s := view.Screen
-	view.Seats = moving(s, view.Seats, view.Motion)
+	cursor := Step(view.Seats, view.Switches, view.Highlight.Cursor, 0)
+	lit := cursor // the row the highlight is on, its band drawn
+	if view.Highlight.Hidden || view.Pipe {
+		lit = ""
+	}
+	view.Seats = moving(s, view.Seats, view.Motion, lit)
 	layout := max(1, min(width, 120))
 	projects := projects(view.Seats)
 	sized := columns(s, view.Seats, width)
@@ -124,7 +129,7 @@ func Draw(view View, width, height int) Frame {
 		opens = max(opens, len(said[seat.Name]))
 	}
 	opens = min(opens, max(1, height/2))
-	cursor, opened := Step(view.Seats, view.Switches, view.Highlight.Cursor, 0), map[string][]string(nil)
+	opened := map[string][]string(nil)
 	if view.Pipe { // nothing is highlighted there to open a row, so every row opens (menu.draw)
 		cursor, opens, opened = "", 0, said
 	}

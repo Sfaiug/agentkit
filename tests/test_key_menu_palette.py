@@ -2,7 +2,8 @@
 
 As it opens, the menu asks the terminal for its background colour (OSC 11).  No answer is a
 dark background, and the black theme; an answer whose luma is past half way puts the white theme
-in force, the accent, `needs you` and a seat's muted model each its role's colour of that theme.  The
+in force, the accent, `needs you` and a seat's muted model each its role's colour of that theme,
+on the terminal's own background where the look reads there (tests/test_the_look_reads.py).  The
 terminal here is tmux, which answers that question only once a background is set for its panes
 (`window-style`), so it stands for both a terminal that never answers and one that answers.
 Black-box: the menu runs through tests/fixtures/akterm.py, and each cell is judged by how it
@@ -22,7 +23,7 @@ from fixtures.akterm import SERVER, Terminal, forget
 
 DARK_ACCENT, DARK_NEEDS, DARK_MUTED = "38;2;77;163;255", "38;2;215;146;0", "38;2;172;180;189"
 LIGHT_ACCENT, LIGHT_NEEDS, LIGHT_MUTED = "38;2;0;103;198", "38;2;142;94;0", "38;2;83;89;98"
-DARK, LIGHT = "48;2;0;0;0", "48;2;255;255;255"     # each theme's background, off the highlight
+DARK, LIGHT = "48;2;0;0;0", "48;2;255;255;255"     # each theme's background, where it is painted
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -62,9 +63,8 @@ class Palette(unittest.TestCase):
             with self.subTest(COLORTERM=colorterm):
                 screen = self.menu("#ffffff", COLORTERM=colorterm)
                 self.assertEqual(ink(look(screen, "›")), {"1", LIGHT_ACCENT})
-                self.assertEqual(look(screen, "! needs you", on="beta"),
-                                 {"1", LIGHT_NEEDS, LIGHT})
-                self.assertEqual(look(screen, "Opus 5.5", on="beta"), {LIGHT_MUTED, LIGHT})
+                self.assertEqual(look(screen, "! needs you", on="beta"), {"1", LIGHT_NEEDS})
+                self.assertEqual(look(screen, "Opus 5.5", on="beta"), {LIGHT_MUTED})
                 self.assertNotIn(DARK_NEEDS, colours(screen))
 
     def test_a_background_is_light_once_its_luma_is_past_half_way(self):
@@ -75,7 +75,7 @@ class Palette(unittest.TestCase):
 
     def test_on_256_colours_the_light_needs_you_is_its_own(self):
         self.assertEqual(look(self.menu("#ffffff", TERM="xterm-256color"), "! needs you",
-                              on="beta"), {"1", LIGHT_NEEDS, LIGHT})
+                              on="beta"), {"1", LIGHT_NEEDS})
 
 
 if __name__ == "__main__":

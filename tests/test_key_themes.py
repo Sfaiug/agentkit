@@ -11,7 +11,8 @@ a person's terminal of 24-bit colour (tests/fixtures/akterm.py) over tests/fixtu
 seats, each cell judged by how it looks (tests/fixtures/aklooks.py), never by the bytes that drew
 it.  Its clock injected: `AK_MOTION_CLOCK` names a file of seconds that stands still until the
 test moves it, so what moves is told from what rests at the moments the test sets, however late
-a busy host draws or captures a frame.
+a busy host draws or captures a frame.  On white, where the look reads
+(tests/test_the_look_reads.py), no cell sets a background but the highlight's.
 """
 
 import sys
@@ -123,7 +124,8 @@ class Themes(unittest.TestCase):
                  for at, cell in enumerate(rows[0])] for rows in zip(*captures[1:])]
         return captures[-1], rest
 
-    def assert_states(self, screen, theme):
+    def assert_states(self, screen, theme, off):
+        """Each state in its role of `theme`, off the highlight on `off`, None for no background."""
         # acme's row, the first, is the highlight's: on the selection, its `›` in the accent
         lit = role("selection", theme, bg)
         self.assertEqual(colours(look(screen, "›")), {role("accent", theme), lit})
@@ -132,17 +134,18 @@ class Themes(unittest.TestCase):
                                  ("✓ done", "success", "gamma"), ("○ idle", "dim", "delta"),
                                  ("○ out of usage", "error", "omega")):
             with self.subTest(word):
-                ground = lit if seat == "acme" else role("background", theme, bg)
-                self.assertEqual(colours(look(screen, word, on=seat)), {role(name, theme), ground})
+                ground = lit if seat == "acme" else off
+                self.assertEqual(colours(look(screen, word, on=seat)),
+                                 {role(name, theme), ground} - {None})
         for key in ("↑↓←→", "esc"):
             self.assertEqual(colour(look(screen, key, on="esc leave"), theme),
                              role("dim", theme))
 
     def test_on_a_terminal_that_sets_no_background_each_state_is_its_role_of_black(self):
-        self.assert_states(self.screen()[0], BLACK)
+        self.assert_states(self.screen()[0], BLACK, role("background", BLACK, bg))
 
     def test_on_a_white_background_each_state_is_its_role_of_white(self):
-        self.assert_states(self.screen("#ffffff")[0], WHITE)
+        self.assert_states(self.screen("#ffffff")[0], WHITE, None)
 
     def test_at_rest_no_cell_is_drawn_in_a_colour_outside_its_theme(self):
         for background, theme in ((None, BLACK), ("#ffffff", WHITE)):
