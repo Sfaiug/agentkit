@@ -2,8 +2,9 @@
 job, `agentkit · starting`, and every line under it as it was; the seat then has the terminal.
 
 The owner (24 Nov 2026): a session being started shows `starting` in the menu instead of
-dropping to the shell.  A screen too short for a header gives the job its first row.  A seat ak
-refuses to make says why on ak's own screen, and Esc there is the menu again, no seat made.
+dropping to the shell.  A screen too short for a header has one above its rows for the job.  A
+seat ak refuses to make says why on ak's own screen, and Esc there is the menu again, no seat
+made.
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) in
 every colour, its motion clock held (motion.moment), its harnesses tests/fixtures/fakeadapter.py's.
 The making is held on the seat's record's lock, which this test takes and lets go once ak waits
@@ -59,13 +60,14 @@ class TheHeaderSaysASessionIsStarting(unittest.TestCase):
                             f"fix-login never opened; it shows:\n{self.menu.screen()}")
             time.sleep(0.05)
 
-    def test_a_screen_with_no_header_gives_the_job_its_first_row(self):
-        self.made_under_the_job(size=(100, 12))
+    def test_a_screen_with_no_header_has_one_above_its_rows_for_the_job(self):
+        self.made_under_the_job(size=(100, 4), titled=False)
 
-    def made_under_the_job(self, size=(100, 40)):
-        """Enter, the making held: the header names it and every line under it is as it was."""
+    def made_under_the_job(self, size=(100, 40), titled=True):
+        """Enter, the making held: the header names it and every line under it is as it was,
+        under a header in place of its own (`titled`) or above its first row."""
         self.named(size)
-        before = lines(self.menu.screen(colours=True))
+        before = lines(self.menu.screen(colours=True))[titled:]
         lock = self.state / ".session-fix-login.lock"
         with lock.open("a") as held:
             fcntl.flock(held, fcntl.LOCK_EX)
@@ -77,7 +79,7 @@ class TheHeaderSaysASessionIsStarting(unittest.TestCase):
                 time.sleep(0.05)
             self.menu.wait(lambda screen: lines(screen)[0].startswith("agentkit · starting "))
             during = lines(self.menu.screen(colours=True))
-            self.assertEqual(during[1:], before[1:])
+            self.assertEqual(during[1:], before)
 
     def test_a_seat_ak_refuses_is_said_on_its_screen_and_esc_is_the_menu(self):
         self.named()

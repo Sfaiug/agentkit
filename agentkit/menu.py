@@ -1827,7 +1827,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
 
 
 def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=True,
-         records=None, groups=None, clock=None, updating=None, pointing=True):
+         records=None, groups=None, clock=None, updating=None, pointing=True, doing=None):
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
@@ -1875,6 +1875,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
     the screen is drawn over.  While a popup's content fades in, the whole screen is handed to
     it, to come up out of the background (`motion.Clock.rise`).
+
+    `doing` is a job the menu waits on with no key read: the screen is written at rest, its
+    header naming it (`terminal.doing`), and `drawn["titled"]` says whether it has a header of
+    its own to name a job in.
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -2176,7 +2180,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                            grow(now) if now < until else breathe(now))
             clock.start([cell], breathe)
         moved = clock.frame()
-    terminal.written(out, moved, rising, screen=page)     # another page is another screen
+    if doing:
+        terminal.doing(doing, not compact)
+    else:
+        terminal.written(out, moved, rising, screen=page)     # another page is another screen
     # each page's first seat or heading drawn on no page before it, so the highlight resting
     # there has that page up: a heading over its project's next page, or a tall seat's rest, is not
     turns, before = [], set()
@@ -2185,7 +2192,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                            if isinstance(name, (str, Path)) and name not in before), None))
         before.update(name for _, name in lines)
     drawn.update(order=order, cursor=cursor, pointing=pointing, words=words,
-                 ask=top + at + 1 if at else None, spots=spots, turns=turns)
+                 ask=top + at + 1 if at else None, spots=spots, turns=turns, titled=not compact)
     return page, (len(pages) if ordered else 1)
 
 
@@ -7379,14 +7386,15 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 if act == "back":
                     newborn = None
                 elif act == "start" and not born_refusal(newborn):
+                    # while the seat is made, no key read
                     if dry_run:
                         keyboard.give()   # it only says what it would start
+                    elif back:            # from the models screen: the ak screen under it again
+                        draw(cfg, found, listed, page, BORN, {}, look=False,
+                             groups=born_groups(groups, newborn), updating=updating,
+                             pointing=pointing, doing="starting")
                     else:
-                        if back:          # the models screen is up: the ak screen again, still
-                            draw(cfg, found, listed, page, BORN, {}, look=False,
-                                 groups=born_groups(groups, newborn), updating=updating,
-                                 pointing=pointing)
-                        terminal.doing("starting")    # while the seat is made, no key read
+                        terminal.doing("starting", shown["titled"])
                     made, newborn, back = newborn, None, True
                     live.away()
                     try:

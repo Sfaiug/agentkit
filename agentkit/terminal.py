@@ -1616,12 +1616,13 @@ def counting(word, done, total):
              f"\033[2;1H{_cleared(rule_line(filled=done / total))}\0338")
 
 
-def doing(job):
+def doing(job, titled=True):
     """The screen up again as its last draw made it, at rest -- nothing part way through coming
-    up, growing or breathing -- and nothing read anew, but its first row: the header naming
-    `job`, which its program does now with no key read, as `counting` names a count.  A screen
-    drawn with no header, too short for one, gives it its first row while the job lasts."""
-    written([header_line(job, time.strftime("%H:%M")), *on_screen()[1:]],
+    up, growing or breathing -- and nothing read anew, its header naming `job`, which its
+    program does now with no key read, as `counting` names a count: in its own header's place,
+    or on a row above its first where it was drawn with none (not `titled`)."""
+    rows = on_screen()
+    written([header_line(job, time.strftime("%H:%M")), *(rows[1:] if titled else rows)],
             screen=_UP_OF and _UP_OF[0])
 
 
