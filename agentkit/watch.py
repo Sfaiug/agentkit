@@ -9219,8 +9219,14 @@ def main(argv):
             with suppress(Exception):
                 lease._turn()
         # ... and one that has not known for long that it is the home stands still, none of the
-        # tick's work done, and becomes the client of a machine that says it is home
+        # tick's work done, and becomes the client of a machine that says it is home.  One keeping
+        # no value watches the lease it read as a standby does, and removes it once it has stood
+        # still `lease.STILL`, as the machine holding it may have stopped for good: the next
+        # firing's turn creates the lease as a home does.  One with a proof holds the lease or is
+        # giving it back, and watches nothing.
         if pause.paused():
+            if lease.proof_age() is None:
+                lease.watch(True, lease.removal)
             step_down.where_another_is_home()
             return 0
         try:
