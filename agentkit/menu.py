@@ -5598,7 +5598,7 @@ def _subscriptions(cfg, keyboard, whose):
             line += terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
             # what Enter acts on is its act, lit on its line, never the row
             body.append(terminal.highlight(line, band=False))
-            # its limits but the resets in hand, which its row says whole
+            # its limits but the resets in hand, its row's to say, or with no room its login's line
             limits = fitting([(worth, note) for worth, note in
                               limit_notes(cfg, name, prov, time.time()) if note != held],
                              width - 4)

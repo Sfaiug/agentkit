@@ -132,7 +132,7 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 			held = ""
 		}
 		put(s.Highlight(line, true), spot)
-		// its limits but the resets in hand, which its row says whole
+		// its limits but the resets in hand, its row's to say, or with no room its login's line
 		var limits []usage.Note
 		for _, note := range each.Notes {
 			if note.Text != each.Held {
