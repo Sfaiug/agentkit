@@ -1973,13 +1973,15 @@ def held_names():
 
 def refuse_client():
     """Refuse a client a session: its seats are on its home, and a standby's records are a copy
-    of that home's, which it carries on from once it takes over.  So three ask before they
-    touch the copy.  `resume` of a seat tmux lost, and `ak orch` for a new seat (`main`), before
-    `records`, which writes what a harness reconciles of a record: refused after it, either had
-    dropped another seat's conversation from the copy.  And a new seat (`refuse_held`): refused
-    only at its start, it had replaced the copy's record by then, and removed its plan.  `start`
-    asks for every caller that did not: on 22 Nov 2026 one opened a home's 21 sessions a second
-    time on its standby."""
+    of that home's, which it carries on from once it takes over.  So each way to a start asks
+    before it writes a seat's record.  `resume` of a seat tmux lost, and `ak orch` for a new
+    seat (`main`), before `records`, which writes what a harness reconciles of a record: refused
+    after it, either had dropped another seat's conversation from the copy.  A new seat
+    (`refuse_held`): refused only at its start, it had replaced the copy's record by then, and
+    removed its plan.  And the move of a seat tmux lost (`switch_orchestrator`): refused only at
+    its start, it had rewritten the copy's record, and written the seat's rulebook.  `start`
+    asks for a caller that did not: on 22 Nov 2026 one opened a home's 21 sessions a second time
+    on its standby."""
     if alias := config.server_alias():
         raise config.Error(f"this machine is a client of {alias} and opens no session: "
                            f"its sessions are on {alias}")
@@ -4784,6 +4786,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     except FileNotFoundError:
         before = None
     try:
+        if not session:
+            refuse_client()     # tmux lost it: restarted, it is in a new session
         given = None if kept else handover(record, old_model, old_harness, owned)
         if given:
             replace_file(handed, (before or b"") + given.encode())
