@@ -12,6 +12,7 @@ import json
 import os
 import shlex
 import signal
+import socket
 import subprocess
 import time
 
@@ -28,9 +29,10 @@ KEPT = 3 * DAY      # the checks "always on" is judged on; older ones go
 # What the probe says, each read as its type; an answer missing one is no answer.
 READINGS = {"system": str, "processor": str, "cores": int, "memory_mb": int, "free_mb": int,
             "load": float, "disk_free_mb": int, "battery": int, "power": int}
-# What a Linux probe adds where its kernel keeps them, each read as int: the running totals of
-# the microseconds some work stood waiting for a processor, for memory and for the disk.
-STALLS = ("cpu_stall_us", "memory_stall_us", "io_stall_us")
+# What a probe may add, each read as its type: its host name; and where a Linux kernel keeps them,
+# the running totals of the microseconds some work stood waiting for a processor, for memory and
+# for the disk.
+MAY = {"name": str, "cpu_stall_us": int, "memory_stall_us": int, "io_stall_us": int}
 
 
 class Machine(namedtuple("Machine", "name checks said")):
@@ -62,7 +64,15 @@ class Machine(namedtuple("Machine", "name checks said")):
 
 
 def helpers():
-    """Every machine ak may use but this one: config.toml's as is, not `config.load`'s; rented."""
+    """Every machine ak may use but this one, as is one whose last answer named this host: a
+    stand-in that took over as home still lists itself."""
+    record, here = _record(), socket.gethostname()
+    return [name for name in _listed()
+            if (record.get(name, {}).get("said") or {}).get("name") != here]
+
+
+def _listed():
+    """Every machine listed: config.toml's as is, not `config.load`'s; rented."""
     named = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machines")
     names = [*(named if isinstance(named, dict) else ()), config.suite_helper(),
              *google_cloud.serving()]
@@ -96,8 +106,9 @@ def work(name, cfg=None):
 
 
 def known():
-    """Every machine ak may use, this one first, as the ticks found it."""
-    names, record = [HERE, *helpers()], _record()
+    """Every machine ak may use, this one first, as the ticks found it: each listed, so the
+    tick asks each what it is."""
+    names, record = [HERE, *_listed()], _record()
     return [Machine(name, record.get(name, {}).get("checks", []),
                     record.get(name, {}).get("said")) for name in dict.fromkeys(names) if name]
 
@@ -128,7 +139,7 @@ def add(name):
     """`name`, an ssh address, asked once as `check` asks each machine, and its answer recorded:
     "" for the caller to write its `[machines.<name>]`, else why not.  One ak may use already is
     not asked."""
-    if name in (HERE, *helpers()):
+    if name in (HERE, *_listed()):
         return f"{name} is a machine already"
     now = time.time()
     # typing it answers the question ssh would ask of a host key it has not seen: that one is
@@ -154,7 +165,7 @@ def found():
         status = {}
     if status.get("BackendState") != "Running":
         return [], "no Tailscale network here to look through"
-    named = helpers()
+    named = _listed()
     hosts = {line.partition(" ")[2].lower().removesuffix(".")
              for name, (shown, _) in zip(named, ask([["ssh", "-G", "--", name] for name in named]))
              for line in (shown or f"hostname {name.rpartition('@')[2]}").splitlines()
@@ -283,12 +294,12 @@ def _answer(proc, deadline):
 
 
 def _said(answer):
-    """What the probe answered, by READINGS and those of STALLS it gave, or None: it did not
+    """What the probe answered, by READINGS and those of MAY it gave, or None: it did not
     answer or said too little."""
     said = dict(line.partition(" ")[::2] for line in (answer or "").splitlines())
     try:
         return ({name: kind(said[name]) for name, kind in READINGS.items()}
-                | {name: int(said[name]) for name in STALLS if name in said})
+                | {name: kind(said[name]) for name, kind in MAY.items() if name in said})
     except (KeyError, ValueError):
         return None
 
