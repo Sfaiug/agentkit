@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, suite_times, terminal, transitions, update, usage, versions
 from . import record as run_record
-from .harness import LAUNCH_KEYS, LAUNCHER, claims, entries, load as harness_plugin
+from .harness import LAUNCH_KEYS, LAUNCHER, claims, entries, load as harness_plugin, unread
 
 # tmux refuses a client message past 16 KiB, its header included ("command too long"): the most
 # one call's words may hold, with room left for that header
@@ -2581,7 +2581,10 @@ def seat_harness(record, cfg=None):
     try:
         return config.model(loaded() if cfg is None else cfg,
                             record.get("orchestrator"))["harness"]
-    except config.Error:
+    except config.Error as exc:
+        # its model left the config: its conversations are still on disk, but no harness ak
+        # knows reads them, so inside `strictly` they are unread, never empty
+        unread(ValueError(str(exc)))
         return None
 
 
