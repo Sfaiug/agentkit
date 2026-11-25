@@ -418,14 +418,25 @@ def review_writers(state):
 def lab(cfg, name, lineup=None):
     """Who makes the configured model `name`: the maker of the row of `lineup`, else of the
     lineup last stored (`matrix.listed`), whose `yours` holds its harness and model, as the
-    provider `config.company` names for it; where no row holds it, its provider.  A provider
-    running several makers' models is then as many labs, and one maker's models under two
-    providers one lab."""
+    provider `config.company` names for it.  Where no row holds it, the family word its id opens
+    with after any `provider/` prefix (`config.family`): the maker of a row holding a model
+    whose id opens with the same word, as `config.company` names it, else the word itself; with
+    no family word, its provider.  A provider running several makers' models is then as many
+    labs, and one maker's models under two providers one lab."""
     entry = config.model(cfg, name)
     mine = {"harness": entry["harness"], "model": entry["model"]}
     rows = matrix.listed()[0] if lineup is None else lineup
-    maker = next((row["maker"] for row in rows if mine in row["yours"]), None)
-    return config.company(cfg, maker) or entry["provider"]
+    row = next((row for row in rows if mine in row["yours"]), None)
+    if row is not None:
+        return config.company(cfg, row.get("maker")) or entry["provider"]
+    words = config.families()
+    word = config.family(entry["model"].rsplit("/", 1)[-1], words)
+    if word:
+        maker = next((row["maker"] for row in rows if row.get("maker")
+                      and any(config.family(one["model"].rsplit("/", 1)[-1], words) == word
+                              for one in row["yours"])), None)
+        return config.company(cfg, maker) or word
+    return entry["provider"]
 
 
 def pair_tier(cfg, executor, reviewer, lineup=None):
