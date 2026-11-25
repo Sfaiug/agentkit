@@ -105,10 +105,12 @@ def known():
 def check():
     """The tick's: asks each machine once, side by side, and records what it answered.  The
     record keeps the last three days' checks of each machine, of one the tick did not ask too:
-    one `add` asked meanwhile.  Then each answer is kept over time (readings)."""
+    one `add` asked meanwhile.  Each answer is kept over time first (readings), so a record
+    that cannot be written loses none of them."""
     now, names = time.time(), [machine.name for machine in known()]
     answers = {name: _said(answer)
                for name, (answer, _) in zip(names, ask([_probe(name) for name in names]))}
+    readings.keep(now, {name: said for name, said in answers.items() if said})
 
     def change(record):
         for name, said in answers.items():
@@ -120,7 +122,6 @@ def check():
             if not was["checks"]:
                 del record[name]
     _write(change)
-    readings.keep(now, {name: said for name, said in answers.items() if said})
 
 
 def add(name):

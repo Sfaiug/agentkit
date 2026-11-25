@@ -21,6 +21,7 @@ import datetime
 import json
 import os
 import socket
+import time
 
 from . import config, history
 
@@ -43,8 +44,7 @@ def keep(at, said):
             os.write(day, "".join(["\n", *lines]).encode())
         finally:
             os.close(day)
-    gone = _date(at - history.READINGS_KEPT_FOR)
-    with suppress(OSError):
+        gone = _date(at - history.READINGS_KEPT_FOR)
         for name in os.listdir(folder):
             with suppress(OSError, ValueError):     # ValueError: a name that is no date
                 if name.endswith(".jsonl") and \
@@ -53,4 +53,5 @@ def keep(at, said):
 
 
 def _date(at):
-    return datetime.datetime.fromtimestamp(at, datetime.timezone.utc).date()
+    # gmtime drops the fraction of a second, which datetime would round into the next day
+    return datetime.date(*time.gmtime(at)[:3])

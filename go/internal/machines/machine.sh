@@ -22,7 +22,8 @@ else
   # The kernel's running totals of the microseconds some work stood waiting for a processor,
   # for memory and for the disk: none where it keeps no /proc/pressure.
   for stall in cpu memory io; do
-    sed -n "s/^some .*total=/${stall}_stall_us /p" "/proc/pressure/$stall" 2>/dev/null
+    [ ! -r "/proc/pressure/$stall" ] || sed -n "s/^some .*total=/${stall}_stall_us /p" \
+      "/proc/pressure/$stall"
   done
   # A mouse's battery is the mouse's (scope Device). On power: every battery charges, is full or
   # is held, unless a charger says: online is 0 off, any other (1, 2 programmable) on.
