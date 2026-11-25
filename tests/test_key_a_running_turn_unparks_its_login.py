@@ -2,7 +2,8 @@
 start and the last tool's result on its record, after which Claude Code sent the request the
 model last answered, that answer's entry written yet or not.  A refusal made after the seat's
 prompt was heard and before that result goes; one made after it stays, and so does every one
-where no result outside a sidechain stands after the owner's last words.
+where no result outside a sidechain stands after the owner's last words.  A line the read cannot
+follow leaves every one, the Stop answered as with none made.
 
 The Home, its seat and its refusals are tests/fixtures/unparking.py's.  Each refusal and each
 entry written here is dated whole seconds past a moment read once the prompt hook has returned,
@@ -44,6 +45,11 @@ def said(at):
         "role": "user", "content": "and the docs"}}
 
 
+def deep(_at):
+    """A line nested deeper than json.loads follows, as its bytes are written."""
+    return b"[" * 100000 + b"]" * 100000
+
+
 def answer(at):
     return {"type": "assistant", "timestamp": stamp(at), "message": {
         "id": "msg_answer", "role": "assistant", "model": "claude-opus-5-5",
@@ -51,20 +57,22 @@ def answer(at):
 
 
 class ARunningTurnUnparksItsLogin(Unparking):
-    def ran(self, *record):
-        """Both logins refused MARKED past the prompt of a turn on the second; its record then
-        holds `record`, (an entry of a moment, seconds past that prompt) each -- a tool's result
-        after the refusals and the model's answer where none is given -- and its Stop hands over
-        the model's last words, as Claude Code's does."""
-        seat = self.seat("acme")
+    def ran(self, *record, name="acme", marked=True):
+        """A turn of seat `name` on the second login, both logins refused MARKED past its
+        prompt where `marked`; its record then holds `record`, (a line of a moment, seconds past
+        that prompt) each -- a tool's result after the refusals and the model's answer where
+        none is given -- and its Stop hands over the model's last words, as Claude Code's does;
+        what that Stop printed."""
+        seat = self.seat(name)
         self.prompt(seat)
         heard = time.time()     # the prompt hook dated the turn before this
-        for login in LOGINS:
-            self.mark(login, heard + MARKED)
-        self.assertEqual(self.parked(), {"default": True, "second": True})
+        if marked:
+            for login in LOGINS:
+                self.mark(login, heard + MARKED)
+            self.assertEqual(self.parked(), {"default": True, "second": True})
         record = record or ((result, AFTER), (answer, ANSWERED))
-        self.stop(seat, *(entry(heard + at) for entry, at in record),
-                  last_assistant_message=WORDS)
+        return self.stop(seat, *(line(heard + at) for line, at in record),
+                         last_assistant_message=WORDS)
 
     def test_a_result_after_the_refusals_unparks_that_login_alone(self):
         self.ran()
@@ -89,6 +97,13 @@ class ARunningTurnUnparksItsLogin(Unparking):
     def test_a_sidechains_result_alone_leaves_them(self):
         self.ran((sidechains, AFTER), (answer, ANSWERED))
         self.assertEqual(self.parked(), {"default": True, "second": True})
+
+    def test_a_line_the_read_cannot_follow_leaves_them_and_the_stop_as_ever(self):
+        record = (result, AFTER), (deep, AFTER), (answer, ANSWERED)
+        unmarked = self.ran(*record, name="plain", marked=False)
+        marked = self.ran(*record)
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+        self.assertEqual(marked.out, unmarked.out)
 
 
 if __name__ == "__main__":
