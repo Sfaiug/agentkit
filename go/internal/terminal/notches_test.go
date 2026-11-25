@@ -43,3 +43,24 @@ func TestAKeyAfterAResizeComesAfterAFrameAtTheNewSize(t *testing.T) {
 		}
 	}
 }
+
+// A padded screen reports its inset size without mistaking it for a resize, and moves pointer
+// coordinates back into the screen's own cells -- including one read right after a wheel burst.
+func TestAPaddedKeyboardInsetsScreenAndPointer(t *testing.T) {
+	t.Setenv("COLUMNS", "20")
+	t.Setenv("LINES", "10")
+	keyboard := &Keyboard{sensed: Screen{pad: 1}, keyed: []byte("\x1b[<0;2;4m\x1b[<65;5;5M\x1b[<35;1;4M")}
+	screen := keyboard.Screen()
+	if screen.Width() != 18 || screen.Height() != 8 {
+		t.Fatalf("padded screen size %dx%d, want 18x8", screen.Width(), screen.Height())
+	}
+	if got := keyboard.ReadKey(); got.Name != "pointer" || got.Mouse.Column != 1 || got.Mouse.Row != 3 || !got.Mouse.Released {
+		t.Fatalf("click read as %+v", got)
+	}
+	if got := keyboard.ReadKey(); got.Name != "pointer" || got.Mouse.Notches != 1 {
+		t.Fatalf("wheel read as %+v", got)
+	}
+	if got := keyboard.ReadKey(); got.Name != "pointer" || got.Mouse.Column != 0 || got.Mouse.Row != 3 {
+		t.Fatalf("pointer after wheel read as %+v", got)
+	}
+}

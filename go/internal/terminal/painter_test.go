@@ -75,3 +75,46 @@ func TestAFrameTallerThanTheScreenScrollsWholeEachTime(t *testing.T) {
 		t.Fatalf("the frame after a tall one wrote %q", out.String())
 	}
 }
+
+// A padded screen places every row and span inside its margin, paints the top, left, right and
+// bottom padding, and still clears the tail of a line filling its inset width.
+func TestAPaddedScreenInsetsRowsSpansAndClearsThePadding(t *testing.T) {
+	var out strings.Builder
+	painter, screen := NewPainter(&out), Screen{width: 10, height: 4, pad: 1}
+	painter.Write([]string{"agentkit", "esc"}, screen, Span{2, 3, "c"})
+	want := hold("\x1b[2;2H\x1b[1Jagentkit\x1b[K\x1b[3;2H\x1b[1Kesc\x1b[K\x1b[4;2H\x1b[1K\x1b[J\x1b[3;4Hc")
+	if out.String() != want {
+		t.Fatalf("a padded frame wrote %q, want %q", out.String(), want)
+	}
+	out.Reset()
+	painter.Write([]string{"agentkit", "acme", "esc"}, screen)
+	tall := hold("\x1b[2;2H\x1b[1Jagentkit\x1b[K\n\x1b[2G\x1b[1Kacme\x1b[K\n\x1b[2G\x1b[1Kesc\x1b[K\n\x1b[2G\x1b[1K\x1b[J")
+	if out.String() != tall {
+		t.Fatalf("a tall padded frame wrote %q, want %q", out.String(), tall)
+	}
+	// On a 2-row terminal with padding 1, a 1-row frame sits on the last physical row and must not
+	// address past it to clear below.
+	out.Reset()
+	painter.Write([]string{"agentkit"}, Screen{width: 10, height: 2, pad: 1})
+	if want := hold("\x1b[2;2H\x1b[1Jagentkit\x1b[K"); out.String() != want {
+		t.Fatalf("a 2-row padded frame wrote %q, want %q", out.String(), want)
+	}
+	for _, each := range []struct {
+		screen      Screen
+		lines, want int
+	}{
+		{Screen{height: 15, pad: 0}, 16, 2},
+		{Screen{height: 15, pad: 1}, 13, 0},
+		{Screen{height: 15, pad: 1}, 14, 1},
+		{Screen{height: 15, pad: 1}, 15, 2},
+		{Screen{height: 2, pad: 1}, 14, 14},
+		{Screen{height: 1, pad: 1}, 14, 15},
+		{Screen{height: 17, pad: 2}, 14, 0},
+		{Screen{height: 17, pad: 2}, 15, 1},
+		{Screen{height: 2, pad: 2}, 14, 15},
+	} {
+		if got := each.screen.Scrolled(each.lines); got != each.want {
+			t.Errorf("%+v.Scrolled(%d) = %d, want %d", each.screen, each.lines, got, each.want)
+		}
+	}
+}
