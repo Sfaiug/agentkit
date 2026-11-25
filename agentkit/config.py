@@ -1071,6 +1071,30 @@ def _held(path):
     return held if isinstance(held, dict) else {}
 
 
+def _held_models(harness, account):
+    """Raw valid model rows (`id` str) kept for `account` on `harness`, or []."""
+    if not (isinstance(account, str) and account
+            and not any(bad in account for bad in ("/", "\\", "\0"))
+            and account not in (".", "..")):
+        return []
+    rows = _held(_kept(harness) / f"{account}.json").get("models")
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows
+            if isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"]]
+
+
+def catalog_held_by_login(harness, cfg=None, first=None):
+    """Raw live-listed model rows kept for `harness`, one list per login: `first` (defaulting
+    to DEFAULT_ACCOUNT) first, then any other configured logins (`_logins`), preserving each
+    login's live label without manifest substitution."""
+    if not _kept(harness).is_dir():
+        return []
+    own = first if isinstance(first, str) and first else DEFAULT_ACCOUNT
+    accounts = [own, *(account for account in _logins(cfg, harness) if account != own)]
+    return [_held_models(harness, account) for account in accounts]
+
+
 def catalog_held(harness, cfg=None):
     """catalog(harness, cfg) as its logins last listed it, however long ago and in whichever
     process, its manifest's table standing in for each never listed: for a draw, which asks no
@@ -1078,10 +1102,21 @@ def catalog_held(harness, cfg=None):
     table, models = catalog_table(harness), {}
     # a draw reads no config for a harness never listed
     for account in _logins(cfg, harness) if _kept(harness).is_dir() else [DEFAULT_ACCOUNT]:
-        for model in _held(_kept(harness) / f"{account}.json").get("models") or table:
+        for model in _held_models(harness, account) or table:
             models.setdefault(model["id"], model)
-    return [{**model, "label": model_label(harness, model["id"], model["label"])}
+    return [{**model,
+             "label": model_label(harness, model["id"],
+                                  model["label"] if isinstance(model.get("label"), str) else ""),
+             "efforts": [word for word in (model.get("efforts")
+                                           if isinstance(model.get("efforts"), list) else [])
+                         if isinstance(word, str)]}
             for model in models.values()]
+
+
+def _suffixed_efforts(harness):
+    """Whether that harness accepts `<model>-<effort>` as a full id at effort `none`."""
+    block = manifest(harness).get("effort")
+    return isinstance(block, dict) and block.get("suffixed_ids") is True
 
 
 def efforts(harness, model=None, listing=None):
@@ -1089,15 +1124,28 @@ def efforts(harness, model=None, listing=None):
 
     A model's are the first of these to say them: its harness's `listing` (catalog() unless
     given: catalog_now for a key, catalog_held for a draw), its adapter's `[catalog]` row --
-    `none` alone for one that runs at no effort -- its adapter's `[effort] levels`, the fixed
-    list, which holds every word the shipped defaults use.  Without a model nothing is listed.
+    `none` alone for one that runs at no effort, or for a `<model>-<effort>` full id where the
+    manifest sets `[effort] suffixed_ids = true` and `<model>` takes `<effort>` -- its adapter's
+    `[effort] levels`, the fixed list, which holds every word the shipped defaults use.  Without
+    a model nothing is listed.
     """
     if model is not None:
-        for table in ((listing or catalog)(harness), catalog_table(harness)):
+        tables = ((listing or catalog)(harness), catalog_table(harness))
+        for table in tables:
             said = next((entry["efforts"] for entry in table
                          if entry["id"] == model and entry["efforts"]), None)
             if said:
                 return list(said)
+        if isinstance(model, str) and _suffixed_efforts(harness):
+            bare, sep, suffix = model.rpartition("-")
+            if bare and sep and suffix != "none":
+                for table in tables:
+                    said = next((entry["efforts"] for entry in table
+                                 if entry["id"] == bare and entry["efforts"]), None)
+                    if said:
+                        if suffix in said:
+                            return ["none"]
+                        break
     block = manifest(harness).get("effort")
     levels = block.get("levels") if isinstance(block, dict) else None
     if isinstance(levels, list) and levels and all(

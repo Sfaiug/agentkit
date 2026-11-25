@@ -26,6 +26,7 @@ in a popup over whatever is running.
 
 import atexit
 import difflib
+import errno
 import fcntl
 import fnmatch
 import hashlib
@@ -2093,11 +2094,12 @@ def tmux_conf():
     path = config.STATE / "tmux.conf"
     text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
             'set -as terminal-features ",*:RGB:hyperlinks:sync"\n' + server_conf())
+    data = text.encode()
     try:
-        if not path.exists() or path.read_text() != text:
-            path.write_text(text)
+        if on_disk(path) != data:
+            replace_file(path, data)
     except OSError as exc:
-        raise config.Error(f"cannot write the tmux config {path}: {exc}")
+        raise config.Error(f"cannot write the tmux config {path}: {exc}") from exc
     return path
 
 
@@ -3023,10 +3025,37 @@ def fetch_projects(fetched=None):
 
 
 def replace_file(path, data):
-    """Write `data` to `path` whole: a reader sees the old file or the new one, never half."""
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_bytes(data)
-    tmp.replace(path)
+    """Write `data` to `path` whole: a reader sees the old file or the new one, never half.
+
+    Temp names keep `path.name` at the start so interrupted seat-state writes remain recognizable
+    to `gc.stale_seat_files`, falling back to a shorter prefix only when `path.name` leaves no
+    room within NAME_MAX.  Files are always published 0600 so an unusual umask never leaves an
+    unreadable state file behind.
+    """
+    path = Path(path)
+    try:
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    except OSError as exc:
+        if exc.errno != errno.ENAMETOOLONG:
+            raise
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name[:16]}.", suffix=".tmp")
+    try:
+        try:
+            handle = os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)
+            raise
+        with handle:
+            handle.write(data)
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def rulebook_news(session, conversation, whole=lambda news: news):

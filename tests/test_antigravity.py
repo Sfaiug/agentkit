@@ -50,7 +50,8 @@ data=antigravity-cli; case "${1:-}" in --app_data_dir=*) data=${1#*=}; shift ;; 
   cp -- "$STUB_SIGNIN" "$HOME/.gemini/$data/antigravity-oauth-token"; exec sleep 60; }
 [ "${1:-}" = --version ] && { echo "1.2.9-test"; exit 0; }
 [ "${1:-}" = models ] && { [ -z "${STUB_RENEWED:-}" ] ||
-  cp -- "$STUB_RENEWED" "$HOME/.gemini/$data/antigravity-oauth-token"; exit 0; }
+  cp -- "$STUB_RENEWED" "$HOME/.gemini/$data/antigravity-oauth-token"
+  [ -z "${STUB_MODELS:-}" ] || cat -- "$STUB_MODELS"; exit 0; }
 [ -n "${STUB_STDIN_LOG:-}" ] && cat >"$STUB_STDIN_LOG"
 [ -n "${STUB_STDERR:-}" ] && printf '%s\\n' "$STUB_STDERR" >&2
 cat -- "$STUB_EVENTS"
@@ -811,6 +812,63 @@ class Antigravity(unittest.TestCase):
         with patch.object(config, "STATE", self.root / "state"):
             labels = [label for _, label, _, _ in menu.usage_cells(cfg)]
         self.assertIn("Gemini", labels)
+
+    def test_xhigh_and_max_fold_launch_and_match_the_manifest(self):
+        proc = self.adapter("models", env={"STUB_MODELS": str(FIXTURES / "antigravity-models.txt")})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rows = [line.split("\t") for line in proc.stdout.splitlines()]
+        by_id = {model: (label, efforts) for model, label, efforts in rows}
+        self.assertEqual(by_id["gemini-4-neon"], ("Gemini 4 Neon", "low medium high xhigh"))
+        self.assertNotIn("gemini-4-neon-xhigh", by_id)
+        self.assertEqual(by_id["gemini-4-hydrogen"], ("Gemini 4 Hydrogen", "low medium high xhigh"))
+        self.assertNotIn("gemini-4-hydrogen-xhigh", by_id)
+        # every effort word [effort] levels names folds in order and matches the screen patterns
+        levels = config.efforts("antigravity")
+        self.assertEqual(levels, ["low", "medium", "high", "xhigh", "max"])
+        listing = self.root / "all-levels.txt"
+        listing.write_text("".join(f"acme-1-{word}\tAcme 1 ({word.title()})\n"
+                                   for word in reversed(levels)))
+        proc = self.adapter("models", env={"STUB_MODELS": str(listing)})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines(), [f"acme-1\tAcme 1\t{' '.join(levels)}"])
+        # models ignores shadowing Python modules in the caller's cwd and PYTHONPATH
+        shadow = self.root / "shadow"
+        shadow.mkdir()
+        (shadow / "datetime.py").write_text("# shadows stdlib datetime\n")
+        proc = self.adapter("models", cwd=shadow,
+                            env={"STUB_MODELS": str(listing), "PYTHONPATH": str(shadow)})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines(), [f"acme-1\tAcme 1\t{' '.join(levels)}"])
+        screen = watch.screen("antigravity")
+        draft_rule = next(rule for rule in screen["rules"] if rule["id"] == "draft.typed")
+        for word in levels:
+            footer = f"Gemini 4 Neon · {word}"
+            self.assertTrue(screen["footer"].search(footer), word)
+            self.assertTrue(screen["held"].search(f"────\n{footer}"), word)
+            self.assertTrue(draft_rule["newest"].search(footer), word)
+        # interactive launches as the full id; a pre-existing `-xhigh` entry at `none` still does
+        for model, effort, want in (("gemini-4-neon", "xhigh", "gemini-4-neon-xhigh"),
+                                    ("gemini-4-neon-xhigh", "none", "gemini-4-neon-xhigh")):
+            proc = self.adapter("interactive", model, effort)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            words = shlex.split(proc.stdout)
+            self.assertEqual(words[words.index("--model") + 1], want)
+            self.assertEqual(json.loads(words[words.index("--settings") + 1])["model"], want)
+        # run hands agy --effort xhigh, and no --effort for a pre-existing `-xhigh` entry at `none`
+        prompt = self.root / "prompt.md"
+        prompt.write_text("Reply with done.")
+        stream = FIXTURES / "antigravity-events.jsonl"
+        for model, effort, want in (("gemini-4-neon", "xhigh", "--model gemini-4-neon --effort xhigh"),
+                                    ("gemini-4-neon-xhigh", "none", "--model gemini-4-neon-xhigh")):
+            self.argv_log.write_text("")
+            proc = self.adapter("run", model, effort, str(self.root), str(prompt),
+                                str(self.root / f"out-{effort}"),
+                                env={"STUB_EVENTS": str(stream), "STUB_ARGV_LOG": str(self.argv_log)})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            argv = self.argv_log.read_text()
+            self.assertIn(want, argv)
+            if effort == "none":
+                self.assertNotIn("--effort", argv)
 
 
 if __name__ == "__main__":

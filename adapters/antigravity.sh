@@ -366,27 +366,31 @@ hooks)
 models)
   # `agy models` prints one id per model and effort beside its label, strongest first
   # (`gemini-3.8-flash-high<TAB>Gemini 3.8 Flash (High)`).  They fold into the model `run`
-  # hands to --model, with the words it hands to --effort strongest last; an id with no
-  # effort word is a model agy runs at no effort, `none`.  A listing that fails or says
-  # nothing fails: config.catalog decides what stands in, and how long it waits.
-  listed=$(agy ${DATA:+"$DATA"} models 2>/dev/null | awk -F'\t' '
-    NF >= 2 {
-      id = $1; label = $2; effort = ""
-      if (match(id, /-(low|medium|high)$/)) {
-        effort = substr(id, RSTART + 1); id = substr(id, 1, RSTART - 1)
-        sub(/ \([^)]*\)$/, "", label)
-      }
-      if (!(id in labels)) { order[++n] = id; labels[id] = label }
-      if (effort != "") took[id, effort] = 1
-    }
-    END {
-      split("low medium high", ladder, " ")
-      for (i = 1; i <= n; i++) {
-        id = order[i]; words = ""
-        for (j = 1; j <= 3; j++) if ((id, ladder[j]) in took) words = words (words == "" ? "" : " ") ladder[j]
-        printf "%s\t%s\t%s\n", id, labels[id], (words == "" ? "none" : words)
-      }
-    }') && [ -n "$listed" ] || exit 1
+  # hands to --model, with the words `[effort] levels` in adapters/antigravity.toml names,
+  # strongest last; an id with no effort word is a model agy runs at no effort, `none`.  A
+  # listing that fails or says nothing fails: config.catalog decides what stands in, and how
+  # long it waits.
+  listed=$(agy ${DATA:+"$DATA"} models 2>/dev/null | python3 -I -c 'import re, sys, tomllib
+with open(sys.argv[1], "rb") as fh:
+    ladder = tomllib.load(fh)["effort"]["levels"]
+known, labels, took = set(ladder), {}, {}
+for line in sys.stdin:
+    parts = line.rstrip("\r\n").split("\t")
+    if len(parts) < 2:
+        continue
+    model, label = parts[0], parts[1]
+    bare, sep, effort = model.rpartition("-")
+    if bare and sep and effort in known:
+        model, label = bare, re.sub(r" \([^)]*\)$", "", label)
+    else:
+        effort = ""
+    labels.setdefault(model, label)
+    if effort:
+        took.setdefault(model, set()).add(effort)
+for model, label in labels.items():
+    words = [word for word in ladder if word in took.get(model, ())]
+    print(model, label, " ".join(words) or "none", sep="\t")
+' "${BASH_SOURCE[0]%.sh}.toml") && [ -n "$listed" ] || exit 1
   printf '%s\n' "$listed" ;;
 *)
   echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh logout | antigravity.sh forget | antigravity.sh login-end | antigravity.sh lend <home> [own] | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2

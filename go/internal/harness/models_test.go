@@ -82,11 +82,11 @@ func failsAsItsScript(t *testing.T, write func(path, text string), ask func(harn
 // usual ones, without the usual login's keys or the session bus.
 func TestAntigravityModelsFoldsAsItsScript(t *testing.T) {
 	home, write, ask := listing(t, "agy")
-	write("listing", "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n"+
-		"claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\nno label here\ngpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n")
+	write("listing", "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-4-neon-xhigh\tGemini 4 Neon (XHigh)\n"+
+		"gemini-4-neon-low\tGemini 4 Neon (Low)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\nno label here\ngpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n")
 	t.Setenv("GEMINI_API_KEY", "acme-key")
 	said, code := ask("antigravity")
-	if want := "gemini-3.8-flash\tGemini 3.8 Flash\tlow high\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\tnone\n" +
+	if want := "gemini-4-neon\tGemini 4 Neon\tlow high xhigh\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\tnone\n" +
 		"gpt-oss-120b\tGPT-OSS 120B\tmedium\n"; code != 0 || said != want {
 		t.Errorf("exit %d: %q", code, said)
 	}
