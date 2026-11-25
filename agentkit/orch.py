@@ -2979,22 +2979,22 @@ def write_rulebook(session):
     first seat opens with its rules.  A dry run fetches nothing.  A file that cannot be written
     refuses the launch: a session is opened with its rules or not at all.
     """
-    repo = os.environ.get(config.SEAT_REPO_ENV)
-    if repo is None:
-        repo = config.session_records().get(session, {}).get("repo") or ""
+    new = os.environ.get(config.SEAT_REPO_ENV)
     path = config.rulebook_path(session)
-    if os.environ.get(config.RULEBOOK_DIR_ENV):
-        path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
-    elif repo and not fetched(Path(repo)):
+    with look.one_look():     # the project it fetches is the one its rulebook reads
+        repo = new if new is not None else config.session_records().get(session, {}).get("repo")
+        if os.environ.get(config.RULEBOOK_DIR_ENV):
+            path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
+        elif repo and not fetched(Path(repo)):
+            try:
+                fetch_project(Path(repo))
+            except config.Error:
+                pass
         try:
-            fetch_project(Path(repo))
-        except config.Error:
-            pass
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(config.seat_rulebook(session, os.environ.get(config.SEAT_REPO_ENV)))
-    except OSError as exc:
-        raise config.Error(f"no rulebook for {session or 'this seat'}: {exc}") from exc
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(config.seat_rulebook(session, new))
+        except OSError as exc:
+            raise config.Error(f"no rulebook for {session or 'this seat'}: {exc}") from exc
     return path
 
 
@@ -4959,19 +4959,22 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     extra.update(zip(("reviewers", "efforts"), selected[3:]))
-    if unnamed and not dry_run:
+    saved = unnamed and not dry_run
+    if saved:
         # The adapter writes the rulebook while building its command, before the seat starts.
         extra["unnamed"] = True
         config.save_session(cfg, name, model, workers, extra)
     elif not dry_run:
         config.update_session(name, unnamed=None)
     try:
-        # the project this launch files it under, which no record says yet
-        with scratch(dry_run), for_seat(name, str(repo) if repo else ""):
+        # the project this launch files it under where no record says it yet: one saved above
+        # says it, with the builders the seat opens with
+        filed = None if saved else str(repo) if repo else ""
+        with scratch(dry_run), for_seat(name, filed):
             cmd, conversation = fresh_command(config.at_efforts(cfg, extra), model, seat=name,
                                               account=account, cwd=cwd)
     except Exception:
-        if unnamed and not dry_run:
+        if saved:
             config.discard_session(name, extra["created"])
         raise
     if not dry_run:

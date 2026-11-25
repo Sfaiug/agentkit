@@ -65,7 +65,6 @@ class NoBuilder(unittest.TestCase):
         self.assertIn("you build at most 0 added lines; anything bigger you write " + BUILDS, alone)
         self.assertEqual(alone, self.rulebook("duo", ["opus"], rig.path))
 
-
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_a_launch_reads_no_builders_off_the_seat_before_it_under_its_name(self):
         with echo_home() as home:
