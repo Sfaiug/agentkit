@@ -2992,7 +2992,7 @@ def write_rulebook(session):
             pass
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(config.seat_rulebook(session, repo))
+        path.write_text(config.seat_rulebook(session, os.environ.get(config.SEAT_REPO_ENV)))
     except OSError as exc:
         raise config.Error(f"no rulebook for {session or 'this seat'}: {exc}") from exc
     return path
