@@ -720,7 +720,7 @@ def main(argv):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
                                                  "cost", "board_cost", "cost_rule")},
                     "notes": notes(row, said)}
-        runs = ledger.by_team()
+        runs = ledger.counted()
         json.dump({**{role: {
             "best": said["best"] and said["best"]["quality"], "cost_unit": said["cost_unit"],
             **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
