@@ -217,6 +217,19 @@ class UnlistedModelLab(Sandbox):
                           "yours": [{"harness": "opencode", "model": "dune/CLAUDE-dart-2"}]}]
         self.assertEqual(staffing.lab(self.cfg, "dart", held), "dune")
 
+    def test_entries_without_a_model_id_fall_back_to_their_provider(self):
+        self.cfg["models"]["num"] = {"harness": "claude", "model": 7, "effort": "high",
+                                     "provider": "dune"}
+        self.cfg["models"]["def_a"] = {"harness": "claude", "model": "default", "effort": "high",
+                                       "provider": "anthropic"}
+        self.cfg["models"]["def_b"] = {"harness": "codex", "model": "default", "effort": "high",
+                                       "provider": "openai"}
+        self.assertEqual(staffing.lab(self.cfg, "num", []), "dune")
+        with patch.object(config, "families", return_value=["Default", "Claude"]):
+            self.assertEqual(staffing.lab(self.cfg, "def_a", []), "anthropic")
+            self.assertEqual(staffing.lab(self.cfg, "def_b", []), "openai")
+            self.assertEqual(staffing.pair_tier(self.cfg, "def_a", "def_b", []), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
