@@ -1,5 +1,5 @@
 """Each role's models by the tasks they did with the team now, off the ledger's teams
-(`ledger.by_team`): `ak models --json`'s `own`.  It hides which teams a row sums.  A ledger team
+(`ledger.counted`): `ak models --json`'s `own`.  It hides which teams a row sums.  A ledger team
 has a role of the team now's where its model there is one the team now holds for that role, at
 the effort held or at none recorded: an effort ak did not record (none, or a blank, as
 config.launched_effort reads one) is no other effort.  A role's row is a model at an effort that
