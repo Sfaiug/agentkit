@@ -1971,12 +1971,25 @@ def held_names():
     return set(out.splitlines()) - {CONTROL} if rc == 0 else set()
 
 
+def refuse_client():
+    """Refuse a client a session: its seats are on its home, and a standby's records are a copy
+    of that home's, which it carries on from once it takes over.  So what leads to a start asks
+    before it writes, `resume` and a new seat (`refuse_held`): one refused only at its start
+    had replaced the copy's record by then, and removed its plan.  `start` asks for every caller
+    that did not: on 22 Nov 2026 one opened a home's 21 sessions a second time on its standby."""
+    if alias := config.server_alias():
+        raise config.Error(f"this machine is a client of {alias} and opens no session: "
+                           f"its sessions are on {alias}")
+
+
 def refuse_held(name):
-    """Refuse a new seat a name tmux already holds, before its record or its card is touched.
+    """Refuse a new seat before its record or its card is touched: on a client, whose seats its
+    home holds (`refuse_client`), and under a name tmux already holds.
 
     A watcher loop is no seat, but tmux will not start one beside it under the same name --
     and a record written first would make that watcher a seat.
     """
+    refuse_client()
     if name in held_names():
         raise config.Error(f"tmux already holds a session named {name!r}, and it is no seat; "
                            f"pick another name")
@@ -2316,12 +2329,7 @@ def start(name, cwd, cmd, orchestrator, started=lambda: None):
     warm-up or the owner closed the seat; then its number opens it again.  Only `ak orch stop`
     ends a seat.
     """
-    if alias := config.server_alias():
-        # Every start of a seat comes here, so here is where a client has none: its seats are on
-        # its home, and a standby's records are a copy of that home's.  On 22 Nov 2026 a caller
-        # that did not ask opened a home's 21 sessions a second time on its standby.
-        raise config.Error(f"this machine is a client of {alias} and opens no session: "
-                           f"its sessions are on {alias}")
+    refuse_client()
     conf = tmux_conf()
     server = socket_name()
     values = seat_env(name, server)
@@ -2491,6 +2499,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
     session = find(name)
+    if not session:
+        refuse_client()    # tmux lost it: it comes back only in a new session
     if detached:
         if session:
             return 0       # automatic recovery never touches a surviving or legacy pane
@@ -3663,6 +3673,10 @@ def maintenance(log=print):
     on a list of runs already reported, and on a smoke suite's throwaway runs besides.  What
     finished is in `r`, in the project overview and in `ak run status`.
     """
+    if config.server_alias():
+        # A client's runs and seats are a copy of its home's, and no process or session of
+        # theirs is here: reaped, stamped and swept they would all read as gone.
+        return
     try:
         config.ensure_dirs()
         reconcile(log)
