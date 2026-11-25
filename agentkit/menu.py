@@ -2907,7 +2907,7 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None):
     for start in range(0, len(found), columns):
         cells = []
         for number, (_, label, left, said) in enumerate(found[start:start + columns], start + 1):
-            warn, _ = ending[number - 1]
+            warn = ending[number - 1][0]
             shown = terminal.cut(terminal.plain(label), label_room)
             text = shown + " " * (label_room - terminal.cells(shown) + 2)
             if not left:     # no meter: `empty until`, or why there is none, or the credits
@@ -2926,19 +2926,21 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None):
 
 
 def login_notes(rows, now=None):
-    """Of each of `rows`' (`usage_rows`') login, in one read of the logins, so both are always
-    one login's: when it ends while that is within logins.WARN_WITHIN or past, `ends Mon 26 Oct
-    04:47 (in 2 days)` (logins.ending), its meter amber meanwhile, else None; and its email as
-    kept, None where what is kept is no text or only spaces."""
+    """Of each of `rows`' (`usage_rows`') login, in one read of the logins, so all three are
+    always one login's: when it ends while that is within logins.WARN_WITHIN or past, `ends Mon
+    26 Oct 04:47 (in 2 days)` (logins.ending), its meter amber meanwhile, else None; its email as
+    kept, None where what is kept is no text or only spaces; and its plan as logins.whose has it."""
     now = time.time() if now is None else now
     found = logins.read()
     notes = []
     for name, _, _, account in rows:
         login = found.get(name)
         login = login.get(account or config.DEFAULT_ACCOUNT) if isinstance(login, dict) else None
-        email = login.get("email") if isinstance(login, dict) else None
+        login = login if isinstance(login, dict) else {}
+        email = login.get("email")
         notes.append((logins.ending(login, now),
-                      email if isinstance(email, str) and email.strip() else None))
+                      email if isinstance(email, str) and email.strip() else None,
+                      login.get("plan")))
     return notes
 
 
@@ -2997,8 +2999,8 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
         (-1, usage.credits_note(prov)), first, (1, hand),
         *((3, note) for note in claimed),
         session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
-    when, email = (login_notes(rows[number - 1:number], now) if ending is None
-                   else ending[number - 1:number])[0]
+    when, email, _ = (login_notes(rows[number - 1:number], now) if ending is None
+                      else ending[number - 1:number])[0]
     # this line is written as kept, and what the screen's stream cannot write would end the menu
     email = email if email and _writes(email) else None
     login = when and ending_note(email, when)
@@ -5484,16 +5486,15 @@ def config_spend_reset(cfg, picked, kind=None):
                                     in_hand(prov))))
 
 
-def subscription_acts(cfg, keyboard, number):
-    """What subscription `number`, from 1 in usage_rows' order, offers, as (text, act) each, an
-    act what to say under the screen or "": `log in again` while its own login ends soon or has
-    ended (login_notes), where its harness signs it in afresh (sign_in, config.signs_in_again),
-    `spend a reset` while it holds one (config_spend_reset) -- where its reading names kinds,
+def subscription_acts(cfg, keyboard, row, ends):
+    """What subscription `row`, one of usage_rows', offers, as (text, act) each, an act what to
+    say under the screen or "": `log in again` while its own login ends soon or has ended
+    (`ends`, login_notes' as drawn), where its harness signs it in afresh (sign_in,
+    config.signs_in_again), `spend a reset` while it holds one (config_spend_reset) -- where its reading names kinds,
     `spend a Fable reset` for each it can spend now, in its order -- and `remove`
     (config_remove_provider).  A login the tick finds logged out with no end recorded is told
     by its alert alone: that record is its harness's, which can carry several subscriptions."""
-    rows = usage_rows(cfg)[number - 1:number]
-    name, label, prov, account = rows[0]
+    name, label, prov, account = row
     # its label as usage_cells has it, which config_spend_reset reads its week back by
     picked = (name, account, label)
     harness = logins.harness(cfg, name)
@@ -5501,8 +5502,8 @@ def subscription_acts(cfg, keyboard, number):
     spends = [] if not in_hand(prov) else [None] if not kinds else [
         kind["kind"] for kind in kinds if kind.get("usable")]
     return [(act_text(text, kind), act) for text, kind, act, offers in (
-        (SUBSCRIPTION_ACTS[0], None, lambda: sign_in(cfg, keyboard, picked), login_notes(rows)[0][0]
-         and harness and config.signs_in_again(harness, account)),
+        (SUBSCRIPTION_ACTS[0], None, lambda: sign_in(cfg, keyboard, picked),
+         ends and harness and config.signs_in_again(harness, account)),
         *((SUBSCRIPTION_ACTS[1], kind, lambda kind=kind: config_spend_reset(cfg, picked, kind),
            True) for kind in spends),
         (SUBSCRIPTION_ACTS[2], None, lambda: config_remove_provider(cfg, picked), True))
@@ -5518,7 +5519,7 @@ def config_subscriptions(cfg, keyboard, number=None):
     usage_rows order, as Enter or a click on its meter opens it, on the ak screen, `c` and a
     new seat's models alike, else on the first.  The row the keys or the pointer are on
     says its resets in hand beside its meter where there is room, and opens a line: whose login
-    it is and its plan (logins.whose; one ending as ending_note says it, amber), resets with no
+    it is and its plan (login_notes; one ending as ending_note says it, amber), resets with no
     room beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter
     or a click running one, the key line naming it.  One an act adds is asked whose it is
     (logins.renewed), then pointed at.  It comes up as `c` does as it opens, and the pointed
@@ -5566,7 +5567,8 @@ def _subscriptions(cfg, keyboard, whose):
         own = [(*usage_cell(width, 0), -1)] if meters else []
         owned = terminal.pointer_spot().cell == -1      # the pointer on one, as last drawn
         body, places, acts, moves = [], {}, {}, []
-        for number, ((name, _, prov, account), line) in enumerate(zip(subs, drawn), 1):
+        for number, (sub, line) in enumerate(zip(subs, drawn), 1):
+            name, _, prov, _ = sub
             if number == 1 or subs[number - 2][0] != name:
                 body.append(terminal.styled(company_name(cfg, name), "bold"))
             # the row, all its line its own cell leaves, comes under the pointer to open its acts;
@@ -5581,13 +5583,13 @@ def _subscriptions(cfg, keyboard, whose):
             line += terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
             # what Enter acts on is its act, lit on its line, never the row
             body.append(terminal.highlight(line, band=False))
-            acts = dict(subscription_acts(cfg, keyboard, number))
+            # its acts, email and plan from the one read of the logins its meter was drawn by
+            ends, email, plan = ending[number - 1]
+            acts = dict(subscription_acts(cfg, keyboard, sub, ends))
             on = on if on in acts else None
-            email, plan = logins.whose(name, account)
             plan = harness_plugin(logins.harness(cfg, name)).plan_name(plan)
-            ends, kept = ending[number - 1]
             kind = "amber" if ends else "dim"
-            told = [(ending_note(kept, ends) if ends else email, kind), (plan, kind),
+            told = [(ending_note(email, ends) if ends else email, kind), (plan, kind),
                     (not beside and held, "info")]
             # the pointer on its own cell lights that, so its act is at rest: one thing lit
             for shown, cells in opened_line(told, list(acts), None if owned else on, width - 4):
