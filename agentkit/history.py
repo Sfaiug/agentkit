@@ -1012,19 +1012,19 @@ def reviewed_runs(harness, model):
         return {}
 
 
-def first_review_efforts():
-    """{run_id: the effort its first review ran at, None where none was recorded}: of its lowest
-    round, the first written; {} where the database cannot answer."""
+def reviews():
+    """{run_id: [dict(row), ...]}: every `reviews` row, in the order written; {} where the
+    database cannot answer."""
     _ensure_migrated()      # a reviews table from before rounds and efforts has neither column
     try:
         with _LOCK:
             connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
             try:
-                first = {}
-                for run_id, effort in connection.execute(
-                        "SELECT run_id, effort FROM reviews ORDER BY round, rowid"):
-                    first.setdefault(run_id, effort)
-                return first
+                by_run = {}
+                for row in connection.execute("SELECT * FROM reviews ORDER BY rowid"):
+                    by_run.setdefault(row["run_id"], []).append(dict(row))
+                return by_run
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
