@@ -16,7 +16,8 @@ from .ledger import HOURS, ROLES
 
 FEW = 20        # a row of fewer tasks says only how many: a few tasks say nothing yet
 WORDS = {"orchestrator": "ORCHESTRATOR", "executor": "BUILDER", "reviewer": "REVIEWER"}
-HEADS = ("tasks", "went live", "per task live")
+HEADS = ("tasks", "went live", "passed 1st review", "reviews per task", "issues per task",
+         "per task live")
 
 
 def by_role(teams, now):
@@ -62,8 +63,9 @@ def lines(own, cfg, room):
     """`own` (`by_role`) as `ak models` draws it on `room` cells: a line on the team now, then a
     table a role of its rows in `own`'s order, each in use marked as docs/cli-design.md marks
     one (menu.config_audit's `●` for the one orchestrator, `■` for any of several), named as
-    every screen names it (`named`).  Columns are sized once for the three tables; under 60
-    cells, or where a row would pass the edge, each row's numbers fold onto an indented line."""
+    every screen names it (`named`).  Columns are sized once for the three tables; where they
+    pass the edge every row folds, no column headed: its model's line, then its numbers indented,
+    each after its column's name, wrapped between two of them."""
     team, tasks = own["team"], own["team"]["tasks"]
     said = [f"{team['live']} of {tasks} tasks went live", *(
         [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting"]
@@ -80,21 +82,22 @@ def lines(own, cfg, room):
                            for (mark, _), model, _ in rows)])
     widths = [max(map(terminal.cells, column)) for column in zip(
         HEADS, *(texts for rows in tables.values() for *_, texts in rows))]
-    folded = room < 60 or name + sum(2 + column for column in widths) > room
+    folded = name + sum(2 + column for column in widths) > room
 
     def columns(texts):
         return "  ".join(terminal.pad(text, column, right=True)
                          for text, column in zip(texts, widths)).rstrip()
     for role, rows in tables.items():
-        head = terminal.styled(columns(HEADS), "muted")
         word = terminal.styled(WORDS[role], "bold")
-        shown += ["", word, "  " + head] if folded else [
-            "", word + " " * (name + 2 - terminal.cells(WORDS[role])) + head]
+        shown += ["", word] if folded else ["", word + " " * (
+            name + 2 - terminal.cells(WORDS[role])) + terminal.styled(columns(HEADS), "muted")]
         for (mark, kind), model, texts in rows:
-            first, *rest = hung(f"{mark} {model}", room) if folded else [
-                f"{mark} {terminal.pad(model, name - 2)}  {columns(texts)}".rstrip()]
-            shown += [terminal.styled(mark, kind) + first[len(mark):], *rest,
-                      *([("  " + columns(texts)).rstrip()] if folded else [])]
+            if folded:
+                first, *rest = hung(f"{mark} {model}", room)
+                rest += told(texts, room)
+            else:
+                first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts)}", []
+            shown += [terminal.styled(mark, kind) + first[len(mark):], *rest]
     return shown
 
 
@@ -104,11 +107,15 @@ def per_live(counts, parts=HOURS):
 
 
 def numbers(row):
-    """A row's texts under HEADS: its tasks, then, of FEW or more, the share that went live and,
-    with one live, every hour they spent per task live; "" where it says nothing."""
-    few = row["tasks"] < FEW
-    return (str(row["tasks"]), "" if few else f"{round(100 * row['live'] / row['tasks'])}%",
-            "" if few or not row["live"] else per_live(row))
+    """A row's texts under HEADS: its tasks, then, of FEW or more, the share that went live and
+    that passed its first review, its reviews and issues per task and, with one live, every hour
+    they spent per task live; "" where it says nothing."""
+    tasks = row["tasks"]
+    if tasks < FEW:
+        return (str(tasks), *[""] * (len(HEADS) - 1))
+    return (str(tasks), f"{round(100 * row['live'] / tasks)}%",
+            f"{round(100 * row['first_pass'] / tasks)}%", f"{row['reviews'] / tasks:.1f}",
+            f"{row['issues'] / tasks:.1f}", per_live(row) if row["live"] else "")
 
 
 def named(cfg, row):
@@ -118,6 +125,23 @@ def named(cfg, row):
     name = config.model_name(cfg, row["name"])
     return menu.named({"name": name if terminal.plain(name) else row["name"],
                        "effort": None if row["effort"] == "none" else row["effort"]})
+
+
+def told(texts, room):
+    """A folded row's `texts` (`numbers`), each after its column's name, two cells in and as many
+    to a line as fit: the indent gives way before a number is parted from its name, and one too
+    wide for the screen wraps at its words, never past `room`."""
+    lines = []
+    for head, text in zip(HEADS, texts):
+        part = f"{terminal.styled(head, 'muted')} {text}"
+        if not text:
+            continue
+        if lines and lines[-1].startswith("  ") and terminal.cells(f"{lines[-1]}  {part}") <= room:
+            lines[-1] += "  " + part
+        else:
+            lead = " " * max(0, min(2, room - terminal.cells(part)))
+            lines += [lead + line for line in menu.packed([part], "", room)]
+    return lines
 
 
 def hung(text, room):
