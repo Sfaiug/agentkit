@@ -98,8 +98,9 @@ def lit(text, behind):
 def tinted(glyph, word, amount, bright=False):
     """`glyph` in `word`'s colour `amount` of the way to the background, or toward the foreground
     where `amount` is below 0: bold where the word is, and `bright` on the highlighted row,
-    where every cell is."""
-    text = terminal.styled(glyph, terminal.faded(word, amount))
+    where every cell is, and there toward the highlight where the look reads (`terminal.LOOK`)."""
+    ground = "selection" if bright and terminal.LOOK else "background"
+    text = terminal.styled(glyph, terminal.faded(word, amount, ground))
     bold = bright or terminal.STATE_STYLES[word][4] == "1"
     return terminal.bright(text) if bold else text
 

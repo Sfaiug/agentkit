@@ -37,7 +37,9 @@ DARK = {f"{ground};2;" + ";".join(str(channel) for channel in bytes.fromhex(rgb)
         for ground in ("38", "48")
         for rgb in ("000000", "08305d", "3a3f46", "e2e8ef", "acb4bd", "868d97", "4da3ff",
                     "33b65f", "d79200", "fe756f", "00b0bf", "da7de0")}
-LIGHT = "48;2;255;255;255"      # the white theme's background
+# The white theme's text, which every frame sets: on white the look reads, so it sets no
+# background (tests/test_the_look_reads.py).
+LIGHT = "38;2;24;28;34"
 
 
 def until(test, what, bound=60):

@@ -16,16 +16,16 @@ func barred(seat Seat) bool {
 	return seat.Word != "idle" && seat.Word != "out of usage" && (seat.Total > 0 || seat.Word == "working")
 }
 
-// moving is the seats as the clock has them this frame: a working seat's mark breathing, and each
-// line grown in one after another down the screen as it opens, or, where its plan moved while the
+// moving is the seats as the clock has them this frame: a working seat's mark breathing, on the row
+// lit the highlight's band under it, and each line grown in one after another down the screen as it opens, or, where its plan moved while the
 // screen was up, gliding from where it stood there, its head lit (motion.growing).
-func moving(s terminal.Screen, seats []Seat, clock *motion.Clock) []Seat {
+func moving(s terminal.Screen, seats []Seat, clock *motion.Clock, lit string) []Seat {
 	seats = slices.Clone(seats)
 	nth := 0
 	for i := range seats {
 		seat := &seats[i]
 		if seat.Word == "working" {
-			seat.mark = clock.Breathing(s, s.Glyph(seat.Word), seat.Word)
+			seat.mark = clock.Breathing(s, s.Glyph(seat.Word), seat.Word, seat.Name == lit)
 		}
 		if !barred(*seat) {
 			continue
