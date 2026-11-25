@@ -8,7 +8,7 @@ code and tests.
 
 Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit` and
 the screen's name left, the clock right. Under it: one `border` rule,
-the rows, one blank line, and the key line last. On the main screen and `c`, usage sits
+the rows, one blank line, the key line last. On the main screen and `c`, usage sits
 under the header. The rule is ak's one progress indicator. A counted job fills it, the header
 saying how far; the rainbow glides along it while a screen loads. Ctrl-b m's popup's border
 is rounded. Helpers:
@@ -91,13 +91,13 @@ Example: `↑↓←→ move   ␣ mark   a add a company   esc back`.
 Screens ask for roles, never RGB, each its colour alone: `working` accent,
 `needs you` warning, `done` success, `FAIL` and `out of usage` error, `idle` and `waiting` dim; a
 seat's bar transparent, its chip on-accent on its state's. Names and numbers `text`, what tells of
-its neighbour `muted`, what the eye skips `dim`, lines `border`, ak's own word `info`; a highlight
-keeps them. A fade nears the background; lit, the text; moving, the rainbow (`themes.RAINBOW`).
+its neighbour `muted`, what the eye skips `dim`, lines `border`, ak's own word `info`; highlights
+keep them. A fade nears the background; lit, the text; moving, the rainbow (`themes.RAINBOW`).
 
-The terminal's background, shown where its shades read (`reads.py`), picks them (`themes.ROLES`,
-`terminal/themes.go`); `NO_COLOR` colours nothing.
+The terminal's background picks the shades (`themes.ROLES`); where they read (`reads.py`), plain
+cells set no background. `NO_COLOR` colours nothing.
 
-Colour says where a thing stands and never who.
+Colour says where a thing stands, never who.
 
 ## Motion
 
