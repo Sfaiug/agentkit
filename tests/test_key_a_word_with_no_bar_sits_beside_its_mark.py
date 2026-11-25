@@ -69,7 +69,10 @@ class WordWithNoBar(unittest.TestCase):
         # a cell-less model's words start where the barred model's first cells start
         self.assertEqual(haiku_line.index("xhigh"), bars[1], f"\n{opus_line}\n{haiku_line}")
         self.assertEqual(haiku_line.index("none"), bars[2], f"\n{opus_line}\n{haiku_line}")
-        # a click on the word where it sits steps it
+        # the blank space where the word used to stand is on nothing; a click on the word steps it
+        old_column = opus_line.index("high") + 1
+        term.type(f"\x1b[<35;{old_column};{haiku_row}M")
+        term.wait(lambda screen: not any(line.startswith("›") for line in screen.split("\n")))
         column = bars[1] + 1
         term.type(f"\x1b[<0;{column};{haiku_row}M\x1b[<0;{column};{haiku_row}m")
         stepped = term.wait(lambda screen: "xhigh" not in model_row(screen, "Haiku 4.5")[0])
@@ -97,7 +100,7 @@ class WordWithNoBar(unittest.TestCase):
         term2.keys("Escape")
         self.record_waits("acme-orch", {"effort": "none", "exec_effort": "none"})
 
-        # at 60 columns, a cell-less orchestrator does not widen the other role columns
+        # at 60 columns, bars still give way when the orchestrator has none
         _, narrow = self.open_c("acme-narrow", {
             "orchestrator": "haiku", "workers": ["opus", "haiku"], "reviewers": ["opus", "haiku"],
             "efforts": {"opus": OPUS_EFFORTS, "haiku": orch_efforts}}, size=(60, 30))
