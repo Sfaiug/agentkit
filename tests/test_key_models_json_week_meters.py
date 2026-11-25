@@ -1,5 +1,7 @@
 """`ak models --json` names what each plan's weekly meters rose over the last 30 days, and the
-tokens that ran meanwhile (`week_meters`): {provider: {plan: {"points", "tokens": {model}}}}.
+tokens that ran meanwhile (`week_meters`): {provider: {plan: {"points", "tokens": {model}}}};
+what a model's tokens take of them, each plan's `rates`, has its own key
+(tests/test_key_a_weeks_points_per_token_from_own_meters.py).
 
 - A login's readings are its `meter_readings` rows of source `probe` of the meter its shared week
   is, no model's own cap of that name (`scope`), whose `used` is a number from 0 to 100 and whose
@@ -51,7 +53,9 @@ TABLES = {"seat_usage": "event, at, tokens, account, model",
 LOGINS = {"acme": ["default", "second"], "brine": ["default"]}
 
 
-class ModelsJsonWeekMeters(unittest.TestCase):
+class WeekMeters(unittest.TestCase):
+    """A Home whose logins' readings and token rows a test writes, and its `week_meters`."""
+
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
@@ -102,6 +106,14 @@ class ModelsJsonWeekMeters(unittest.TestCase):
         done = self.home.ak("models", "--json", env=ENV)
         self.assertEqual(done.code, 0, done.out + done.err)
         return json.loads(done.out)["week_meters"]
+
+
+class ModelsJsonWeekMeters(WeekMeters):
+    def week_meters(self, tables=TABLES):
+        """Each plan but its `rates`, which have their own key."""
+        return {provider: {plan: {key: value for key, value in found.items() if key != "rates"}
+                           for plan, found in plans.items()}
+                for provider, plans in super().week_meters(tables).items()}
 
     def test_each_plan_sums_its_logins_steps_and_the_tokens_they_held(self):
         self.seat(60, 7_000)                        # before the login's first reading
