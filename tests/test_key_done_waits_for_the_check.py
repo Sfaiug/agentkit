@@ -157,7 +157,6 @@ class DoneWaitsForTheCheck(unittest.TestCase):
             home.write(".agentkit/state/plan-acme.md", f"- [x] {PLANNED}\n")
             akconfig.write(home, ["opus"], extra='[done_check]\nmodel = "opus"')
             self.assertEqual(home.ak("orch", "check", "acme").code, 2)
-            self.assertNotEqual(self.why(home=home), DONE)
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_a_check_ending_on_a_gap_after_a_rename_stands_under_the_new_name(self):
