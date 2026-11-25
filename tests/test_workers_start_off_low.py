@@ -45,6 +45,28 @@ class StartsOffLow(unittest.TestCase):
         # one ak cannot read may be logged out: a worker takes the one running low first
         self.assertEqual(self.picks(97, None)[0], "default")
 
+    def test_pick_order_reads_the_login_the_worker_uses(self):
+        # default at 40% and spare at 97%: the provider summary names the spare, yet a worker
+        # runs on default, so pick_order does not demote opus behind a healthy peer
+        self.picks(40, 97)
+        readings = usage.collect(self.cfg)
+        readings["openai"] = {"provider": "openai", "resets": 0, "error": None, "meters": [
+            usage._normalized({"name": "weekly", "used": 40, "window_secs": 604800,
+                               "resets_at": self.now + 3 * 86400}, self.now)]}
+        self.assertEqual(usage.account(self.cfg, "anthropic", model="opus"), ("default", True))
+        self.assertFalse(usage.model_low(self.cfg, "opus", readings))
+        self.assertEqual(usage.pick_order(self.cfg, readings, ["opus", "astra"], quiet=True, draw=""),
+                         ["opus", "astra"])
+        # with both logins low, opus stands behind astra
+        self.picks(97, 97)
+        readings = usage.collect(self.cfg)
+        readings["openai"] = {"provider": "openai", "resets": 0, "error": None, "meters": [
+            usage._normalized({"name": "weekly", "used": 40, "window_secs": 604800,
+                               "resets_at": self.now + 3 * 86400}, self.now)]}
+        self.assertTrue(usage.model_low(self.cfg, "opus", readings))
+        self.assertEqual(usage.pick_order(self.cfg, readings, ["opus", "astra"], quiet=True, draw=""),
+                         ["astra", "opus"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
