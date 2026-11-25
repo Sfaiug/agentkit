@@ -40,7 +40,7 @@ Mistakes no check catches and no one area of code holds; one that becomes a chec
 - agentkit is public: tests, docs and commits use invented names (`acme`, `fix-api`), never a real checkout, product or seat.
 - A final check stopped for silence names the hung process after `still running:`: fix the hang, or hand in blocked if origin/main hangs too; gate changes are their own task.
 - Decide from exit codes and files, never another program's output text, except the stop hook's `?` at a turn's end.
-- A test never asserts a plain word is absent from output that prints paths (worktree paths carry the run's title), nor a wall-clock duration (host load breaks it at landing). Inject the clock (`tests/fixtures/sandbox.py`, `tests/fixtures/clock.py`).
+- A test never asserts a plain word absent from output printing paths (worktree paths carry run titles), nor a wall-clock duration (host load breaks it at landing). Inject the clock (`tests/fixtures/sandbox.py`, `tests/fixtures/clock.py`).
 - When review keeps finding races or recovery paths, delete state or simplify.
 - Refuse an input nobody uses (a linked AGENTS.md) plainly, never re-creating another system's semantics; a task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"): a reviewer measures every word.
 - A Go milestone answers to the keys its task names: exit 3 fails it only where they reach, a difference from Python only on input real homes hold; its PR names the rest for the shadow run.
