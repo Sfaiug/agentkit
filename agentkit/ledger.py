@@ -26,19 +26,26 @@ HOURS = {"build": ("executor_seconds",), "review": ("reviewer_seconds",),
 SIZE = 100
 
 
+def _whole(value, low=0):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= low
+
+
 def counted():
     """{"since", "until", "teams", "sizes"}: the window; per team, most tasks first, each role's
     {"name", "effort"} as its first run's row names them (the reviewer's effort its first
     review's), its tasks, those whose first run merged (`history.merged`), those any of whose
-    runs merged (`live`), and the hours every run of them spent (`HOURS`), however it ended or
-    while it runs; and per `SIZE` lines, smallest first, the same of the tasks whose size is at
-    most `upto` and over `upto` less SIZE, `lines_live` the sizes of those live summed."""
+    runs merged (`live`), those whose first run's first review (first written of its lowest round)
+    was round 1 with verdict `PASS` (`first_pass`), the `reviews` rows with a round above zero
+    over every run of them (`reviews`), their non-negative `blocking` summed (`issues`), and the
+    hours every run of them spent (`HOURS`), however it ended or while it runs; and per `SIZE`
+    lines, smallest first, the same of the tasks whose size is at most `upto` and over `upto`
+    less SIZE, `lines_live` the sizes of those live summed."""
     until = time.time()
     since = until - WINDOW
     changes = {}
     for row in history.changes_since(since):
         changes.setdefault(row.get("change") or row["run_id"], []).append(row)
-    reviewed = history.first_review_efforts()
+    reviewed, first_efforts = history._reviews_read()
     teams, sizes = {}, {}
     for change, runs in changes.items():
         # the run a change is named for began it, whatever start a relaunch ties with; a change
@@ -51,12 +58,21 @@ def counted():
         if start is None or not since <= (runs[start]["finished_at"] or 0) <= until:
             continue
         task = runs[start:]
-        first = {**task[0], "reviewer_effort": reviewed.get(task[0]["run_id"])}
+        by_run = [[row for row in reviewed.get(run["run_id"], ()) if _whole(row.get("round"), 1)]
+                  for run in task]
+        first_review = min(by_run[0], key=lambda row: row["round"], default=None)
+        first = {**task[0], "reviewer_effort": first_efforts.get(task[0]["run_id"])}
         roles = {role: {"name": first.get(role), "effort": first.get(f"{role}_effort")}
                  for role in ROLES}
-        team = teams.setdefault(repr(roles), {**roles, "tasks": 0, "first_run": 0, "live": 0,
-                                              "hours": dict.fromkeys(HOURS, 0)})
+        team = teams.setdefault(repr(roles), {
+            **roles, "tasks": 0, "first_run": 0, "live": 0, "first_pass": 0, "reviews": 0,
+            "issues": 0, "hours": dict.fromkeys(HOURS, 0)})
         team["first_run"] += history.merged(task[0])
+        team["first_pass"] += bool(first_review and first_review["round"] == 1
+                                   and first_review.get("verdict") == "PASS")
+        team["reviews"] += sum(map(len, by_run))
+        team["issues"] += sum(row["blocking"] for rows in by_run for row in rows
+                              if _whole(row.get("blocking")))
         live = any(map(history.merged, task))
         counts = [team]
         # its size: the most lines a first review of one of its runs read; none kept, no size
