@@ -4411,11 +4411,11 @@ def role_refusal(cfg, selected, providers):
 
 
 def role_texts(selected, name, marks):
-    """The orch, exec and review marks of one model's row.  With no executor marked the
-    orchestrator builds everything, so its own exec mark is drawn filled."""
-    builds = not selected["workers"] and name == selected["orchestrator"]
+    """The orch, exec and review marks of one model's row.  With no executor marked every exec
+    mark is open, the orchestrator's too: drawn filled it would read as the orchestrator marked
+    to launch tasks to itself (the owner, 25 Nov 2026)."""
     return (marks[0] if name == selected["orchestrator"] else marks[1],
-            marks[2] if name in selected["workers"] or builds else marks[3],
+            marks[2] if name in selected["workers"] else marks[3],
             marks[2] if name in selected.get("reviewers", selected["workers"]) else marks[3])
 
 

@@ -268,7 +268,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(DOWN + SPACE)              # Astra, the last executor, may go too
         lines = screen.picker(lambda lines: marks(highlighted(lines)) == "○□■",
                               after=mark)
-        self.assertEqual(marks(next(line for line in lines if full("opus") in line)), "●■■")
+        self.assertEqual(marks(next(line for line in lines if full("opus") in line)), "●□■")
         # A click chooses Spark's executor mark even with the cursor in the orch column.
         screen.send(LEFT)
         row = next(number for number, line in enumerate(lines, 1) if full("spark") in line)
@@ -301,8 +301,9 @@ class NewSessionScreen(unittest.TestCase):
         screen.menu()
         screen.models()
         lines = screen.picker()
-        # the row's crew, as it would launch: the default orchestrating, building and reviewing
-        self.assertEqual([marks(row) for row in lines if "●" in row or "■" in row], ["●■■"])
+        # the row's crew, as it would launch: the default orchestrating and reviewing, nobody
+        # marked to build
+        self.assertEqual([marks(row) for row in lines if "●" in row or "■" in row], ["●□■"])
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
         self.assertRegex(screen.text(), r"\x1b\[[0-9;]*m" + re.escape(full("astra")))
         screen.send(SPACE)                         # Fable, the first, orchestrates
