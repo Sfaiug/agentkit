@@ -3,7 +3,7 @@ default branch, however a fetch moves that branch while they are read: never one
 limit beside another's instructions.  Black-box: Claude's prompt hook as ak's adapter registers it,
 fired for a seat that holds no rulebook yet, so it is told its rulebook whole
 (tests/fixtures/hookdrive.py), with a git first on the program's PATH that moves the default branch
-to the other of two revisions after each read naming AGENTS.md; and with a pathspec setting
+to the other of two revisions after each command naming it; and with a pathspec setting
 (GIT_GLOB_PATHSPECS, GIT_ICASE_PATHSPECS) inherited.  This test fails against `/bin/false`.
 """
 
@@ -22,13 +22,14 @@ from fixtures.hookdrive import Hooks
 GIT_BIN = shutil.which("git", path=os.pathsep.join(SYSTEM))
 CONVERSATION = "7d3c1e2a-5b4f-4a6e-8c9d-0e1f2a3b4c5d"
 READ = "\n\nOnce you have read all of the above"
-# a fetch landing after every read of the rules: the branch swaps revisions each time
+# a fetch landing after every look at origin's branch, however the rules are read: it swaps
+# revisions each time, so no two looks see the same one, and each swap is logged
 GIT = """#!/bin/sh
 {git} "$@"; code=$?
-case "$*" in *AGENTS.md*)
+case "$*" in *origin/*)
     at=$({git} -C {rig} rev-parse refs/remotes/origin/main)
     [ "$at" = {one} ] && to={two} || to={one}
-    {git} -C {rig} update-ref refs/remotes/origin/main "$to";;
+    {git} -C {rig} update-ref refs/remotes/origin/main "$to" && echo "$to" >> {moved};;
 esac
 exit $code
 """
@@ -59,9 +60,12 @@ class OneCommit(unittest.TestCase):
             rig = Rig(home, "acme", files=rules(17))
             one = rig.git("rev-parse", "HEAD")
             two = rig.commit(rules(29), "more lines", push=False)
+            moved = home.root / "moved"
             home.fake("git", GIT.format(git=shlex.quote(GIT_BIN), one=one, two=two,
-                                        rig=shlex.quote(str(rig.path))))
+                                        rig=shlex.quote(str(rig.path)),
+                                        moved=shlex.quote(str(moved))))
             book = self.rulebook(home, hooks, rig)
+            self.assertTrue(moved.is_file(), "the branch never moved while the rules were read")
             told = [n for n in (17, 29) if f"you build at most {n} added lines" in book
                     and f"Project rule revision {n}." in book]
             self.assertEqual(len(told), 1, [line for line in book.splitlines()
