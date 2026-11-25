@@ -2188,8 +2188,9 @@ def look_options():
     every window of every seat takes them, one opened by hand or linked in among them, and none
     is written over; a theme kept since reaches the server at its next load.  A tmux before 3.2
     has no copy mode's and one before 3.4 no menu's: `-q` keeps that quiet."""
+    kept = terminal.kept()      # once: a theme a menu keeps meanwhile mixes no two in one load
     text, selection, accent, ink, warning, border = (
-        "#" + terminal.colour(role, tmux=True)
+        "#" + terminal.ROLES[role][kept]
         for role in ("text", "selection", "accent", "on-accent", "warning", "border"))
     return {"mode-style": f"fg={text},bg={selection}",
             **dict.fromkeys(("copy-mode-match-style", "menu-selected-style"), f"bg={selection}"),

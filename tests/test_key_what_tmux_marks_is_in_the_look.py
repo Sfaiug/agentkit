@@ -3,7 +3,7 @@ colors to color everythign inside ak."): copy mode's selection, a search's match
 the menu's pick, the pane borders, the clock and the pane numbers are ak's tmux server's defaults
 in the look's colours, in the theme kept as a seat is started, so a window made by hand takes
 them too.  Black-box: the program `AK_BIN` names starts the seats through tests/fixtures/akbin.py
-on a real tmux, judged by the server's options as tmux reads them.
+on a real tmux, judged by the server's options as tmux reads them, each this tmux has.
 """
 
 import sys
@@ -42,8 +42,14 @@ def ask(home, *args):
     return done.out.strip()
 
 
-def defaults(home):
-    return {option: ask(home, "show-options", "-gv", option) for option in MARKS}
+def has(home):
+    """The options of MARKS this tmux has: one before 3.2 lacks copy mode's, one before 3.4 the
+    menu's, and asked with `-q` it shows nothing for an option it lacks."""
+    return [option for option in MARKS if ask(home, "show-options", "-gq", option)]
+
+
+def defaults(home, options):
+    return {option: ask(home, "show-options", "-gv", option) for option in options}
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -53,23 +59,27 @@ class WhatTmuxMarksIsInTheLook(unittest.TestCase):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
         open_seat(home, "acme")
-        cls.dark = defaults(home)
+        cls.options = has(home)
+        cls.dark = defaults(home, cls.options)
         window = ask(home, "new-window", "-d", "-P", "-F", "#{window_id}", "-t", "=acme:",
                      "sleep 600")
         cls.by_hand = {option: ask(home, "show-options", "-wAv", "-t", window, option)
-                       for option in BY_HAND}
+                       for option in BY_HAND if option in cls.options}
         home.write(".agentkit/state/background", "light\n")
         open_seat(home, "beta")
-        cls.light = defaults(home)
+        cls.light = defaults(home, cls.options)
+
+    def shades(self, theme, options):
+        return {option: theme[option] for option in options if option in self.options}
 
     def test_the_servers_defaults_are_the_dark_shades(self):
-        self.assertEqual(self.dark, DARK)
+        self.assertEqual(self.dark, self.shades(DARK, MARKS))
 
     def test_a_window_made_by_hand_takes_them(self):
-        self.assertEqual(self.by_hand, {option: DARK[option] for option in BY_HAND})
+        self.assertEqual(self.by_hand, self.shades(DARK, BY_HAND))
 
     def test_a_seat_started_after_a_light_answer_makes_them_the_light_shades(self):
-        self.assertEqual(self.light, LIGHT)
+        self.assertEqual(self.light, self.shades(LIGHT, MARKS))
 
 
 if __name__ == "__main__":
