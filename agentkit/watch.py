@@ -3975,12 +3975,13 @@ def _pane_sent(session, harness, pane, text):
     # read whole where the composer can be read: a long line wraps past the bottom rows, and
     # a line the harness took may be echoed above its empty composer; a box opened on its
     # scrolled top rule shows only the line's last rows
-    held = composer_draft(harness, pane) if harness is not None else None
-    if held is not None:
+    rows = _composer_rows(harness, pane) if harness is not None else None
+    if rows is not None:
         chrome, whole, raws = screen(harness), re.sub(r"\s+", "", text), _content_rows(pane)
         at, _ = ruled_composer(chrome, raws[-PANE_LINES:])
         shown = at is not None and _scrolled_top(chrome, raws[-PANE_LINES:][at])
-        return whole not in held and not (shown and whole.endswith(held))
+        return (whole not in re.sub(r"\s+", "", "".join(rows))
+                and not (shown and _shows_end(rows, whole)))
     return not _holds_text(pane, text)
 
 
@@ -4383,7 +4384,7 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
               and len(line) > chrome["folds_over"])
     if held and (held == whole or not exact and (
-            len(rows) > 1 and whole.endswith(held)
+            _shows_end(rows, whole)
             or folded and chrome["folded"].fullmatch(held))):
         return "line"
     # lines drawn joined are ak's only off a composer read whole: owner text can sit above a crop
@@ -4391,6 +4392,12 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
         (rows if exact else _composer_rows(harness, pane, exact=True)) or ()))
     return "line" if read and whole in [re.sub(r"\s+", "", typed)
                                         for typed in _joined(name, read)] else "other"
+
+
+def _shows_end(rows, whole):
+    """Those composer rows are the end of a line taller than its composer shows, `whole` being
+    the line without whitespace: rows of it, as `composer_holds` reads them, never one row."""
+    return len(rows) > 1 and whole.endswith(re.sub(r"\s+", "", "".join(rows)))
 
 
 def own_line(name, harness, session):
