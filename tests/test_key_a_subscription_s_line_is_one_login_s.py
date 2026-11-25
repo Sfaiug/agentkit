@@ -11,6 +11,7 @@ through one.  Fails against `/bin/false`.
 
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -68,14 +69,15 @@ class OneLoginsLine(unittest.TestCase):
         self.term.keys("Enter")
         self.term.wait("login first@acme.test ends")
         self.raw = self.home.root / "raw"
-        piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane, f"cat >>{self.raw}",
-                               server=SERVER)
+        piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane,
+                               f"cat >>{shlex.quote(str(self.raw))}", server=SERVER)
         self.assertEqual(piped.code, 0, piped.err)
 
     def lines(self):
-        """Each opened line written since the pipe began, as written."""
+        """Each opened line written since the pipe began, as written: of each draw's update
+        whole, the pipe handing one over part by part."""
         out = SGR.sub("", self.raw.read_bytes().decode("utf-8", "replace")
-                      if self.raw.exists() else "")
+                      if self.raw.exists() else "").rpartition("\x1b[?2026l")[0]
         return [row for row in ROW.split(out) if "@acme.test" in row]
 
     def test_each_line_written_is_one_login_s(self):
