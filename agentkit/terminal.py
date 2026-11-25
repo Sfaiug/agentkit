@@ -1180,7 +1180,10 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            moved = _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
+            # onto another spot; or onto nothing with a row still lit that a draw moved from
+            # under the still pointer, which a move there puts out as from the row itself
+            moved = (_POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
+                     or not _AWAY and _away(key))
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()
@@ -1215,7 +1218,13 @@ def _point(key):
     """The pointer at `key`, a move or a click: on no row of a screen that has rows, lines or
     cells that are rows of their own (`under`), it puts out the highlight (`away`)."""
     global _POINTER, _AWAY
-    _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
+    _POINTER, _AWAY = key, _away(key)
+
+
+def _away(key):
+    """Whether `key`, a move or a click, is on no row of a screen that has rows, lines or cells
+    that are rows of their own (`under`)."""
+    return under(key, _SPOTS).what is None and any(
         what is not None or any(own for _, _, _, *own in places)
         for what, places, *_ in _SPOTS.values())
 

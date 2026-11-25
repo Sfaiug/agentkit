@@ -100,13 +100,6 @@ class ResetsInHandOnTheLitRow(unittest.TestCase):
         self.assertEqual(hovered.count("reset in hand"), 1)
         self.assertIn("› ChatGPT  ━━━━╸─────  43% left · 1 reset in hand", body(hovered))
 
-        # onto its act as drawn now, Claude's lines gone from over it: the still pointer may be
-        # left on no row's, and a move from nothing onto nothing lets no row go (terminal.lit)
-        row, line = next((number, line) for number, line in enumerate(lines(hovered), 1)
-                         if line.startswith("    owner@acme.test · plus "))
-        self.term.type(f"\x1b[<35;{line.index('→ spend') + 3};{row}M")
-        self.term.wait(lambda shown: "[→ spend a reset]" in shown
-                       and PAGE_KEYS.format("spend a reset") in lines(shown))
         self.term.type("\x1b[<35;5;1M")               # on the header, off every row
         away = self.term.wait(lambda shown: "› " not in shown and "− remove" not in shown
                               and UNLIT in lines(shown))

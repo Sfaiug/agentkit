@@ -2644,8 +2644,7 @@ def scoped_notes(cfg, provider, weekly, shared):
     named, claimed = [], []
     for meter in weekly:
         if meter.get("scope"):
-            # the provider's own name for it, on one line whatever it holds
-            named.append(f"{' '.join(str(meter['scope']).split())} {percent_left(meter)}% left")
+            named.append(f"{meter['scope']} {percent_left(meter)}% left")
             continue
         if shared is None or meter is shared or percent_left(meter) == percent_left(shared):
             continue
@@ -2996,7 +2995,8 @@ def limit_notes(cfg, name, prov, now):
         (-1, usage.credits_note(prov)), first, (1, in_hand(prov)),
         *((3, note) for note in claimed),
         session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
-    return [(worth, note) for worth, note in notes if note]
+    # each on one line a screen can draw, whatever a model's or cap's name or an error holds
+    return [(worth, shown) for worth, note in notes if (shown := terminal.plain(note))]
 
 
 def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
