@@ -1101,16 +1101,17 @@ def done(conversation, at, began, runs=(), *, work=None, log=None):
 
 def done_check(session, at, gaps):
     """A done check of seat `session` that ended `at`, finding `gaps` of its owner's asks not in
-    the work, under the orchestrator and effort the record it leads to names then."""
-    def insert(connection):
-        try:
-            record = config.resolved_record(session) or {}
-        except config.Error:
-            record = {}     # a chain of renames that cannot be followed names no orchestrator
-        model = record.get("orchestrator")
-        connection.execute("INSERT INTO done_checks (session, model, effort, at, gaps) VALUES (?, ?, ?, ?, ?)",
-                           (session, model, config.launched_effort(record, model, "orchestrator"), at, gaps))
-    _write(insert)
+    the work, under the orchestrator and effort the record it leads to names then: read before
+    the write waits for the history, so a switch meanwhile goes to the next check."""
+    try:
+        record = config.resolved_record(session) or {}
+    except config.Error:
+        record = {}     # a chain of renames that cannot be followed names no orchestrator
+    model = record.get("orchestrator") if isinstance(record.get("orchestrator"), str) else None
+    effort = config.launched_effort(record, model, "orchestrator")
+    _write(lambda connection: connection.execute(
+        "INSERT INTO done_checks (session, model, effort, at, gaps) VALUES (?, ?, ?, ?, ?)",
+        (session, model, effort, at, gaps)))
 
 
 def dones(since, until):
