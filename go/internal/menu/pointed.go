@@ -47,8 +47,9 @@ func spotted(keys []string, row, layout int) keySpots {
 // on the selection: the pointer lights what a click there acts on (terminal.lit).
 func (spots keySpots) light(s terminal.Screen, lines []string, mouse terminal.Mouse) {
 	if at := spots.keyAt(mouse); at >= 0 {
-		spot := spots[at]
-		lines[spot.row-1] = s.Selected(lines[spot.row-1], spot.first, spot.last)
+		if spot := spots[at]; spot.row > 0 && spot.row <= len(lines) {
+			lines[spot.row-1] = s.Selected(lines[spot.row-1], spot.first, spot.last)
+		}
 	}
 }
 

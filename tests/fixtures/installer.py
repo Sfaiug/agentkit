@@ -22,8 +22,10 @@ does all it does on a real host, every tool it calls a fake.
 from pathlib import Path
 import re
 import shlex
+import shutil
 
 from .akbin import AK
+from .akinstall import PROGRAM, copy_tracked
 
 CHECKOUT = Path(AK).parents[1]
 INSTALL = CHECKOUT / "install.sh"
@@ -52,6 +54,15 @@ def own_home(home):
     # where its commands find it: a machine's of tests/fixtures/twohomes.py too
     home.fake("crontab", CRONTAB.format(table=shlex.quote(str(home.at / "crontab"))))
     home.env.update(USER="", LOGNAME="")
+
+
+def copy(to):
+    """A copy of the checkout `AK_BIN` names, its tests aside, with its program; its install.sh."""
+    copy_tracked(to)
+    program = to / Path(AK).resolve().relative_to(PROGRAM)
+    program.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(AK, program)
+    return to / INSTALL.resolve().relative_to(PROGRAM)
 
 
 def run(home, *args):

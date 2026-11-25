@@ -66,7 +66,7 @@ type MatrixFrame struct {
 
 // line is the frame's line, from 0, up on the screen's row the pointer is on, -1 for none.
 func (f MatrixFrame) line(mouse terminal.Mouse) int {
-	if at := mouse.Row - 1 + f.scrolled; mouse.Row > 0 && at < min(len(f.spots), len(f.Lines)) {
+	if at := mouse.Row - 1 + f.scrolled; at >= 0 && at < min(len(f.spots), len(f.Lines)) {
 		return at
 	}
 	return -1
@@ -96,7 +96,12 @@ func (f MatrixFrame) Hit(mouse terminal.Mouse) (row, column int, ok bool) {
 
 // pointed lights the key-line item the pointer is on (keySpots.light) on the rows it is up on.
 func (f MatrixFrame) pointed(s terminal.Screen, mouse terminal.Mouse) {
-	f.light(s, f.Lines[f.scrolled:], mouse)
+	if at := f.keyAt(mouse); at >= 0 {
+		spot := f.keySpots[at]
+		if line := spot.row - 1 + f.scrolled; line >= 0 && line < len(f.Lines) {
+			f.Lines[line] = s.Selected(f.Lines[line], spot.first, spot.last)
+		}
+	}
 }
 
 // A ConfigMatrix is a draw of `c`: its matrix's frame, and the meters shown over it or paged with

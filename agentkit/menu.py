@@ -4405,8 +4405,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     width = widths(tall)
     if 2 + label + 6 + sum(width.values()) > room:       # the bars give way, the words stay
         tall, width = 0, widths(0)
-    # each role's words in one column after the most cells any model has, a cell-less one's too
-    leads = {key: "".join(cells) + " " * (tall + 2 - len(cells)) if tall else ""
+    # a barred model's word after the most cells any model has; one with no cells beside its mark
+    leads = {key: "".join(cells) + " " * (tall + 2 - len(cells)) if tall and cells else ""
              for key, cells in levelled.items()}
     roles = 6 + sum(width.values())
     folded = 2 + 1 + roles > room

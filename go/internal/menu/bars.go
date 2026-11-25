@@ -18,14 +18,17 @@ func barred(seat Seat) bool {
 
 // moving is the seats as the clock has them this frame: a working seat's mark breathing, on the row
 // lit the highlight's band under it, and each line grown in one after another down the screen as it opens, or, where its plan moved while the
-// screen was up, gliding from where it stood there, its head lit (motion.growing).
+// screen was up, gliding from where it stood there, its head lit half way to the foreground
+// (motion.growing); a working seat's line, once there, its tip breathing with its mark.
 func moving(s terminal.Screen, seats []Seat, clock *motion.Clock, lit string) []Seat {
 	seats = slices.Clone(seats)
 	nth := 0
 	for i := range seats {
 		seat := &seats[i]
-		if seat.Word == "working" {
-			seat.mark = clock.Breathing(s, s.Glyph(seat.Word), seat.Word, seat.Name == lit)
+		word, bright := seat.Word, seat.Name == lit
+		breathing := func(glyph string) string { return clock.Breathing(s, glyph, word, bright) }
+		if word == "working" {
+			seat.mark = breathing(s.Glyph(word))
 		}
 		if !barred(*seat) {
 			continue
@@ -34,10 +37,16 @@ func moving(s terminal.Screen, seats []Seat, clock *motion.Clock, lit string) []
 		nth++
 		before, moved := clock.Moved("plan "+seat.Name, [2]int{seat.Done, seat.Total}, motion.Glide)
 		if was, ok := before.([2]int); ok && was[1] > 0 {
-			seat.from, seat.moved, seat.lit = float64(was[0])/float64(was[1]), moved, moved < 1
+			seat.from, seat.moved = float64(was[0])/float64(was[1]), moved
+			if moved < 1 {
+				seat.tip = func(cell string) string { return s.Tinted(cell, word, -0.5, bright) }
+			}
 			if seat.counted = seat.Done; was[1] == seat.Total && was[0] < seat.Done {
 				seat.counted = was[0] // its count counts on with it
 			}
+		}
+		if word == "working" && seat.moved == 1 {
+			seat.tip = breathing
 		}
 	}
 	return seats
@@ -80,6 +89,6 @@ func planBar(s terminal.Screen, seat Seat, room, smallest int) string {
 	if size < 1 {
 		return s.Styled(withTasks(s, count, seat, max(room, 0)), "muted")
 	}
-	return s.GlidingLine(seat.from, float64(seat.Done)/float64(max(seat.Total, 1)), seat.moved, seat.lit, size, seat.Word) + " " +
+	return s.GlidingLine(seat.from, float64(seat.Done)/float64(max(seat.Total, 1)), seat.moved, seat.tip, size, seat.Word) + " " +
 		s.Styled(shown+going[len(count):], "muted")
 }

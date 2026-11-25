@@ -66,6 +66,18 @@ func TestSpansThatMoveWriteOnlyTheirRows(t *testing.T) {
 	}
 }
 
+// On a terminal narrower than its padding, the cursor clamps to the last physical column, so a
+// single-cell line does not wrap onto the blank row under it and that row is still cleared.
+func TestANarrowPaddedTerminalDoesNotSkipTheRowUnderASingleCell(t *testing.T) {
+	var out strings.Builder
+	painter, screen := NewPainter(&out), Screen{width: 1, height: 10, pad: 1}
+	painter.Write([]string{"A", "", "B"}, screen)
+	want := hold("\x1b[2;2H\x1b[1JA\x1b[3;2H\x1b[1K\x1b[K\x1b[4;2H\x1b[1KB\x1b[5;2H\x1b[1K\x1b[J")
+	if out.String() != want {
+		t.Fatalf("1-col padded frame wrote %q, want %q", out.String(), want)
+	}
+}
+
 // hold is a frame as one synchronized update, nothing where it is empty.
 func hold(frame string) string {
 	if frame == "" {

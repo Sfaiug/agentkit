@@ -12,7 +12,8 @@ Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour
 answers OSC 11 with, is neither theme's, over a working seat and an idle one
 (tests/fixtures/akseat.py), each cell judged by how it looks (tests/fixtures/aklooks.py).  Its
 clock injected as tests/test_key_themes.py injects it, so each frame of a breath is drawn at a
-moment the test sets, however busy the host.
+moment the test sets, however busy the host: a working seat's tip of its line breathes with its
+`●`, in one phase (tests/test_line_tip_breathes.py).
 """
 
 import shlex
@@ -136,6 +137,19 @@ class AScreenIsPainted(unittest.TestCase):
                 time.sleep(0.05)
             with self.subTest(moment=moment):
                 self.assert_on_its_own(looks(shown), ON_DARK)
+
+    def test_a_working_seat_s_tip_breathes_with_its_dot(self):
+        plan = self.home.write(".agentkit/state/plan-acme.md", "- [x] start\n- [ ] finish\n")
+        self.addCleanup(plan.unlink)
+        menu = self.open()
+        dots = set()
+        for moment in (OPENED + 10, OPENED + 11):       # half a breath apart
+            row = next(row for row in self.rest(menu, "esc leave", moment)
+                       if "acme" in plain(row) and "1 of 2" in plain(row))
+            dot = next(shown for char, shown in row if char == "●")
+            self.assertEqual(next(shown for char, shown in reversed(row) if char in "━╸"), dot)
+            dots.add(dot)
+        self.assertEqual(len(dots), 2, "the dot did not breathe")
 
     def test_the_popup_over_a_seat_is_on_black_its_padding_too(self):
         popup = self.open("attach", "--overlay",
