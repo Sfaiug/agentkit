@@ -5,8 +5,9 @@ of the tick, `ak watch`, takes a turn of the lease, which creates the lease wher
 none, so it runs; and once its turn reads another machine's lease it keeps no value, so that
 firing and each after write `1` to the `cgroup.freeze` of ak's slice and exit 0 before the tick's
 lock, the origin reachable or not, till the origin holds no lease and a firing creates one again.
-A home with no record keeping no value whose stamp is none, or whose first line is no stamp, takes
-no turn and runs, as one that never was a standby.
+A home with no record keeping no value whose stamp is none, one whose first line is no stamp, or
+one longer than the MiB any pass writes, read no further, takes no turn and runs, as one that
+never was a standby.
 
 Black-box: the program `AK_BIN` names runs on the machines and firings of
 tests/test_key_home_freezes_without_its_lease.py, each case its own machine, its clock given
@@ -72,9 +73,9 @@ class AHomeThatReadAnothersLeaseStandsStill(Firings, unittest.TestCase):
         self.runs(home, now(0))
         self.assertEqual(made(home), {named(0): home.install.refs()[REF]})
 
-    def test_one_with_no_stamp_or_one_whose_first_line_is_none_takes_no_turn_and_runs(self):
-        for stamp in None, "acme\nacme-vm\n":
-            with self.subTest(stamp=stamp):
+    def test_one_with_no_stamp_or_one_no_pass_wrote_takes_no_turn_and_runs(self):
+        for stamp in None, "acme\nacme-vm\n", STAMP + "acme\n" * 2**18:
+            with self.subTest(stamp=stamp and stamp[:40]):
                 home, = self.standby_was(stamp)
                 self.runs(home, now(0))
                 self.assertEqual(home.install.refs(), {})

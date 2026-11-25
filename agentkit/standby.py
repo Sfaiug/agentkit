@@ -394,14 +394,22 @@ def _age(stamp):
     return f"{terminal.format_age(age)} old" if age < math.inf else "from before this boot"
 
 
+def _lines(path):
+    """The lines of the record or stamp at `path`; OSError for one that may not be read, and
+    ValueError for one that is no text or longer than a MiB, more than any ak writes, whose boot
+    from `pair_clock.NOW` Linux keeps under 128 KiB: a damaged one may be any size, and is read
+    no further."""
+    held = config.read_regular(path, 2**20 + 1)
+    if len(held) > 2**20:
+        raise ValueError(f"{path} is longer than any ak writes")
+    return held.decode().splitlines()
+
+
 def _record(path):
     """The stamp of the record at `path` and its word of TAKES, both None for one that cannot be
     read."""
     try:
-        # A MiB at most, more than any record ak writes, whose boot from `pair_clock.NOW` Linux
-        # keeps under 128 KiB: a damaged one may be any size.
-        held = config.read_regular(path, 2**20 + 1)
-        line, takes = held.decode().splitlines() if len(held) <= 2**20 else (None, None)
+        line, takes = _lines(path)
     except (OSError, ValueError):     # one that may not be read, or not two lines of text
         line = takes = None
     stamp = pair_clock.read(line) if re.fullmatch(TAKES, takes or "") else None
@@ -519,11 +527,12 @@ def _stamp(own, *lines):
 
 def _last():
     """The stamp of the last pass that ended well, the home it copied, and why ak here stayed
-    where it was, if it did; no stamp nor home for none yet, one cut short or one whose first
-    line is no stamp, and no home for a name no pass takes, which ssh would read as an option."""
+    where it was, if it did; no stamp nor home for none yet, one cut short, one longer than any
+    pass writes or one whose first line is no stamp, and no home for a name no pass takes, which
+    ssh would read as an option."""
     try:
-        line, of, *stayed = config.read_regular(config.TMP / FOLDER / COPIED).decode().splitlines()
-    except (OSError, ValueError):     # none yet, or one cut short
+        line, of, *stayed = _lines(config.TMP / FOLDER / COPIED)
+    except (OSError, ValueError):     # none yet, one cut short, or one no pass wrote
         return None, None, []
     stamp = pair_clock.read(line)
     return stamp, of if stamp and not of.startswith("-") else None, stayed
