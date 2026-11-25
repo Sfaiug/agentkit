@@ -42,14 +42,12 @@ def ask(home, *args):
     return done.out.strip()
 
 
-def has(home):
-    """The options of MARKS this tmux has: one before 3.2 lacks copy mode's, one before 3.4 the
-    menu's, and asked with `-q` it shows nothing for an option it lacks."""
-    return [option for option in MARKS if ask(home, "show-options", "-gq", option)]
-
-
-def defaults(home, options):
-    return {option: ask(home, "show-options", "-gv", option) for option in options}
+def defaults(home):
+    """Each option of MARKS this tmux has, as the server's default: one before 3.2 lacks copy
+    mode's, one before 3.4 the menu's, and asked with `-q` it shows nothing for an option it
+    lacks."""
+    return {option: ask(home, "show-options", "-gv", option) for option in MARKS
+            if ask(home, "show-options", "-gq", option)}
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -59,18 +57,17 @@ class WhatTmuxMarksIsInTheLook(unittest.TestCase):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
         open_seat(home, "acme")
-        cls.options = has(home)
-        cls.dark = defaults(home, cls.options)
+        cls.dark = defaults(home)
         window = ask(home, "new-window", "-d", "-P", "-F", "#{window_id}", "-t", "=acme:",
                      "sleep 600")
         cls.by_hand = {option: ask(home, "show-options", "-wAv", "-t", window, option)
-                       for option in BY_HAND if option in cls.options}
+                       for option in BY_HAND if option in cls.dark}
         home.write(".agentkit/state/background", "light\n")
         open_seat(home, "beta")
-        cls.light = defaults(home, cls.options)
+        cls.light = defaults(home)
 
     def shades(self, theme, options):
-        return {option: theme[option] for option in options if option in self.options}
+        return {option: theme[option] for option in options if option in self.dark}
 
     def test_the_servers_defaults_are_the_dark_shades(self):
         self.assertEqual(self.dark, self.shades(DARK, MARKS))
