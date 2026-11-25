@@ -2316,6 +2316,12 @@ def start(name, cwd, cmd, orchestrator, started=lambda: None):
     warm-up or the owner closed the seat; then its number opens it again.  Only `ak orch stop`
     ends a seat.
     """
+    if alias := config.server_alias():
+        # Every start of a seat comes here, so here is where a client has none: its seats are on
+        # its home, and a standby's records are a copy of that home's.  On 22 Nov 2026 a caller
+        # that did not ask opened a home's 21 sessions a second time on its standby.
+        raise config.Error(f"this machine is a client of {alias} and opens no session: "
+                           f"its sessions are on {alias}")
     conf = tmux_conf()
     server = socket_name()
     values = seat_env(name, server)
