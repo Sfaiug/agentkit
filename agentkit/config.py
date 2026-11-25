@@ -678,7 +678,8 @@ def load():
 
 
 def _work_in(cfg):
-    """Refuse work marks no machine knows, even on a table not used for placement."""
+    """Refuse work marks no machine knows, and bad machine caps, even on a table not used for
+    placement."""
     named = cfg.get("machines")
     for label, table in [("google_cloud", cfg.get("google_cloud", {})),
                          *((f"machines.{name}", table) for name, table in
@@ -688,6 +689,11 @@ def _work_in(cfg):
             if not isinstance(value, list) or any(word not in ("turns", "tests") for word in value):
                 raise Error(f"{HOME / CONFIG_NAME}: [{label}].work must list only turns and tests "
                             f"(got {value!r})")
+        if label != "google_cloud" and isinstance(table, dict) and "max_runs" in table:
+            value = table["max_runs"]
+            if type(value) is not int or value < 1:
+                raise Error(f"{HOME / CONFIG_NAME}: [{label}].max_runs must be a whole number of "
+                            f"1 or more (got {value!r})")
 
 
 def offered(cfg):
