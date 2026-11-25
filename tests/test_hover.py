@@ -150,7 +150,7 @@ def no_frame_passes():
     return patch.object(terminal.motion, "FRAME", 60.0)
 
 
-def run(screen, *keys, cols=100, rows=40, depth=256):
+def run(screen, *keys, cols=100, rows=40, depth=24):
     """`screen()` read off `keys` on a taken keyboard in `depth` colours: what it answered, each
     whole screen it wrote -- the writes from one top-left to the next -- played (`played`).
 

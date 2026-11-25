@@ -73,9 +73,9 @@ class Palette(unittest.TestCase):
                 screen = self.menu(background, COLORTERM="truecolor")
                 self.assertEqual(look(screen, "! needs you", on="beta"), {"1", *theme})
 
-    def test_on_256_colours_the_light_needs_you_is_its_nearest_fixed_colour(self):
+    def test_on_256_colours_the_light_needs_you_is_its_own(self):
         self.assertEqual(look(self.menu("#ffffff", TERM="xterm-256color"), "! needs you",
-                              on="beta"), {"1", "38;5;94", "48;5;231"})
+                              on="beta"), {"1", LIGHT_NEEDS, LIGHT})
 
 
 if __name__ == "__main__":

@@ -124,7 +124,8 @@ func Dim(out io.Writer, text string) string {
 }
 
 // depth is the colours out takes: none off a terminal, under NO_COLOR or a dumb TERM; true colour
-// where COLORTERM says so or rgb, a terminal's own features, does; else terminfo's count.
+// where COLORTERM says so, rgb, a terminal's own features, does, or terminfo counts 256 or more, as
+// a seat's tmux takes every terminal for (Python's terminal._depth); else eight where it counts eight.
 func depth(out io.Writer, rgb bool) int {
 	file, ok := out.(*os.File)
 	term := os.Getenv("TERM")
@@ -137,7 +138,7 @@ func depth(out io.Writer, rgb bool) int {
 	}
 	switch colors := terminalColors(term); {
 	case colors >= 256:
-		return 256
+		return 24
 	case colors >= 8:
 		return 8
 	}
@@ -208,13 +209,10 @@ func (s Screen) Styled(text, word string) string {
 	return "\x1b[" + code + "m" + text + "\x1b[0m"
 }
 
-// ink is rgb as the code that draws it nearest above eight colours: the text's, or with ground 48
-// the background's.
-func (s Screen) ink(rgb, ground string) string {
-	if s.depth == 24 {
-		return ground + ";2;" + strings.Join(channels(rgb), ";")
-	}
-	return ground + ";5;" + strconv.Itoa(xterm(rgb))
+// ink is rgb as the code that draws it above eight colours: the text's, or with ground 48 the
+// background's.
+func (Screen) ink(rgb, ground string) string {
+	return ground + ";2;" + strings.Join(channels(rgb), ";")
 }
 
 func channels(rgb string) []string {
@@ -224,45 +222,6 @@ func channels(rgb string) []string {
 		parts = append(parts, strconv.Itoa(int(value)))
 	}
 	return parts
-}
-
-// xterm is the nearest fixed xterm colour, the lower number on a tie: in the cube each
-// channel is nearest on its own, and the nearest grey is the one nearest the channels' mean.
-func xterm(rgb string) int {
-	levels := []int{0, 95, 135, 175, 215, 255}
-	var wanted, steps [3]int
-	sum := 0
-	for i, text := range channels(rgb) {
-		wanted[i], _ = strconv.Atoi(text)
-		sum += wanted[i]
-		for n := range levels {
-			if abs(levels[n]-wanted[i]) < abs(levels[steps[i]]-wanted[i]) {
-				steps[i] = n
-			}
-		}
-	}
-	grey := 0
-	for n := range 24 {
-		if abs(3*(8+10*n)-sum) < abs(3*(8+10*grey)-sum) {
-			grey = n
-		}
-	}
-	distance := func(values [3]int) int {
-		total := 0
-		for i := range values {
-			total += (wanted[i] - values[i]) * (wanted[i] - values[i])
-		}
-		return total
-	}
-	level := 8 + 10*grey
-	if distance([3]int{level, level, level}) < distance([3]int{levels[steps[0]], levels[steps[1]], levels[steps[2]]}) {
-		return 232 + grey
-	}
-	return 16 + 36*steps[0] + 6*steps[1] + steps[2]
-}
-
-func abs(n int) int {
-	return max(n, -n)
 }
 
 // Glyph is a state word's mark alone.

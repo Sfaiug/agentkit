@@ -97,10 +97,10 @@ class Breathes(Sandbox):
                     self.assertEqual({row for row, _ in set(clock.cells) - {dot}}, {bar})
 
     def test_only_the_last_bar_cell_breathes_in_each_palette(self):
-        for depth, light in ((24, False), (24, True), (256, False), (256, True)):
+        for light in (False, True):
             for width in (100, 59, 40):
-                with self.subTest(depth=depth, light=light, width=width), \
-                        patch.object(terminal, "colour_depth", return_value=depth), \
+                with self.subTest(light=light, width=width), \
+                        patch.object(terminal, "colour_depth", return_value=24), \
                         patch.object(terminal, "THEME", terminal.WHITE if light else terminal.BLACK):
                     lines, clock = self.drawn("acme-docs", width)
                     dot = self.cell(lines, lambda line: " acme-api " in line, "●")

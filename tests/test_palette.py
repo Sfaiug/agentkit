@@ -80,12 +80,13 @@ class Palette(unittest.TestCase):
         return not all(ready)
 
     def test_tmux_reporting_rgb_gives_true_colour_with_colorterm_unset(self):
+        # on an entry of eight colours: one of 256 is true colour whatever tmux says
         with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1000/default,1,0"}), \
-                patch("curses.setupterm"), patch("curses.tigetnum", return_value=256):
+                patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             self.assertNotIn("COLORTERM", os.environ)
-            self.assertEqual(terminal.colour_depth(), 256)
+            self.assertEqual(terminal.colour_depth(), 8)
             for said, depth in (("256,RGB,bpaste,clipboard,title\n", 24), ("256,Tc\n", 24),
-                                ("256,bpaste,clipboard,title\n", 256), ("", 256)):
+                                ("256,bpaste,clipboard,title\n", 8), ("", 8)):
                 with self.subTest(features=said), patch.object(
                         terminal.subprocess, "run",
                         return_value=subprocess.CompletedProcess([], 0, said, "")) as tmux:
@@ -95,7 +96,7 @@ class Palette(unittest.TestCase):
                     self.assertEqual(terminal.colour_depth(), depth)
                     self.assertEqual(terminal.styled("working", "working"),
                                      "\033[38;2;77;163;255mworking\033[0m" if depth == 24 else
-                                     "\033[38;5;75mworking\033[0m")
+                                     "\033[36mworking\033[0m")
                     with patch.dict(os.environ, {"NO_COLOR": ""}):
                         self.assertEqual(terminal.colour_depth(), 0)   # whatever tmux says
         # outside tmux nothing is asked of it
@@ -167,7 +168,7 @@ class Bars(Sandbox):
             "anthropic": {"meters": [{**week, "used": 50}]},
             "openai": {"meters": [{**week, "used": 85}]},
             "meta": {"meters": [{**week, "used": 97}]}}}))
-        for depth in (24, 256, 8):
+        for depth in (24, 8):
             with self.subTest(depth=depth), \
                     patch.object(terminal, "colour_depth", return_value=depth):
                 rest = "\n".join(menu.usage_lines(self.cfg, 120))

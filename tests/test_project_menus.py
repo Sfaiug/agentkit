@@ -339,7 +339,8 @@ class Projects(Sandbox):
                     self.assertEqual(terminal.styled("! needs you", "needs you"),
                                      "\033[1;38;2;215;146;0m! needs you\033[0m")
             with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
-                self.assertEqual(terminal.styled("working", "working"), "\033[38;5;75mworking\033[0m")
+                self.assertEqual(terminal.styled("working", "working"),
+                                 "\033[38;2;77;163;255mworking\033[0m")
                 colours.return_value = 8
                 with patch.dict(os.environ, {"TERM": "xterm-8color"}):
                     self.assertEqual(terminal.styled("FAIL", "FAIL"), "\033[31mFAIL\033[0m")
