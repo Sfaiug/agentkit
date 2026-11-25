@@ -37,7 +37,8 @@ done
 OS=$(uname -s)
 . "$REPO/tools/linux-machine.sh"
 TTY=0; if [ -t 0 ] && [ -t 1 ]; then TTY=1; fi
-have() { command -v "$1" >/dev/null 2>&1; }
+# command -v names a file on PATH it cannot run when no runnable one is there
+have() { [ -x "$(command -v "$1" 2>/dev/null)" ]; }
 note() { echo "note: $*" >&2; }
 # gh's bare login asks host, protocol, git and browser-or-token before its one-time code;
 # these answer all four (`--web` takes github.com, and setup-git follows the login)
@@ -95,12 +96,12 @@ fi
 # refused here, before anything is written, rather than half installed.
 MACHINE=0
 if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
-  ARCH=$(uname -m)
-  if [ "$OS/$ARCH" = Darwin/arm64 ]; then
+  # hw.optional.arm64, unlike `uname -m`, says Apple silicon to a shell under Rosetta too
+  if [ "$OS" = Darwin ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then
     MACHINE=1 ROLE=client ALIAS=$LINUX_MACHINE
   elif [ "$OS" != Linux ] || ! have apt-get; then
     echo "install.sh: ak installs on Debian, Ubuntu and a Mac with Apple silicon;" \
-      "this machine is $OS $ARCH" >&2
+      "this machine is $OS $(uname -m)" >&2
     exit 1
   fi
 fi

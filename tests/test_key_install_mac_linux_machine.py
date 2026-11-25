@@ -87,6 +87,7 @@ elif args[0] == "shell":
 """
 BREW = LOG + '[ "$*" != "install lima" ] || cp -- {limactl} {bin}/limactl\n'
 SYSCTL = ('#!/bin/sh\ncase "$2" in hw.ncpu) echo {cpus} ;; hw.memsize) echo {memory} ;;\n'
+          '  hw.optional.arm64) echo 1 ;;\n'
           '  kern.boottime) echo "{{ sec = $(cat {boot}), usec = 0 }} Mon Nov  9 08:00 2026" ;;\n'
           '  kern.bootsessionuuid) cat {session} ;;\n'
           '  *) exit 1 ;;\nesac\n')
@@ -172,7 +173,7 @@ class Mac:
         home.fake("brew", BREW.format(python=python, log=shlex.quote(str(home.log("brew"))),
                                       limactl=shlex.quote(str(staged)),
                                       bin=shlex.quote(str(home.bin))))
-        home.fake("uname", "#!/bin/sh\ncase $1 in -m) echo arm64 ;; *) echo Darwin ;; esac\n")
+        home.fake("uname", "#!/bin/sh\necho Darwin\n")
         home.fake("launchctl", LAUNCHCTL.format(python=sys.executable, root=str(home.root)))
         home.fake("sysctl", SYSCTL.format(cpus=cpus, memory=memory_gib * GIB,
                                           boot=shlex.quote(str(home.root / "boot")),

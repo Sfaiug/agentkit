@@ -1,12 +1,12 @@
 """A server install on a system ak cannot set up stops at its first line, having written nothing.
 
 ak sets a server's packages up with apt-get, and a Mac's server is a Linux machine ak makes only
-on Apple silicon.  Anywhere else a server install, rather than install half and fail later, far
-from the cause, says first, on stderr, that ak installs on Debian, Ubuntu and a Mac with Apple
-silicon, and what this machine is by `uname -s` and `uname -m`, and exits 1, HOME as empty as it
-was.  Black-box: install.sh of the checkout `AK_BIN` names runs from outside in an empty HOME
-that is the account's own (tests/fixtures/installer.py), on a PATH of the host's own tools but
-`apt-get`, with a fake `uname`.
+on Apple silicon, a shell under Rosetta's too.  Anywhere else a server install, rather than
+install half and fail later, far from the cause, says first, on stderr, that ak installs on
+Debian, Ubuntu and a Mac with Apple silicon, and what this machine is by `uname -s` and
+`uname -m`, and exits 1, HOME as empty as it was.  Black-box: install.sh of the checkout `AK_BIN`
+names runs from outside in an empty HOME that is the account's own (tests/fixtures/installer.py),
+on a PATH of the host's own tools but `apt-get`, with a fake `uname` and `sysctl`.
 """
 
 import os
@@ -21,6 +21,8 @@ from fixtures.akbin import SYSTEM, Home
 
 LINUX = ("Linux", os.uname().machine)
 INTEL_MAC = ("Darwin", "x86_64")
+# what an Apple silicon Mac's sysctl says to a shell under Rosetta, whose `uname -m` is x86_64
+APPLE_SILICON = '#!/bin/sh\n[ "$*" = "-n hw.optional.arm64" ] && echo 1\n'
 
 
 class Refused(unittest.TestCase):
@@ -29,7 +31,8 @@ class Refused(unittest.TestCase):
         self.addCleanup(home.close)
         installer.prepare(home)
         installer.own_home(home)
-        (home.bin / "apt-get").unlink()
+        (home.bin / "apt-get").chmod(0o644)     # on PATH, but no program
+        home.refuse("sysctl")                   # an Intel Mac's knows no hw.optional.arm64
         shutil.rmtree(home.path)
         home.path.mkdir()
         # the Home's PATH, whose host tools a server install may run all of, but a Debian
@@ -64,6 +67,11 @@ class Refused(unittest.TestCase):
         done = self.install(*LINUX)
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertTrue((self.home.path / ".agentkit" / "config.toml").is_file())
+
+    def test_an_apple_silicon_mac_goes_on_past_it_from_a_shell_under_rosetta_too(self):
+        self.home.fake("sysctl", APPLE_SILICON)
+        done = self.install(*INTEL_MAC)
+        self.assertTrue((self.home.path / ".agentkit").is_dir(), done.out + done.err)
 
 
 if __name__ == "__main__":
