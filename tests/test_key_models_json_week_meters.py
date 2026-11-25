@@ -5,7 +5,9 @@ what a model's tokens take of them, each plan's `rates`, has its own key
 
 - A login's readings are its `meter_readings` rows of source `probe` of the meter its shared week
   is, no model's own cap of that name (`scope`), whose `used` is a number from 0 to 100 and whose
-  `at` a number, in the order of `at`.
+  `at` a number, in the order of `at`.  A login a configured provider no longer lists that has
+  probe readings in the window takes the one shared week its configured logins name between them;
+  a provider whose configured logins name two or none, or one no longer configured, gains none.
 - A step is two of a login's readings next to each other.  It counts where both name one plan and
   the second holds no less than the first, its points the difference; across two plans, with a
   reading naming none (none or an empty text), or downward, it counts for nothing.
@@ -208,6 +210,36 @@ class ModelsJsonWeekMeters(WeekMeters):
         self.assertEqual(self.week_meters({**TABLES, "meter_readings": (
             "provider, account, meter, used, resets_at, window_secs, at, source, "
             "PRIMARY KEY (provider, account, meter, at)")}), {})
+
+    def test_a_login_no_longer_configured_keeps_its_week_under_its_provider_s_one_meter(self):
+        # removed acme login: borrows the one shared week acme's configured logins name
+        self.read(50, 10, account="removed")
+        self.turn(45, (1_000, 0, 0, 0), account="removed")
+        self.seat(42, 500, account="removed")
+        self.read(40, 25, account="removed")
+        # configured acme login with no cached week: named as today (none), does not borrow
+        self.read(50, 0, plan="Pro", account="second")
+        self.read(40, 5, plan="Pro", account="second")
+        # removed brine login, when brine's configured logins name none: gains no login
+        self.read(50, 0, plan="Plus", provider="brine", account="removed")
+        self.read(40, 10, plan="Plus", provider="brine", account="removed")
+        # provider not configured now: gains no login
+        self.read(50, 0, plan="Old", provider="gone", account="removed")
+        self.read(40, 10, plan="Old", provider="gone", account="removed")
+        cache = self.home.path / ".agentkit/state/usage.json"
+        cached = json.loads(cache.read_text())
+        cached["providers"]["acme"]["accounts"]["second"] = {"meters": []}
+        cached["providers"]["brine"]["accounts"]["default"] = {"meters": []}
+        cache.write_text(json.dumps(cached))
+        self.assertEqual(self.week_meters(), {
+            "acme": {"Max": {"points": 15, "tokens": {"anvil-1": 1_500}}}})
+        # two shared weeks named across acme's configured logins: gains no removed login
+        cached["providers"]["acme"]["accounts"]["second"] = {"meters": [
+            {"name": "weekly_other", "used": 50, "window_secs": 7 * DAY, "resets_at": NOW + DAY}]}
+        cache.write_text(json.dumps(cached))
+        done = self.home.ak("models", "--json", env=ENV)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual(json.loads(done.out)["week_meters"], {})
 
 
 if __name__ == "__main__":
