@@ -1667,12 +1667,14 @@ def ruled_composer(chrome, rows):
 
 def _up_to_opening(chrome, pane, tail, top):
     """The rows of `tail`, that pane's last ones, from row `top` -- or from higher, where a
-    draft goes on above it in rows indented under its box's opening: from that opening, the
-    first row at the left edge, however tall the draft, above the tail too where the harness
-    always draws its box whole (`[screen] scrolls`)."""
+    draft goes on above it in rows indented under its box's opening, and under them its bare
+    closing rule and what is drawn below that: from that opening, the first other row at the
+    left edge, however tall the draft, above the tail too where the harness always draws its
+    box whole (`[screen] scrolls`)."""
     rows = (_content_rows(pane)[:-PANE_LINES] if chrome["scrolls"] else []) + tail
     top += len(rows) - len(tail)
-    while top and strip_sgr(rows[top])[:1].isspace():
+    while top and (strip_sgr(rows[top])[:1].isspace()
+                   or re.fullmatch(RULE, strip_sgr(rows[top]).rstrip())):
         top -= 1
     return rows[top:]
 
@@ -3974,12 +3976,13 @@ def _pane_sent(session, harness, pane, text):
         # A dialog owns the screen: the line landed, and no Enter goes into it blind.
         return True
     # read whole where the composer can be read: a long line wraps past the bottom rows, and
-    # a line the harness took may be echoed above its empty composer; a box can show only its
-    # last rows
+    # a line the harness took may be echoed above its empty composer; one not read whole, as a
+    # box showing only its last rows, still holds a line they end
     rows = _composer_rows(harness, pane) if harness is not None else None
     if rows is not None:
         whole = re.sub(r"\s+", "", text)
-        return whole not in re.sub(r"\s+", "", "".join(rows)) and not _line_end(rows, whole)
+        return whole not in re.sub(r"\s+", "", "".join(rows)) and not (
+            _line_end(rows, whole) and _composer_rows(harness, pane, exact=True) is None)
     return not _holds_text(pane, text)
 
 
