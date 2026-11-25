@@ -1827,7 +1827,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
 
 
 def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=True,
-         records=None, groups=None, clock=None, updating=None, pointing=True):
+         records=None, groups=None, clock=None, updating=None, pointing=True, doing=None):
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
@@ -1875,6 +1875,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
     the screen is drawn over.  While a popup's content fades in, the whole screen is handed to
     it, to come up out of the background (`motion.Clock.rise`).
+
+    The header names the job the menu waits on: `doing`, `starting` while a seat is made, else
+    `updating` while ak's own update fills the rule (`updating`, the share done).
     """
     owned = drawn is not None
     if (not owned and sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
@@ -2026,7 +2029,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     moves = []
     explains = {}   # each seat row's state word, a cell that explains it
     if not compact:
-        out += [terminal.header_line("updating" if updating is not None else "",
+        out += [terminal.header_line(doing or ("updating" if updating is not None else ""),
                                      time.strftime("%H:%M"), width),
                 terminal.rule_line(width, updating or 0)]
     grid = len(out) + 1 if reach else None     # its first row
@@ -2439,12 +2442,14 @@ def born_models(born, keyboard):
                          selected=born["selected"], providers=born["providers"], born=True)
 
 
-def start_born(born, dry_run):
+def start_born(born, dry_run, give):
     """Make the born seat and open it, filed under its project: by the name typed, else the
     one the row showed, which its orchestrator replaces (`unnamed`); a dry run only says what it
     would start.  The name, or None where `orch.create` made nothing.  The names taken are read
     again: another menu may have made a seat since the row opened, and `create` would write
-    over its record, so a name taken since is another free character's."""
+    over its record, so a name taken since is another free character's.  `give` gives the
+    terminal back once the seat is made, for it to open on, or where its harness takes this
+    terminal itself (`orch.create`)."""
     taken = orch.taken_names()
     unnamed = not born["typed"]
     name = (orch.session_name(born["typed"]) if not unnamed else born["name"]
@@ -2458,8 +2463,9 @@ def start_born(born, dry_run):
                                 if selected["orchestrator"] == born["default"] else "selected",
                                 selected["workers"], selected["reviewers"],
                                 selected.get("efforts") or {})),
-                     unnamed=unnamed, taken=taken) is None:
+                     unnamed=unnamed, taken=taken, give=give) is None:
         return None
+    give()
     open_session(born["cfg"], {"name": name}, dry_run)
     return name
 
@@ -7377,12 +7383,19 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                     newborn = None
                 elif act == "start" and not born_refusal(newborn):
                     made, newborn, back = newborn, None, True
-                    keyboard.give()       # the seat has the terminal once it is made
+                    if dry_run:
+                        keyboard.give()   # it only says what it would start
+                    else:                 # up as it was while the seat is made, no key read
+                        draw(cfg, found, listed, page, BORN, {}, look=False,
+                             groups=born_groups(groups, made), clock=clock, updating=updating,
+                             pointing=pointing, doing="starting")
                     live.away()
                     try:
-                        name = start_born(made, dry_run)
+                        name = start_born(made, dry_run, keyboard.give)
                     except config.Error as exc:
                         name = None
+                        if not dry_run:
+                            keyboard.take()   # given to a harness that could not take it
                         pause(f"new session: {exc}")
                     if name and overlay:
                         return 0          # the popup's client is on the new seat
