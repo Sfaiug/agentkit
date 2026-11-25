@@ -1974,14 +1974,13 @@ def held_names():
 def refuse_client():
     """Refuse a client a session: its seats are on its home, and a standby's records are a copy
     of that home's, which it carries on from once it takes over.  So each way to a start asks
-    before it writes a seat's record.  `resume` of a seat tmux lost, and `ak orch` for a new
-    seat (`main`), before `records`, which writes what a harness reconciles of a record: refused
-    after it, either had dropped another seat's conversation from the copy.  A new seat
-    (`refuse_held`): refused only at its start, it had replaced the copy's record by then, and
-    removed its plan.  And the move of a seat tmux lost (`switch_orchestrator`): refused only at
-    its start, it had rewritten the copy's record, and written the seat's rulebook.  `start`
-    asks for a caller that did not: on 22 Nov 2026 one opened a home's 21 sessions a second time
-    on its standby."""
+    before it writes a seat's record.  `resume`, `create`, and `ak orch` for a new seat (`main`),
+    before `records`, which writes what a harness reconciles of a record: refused after it, each
+    had dropped another seat's conversation from the copy.  A new seat (`refuse_held`): refused
+    only at its start, it had replaced the copy's record by then, and removed its plan.  And the
+    move of a seat tmux lost (`switch_orchestrator`): refused only at its start, it had rewritten
+    the copy's record, and written the seat's rulebook.  `start` asks for a caller that did not:
+    on 22 Nov 2026 one opened a home's 21 sessions a second time on its standby."""
     if alias := config.server_alias():
         raise config.Error(f"this machine is a client of {alias} and opens no session: "
                            f"its sessions are on {alias}")
@@ -2502,12 +2501,12 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     comes back with its past, opens on.
     """
     name = config.resolve_session(name)
-    session = find(name)
-    if not session:
-        # tmux lost it: it comes back only in a new session, which a client is refused before
-        # `records` writes
-        refuse_client()
+    # A client is refused first, whatever tmux holds of the seat: `records` writes, and tmux is
+    # read only after it, as it can lose the seat meanwhile.  In a pane it still holds, the
+    # home's seat would run here a second time, as in a new session.
+    refuse_client()
     record = (config.session_records() if detached else records()).get(name) or {}
+    session = find(name)
     if detached:
         if session:
             return 0       # automatic recovery never touches a surviving or legacy pane
@@ -4773,6 +4772,13 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
         session = dict(session, pane=harness_pane(name, seat_socket(session)))
         if not session["pane"]:
             return f"{name} stays on {old_model}: tmux named no pane of it"
+    else:
+        # tmux lost it: restarted, it is in a new session, which a client is refused before the
+        # move reads its handover, so that the refusal puts none back over one copied since
+        try:
+            refuse_client()
+        except config.Error as exc:
+            return _one_line(exc)
     pane = (watch.pane_capture(session)
             if session and not any(session.get(key) for key in CLOSED) else "")
     live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
@@ -4786,8 +4792,6 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     except FileNotFoundError:
         before = None
     try:
-        if not session:
-            refuse_client()     # tmux lost it: restarted, it is in a new session
         given = None if kept else handover(record, old_model, old_harness, owned)
         if given:
             replace_file(handed, (before or b"") + given.encode())
@@ -4968,11 +4972,12 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     name = session_name(name)
     if not name:
         raise config.Error("a session needs a name")
-    refuse_held(name)   # first: given no `taken`, the next lists the seats (`records` writes)
+    refuse_client()     # first: given no `taken`, the next lists the seats (`records` writes)
     if name in alias_names(taken):
         raise config.Error(f"{name!r} is what the session {config.resolve_session(name)!r} used "
                            f"to be called, and the orchestrator in it still answers to it; "
                            f"pick another name")
+    refuse_held(name)
     if selection is None:
         providers = usage.collect(cfg)
         selected = select(cfg, providers, forced, forced_workers, prompting)
