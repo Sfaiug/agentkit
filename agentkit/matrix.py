@@ -15,7 +15,6 @@ import functools
 import json
 import math
 import re
-import secrets
 import sys
 import time
 
@@ -698,18 +697,19 @@ def by_plan(days):
             for provider, found in plans.items()}
 
 
-def dumped(doc):
-    """`doc` as `ak models --json` prints it, each Decimal in it as its digits, as json prints
-    no Decimal: a mark no text of `doc` holds stands in for each until the text is made."""
-    mark, digits = f"decimal-{secrets.token_hex(16)}-", []
-
-    def held(number):
-        if not isinstance(number, decimal.Decimal):
-            raise TypeError(f"{type(number).__name__} is not JSON")
-        digits.append(str(number))
-        return f"{mark}{len(digits) - 1}"
-    return re.sub(f'"{mark}([0-9]+)"', lambda found: digits[int(found[1])],
-                  json.dumps(doc, indent=2, default=held))
+def dumped(value, at="\n"):
+    """`value` as JSON, as `json.dumps(value, indent=2)` writes it but each Decimal in it as its
+    digits, which json writes of no Decimal; `at` begins each of its lines but the first."""
+    inner = at + "  "
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, dict) and value:
+        return "{" + ",".join(
+            f"{inner}{json.dumps(key if isinstance(key, str) else json.dumps(key))}: "
+            f"{dumped(item, inner)}" for key, item in value.items()) + at + "}"
+    if isinstance(value, (list, tuple)) and value:
+        return "[" + ",".join(inner + dumped(item, inner) for item in value) + at + "]"
+    return json.dumps(value)
 
 
 def main(argv):
