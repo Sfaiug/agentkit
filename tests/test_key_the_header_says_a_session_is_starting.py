@@ -61,7 +61,8 @@ class TheHeaderSaysASessionIsStarting(unittest.TestCase):
             time.sleep(0.05)
 
     def test_a_screen_with_no_header_has_one_above_its_rows_for_the_job(self):
-        self.made_under_the_job(size=(100, 4), titled=False)
+        # its row and key line leave the last row free: the header above them fills the pane
+        self.made_under_the_job(size=(100, 3), titled=False)
 
     def made_under_the_job(self, size=(100, 40), titled=True):
         """Enter, the making held: the header names it and every line under it is as it was,
