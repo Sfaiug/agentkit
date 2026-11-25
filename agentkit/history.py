@@ -493,8 +493,9 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     change the run belongs to (its PR, or the run it continues), which the scoreboard groups
     runs by.  `plan_line` and `orchestrator_effort` stay as they were at the first write, and
     `policy`, the limits the run's record holds (`run.prepare`), as the first write that has
-    them: JSON, keys sorted, NULL until then.  A new row is followed for breaks and landing flakes, none yet 0 and '', where a row from
-    before they were recorded keeps NULL: unknown, not unbroken.
+    them: JSON, keys sorted, NULL until then.  A new row is followed for breaks and landing
+    flakes, none yet 0 and '', where a row from before they were recorded keeps NULL: unknown,
+    not unbroken.
     """
     if sandbox(repo):
         def forget(connection):
