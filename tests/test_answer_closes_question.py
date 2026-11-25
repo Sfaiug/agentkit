@@ -3,6 +3,7 @@
 Offline: real hook input, fake tmux and card delivery, and a temporary HOME.
 """
 
+from contextlib import ExitStack
 import json
 import os
 import subprocess
@@ -11,6 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from fixtures.left import pipe
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, watch
 
@@ -38,11 +40,13 @@ case $1 in
 esac
 """
 
-# Each detached look is waited for before assertions or sandbox cleanup, how it ended kept
+# Each detached look a test expects is waited for before its assertions, how it ended kept
 # despite the hook's silent redirects, by the process that looked: an event heard cold leaves
-# its look to a child of the client the hook waits on. No clock bounds a hook, its look or the
-# fake tmux that look asks (`orch.TMUX_CEILING`): a loaded host stretches each past any bound,
-# and one that never ends stops the suite for its silence.
+# its look to a child of the client the hook waits on.  Every look, expected or not, is waited
+# for before the sandbox goes (`fixtures.left`); one whose `LOOK_HELD` names a fifo starts once
+# the test lets it go.  No clock bounds a hook, its look or the fake tmux that look asks
+# (`orch.TMUX_CEILING`): a loaded host stretches each past any bound, and one that never ends
+# stops the suite for its silence.
 PYTHON = r"""#!/bin/bash
 if [[ $1 = */agentkit/looker.py ]]; then
   exec "$TEST_PYTHON" -c 'import os, runpy, sys
@@ -53,6 +57,8 @@ from agentkit import orch
 orch.TMUX_CEILING = None
 ended = "1"
 try:
+    if "LOOK_HELD" in os.environ:
+        Path(os.environ["LOOK_HELD"]).read_text()
     runpy.run_path(look, run_name="__main__")
     ended = "0"
 finally:
@@ -92,6 +98,7 @@ class AnswerClosesQuestion(Sandbox):
             path.write_text(script)
             path.chmod(0o755)
         self.looks = []
+        self.left = pipe(self.addCleanup)
 
     def tmux(self, *args, **kwargs):
         if args[0] in ("capture-pane", "send-keys"):
@@ -137,7 +144,8 @@ class AnswerClosesQuestion(Sandbox):
             self.addCleanup(self.wait_look, finished)
         result = subprocess.run(["bash", str(REPO / "hooks" / script)],
                                 input=json.dumps({"hook_event_name": event, **payload}),
-                                text=True, capture_output=True, env=environ)
+                                text=True, capture_output=True, env=environ,
+                                pass_fds=(self.left,))
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         if script == "seat-state.sh":
             self.assertEqual(result.stdout, "")
@@ -220,6 +228,17 @@ class AnswerClosesQuestion(Sandbox):
         self.notice()
         self.prompt()
         self.assert_answered()
+
+    def test_a_look_no_test_expects_ends_before_its_sandbox_goes(self):
+        """A Stop whose `agent_id` is null is the seat's own to the hook, a sub-agent's to this
+        fixture, which waits for no look of it: the pipe its hook was passed still does."""
+        held = self.root / "held"
+        os.mkfifo(held)
+        with ExitStack() as waits:
+            self.left = pipe(waits.callback)
+            self.hook("Stop", agent_id=None, env={"LOOK_HELD": str(held)})
+            held.write_text("")         # opened once the look opens it, and closed: it goes on
+        self.assertEqual(self.looks[-1].read_text(), "0\n")
 
     def test_prompt_never_waits_for_the_notice_lock_and_the_answer_lands_after_release(self):
         self.notice()
