@@ -94,9 +94,11 @@ def lines(own, cfg, room):
         for (mark, kind), model, texts in rows:
             if folded:
                 first, *rest = hung(f"{mark} {model}", room)
-                rest += ["  " + line for line in menu.packed(
-                    [f"{terminal.styled(head, 'muted')} {text}"
-                     for head, text in zip(HEADS, texts) if text], "  ", room - 2)]
+                told = [f"{terminal.styled(head, 'muted')} {text}"
+                        for head, text in zip(HEADS, texts) if text]
+                # the indent gives way before a number is parted from its name
+                lead = " " * max(0, min(2, room - max(map(terminal.cells, told))))
+                rest += [lead + line for line in menu.packed(told, "  ", room - len(lead))]
             else:
                 first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts)}", []
             shown += [terminal.styled(mark, kind) + first[len(mark):], *rest]
