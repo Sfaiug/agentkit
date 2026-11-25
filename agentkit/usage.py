@@ -1669,7 +1669,7 @@ def legible(prov, now):
     """This provider's meters a number can actually be read from: a numeric used% in a window
     that has not rolled over."""
     return [m for m in prov.get("meters") or []
-            if _number(m.get("used")) is not None and not _past(m, now)]
+            if isinstance(m, dict) and _number(m.get("used")) is not None and not _past(m, now)]
 
 
 def readable(prov, now):
