@@ -1859,8 +1859,24 @@ def running_low(meters, every):
                for m in meters if _number(m.get("used")) is not None)
 
 
+def _worker_reading(cfg, name, providers):
+    """`providers` with `name`'s provider read off the login a worker turn of `name` runs on
+    (`_login`), where it lists several logins and one is held; `providers` unchanged otherwise."""
+    provider = config.model(cfg, name)["provider"]
+    prov = providers.get(provider)
+    if not isinstance(prov, dict) or "accounts" not in prov:
+        return providers
+    reading = _login(cfg, provider, name, prov)[1]
+    if reading is None:
+        return providers
+    return {**providers, provider: {key: value for key, value in reading.items()
+                                    if key != "accounts"}}
+
+
 def model_low(cfg, name, providers):
-    """`running_low` for the meters gating this model, at its provider's probe cadence."""
+    """`running_low` for the meters gating this model, at its provider's probe cadence, read off
+    the login a worker turn of it runs on (`_worker_reading`) where its provider lists several."""
+    providers = _worker_reading(cfg, name, providers)
     meters, _ = _gating_meters(cfg, name, providers)
     return running_low(meters, _probe_every(cfg, config.model(cfg, name)["provider"]))
 
@@ -1988,12 +2004,15 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     def drawn(name):     # not `hash`, which each process salts anew
         return hashlib.sha256(text + f"\0{role}\0{name}".encode()).digest() if text else b""
 
+    def rank(name):
+        read = _worker_reading(cfg, name, providers)
+        return (on_credits(cfg, name, read), model_low(cfg, name, read), drawn(name))
+
     # The owner, 24 Nov 2026: "we dont want exec or revie rounds to abort becuase usage ran out
     # [...] like when 1% remaining, pick the other, unless the other also 1%".  The 1% was an
     # example, and 1% of a five-hour window is less than one turn takes: running low is
     # `model_low`'s line, ak's one, LOW_FLOOR or what the drain eats until ak reads it again.
-    return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers),
-                                             model_low(cfg, n, providers), drawn(n)))
+    return sorted(candidates, key=rank)
 
 
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
