@@ -1069,6 +1069,12 @@ class Harness:
         hook = self._hook("seat_token_usage")
         return hook(entry, cursor) if hook else None
 
+    def seat_turn(self, entry):
+        """One log entry's (the moment a turn ended, unique event id, its seconds) as this
+        harness timed the turn itself, or None."""
+        hook = self._hook("seat_turn")
+        return hook(entry) if hook else None
+
     def record_turn(self, out, state_dir, account):
         """Import this harness's reports after the box closes, without exposing ak's records."""
         hook = self._hook("record_turn")
