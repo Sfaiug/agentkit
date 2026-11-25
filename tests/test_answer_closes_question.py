@@ -42,23 +42,28 @@ esac
 
 # Each detached look a test expects is waited for before its assertions, how it ended kept
 # despite the hook's silent redirects, by the process that looked: an event heard cold leaves
-# its look to a child of the client the hook waits on.  Every look, expected or not, is waited
-# for before the sandbox goes (`fixtures.left`); one whose `LOOK_HELD` names a fifo starts once
-# the test lets it go.  No clock bounds a hook, its look or the fake tmux that look asks
-# (`orch.TMUX_CEILING`): a loaded host stretches each past any bound, and one that never ends
-# stops the suite for its silence.
+# its look to a child of the client the hook waits on.  Every process a hook leaves, expected or
+# not, holds the pipe the hook was handed (`fixtures.left`), one a look starts too: its Popen
+# keeps what it inherited.  A look started alone, which no hook waits on, waits while the fifo
+# `LOOK_HELD` names is open for writing.  No clock bounds a hook, its look or the fake tmux that
+# look asks (`orch.TMUX_CEILING`): a loaded host stretches each past any bound, and one that
+# never ends stops the suite for its silence.
 PYTHON = r"""#!/bin/bash
 if [[ $1 = */agentkit/looker.py ]]; then
-  exec "$TEST_PYTHON" -c 'import os, runpy, sys
+  exec "$TEST_PYTHON" -c 'import os, runpy, subprocess, sys
 from pathlib import Path
 look = sys.argv.pop(1)
 sys.path.insert(0, str(Path(look).resolve().parents[1]))
 from agentkit import orch
 orch.TMUX_CEILING = None
+start = subprocess.Popen.__init__
+subprocess.Popen.__init__ = lambda *args, **kw: start(*args, **{"close_fds": False, **kw})
 ended = "1"
 try:
-    if "LOOK_HELD" in os.environ:
-        Path(os.environ["LOOK_HELD"]).read_text()
+    if "LOOK_HELD" in os.environ and len(sys.argv) == 2:
+        held = os.open(os.environ["LOOK_HELD"], os.O_RDONLY | os.O_NONBLOCK)
+        os.set_blocking(held, True)
+        os.read(held, 1)
     runpy.run_path(look, run_name="__main__")
     ended = "0"
 finally:
@@ -230,15 +235,20 @@ class AnswerClosesQuestion(Sandbox):
         self.assert_answered()
 
     def test_a_look_no_test_expects_ends_before_its_sandbox_goes(self):
-        """A Stop whose `agent_id` is null is the seat's own to the hook, a sub-agent's to this
+        """A Stop whose `agent_id` is null is the seat's own to each hook, a sub-agent's to this
         fixture, which waits for no look of it: the pipe its hook was passed still does."""
         held = self.root / "held"
         os.mkfifo(held)
-        with ExitStack() as waits:
-            self.left = pipe(waits.callback)
-            self.hook("Stop", agent_id=None, env={"LOOK_HELD": str(held)})
-            held.write_text("")         # opened once the look opens it, and closed: it goes on
-        self.assertEqual(self.looks[-1].read_text(), "0\n")
+        for script, payload in (("seat-state.sh", {}),
+                                ("orchestrator-stop.sh", {"background_tasks": []})):
+            with self.subTest(script=script):
+                with ExitStack() as waits:
+                    self.left = pipe(waits.callback)
+                    # closed before the pipe's wait, however the hook went: the look goes on
+                    waits.callback(os.close, os.open(held, os.O_RDWR))
+                    self.hook("Stop", script=script, agent_id=None,
+                              env={"LOOK_HELD": str(held)}, **payload)
+                self.assertEqual(self.looks[-1].read_text(), "0\n")
 
     def test_prompt_never_waits_for_the_notice_lock_and_the_answer_lands_after_release(self):
         self.notice()
