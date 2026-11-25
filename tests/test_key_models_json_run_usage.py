@@ -24,7 +24,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_key_models_json_week_meters import HOUR, TABLES as BASE, THEN, WeekMeters
+from test_key_models_json_week_meters import ENV, HOUR, TABLES as BASE, THEN, WeekMeters
 
 TABLES = {**BASE, "turn_usage": "run_id, role, " + BASE["turn_usage"]}
 EMPTY = {"executor": {"points": {}, "unrated": 0}, "reviewer": {"points": {}, "unrated": 0}}
@@ -80,15 +80,23 @@ class ModelsJsonRunUsage(WeekMeters):
         self.turn(40, (3_000, 0, 0, 0), model=None)         # names no model
         self.turn(40, (4_000, 0, 0, 0), model="")           # blank model
         self.turn(40, (5_000, 0, 0, 0), model="anvil-9")    # model with no rate on Max
-        # brine absent from the usage cache (no readable shared week): its tokens are unrated
+        # brine/Plus: two models in one day alone -> rates is {}, so bolt-1 has no rate
+        self.read(50, 0, plan="Plus", provider="brine")
+        self.seat(45, 50_000, model="bolt-1", harness="chime")
+        self.seat(45, 50_000, model="bolt-2", harness="chime")
+        self.read(40, 10, plan="Plus", provider="brine")
+        self.turn(35, (6_000, 0, 0, 0), model="bolt-1", harness="chime", role="reviewer")
+        want = {"executor": {"points": {}, "unrated": 15_000},
+                "reviewer": {"points": {}, "unrated": 6_000}}
+        self.assertEqual(self.usage(), want)
+        # brine absent from the usage cache (no readable shared week): its tokens stay unrated
         cache = self.home.path / ".agentkit/state/usage.json"
         cached = json.loads(cache.read_text())
         del cached["providers"]["brine"]
         cache.write_text(json.dumps(cached))
-        self.turn(35, (6_000, 0, 0, 0), model="bolt-1", harness="chime", role="reviewer")
-        self.assertEqual(self.usage(), {
-            "executor": {"points": {}, "unrated": 15_000},
-            "reviewer": {"points": {}, "unrated": 6_000}})
+        done = self.home.ak("models", "--json", env=ENV)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual(json.loads(done.out)["runs"]["usage"], want)
 
     def test_a_login_that_changed_plan_values_each_row_under_the_plan_of_its_time(self):
         # Pro: 100 pts/M (70 -> 60); Max: 20 pts/M (40 -> 30); scoped reading at 55 is no reading
