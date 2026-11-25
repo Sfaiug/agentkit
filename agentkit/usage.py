@@ -1923,8 +1923,11 @@ def marked(cfg, workers=None, role="executor", reviewers=None):
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
                repo=None, skip=(), reviewers=None, draw=None):
     """The workers for a role in an order drawn from a text, the role and each one's name alone,
-    a model on credits (`on_credits`) after every one with a window left; nothing else orders
-    them, and the lab rule over it is `staffing.best_pair`'s.  The owner, 24 Nov 2026: "exec if
+    a model on credits (`on_credits`) after every one with a window left, low or not, and within
+    each of those one running low (`model_low`) after every one that is not; nothing else orders
+    them, and the lab rule over it is `staffing.best_pair`'s.  One whose meters report nothing
+    is not running low, and where every one runs low the draw alone orders them: nothing waits
+    for a meter that is not spent.  The owner, 24 Nov 2026: "exec if
     multiple, then choose randomly 50/50 no preferance".  The text is `AK_PICK_DRAW` where the
     environment sets it, the tests' seam, else `draw`, else the id of the run this thread serves
     (`gitcall._RUN_CONTEXT`): so every pick for one run, in whichever process, gives one order,
@@ -1985,7 +1988,12 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     def drawn(name):     # not `hash`, which each process salts anew
         return hashlib.sha256(text + f"\0{role}\0{name}".encode()).digest() if text else b""
 
-    return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers), drawn(n)))
+    # The owner, 24 Nov 2026: "we dont want exec or revie rounds to abort becuase usage ran out
+    # [...] like when 1% remaining, pick the other, unless the other also 1%".  The 1% was an
+    # example, and 1% of a five-hour window is less than one turn takes: running low is
+    # `model_low`'s line, ak's one, LOW_FLOOR or what the drain eats until ak reads it again.
+    return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers),
+                                             model_low(cfg, n, providers), drawn(n)))
 
 
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
