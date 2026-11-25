@@ -292,8 +292,10 @@ class LiveStatus(unittest.TestCase):
             out.seek(0)
             out.truncate()
             answer = next(steps)
-            # the draws its rounds asked for: the bytes on the pipe this wait selects on, unread
-            woken.append(struct.unpack("i", fcntl.ioctl(wake, termios.FIONREAD, bytes(4)))[0])
+            # the draws its rounds asked for: whether this wait would wake, and on how many bytes,
+            # left unread for the menu's own drain
+            woken.append((bool(select.select([wake], [], [], 0)[0]),
+                          struct.unpack("i", fcntl.ioctl(wake, termios.FIONREAD, bytes(4)))[0]))
             return answer
 
         with patch.object(orch, "listing",
@@ -304,7 +306,7 @@ class LiveStatus(unittest.TestCase):
                 patch.object(menu, "wait_key", side_effect=wait_key), \
                 redirect_stdout(out):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
-        self.assertEqual(woken, [1, 1, 1, 1, 0])
+        self.assertEqual(woken, [(True, 1)] * 4 + [(False, 0)])
         rows = [[line for line in screen.splitlines() if " herdr " in line][0]
                 for screen in screens]
         self.assertEqual(len(rows), 5)
