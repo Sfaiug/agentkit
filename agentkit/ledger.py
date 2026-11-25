@@ -30,16 +30,6 @@ def _whole(value, low=0):
     return isinstance(value, int) and not isinstance(value, bool) and value >= low
 
 
-def _round_order(row):
-    """SQLite `ORDER BY round` order: NULL before numbers before text before blobs."""
-    round = row.get("round")
-    if round is None:
-        return (0, 0)
-    if isinstance(round, (int, float)) and not isinstance(round, bool):
-        return (1, round)
-    return (2 if isinstance(round, str) else 3, round)
-
-
 def counted():
     """{"since", "until", "teams", "sizes"}: the window; per team, most tasks first, each role's
     {"name", "effort"} as its first run's row names them (the reviewer's effort its first
@@ -55,7 +45,7 @@ def counted():
     changes = {}
     for row in history.changes_since(since):
         changes.setdefault(row.get("change") or row["run_id"], []).append(row)
-    reviewed = history.reviews()
+    reviewed, first_efforts = history._reviews_read()
     teams, sizes = {}, {}
     for change, runs in changes.items():
         # the run a change is named for began it, whatever start a relaunch ties with; a change
@@ -68,12 +58,10 @@ def counted():
         if start is None or not since <= (runs[start]["finished_at"] or 0) <= until:
             continue
         task = runs[start:]
-        first_reviews = reviewed.get(task[0]["run_id"], ())
         by_run = [[row for row in reviewed.get(run["run_id"], ()) if _whole(row.get("round"), 1)]
                   for run in task]
-        first_effort = min(first_reviews, key=_round_order, default=None)
-        first_round = min(by_run[0], key=_round_order, default=None)
-        first = {**task[0], "reviewer_effort": first_effort and first_effort.get("effort")}
+        first_round = min(by_run[0], key=lambda row: row["round"], default=None)
+        first = {**task[0], "reviewer_effort": first_efforts.get(task[0]["run_id"])}
         roles = {role: {"name": first.get(role), "effort": first.get(f"{role}_effort")}
                  for role in ROLES}
         team = teams.setdefault(repr(roles), {
