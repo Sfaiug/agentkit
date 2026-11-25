@@ -28,7 +28,8 @@ the home writes meanwhile is here as it held it at no one moment, a lock file of
 The next that ends well evens it out.
 
 Under its lock, first of all, it reads the record of a server again, as a pass that held the lock
-meanwhile may have made this machine a home, and asks whether ak's lease is this machine's own
+meanwhile may have made this machine a home, has ak's tmux server here end each session marked as
+a seat (`_close`), a client's being on its home, and asks whether ak's lease is this machine's own
 (`lease.ours`).  Where it is, the remote has said this machine is the home, whose state a copy of
 the old one would overwrite: the pass copies nothing and runs `install.sh --server`, exiting what
 the install exited, whose record of a server says whether this machine is a home after it, and
@@ -78,7 +79,7 @@ import sys
 import tempfile
 import time
 
-from . import (command_help, config, lease, machine_turn, move, notify, pair_clock, record,
+from . import (command_help, config, lease, machine_turn, move, notify, orch, pair_clock, record,
                terminal, update, versions)
 
 # This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
@@ -620,6 +621,26 @@ def _refused(reasons):
     return bool(reasons)
 
 
+def _close():
+    """Hand ak's own tmux server here one file of commands, a line for each session it lists, by
+    its id.  At a session's line tmux ends it where it has an option of its own under a seat's
+    mark (`orch.MARK`), without which the line fails there, and tmux's format reads that mark as
+    `1` for it then: a seat `orch.start` opened, which on a client carries on a conversation its
+    home carries on too.  A session's name decides nothing, nor a mark every session inherits,
+    nor one set or cleared between the listing and the session's line.  Nothing is read back, and
+    the pass goes on the same whatever tmux did: a session made since the listing, and one tmux
+    did not end, failing or not running, is the next pass's.  A pass run inside a session it
+    ends ends with it, as any command does whose terminal closes."""
+    _, out = orch.tmux_out("list-sessions", "-F", "#{session_id}")
+    asked = "".join(f"show-options -t '{sid}' {orch.MARK} ; if-shell -F -t '{sid}' "
+                    f"'#{{==:#{{{orch.MARK}}},1}}' \"kill-session -t '{sid}'\"\n"
+                    for sid in out.split() if re.fullmatch(r"\$[0-9]+", sid))
+    # On stdin, as `orch.tagged` hands tmux its file: no size caps it, and each line is a command
+    # list of its own, so one that fails stops no other session's.
+    if asked:
+        orch.tmux_out("source-file", "-", input=asked)
+
+
 def main(argv):
     if command_help.show("standby", argv):
         return 0
@@ -673,6 +694,7 @@ def main(argv):
         # again: a pass that held the lock may have made this machine a home since
         if _refused(_elsewhere(alias)):
             return 1
+        _close()
         if taken := lease.ours():
             checkout = update.agentkit_dir()
             code, said = versions.run([str(checkout / "install.sh"), "--server"], checkout,
