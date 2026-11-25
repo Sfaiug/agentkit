@@ -3,7 +3,8 @@
 A member of a landing line whose change against its target names only stylesheets, raster
 images, fonts or prose, AGENTS.md never one of them, is given its verdict to land by the line's
 next pass with no whole run of the suite, ahead of members waiting for theirs, where the target
-declares both `health:` and `deployed:`, so ak puts back a release whose health breaks.  Its
+declares both `health:` and `deployed:`, so ak puts back a release whose health breaks, and the
+project has a time record of its suite.  Its
 merge ends with `Looks-Alone-Tree: <tree>`.  Elsewhere, and for any other change, a member waits
 as any does, and what a stylesheet breaks the next whole run finds red on the target's tip.
 
@@ -29,6 +30,7 @@ BUSY = {"cpus": 4, "load": 4, "free_mb": 16000}     # no processor idle
 IDLE = {"cpus": 4, "load": 0, "free_mb": 16000}
 RULES = f"---\ntests: {SUITE}\nhealth: true\ndeployed: true\n---\n# acme\n"
 STYLE = {"site.css": "p { text-decoration: blink }\n"}
+TIMES = {"t/ok.sh": 1}
 
 
 def record(directory):
@@ -36,12 +38,15 @@ def record(directory):
 
 
 class AChangeOfLooksAloneLandsOnItsQuickChecks(unittest.TestCase):
-    def line(self, rules=RULES, **files):
+    def line(self, rules=RULES, times=TIMES, **files):
         line = Line({"AGENTS.md": rules, "t/ok.sh": "true\n", **files})
         self.addCleanup(line.close)
         line.home.env.pop("AK_MAX_RUNS")
         line.home.env["AK_HOST_READINGS"] = json.dumps(BUSY)
         line.measured(40 * 60)
+        if times is not None:
+            line.rig.git("config", "ak.repository", "0123456789ab")
+            line.home.write(".agentkit/state/test-times-0123456789ab.json", times)
         return line
 
     def join(self, line, files):
