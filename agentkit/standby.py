@@ -2,14 +2,14 @@
 paths: what a seat carrying on from the copy needs of each harness, its logins, every account's,
 and the folders its conversations start from, the rest of that harness's folders this machine's
 own; then ~/code, as rsync copies any folder: every file, a `.git` folder's too, a link as the
-link it is; then ak's folder, but each `.git` folder in it, a clone's own git data, each run's
-scratch, and each name in the runs' folder that is no run on either machine, such as each
-machine's own locks and queues.  Nor does what the home's account cannot read under ~/code and
-ak's checkouts, `wt` and `work`, cross: each folder it cannot list or enter, with all in it, and
-each regular file it cannot read, such as a test stopped before it cleaned up leaves, which would
-fail every pass.  Elsewhere one fails the pass, as any error of rsync's does, in a `.git` folder
-under ~/code too, which the walk enters none of; and so do more of them than one command may be
-given, each an argument of rsync's.
+link it is; then ak's folder, but each `.git` folder in it, a clone's own git data, each box's
+scratch, wherever it lies, a run's other scratch, and each name in the runs' folder that is no
+run on either machine, such as each machine's own locks and queues.  Nor does what the home's
+account cannot read under ~/code and ak's checkouts, `wt` and `work`, cross: each folder it
+cannot list or enter, with all in it, and each regular file it cannot read, such as a test
+stopped before it cleaned up leaves, which would fail every pass.  Elsewhere one fails the pass,
+as any error of rsync's does, in a `.git` folder under ~/code too, which the walk enters none of;
+and so do more of them than one command may be given, each an argument of rsync's.
 A pass judges nothing in ~/code: what a path there names outside it, a link's target, a git
 directory kept elsewhere, objects a repository borrows, is neither followed nor looked at, and
 what this machine keeps in its own ~/code goes with what the home lacks there; it refuses an ak
@@ -78,8 +78,8 @@ import sys
 import tempfile
 import time
 
-from . import (command_help, config, lease, machine_turn, move, notify, pair_clock, record,
-               terminal, update, versions)
+from . import (box, command_help, config, lease, machine_turn, move, notify, pair_clock,
+               record, terminal, update, versions)
 
 # This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
 # a client of, its ak install and whether its install.sh is owed, the pages it sent and owes
@@ -88,9 +88,6 @@ KEPT = tuple(path for path in (config.STATE / "server", versions.repository(),
                                config.HOME / versions.VERSIONS, config.STATE / update.PENDING,
                                notify.outbox(), *move.KEPT)
              if path.is_relative_to(config.HOME))
-# A run's scratch, its folders of these names at any depth, which go when its turn ends: in one
-# three-minute window on 9 Nov the owner's home wrote 1.8 GB in them against 26 MB outside.
-SCRATCH = ("tmp", ".box-")
 # The ask's exit for a home where each of these is a link, which rsync would put here in place
 # of the folder: the runs' folder, which a pass writes into, and ~/code.
 LINKED = {3: config.RUNS, 4: config.CODE}
@@ -263,12 +260,17 @@ def _copy(alias, home, copied):
     # home without the folder fails rsync's sender, 23, and rsync then deletes nothing here: as a
     # deletion it would empty the copy.  Times are compared to the nanosecond, as rsync's whole
     # seconds take a same-size write within one for no change, on every pass after.  No `.git`
-    # folder crosses, the git data a clone carries in itself; the rest of its checkouts does, what
-    # git ignores too, and each run but its scratch.  Perishable (-p), the rules leaving out a
-    # `.git` folder and a run's scratch still let rsync's delete take a checkout or run the home
-    # removed, whatever it holds here.  A run is named literally, as any file is: rsync replaces a
-    # link here at a run's folder, or deletes it, and never goes past it.  Nor does what the home
-    # cannot read in ~/code and its checkouts cross (`_left_out`).
+    # folder crosses, the git data a clone carries in itself, nor scratch, which goes when its turn
+    # ends: in one three-minute window on 9 Nov the owner's home wrote 1.8 GB in it against 26 MB
+    # outside.  A box's, wherever it lies, as a test suite in a checkout makes runs and boxes of
+    # its own there: one made after the ask, holding its overlay's work folder of mode 000, failed
+    # rsync's sender reading the checkouts (25 Nov).  A run's `tmp…` folders, scratch in a run
+    # alone, as in a checkout one is the project's.  The rest of the checkouts crosses, what git
+    # ignores too.  Perishable (-p), the rules leaving out a `.git` folder and scratch still let
+    # rsync's delete take a checkout or run the home removed, whatever it holds here.  A run is
+    # named literally, as any file is: rsync replaces a link here at a run's folder, or deletes
+    # it, and never goes past it.  Nor does what the home cannot read in ~/code and its checkouts
+    # cross (`_left_out`).
     # rsync tries each rule on each file, on each machine, and the runs' names are thousands, more
     # than one command may be given: they come on its input, in a transfer of the runs' folder
     # alone, which takes all inside a run before a name is tried on it; the rest crosses after.
@@ -276,13 +278,14 @@ def _copy(alias, home, copied):
     # the runs, as a package cache links one into each checkout, crosses as two of the same bytes.
     at = config.PLACES["RUNS"]
     rules = [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
-             "--filter=-p .git/", *_left_out(unread, config.HOME, config.HOME)]
+             *(f"--filter=-p {name}/" for name in (".git", f"{box.SCRATCH}*")),
+             *_left_out(unread, config.HOME, config.HOME)]
     names = b"".join(os.fsencode(f"/{at}/{_literal(run)}") + b"\0" for run in runs)
     for args, given in ((["-sR", "--no-implied-dirs", "--ignore-missing-args",
                           *_left_out(unread, config.CODE, home),
                           *(f"{alias}:{home}/./{path}" for path in copied), f"{home}/"], None),
-                        ([*rules, *(f"--filter=-p /{at}/**/{name}*/" for name in SCRATCH),
-                          f"--filter=+ /{at}/*/**", "--from0", "--include-from=-",
+                        ([*rules, f"--filter=-p /{at}/**/tmp*/", f"--filter=+ /{at}/*/**",
+                          "--from0", "--include-from=-",
                           f"--filter=- /{at}/*", f"--filter=+ /{at}/", "--filter=- /*",
                           f"{alias}:{config.HOME}/", f"{config.HOME}/"], names),
                         ([f"--exclude=/{at}", *rules, f"{alias}:{config.HOME}/",

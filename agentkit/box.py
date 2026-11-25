@@ -30,6 +30,9 @@ from string import Template
 # What a box never passes on: GitHub tokens, and the SSH agent's address.
 TOKENS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK")
 PROCESSES = "box-processes.json"
+# The name each turn's scratch folder in its out folder begins with, which a standby's copy of ak's
+# folder leaves out wherever one lies.
+SCRATCH = ".box-"
 TRANSIENT = tuple(map(Path, ("/run", "/tmp", "/var/tmp", "/dev/shm")))
 OVERLAY_REMEDY = ("install bubblewrap with --tmp-overlay support and use a kernel that allows "
                   "overlayfs in unprivileged user namespaces")
@@ -521,7 +524,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         except OSError:
             return False
 
-    with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch, \
+    with tempfile.TemporaryDirectory(prefix=SCRATCH, dir=Path(out_dir).resolve()) as scratch, \
             syncs.ignored() as (filtered, fds):
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
