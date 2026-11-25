@@ -88,14 +88,14 @@ Example: `↑↓←→ move   ␣ mark   a add a company   esc back`.
 
 ## Colour
 
-Screens ask for roles, never RGB, each drawn as its colour alone: `working` is accent,
+Screens ask for roles, never RGB, each its colour alone: `working` accent,
 `needs you` warning, `done` success, `FAIL` and `out of usage` error, `idle` and `waiting` dim; a
-seat's bar transparent, its chip on-accent on its state's. Names and numbers are `text`, what tells of
+seat's bar transparent, its chip on-accent on its state's. Names and numbers `text`, what tells of
 its neighbour `muted`, what the eye skips `dim`, lines `border`, ak's own word `info`; a highlight
 keeps them. A fade nears the background; lit, the text; moving, the rainbow (`themes.RAINBOW`).
 
-The terminal's background picks the shades (`themes.ROLES`, Go: `terminal/themes.go`); `NO_COLOR`
-colours nothing.
+The terminal's background, shown where its shades read (`reads.py`), picks them (`themes.ROLES`,
+`terminal/themes.go`); `NO_COLOR` colours nothing.
 
 Colour says where a thing stands and never who.
 

@@ -5,7 +5,13 @@ package terminal
 func (s Screen) Moves() bool { return s.depth > 8 }
 
 // Tinted is text in word's colour amount (0 to 1) of the way to the background, or with a negative
-// one that far toward the foreground: the colour alone, none of the word's emphasis.
-func (s Screen) Tinted(text, word string, amount float64) string {
-	return s.Styled(text, s.faded(word, amount))
+// one that far toward the foreground: the colour alone, none of the word's emphasis.  On the
+// highlighted row, lit, on the terminal's own background (lookOn) it goes to the highlight, as
+// Python's motion.tinted.
+func (s Screen) Tinted(text, word string, amount float64, lit bool) string {
+	ground := "background"
+	if lit && s.own != (own{}) {
+		ground = "selection"
+	}
+	return s.Styled(text, s.faded(word, amount, ground))
 }

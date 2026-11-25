@@ -4,6 +4,7 @@
 package terminal
 
 import (
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -36,34 +37,39 @@ var styles = map[string]style{
 // kinds are the roles a screen asks Styled for, each the word whose colour it is.
 var kinds = map[string]string{"accent": "working", "amber": "needs you"}
 
-// colourOf is a word's colour in a theme: a role's (roles), a state word's, or a kind's.
-func colourOf(word string, in theme) string {
+// roleOf is the role a word is drawn in: its own (roles), a state word's, or a kind's.
+func roleOf(word string) string {
 	if _, ok := roles[word]; ok {
-		return roles[word][in]
+		return word
 	}
 	if role, ok := kinds[word]; ok {
 		word = role
 	}
-	return roles[styles[word].colour][in]
+	return styles[word].colour
 }
+
+// colourOf is a word's colour in a theme.
+func colourOf(word string, in theme) string { return roles[roleOf(word)][in] }
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
 
-// isLight is whether an answer's luma is past half way, and whether it names a colour to tell.
-func isLight(answer string) (light, read bool) {
+// backgroundOf is the colour an answer names, rrggbb, "" where it names none to tell, and whether
+// its luma is past half way.
+func backgroundOf(answer string) (rgb string, light bool) {
 	found := backgroundRGB.FindStringSubmatch(answer)
 	if found == nil {
-		return false, false
+		return "", false
 	}
 	var channel [3]float64
 	for i, part := range found[1:] {
 		value, err := strconv.ParseUint(part, 16, 64)
 		if err != nil {
-			return false, false
+			return "", false
 		}
 		channel[i] = float64(value) / (math.Pow(16, float64(len(part))) - 1)
+		rgb += fmt.Sprintf("%02x", int(math.RoundToEven(channel[i]*255)))
 	}
-	return 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5, true
+	return rgb, 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5
 }
 
 // trueColour is whether a tmux client's features say it takes true colour, as tmux and ssh both
@@ -100,6 +106,7 @@ type Screen struct {
 	depth, width, height int
 	ascii                bool
 	theme                theme
+	own                  own // where the look reads on the terminal's own background (lookOn)
 }
 
 // For is out as a screen that never asks its terminal what it is: in the shades kept (kept).

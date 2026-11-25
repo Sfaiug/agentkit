@@ -96,12 +96,12 @@ func (c *Clock) Moved(key string, value any, took time.Duration) (before any, mo
 }
 
 // Breathing is glyph in word's colour as a breathing cell shows it now: out to Dimmer of the way
-// to the background and back once every Breath, eased into every turn, every one in one phase;
-// still where colour cannot move.
-func (c *Clock) Breathing(s terminal.Screen, glyph, word string) string {
+// to the background and back once every Breath, eased into every turn, every one in one phase, on
+// the highlighted row, lit, as Tinted has it there; still where colour cannot move.
+func (c *Clock) Breathing(s terminal.Screen, glyph, word string, lit bool) string {
 	if c == nil || !s.Moves() {
 		return s.Styled(glyph, word)
 	}
 	c.still = forever
-	return s.Tinted(glyph, word, Dimmer*(1-math.Cos(2*math.Pi*float64(c.at%Breath)/float64(Breath)))/2)
+	return s.Tinted(glyph, word, Dimmer*(1-math.Cos(2*math.Pi*float64(c.at%Breath)/float64(Breath)))/2, lit)
 }
