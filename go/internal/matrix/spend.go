@@ -235,7 +235,7 @@ func (s *spend) plans(accounts []usage.Week, windows ...[2]float64) []map[usage.
 			}
 			for _, row := range s.db.Select("SELECT used, resets_at, at, plan FROM "+s.db.Migrated("meter_readings")+
 				" WHERE provider = ? AND account = ? AND meter = ? AND scope IS NULL AND source = 'probe' AND at >= ? AND at <= ? AND "+
-				"used IS NOT NULL AND resets_at IS NOT NULL ORDER BY resets_at",
+				"typeof(used) IN ('integer', 'real') AND typeof(resets_at) IN ('integer', 'real') ORDER BY resets_at",
 				login.Provider, cmp.Or(login.Account, config.DefaultAccount), login.Meter, span[0], span[1]) {
 				used, _ := row.Num("used")
 				resets, _ := row.Num("resets_at")
