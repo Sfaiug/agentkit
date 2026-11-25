@@ -14,9 +14,9 @@ Black-box: install.sh of the checkout `AK_BIN` names, or of a Mac's own copy of 
 answer-key Home that is the account's own (tests/fixtures/installer.py), on a Mac of fakes:
 `uname`, `df`, `brew`, `fdesetup`, a `sysctl` whose boot time is `<root>/boot` and whose boot's
 id `<root>/session`, a `launchctl` keeping what launchd has loaded in `<root>/launchd.json`, a
-`pmset` keeping its settings in `<root>/pmset.json`, a `sudo` that runs only `pmset`, `tee`,
-`chmod` and `launchctl`, as root, and a `limactl` whose machine is a directory, `<root>/guest`, in
-the state `<root>/machine` names.
+`pmset` keeping its settings in `<root>/pmset.json`, with a battery where they hold one, a `sudo`
+that runs only `pmset`, `tee`, `chmod` and `launchctl`, as root, and a `limactl` whose machine is
+a directory, `<root>/guest`, in the state `<root>/machine` names.
 """
 
 import json
@@ -30,8 +30,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import installer
-from fixtures.akbin import AK, LOG, Home
-from fixtures.akinstall import PROGRAM, copy_tracked
+from fixtures.akbin import LOG, Home
 
 GIB = 1024 ** 3
 # The machine is a directory: `shell` runs its command in the home there, but for ak's own
@@ -103,8 +102,9 @@ SYSCTL = ('#!/bin/sh\ncase "$2" in hw.ncpu) echo {cpus} ;; hw.memsize) echo {mem
           '  *) exit 1 ;;\nesac\n')
 DF = ("#!/bin/sh\necho 'Filesystem 1024-blocks Used Available Capacity Mounted on'\n"
       "echo '/dev/disk3s5 976490576 1 {free} 1% /System/Volumes/Data'\n")
-# Each power source's settings, as `pmset -g custom` prints them; only root changes them, with
-# `-a` for every source, `-c` on power, `-b` on battery.
+# Each power source's settings, as `pmset -g custom` prints them, and a battery where one is a
+# source, as `pmset -g batt` says on power; only root changes them, with `-a` for every source,
+# `-c` on power, `-b` on battery.
 PMSET = """#!{python}
 import json, os, sys
 from pathlib import Path
@@ -117,6 +117,11 @@ if args == ["-g", "custom"]:
         print(source + ":")
         for name, value in settings.items():
             print(f" {{name:<20}} {{value}}")
+    sys.exit(0)
+if args == ["-g", "batt"]:
+    print("Now drawing from 'AC Power'")
+    if "Battery Power" in sources:
+        print(" -InternalBattery-0 (id=6488163)\\t82%; charging; 1:02 remaining present: true")
     sys.exit(0)
 if "SUDO_USER" not in os.environ:
     sys.exit("pmset: this command requires root")
@@ -203,15 +208,11 @@ class Mac:
         """Install from now on from a checkout of the Mac's own: what `AK_BIN`'s tracks and the
         program however it was built, in one commit, with `origin` its origin, else none."""
         checkout = self.home.root / "checkout"
-        copy_tracked(checkout)
-        program = checkout / Path(AK).resolve().relative_to(PROGRAM)
-        program.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(AK, program)
+        self.script = installer.copy(checkout)
         for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "the Mac's checkout"],
                      *([["remote", "add", "origin", origin]] if origin else [])):
             done = self.home.run("git", "-C", str(checkout), *args)
             assert done.code == 0, done.err
-        self.script = checkout / installer.INSTALL.resolve().relative_to(PROGRAM)
 
     def install(self, *args, tty=False, cwd=None):
         done = self.home.run("bash", str(self.script), *args, tty=tty, cwd=cwd)

@@ -17,7 +17,8 @@ what a model's tokens take of them, each plan's `rates`, has its own key
 - A plan's points are its steps' summed with `math.fsum`, to six significant digits, however many
   logins and days they span; a plan with no step that counts is not listed, nor a provider with
   none.  A history whose readings keep no plan gives `{}`, and `ak models --json` exits 0; one
-  keeping a plan but no `scope` yet names no model's own cap.
+  keeping a plan but no `scope` yet names no model's own cap, and a fresh history without
+  `seat_usage` yet still counts its readings and worker turns.
 
 Black-box: the program `AK_BIN` names, on tests/fixtures/meters.py's harness, `echo` running
 acme's models and a copy, `chime`, brine's, the logins' shared weeks held in the usage cache and
@@ -189,6 +190,15 @@ class ModelsJsonWeekMeters(WeekMeters):
         self.assertEqual(self.week_meters({**TABLES, "meter_readings": TABLES[
             "meter_readings"].replace("scope, ", "")}),
             {"acme": {"Max": {"points": 10, "tokens": {"anvil-1": 5}}}})
+
+    def test_a_fresh_history_without_seat_usage_keeps_readings_and_turns(self):
+        self.read(50, 0)
+        self.turn(45, (100_000, 0, 0, 0))
+        self.read(40, 10)
+        self.assertEqual(
+            self.week_meters({name: columns for name, columns in TABLES.items()
+                              if name != "seat_usage"}),
+            {"acme": {"Max": {"points": 10, "tokens": {"anvil-1": 100_000}}}})
 
     def test_a_history_whose_readings_keep_no_plan_gives_none(self):
         self.read(50, 10)

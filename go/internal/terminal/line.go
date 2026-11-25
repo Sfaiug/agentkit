@@ -75,14 +75,14 @@ func (s Screen) ShareParts(share float64, size int) (string, string) {
 
 // ShareLine is the bar (ShareParts) its full part in word's colour, the rest in the border's.
 func (s Screen) ShareLine(share float64, size int, word string) string {
-	return s.GlidingLine(share, share, 1, false, size, word)
+	return s.GlidingLine(share, share, 1, nil, size, word)
 }
 
 // GlidingLine is ShareLine on its way there (motion.growing): moved (0 to 1) of the way from the
 // share it stood at, its first cells as the whole line draws them and the cells it shrinks from
-// full in word's colour, the rest the empty track.  While lit, where colour can move, its head is
-// half way from word's colour to the foreground.
-func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word string) string {
+// full in word's colour, the rest the empty track.  Where colour can move, tip draws its head
+// cell; nil draws it as the rest.
+func (s Screen) GlidingLine(from, share, moved float64, tip func(string) string, size int, word string) string {
 	full, half, empty, halves := s.shapes(share, size)
 	ends := (halves + 1) / 2
 	start := math.RoundToEven(float64(size) * from)
@@ -94,12 +94,10 @@ func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word
 		if halves%2 == 1 && n == ends-1 && n == head-1 {
 			cells[n] = half
 		}
-		if s.depth > 8 {
-			ink := word
-			if lit && n == head-1 {
-				ink = s.faded(word, -0.5, "background")
-			}
-			line.WriteString(s.Styled(cells[n], ink))
+		if s.depth > 8 && tip != nil && n == head-1 {
+			line.WriteString(tip(cells[n]))
+		} else if s.depth > 8 {
+			line.WriteString(s.Styled(cells[n], word))
 		}
 	}
 	if s.depth <= 8 {
