@@ -61,7 +61,7 @@ class ATurnLendsItsLogin(unittest.TestCase):
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
             "AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n",
-            "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
+            "tools/helper/Containerfile": akmachine.RECIPE})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"],
                        providers={"anthropic": {"mode": "subscription", "accounts": ["second"]}},

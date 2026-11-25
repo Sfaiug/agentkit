@@ -16,8 +16,9 @@ class SeveralSuites(unittest.TestCase):
 
     def piece(self, key, name, memory):
         """`run` of a piece of suite `key` in a VM `name` of `memory` MiB, started."""
-        for path in (key, "mirrors/acme"):
+        for path in (f"{key}/image", "mirrors/acme"):
             (self.root / path).mkdir(parents=True, exist_ok=True)
+        (self.root / key / "image/name").write_text("ak-helper:new\n")    # as `prepare` left it
         return subprocess.Popen(helper._remote("acme-mac", "run", key, "ak-helper:new", name, 1,
                                                memory, "acme"), stdout=subprocess.DEVNULL)
 

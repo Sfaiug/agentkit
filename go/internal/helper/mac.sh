@@ -45,6 +45,7 @@ darwin() {
     container list --all --format json | jq -e --arg id "$1" \
       'any(.[]; .configuration.id == $id and .status.state == "running")' >/dev/null
   }
+  named() { echo "$1"; }    # a Mac builds an image for no user: its VMs run as the image's own
   # tags NAME: the images of the repository NAME, as NAME:TAG.
   tags() { container image ls | awk -v name="$1" 'NR > 1 && $1 == name {print $1":"$2}'; }
   # bare: image references without registry or namespace, tagged `latest` where untagged, as
@@ -221,8 +222,11 @@ prepare)   # KEY IMAGE REPO [CPUS a turn holds], the parcel on stdin
   # Suites are admitted one at a time, before anything of theirs is unpacked.
   mkdir -p "$ROOT" || exit 253
   locked "$ROOT/suites.lock" admit "$2" "$5" && preparing "$2" || exit
-  # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has.
-  mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$3" >"$ROOT/$2/image/name" || exit 253
+  # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has. The image
+  # goes by the name this machine gives it (`named`), kept for `run` and `turn`, which read it
+  # rather than their IMAGE: a suite prepared before these scripts changed keeps its image.
+  image=$(named "$3")
+  mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$image" >"$ROOT/$2/image/name" || exit 253
   # A turn's harness program is $ROOT/harness/<harness>/<version>/<program>; a suite names none.
   [ ! -f "$ROOT/$2/harness" ] || {
     program=$ROOT/harness/$(cat "$ROOT/$2/harness")
@@ -236,16 +240,17 @@ prepare)   # KEY IMAGE REPO [CPUS a turn holds], the parcel on stdin
   # image whose suite then failed.
   M="$MIRRORS/$4"
   mkdir -p "$MIRRORS" && locked "$M.lock" git init -q --bare "$M" || exit 253
-  locked "$ROOT/build.lock" images "$2" "$3" || exit
-  building "$2" "$3" || exit
+  locked "$ROOT/build.lock" images "$2" "$image" || exit
+  building "$2" "$image" || exit
   locked "$M.lock" history "$2" "$M" ;;
 run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
-  D="$ROOT/$2" image=$3 name=$4 cpus=$5 memory=$6 M="$MIRRORS/$7"
+  D="$ROOT/$2" name=$4 cpus=$5 memory=$6 M="$MIRRORS/$7"
   shift 7
   on_power || exit 251
   # The piece names its failed tests in /out (piece.sh), which `failed` reads once it ends.
   out="$D/$name.out"
-  [ -d "$D" ] && [ -d "$M" ] && rm -rf "$out" && mkdir -m 777 "$out" || exit 253
+  [ -d "$D" ] && [ -d "$M" ] && image=$(cat "$D/image/name") && rm -rf "$out" &&
+    mkdir -m 777 "$out" || exit 253
   admitted start "$@" ;;
 failed)    # KEY NAME [flaky|ran|not-there]: the tests piece NAME named as failed (or flaky, run,
            # or not there); never through a link it left there
@@ -256,8 +261,8 @@ turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `ho
   # ended with ak's ssh session. It exits as turn.sh did: 0 once the turn's exit is in `code`. By
   # then, however it ended, the paths `lent` names, read before the turn could change them, are
   # gone, so `collect` cannot send them.
-  D="$ROOT/$2" image=$3 memory=$4 M="$MIRRORS/$5" name="ak-$2-turn" volumes=() lent=()
-  H="$ROOT/harness/$(dirname "$(cat "$D/harness")")"
+  D="$ROOT/$2" memory=$4 M="$MIRRORS/$5" name="ak-$2-turn" volumes=() lent=()
+  image=$(cat "$D/image/name") H="$ROOT/harness/$(dirname "$(cat "$D/harness")")"
   shift 5
   while IFS= read -r -d '' path; do lent+=("$D/home/$path"); done <"$D/lent"
   trap 'locked "$ROOT/lent.lock" drop_lent "${lent[@]}"' EXIT

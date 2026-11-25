@@ -8,7 +8,6 @@ harness stand-in writes that to `where` in its out dir, the executor to a commit
 """
 
 import json
-import os
 from pathlib import Path
 import sys
 import unittest
@@ -37,7 +36,7 @@ class ATurnRunsOnAMachine(unittest.TestCase):
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
             "AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n", "gone.txt": "old\n",
-            "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
+            "tools/helper/Containerfile": akmachine.RECIPE})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"],
                        settings={"suite_helper": "acme-linux", "turns_on_machines": switch})
@@ -65,14 +64,11 @@ class ATurnRunsOnAMachine(unittest.TestCase):
         turns = sorted(path.read_text().strip() for path in run.rglob("where"))
         containers = len([*machine.glob("docker/roots/*-turn")])
         self.login = next(run.rglob("login")).read_text().strip()
-        self.images = [image.read_text() for image in machine.glob("docker/images/*")]
         return turns, rig.origin("show", "main:executor.txt"), containers
 
     def test_both_turns_run_on_the_machine(self):
         self.assertEqual(self.run_task(True, 2), (["docker"] * 2, "docker", 2))
         self.assertTrue(self.login.endswith("/bin/ak"), self.login)
-        # the image is built for the machine's own user, whom its recipe gives an account
-        self.assertEqual(self.images, [f"uid={os.getuid()} gid={os.getgid()}"])
 
     def test_a_machine_with_only_a_turn_s_room_left_takes_the_turns(self):
         self.assertEqual(self.run_task(True, 5, held=8), (["docker"] * 2, "docker", 2))

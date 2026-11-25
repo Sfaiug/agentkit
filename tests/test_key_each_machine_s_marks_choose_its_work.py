@@ -19,7 +19,8 @@ class EachMachinesMarks(unittest.TestCase):
     def setUp(self):
         self.home = home = Home()
         self.addCleanup(home.close)
-        self.line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM acme\n"}, home=home)
+        self.line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": akmachine.RECIPE},
+                         home=home)
         fakeadapter.install(home, claude={"sh": WHERE + "; echo left >left.txt", "hand_in": [["done"]]},
                             codex={"sh": WHERE, "hand_in": [["done"]]})
         self.machine = akmachine.install(home)

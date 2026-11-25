@@ -84,7 +84,7 @@ class AMachineFetchesTheHarness(unittest.TestCase):
         turn writes, and with no other model about it reviews too."""
         rig = Rig(home, "widgets", files={
             "AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n",
-            "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
+            "tools/helper/Containerfile": akmachine.RECIPE})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, list(models),
                        settings={"suite_helper": "acme-linux", "turns_on_machines": True})
@@ -146,7 +146,7 @@ class AMachineFetchesTheHarness(unittest.TestCase):
         (machine / "bin/flock").chmod(0o755)
         parcel = io.BytesIO()
         with tarfile.open(fileobj=parcel, mode="w") as tar:
-            for name, text in (("image/Containerfile", "FROM acme\n"),
+            for name, text in (("image/Containerfile", akmachine.RECIPE),
                                ("harness", "claude/1.2.3/claude"),
                                ("fetch/x86_64", CLAUDE.format("x64"))):
                 info = tarfile.TarInfo(name)

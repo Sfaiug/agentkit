@@ -34,7 +34,7 @@ class ATurnStaysHomeWhileHomeHasRoom(unittest.TestCase):
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
             "AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n",
-            "tools/helper/Containerfile": "FROM acme\n"})
+            "tools/helper/Containerfile": akmachine.RECIPE})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"], extra='[machines.acme-linux]\nwork = ["turns"]\n')
         fakeadapter.install(home, claude={"sh": f"{WHERE}; echo x >x.txt",

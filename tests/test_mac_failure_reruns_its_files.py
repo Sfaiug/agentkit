@@ -102,6 +102,8 @@ class MacHandsBackTheNames(unittest.TestCase):
         named = self.root / "key" / "ak-key-1-1.out" / "failed"
         named.parent.mkdir(parents=True)
         named.write_text("tests/test_a.py\n")    # what an earlier command's piece named
+        self.root.joinpath("key/image").mkdir()
+        self.root.joinpath("key/image/name").write_text("ak-helper:new\n")    # as `prepare` left it
         run = subprocess.Popen(helper._remote("acme-mac", "run", "key", "ak-helper:new",
                                               "ak-key-1-1", 1, 512, "acme"),
                                stdout=subprocess.DEVNULL)

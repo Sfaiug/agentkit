@@ -57,7 +57,7 @@ class ATurnPacksOntoTheBusiestMachine(unittest.TestCase):
         google.key()
         env = {"AK_GOOGLE_URL": google.env["AK_GOOGLE_URL"]}
         rig = Rig(home, "widgets", files={"AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n",
-                                          "tools/helper/Containerfile": "FROM acme\n"})
+                                          "tools/helper/Containerfile": akmachine.RECIPE})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"], settings={"turns_on_machines": True}, extra="".join(
             f"[machines.{name}]\n" for name in cpus if name not in lives)

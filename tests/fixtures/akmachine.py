@@ -5,6 +5,8 @@ given on it, a directory with a HOME and programs of its own: a fake docker, who
     from fixtures import akmachine
     machine = akmachine.install(home)    # every alias ssh is given reaches it
     machine = akmachine.install(home, cpus=8)    # with room for four pieces at once
+    machine = akmachine.install(home, user=1001)    # its user and group another than this host's
+    Rig(home, "widgets", files={"tools/helper/Containerfile": akmachine.RECIPE})    # takes turns
     logs = machine.glob("docker/roots/*/home/ak/work/.git/suite.log")    # each piece's clone
     home.ak("run", task, env={"AK_HOST_READINGS": akmachine.CROWDED})    # its turns go there
 
@@ -17,18 +19,25 @@ import sys
 
 CROWDED = json.dumps({"cpus": 4, "load": 4, "free_mb": 16000, "mem_total_mb": 32000})
 
-# ssh ALIAS COMMAND: COMMAND as the machine's shell runs it, in nothing of this host's environment.
-SSH = '#!/bin/bash\nexec env -i HOME={home} PATH={bin}:/usr/bin:/bin bash -c "${{@: -1}}"\n'
+# A recipe whose image takes a turn: its user is the one the machine builds it for
+# (tools/helper/linux.sh's `build`), as whom the turn runs.
+RECIPE = ('FROM docker.io/library/alpine:3.20\nARG uid\nARG gid\n'
+          'RUN addgroup -g "$gid" ak && adduser -D -u "$uid" -G ak ak\n')
+
+# ssh ALIAS COMMAND: COMMAND as the machine's shell runs it, in nothing of this host's environment,
+# as the machine's user.
+SSH = '#!/bin/bash\nexec {user}env -i HOME={home} PATH={bin}:/usr/bin:/bin bash -c "${{@: -1}}"\n'
 
 # docker, as tools/helper/linux.sh asks it: images and containers are files beside this program,
-# and a container runs only an image a build left. Its root is a directory holding its volumes as
-# links, its home and /tmp, its own cgroup's memory.events and the kernel's /proc/vmstat, shared
-# with every container and counting one more kill at each read; its command runs with the paths it
-# names there, outside this client's process tree, as a real container's runs under the daemon,
-# though in its process group, which a stopped turn's ssh takes down with it. A volume at a path of
-# this host's own, a turn's, is bound there by bubblewrap; one nested in another, its mount point
-# missing there, makes it as docker does, as root: here, read-only. `top` runs ps on this host,
-# keeping its lines of the processes under the command.
+# and a container runs only an image a build left, which holds root's account and one of the `uid`
+# its recipe took. Its root is a directory holding its volumes as links, its home and /tmp, its own
+# cgroup's memory.events and the kernel's /proc/vmstat, shared with every container and counting
+# one more kill at each read; its command runs with the paths it names there, outside this client's
+# process tree, as a real container's runs under the daemon, though in its process group, which a
+# stopped turn's ssh takes down with it. A volume at a path of this host's own, a turn's, is bound
+# there by bubblewrap; one nested in another, its mount point missing there, makes it as docker
+# does, as root: here, read-only. `top` runs ps on this host, keeping its lines of the processes
+# under the command.
 DOCKER = r"""
 import itertools, os, re, shutil, subprocess, sys, threading
 from pathlib import Path
@@ -45,7 +54,10 @@ elif words[:2] == ["image", "rm"]:
         (images / ref).unlink()
 elif words[0] == "build":    # build -q -t IMAGE -f RECIPE [--build-arg NAME=VALUE]... CONTEXT
     assert Path(words[5]).is_file() and Path(words[-1]).is_dir()
-    (images / words[3]).write_text(" ".join(words[7:-1:2]))    # an image holds what it was built for
+    takes = re.findall(r"^ARG (\w+)", Path(words[5]).read_text(), re.M)
+    # an image holds what its recipe took of what it was built for
+    (images / words[3]).write_text(" ".join(
+        arg for arg in words[7:-1:2] if arg.partition("=")[0] in takes))
 elif words[0] == "ps":
     print("".join(f"{name}\n" for name in held), end="")
 elif words[0] == "inspect":    # an unknown container fails it, as docker's does
@@ -74,9 +86,13 @@ elif words[0] == "run":
             links[inside] = outside
         elif flag not in ("--rm", "--init"):
             flags[flag] = words.pop(0)
-    image, _, script, *args = words
+    image, *command = words
     if not (images / image).exists():
         sys.exit(125)
+    if "--entrypoint" in flags:    # `id -un` as --user: whether the image holds that user's account
+        uid = flags["--user"].partition(":")[0]
+        sys.exit(uid != "0" and f"uid={uid}" not in (images / image).read_text().split())
+    _, script, *args = command
     root = state / "roots" / flags["--name"]
     shutil.rmtree(root, ignore_errors=True)
     for directory in ("home/ak", "sys/fs/cgroup", "proc", "tmp"):
@@ -135,13 +151,15 @@ TOOLS = {"docker": f"#!{sys.executable}\n{DOCKER}",
          "curl": "#!/bin/sh\nexit 7\n"}
 
 
-def install(home, cpus=2):
-    """Make `home`'s ssh reach a machine of its own, of `cpus` CPUs; its directory."""
+def install(home, cpus=2, user=None):
+    """Make `home`'s ssh reach a machine of its own, of `cpus` CPUs; its directory. Its user and
+    group are this host's, or `user` in a user namespace."""
     machine = home.root / "machine"
     for directory in ("home", "bin", "docker/images", "docker/containers"):
         (machine / directory).mkdir(parents=True)
     for name, text in {**TOOLS, "nproc": f"#!/bin/sh\necho {cpus}\n"}.items():
         (machine / "bin" / name).write_text(text)
         (machine / "bin" / name).chmod(0o755)
-    home.fake("ssh", SSH.format(home=machine / "home", bin=machine / "bin"))
+    user = f"/usr/bin/unshare --user --map-user={user} --map-group={user} " if user else ""
+    home.fake("ssh", SSH.format(home=machine / "home", bin=machine / "bin", user=user))
     return machine

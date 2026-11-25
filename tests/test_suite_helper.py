@@ -514,8 +514,9 @@ class HelperMac(unittest.TestCase):
                 self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
 
     def test_a_vm_still_starting_or_up_after_its_charger_went_stops(self):
-        for path in ("key", "mirrors/acme"):
+        for path in ("key/image", "mirrors/acme"):
             (self.root / path).mkdir(parents=True)
+        (self.root / "key/image/name").write_text("ak-helper:new\n")    # as `prepare` left it
         (self.fake / "stalls").touch()
         os.environ["FAKE_AC_CALLS"] = "1"
         run = helper._remote("acme-mac", "run", "key", "ak-helper:new", "ak-key-1-2", 1, 512,

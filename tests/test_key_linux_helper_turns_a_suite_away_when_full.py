@@ -127,7 +127,7 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
                       for key, image, name in (("a", IMAGE, "acme"), ("b", OTHER, "widgets"))]
             self.assertEqual([suite.result().returncode for suite in suites], [0, 0])
         self.assertEqual(sorted(path.name for path in (self.machine / "docker/images").iterdir()),
-                         [IMAGE, OTHER])
+                         [f"{image}-{os.getuid()}-{os.getgid()}" for image in (IMAGE, OTHER)])
 
     def test_a_running_piece_counts_the_whole_memory_it_was_given(self):
         self.running("ak-other-1-2", 1, 40)    # the machine holds 1 GiB: the piece may grow to 40

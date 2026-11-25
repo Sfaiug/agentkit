@@ -61,7 +61,7 @@ class ATurnOnAMachineKeepsItsDeclaredTimeout(unittest.TestCase):
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
-            "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
+            "tools/helper/Containerfile": akmachine.RECIPE})
         fakeadapter.install(home, claude=[KILLED, KILLED, {
             "sh": f'echo "${{container:-here}}" >{OUT}/where; {command}',
             "final": "Blocked.", "hand_in": [["blocked", "the fixture needs the owner"]]}])
