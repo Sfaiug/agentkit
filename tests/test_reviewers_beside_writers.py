@@ -170,6 +170,39 @@ class ReviewersBesideWriters(Sandbox):
                                                 reviewers=["astra", "opus"]),
                          ("fable", "opus"))
 
+    def test_a_named_reviewer_takes_another_labs_payg_executor_over_its_own_labs_sub(self):
+        self.cfg["providers"]["beta"]["mode"] = "payg"
+        self.cfg["models"]["fable"]["mode"] = "payg"
+        self.providers = meters(acme=10, beta=10)
+        self.assertEqual(staffing.pick_models(self.cfg, self.providers, None, "opus",
+                                              self.logs.append, quiet=True,
+                                              workers=["opus", "astra"],
+                                              reviewers=["opus", "astra"]),
+                         ("astra", "opus"))
+        self.assertEqual(self.logs,
+                         ["skipped opus: a marked reviewer of another lab can review astra"])
+        self.logs.clear()
+        self.assertEqual(staffing.pick_models(self.cfg, self.providers, None, "opus",
+                                              self.logs.append, quiet=True,
+                                              workers=["opus", "fable"], reviewers=["opus"]),
+                         ("opus", "opus"))
+        self.assertEqual(self.logs, [])
+        self.providers = meters(acme=10, beta=100)
+        self.assertEqual(staffing.pick_models(self.cfg, self.providers, None, "opus",
+                                              self.logs.append, quiet=True,
+                                              workers=["opus", "astra"],
+                                              reviewers=["opus", "astra"]),
+                         ("opus", "opus"))
+        self.assertEqual(self.logs, [])
+        with self.assertRaises(config.Error):
+            staffing.pick_models(self.cfg, self.providers, None, "astra", None, quiet=True,
+                                 workers=["opus", "astra"], reviewers=["opus"])
+        self.providers = meters(acme=10, beta=10)
+        self.providers.harnesses = {("test", "acme"): "acme is not logged in"}
+        with self.assertRaises(config.Error):
+            staffing.pick_models(self.cfg, self.providers, None, "opus", None, quiet=True,
+                                 workers=["opus", "astra"], reviewers=["opus"])
+
 
 class UnlistedModelLab(Sandbox):
     def setUp(self):
