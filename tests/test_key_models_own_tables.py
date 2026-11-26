@@ -1,19 +1,20 @@
-"""`ak models` prints under its boards a line on the team now and a table a role of `own`, as
-`--json` gives it (tests/test_key_models_json_own_rows.py): the team now's tasks, those that went
-live and per task live the hours they spent and of them waiting; then each role's rows in
-`own`'s order, those in use marked, each with its tasks, the share that went live, its role's own
-numbers, per task live every hour its tasks spent, and per task live what its model took of its
-plans in that role over all its tasks, in money and as a share of a week (the share alone where a
-plan it took points of has no price, a dash where it holds no points): a builder's share that
+"""`ak models` prints under its boards a line on the team now, a table a role of `own`, as
+`--json` gives it (tests/test_key_models_json_own_rows.py), and one muted line under the last
+table saying what their short headings count: the team now's tasks, those that went live and per
+task live the hours they spent and of them waiting; then each role's rows in `own`'s order,
+those in use marked, each with its tasks, the share that went live, its role's own numbers, time
+(per task live, every hour its tasks spent), and usage (per task live, what its model took of its
+plans in that role over all its tasks, in money and as a share of a week — the share alone where
+a plan it took points of has no price, a dash where it holds no points): a builder's share that
 passed its first review and reviews per task, a reviewer's issues per task and the share of them
 it took back (false alarms, a dash where it counts none).  A row of fewer than 20 tasks shows its
-tasks alone, one with none live neither hours nor usage.  A model is named as every screen names
+tasks alone, one with none live neither time nor usage.  A model is named as every screen names
 it at its effort, plain whatever its label holds, by the name its runs kept once no longer
 configured or where its label drawn plain is empty.  All three tables print, a history of one
 role's former model alone too, the names, tasks and went live standing under each other; where a
 table's columns pass the edge every row folds, no column headed: its model's line, then each
-number it shows after its column's name, indented, no line passing the edge and no word that fits
-cut.
+number it shows after its column's name, indented, an over-wide pair wrapping onto indented lines,
+no line passing the edge and no word that fits cut.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
 tasks and their reviews written into the Home's history.db as
@@ -51,44 +52,46 @@ TEAMS = [("now", 24, 18, {}), ("unrecorded", 20, 5, {"orchestrator_effort": None
          ("gale", 19, 10, {"executor": "gale", "executor_effort": "high"}),
          ("echo", 30, 0, {"reviewer": "echo"})]
 NOVA = "Acme Nova 7 Plus"
-HEADS = {"ORCHESTRATOR": "tasks  went live  per task live  usage per task live",
-         "BUILDER": ("tasks  went live  passed 1st review  reviews per task  per task live"
-                     "  usage per task live"),
-         "REVIEWER": ("tasks  went live  issues per task  false alarms  per task live"
-                      "  usage per task live")}
+HEADS = {"ORCHESTRATOR": "tasks  went live  time  usage",
+         "BUILDER": "tasks  went live  passed 1st review  reviews  time  usage",
+         "REVIEWER": "tasks  went live  issues  false alarms  time  usage"}
 # The team now: the first two teams, 23 of 44 live, 121 hours, 44 of them waiting
 TEAM = ["Your team now: 23 of 44 tasks went live,", "5.3 h per task live, 1.9 h of it waiting"]
-# The widest page ak draws, on which the three tables fit as columns
+# Under the last table: what the short headings count, wide and on 40 cells
+NOTE = ["reviews and issues: per task · time and usage: per task that went live,",
+        "usage also as a share of one login's week on its plan"]
+NOTE_FOLDED = ["reviews and issues: per task", "time and usage: per task that went live,",
+               "usage also as a share of one login's", "week on its plan"]
+# The widest page ak draws, on which the three tables fit as columns (and on 100 cells too)
 WIDE = 120
 OWN = [" ".join(TEAM), "",
-       f"ORCHESTRATOR{' ' * 13}{HEADS['ORCHESTRATOR']}",
-       f"● {NOVA} high     24        75%          3.7 h                    -",
-       f"○ {NOVA}          20        25%         11.0 h                    -",
+       f"ORCHESTRATOR{' ' * 13}tasks  went live    time  usage",
+       f"● {NOVA} high     24        75%   3.7 h      -",
+       f"○ {NOVA}          20        25%  11.0 h      -",
        "",
-       f"BUILDER{' ' * 18}{HEADS['BUILDER']}",
-       f"■ Bolt 3 max{' ' * 16}44        52%                36%               2.1          5.3 h"
-       f"{' ' * 20}-",
+       f"BUILDER{' ' * 18}tasks  went live  passed 1st review  reviews   time  usage",
+       f"■ Bolt 3 max{' ' * 16}44        52%                36%      2.1  5.3 h      -",
        f"□ gale high{' ' * 17}19",
        "",
-       f"REVIEWER{' ' * 17}{HEADS['REVIEWER']}",
-       f"■ Crux 2[ medium{' ' * 12}44        52%              2.2            0%          5.3 h"
-       f"{' ' * 20}-",
-       f"□ echo medium{' ' * 15}30         0%              4.0            0%"]
+       f"REVIEWER{' ' * 17}tasks  went live  issues  false alarms   time  usage",
+       f"■ Crux 2[ medium{' ' * 12}44        52%     2.2            0%  5.3 h      -",
+       f"□ echo medium{' ' * 15}30         0%     4.0            0%",
+       "", *NOTE]
 # On 40 cells every row folds: its model's line, then each number it shows after its column's
-# name, two to a line where they fit
+# name, as many to a line as fit
 FOLDED = [*TEAM, "", "ORCHESTRATOR", f"● {NOVA} high",
-          "  tasks 24  went live 75%", "  per task live 3.7 h", "  usage per task live -",
+          "  tasks 24  went live 75%  time 3.7 h", "  usage -",
           f"○ {NOVA}",
-          "  tasks 20  went live 25%", "  per task live 11.0 h", "  usage per task live -",
+          "  tasks 20  went live 25%  time 11.0 h", "  usage -",
           "", "BUILDER", "■ Bolt 3 max",
-          "  tasks 44  went live 52%", "  passed 1st review 36%", "  reviews per task 2.1",
-          "  per task live 5.3 h", "  usage per task live -",
+          "  tasks 44  went live 52%", "  passed 1st review 36%  reviews 2.1",
+          "  time 5.3 h  usage -",
           "□ gale high", "  tasks 19",
           "", "REVIEWER", "■ Crux 2[ medium",
-          "  tasks 44  went live 52%", "  issues per task 2.2  false alarms 0%",
-          "  per task live 5.3 h", "  usage per task live -",
+          "  tasks 44  went live 52%  issues 2.2", "  false alarms 0%  time 5.3 h  usage -",
           "□ echo medium",
-          "  tasks 30  went live 0%", "  issues per task 4.0  false alarms 0%"]
+          "  tasks 30  went live 0%  issues 4.0", "  false alarms 0%",
+          "", *NOTE_FOLDED]
 
 
 def reviews(run_id, n, live):
@@ -180,6 +183,7 @@ class ModelsOwnTables(unittest.TestCase):
     def test_on_a_wide_page_each_role_s_rows_stand_under_their_headings(self):
         shown = self.own(WIDE)
         self.assertEqual(shown, OWN)
+        self.assertEqual(self.own(100), OWN)
         # each table's own columns after the name, tasks and went live, which stand under each
         # other in all three
         self.assertEqual({line.index("went live") for line in shown
@@ -197,6 +201,13 @@ class ModelsOwnTables(unittest.TestCase):
         self.assertEqual(shown[at:at + 5], ["BUILDER", "■ Bolt 3 max", "  tasks 44",
                                             "  went live 52%", " passed 1st review 36%"])
 
+    def test_an_over_wide_folded_pair_s_second_line_starts_under_its_first(self):
+        shown = self.own(20)
+        at = shown.index("BUILDER")
+        self.assertEqual(shown[at:at + 9], [
+            "BUILDER", "■ Bolt 3 max", "  tasks 44", "  went live 52%",
+            "  passed 1st review", "  36%", "  reviews 2.1", "  time 5.3 h", "  usage -"])
+
     def test_false_alarms_are_the_share_of_a_reviewer_s_issues_it_took_back(self):
         # crux's 20 tasks each fail once on 2 issues, of the 40 one conceded, one dropped and
         # one upheld; echo's 20 pass at once on none
@@ -209,30 +220,30 @@ class ModelsOwnTables(unittest.TestCase):
             shown = self.own(WIDE, home)
         self.assertEqual(shown[shown.index(OWN[10]):], [
             OWN[10],
-            f"■ Crux 2[ medium{' ' * 12}20       100%              2.0            5%"
-            f"          2.8 h{' ' * 20}-",
-            f"□ echo medium{' ' * 15}20       100%              0.0             -"
-            f"          2.8 h{' ' * 20}-"])
+            f"■ Crux 2[ medium{' ' * 12}20       100%     2.0            5%  2.8 h      -",
+            f"□ echo medium{' ' * 15}20       100%     0.0             -  2.8 h      -",
+            "", *NOTE])
 
     def test_a_history_of_a_former_builder_alone_prints_all_three_tables(self):
         with home_of(TEAMS[2:3]) as home:
             self.assertEqual(self.own(WIDE, home), [
                 "Your team now has no task yet", "",
-                OWN[2], f"● {NOVA} high      0", "",
-                OWN[6], f"■ Bolt 3 max{' ' * 17}0", OWN[8], "",
-                OWN[10], f"■ Crux 2[ medium{' ' * 13}0"])
+                f"ORCHESTRATOR{' ' * 13}{HEADS['ORCHESTRATOR']}", f"● {NOVA} high      0", "",
+                f"BUILDER{' ' * 18}{HEADS['BUILDER']}", f"■ Bolt 3 max{' ' * 17}0", OWN[8], "",
+                f"REVIEWER{' ' * 17}{HEADS['REVIEWER']}", f"■ Crux 2[ medium{' ' * 13}0",
+                "", *NOTE])
 
     def test_a_builder_s_two_priced_plans_read_their_money_and_shares_summed(self):
         # bolt: (12 points * $200 + 4 * $500) / 20 tasks / 100 * 12 / 52, and 16 / 20 points;
         # nova's 7 / 20 points exactly 0.35, which no float holds
-        self.assertEqual(self.took(), {"Acme": "$0.16 · 0.4% of a week",
-                                       "Bolt": "$0.51 · 0.8% of a week", "Crux": "-"})
+        self.assertEqual(self.took(), {"Acme": "$0.16 · 0.4%",
+                                       "Bolt": "$0.51 · 0.8%", "Crux": "-"})
 
     def test_a_plan_with_no_price_leaves_the_share_alone(self):
-        self.assertEqual(self.took("EUR")["Bolt"], "0.8% of a week")
+        self.assertEqual(self.took("EUR")["Bolt"], "0.8%")
 
     def test_euros_read_with_the_euro_sign(self):
-        self.assertEqual(self.took("EUR")["Acme"], "€0.15 · 0.4% of a week")
+        self.assertEqual(self.took("EUR")["Acme"], "€0.15 · 0.4%")
 
 if __name__ == "__main__":
     unittest.main()

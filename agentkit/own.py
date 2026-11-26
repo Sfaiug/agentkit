@@ -32,8 +32,8 @@ def per_task(part):
 def last(role):
     """The columns every table ends in, none said of a row none of whose tasks went live: the
     hours per task live, then what its model took of its plans in `role` (`took`)."""
-    return {"per task live": lambda row, _: per_live(row) if row["live"] else "",
-            "usage per task live": lambda row, paid: took(row, role, paid) if row["live"] else ""}
+    return {"time": lambda row, _: per_live(row) if row["live"] else "",
+            "usage": lambda row, paid: took(row, role, paid) if row["live"] else ""}
 
 
 # Each role's table: each column its heading and its text of a row of FEW tasks or more at what
@@ -44,9 +44,12 @@ def last(role):
 LEAD = {"tasks": lambda row, _: str(row["tasks"]), "went live": share("live", "tasks")}
 COLUMNS = {"orchestrator": {**LEAD, **last("orchestrator")},
            "executor": {**LEAD, "passed 1st review": share("first_pass", "tasks"),
-                        "reviews per task": per_task("reviews"), **last("executor")},
-           "reviewer": {**LEAD, "issues per task": per_task("issues"),
+                        "reviews": per_task("reviews"), **last("executor")},
+           "reviewer": {**LEAD, "issues": per_task("issues"),
                         "false alarms": share("taken_back", "issues"), **last("reviewer")}}
+# What COLUMNS' short headings count, said once under the tables in its clauses
+NOTE = ["reviews and issues: per task ·", "time and usage: per task that went live,",
+        "usage also as a share of one login's week on its plan"]
 
 
 def by_role(teams, now):
@@ -103,10 +106,11 @@ def lines(own, cfg, room, paid):
     (`money.month`'s) says: a line on the team now, then a table a role of its rows in `own`'s
     order under its role's COLUMNS, each in use marked as docs/cli-design.md marks one
     (menu.config_audit's `●` for the one orchestrator, `■` for any of several), named as every
-    screen names it (`named`).  The name and LEAD's columns are sized once for the three tables,
-    to stand under each other, each other column for its own; where a table passes the edge every
-    row folds, no column headed: its model's line, then its numbers indented, each after its
-    column's name, wrapped between two of them."""
+    screen names it (`named`), and under the last table a muted line saying what the short
+    headings count.  The name and LEAD's columns are sized once for the three tables, to stand
+    under each other, each other column for its own; where a table passes the edge every row
+    folds, no column headed: its model's line, then its numbers indented, each after its column's
+    name, wrapped between two of them."""
     team, tasks = own["team"], own["team"]["tasks"]
     said = [f"{team['live']} of {tasks} tasks went live", *(
         [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting"]
@@ -142,6 +146,9 @@ def lines(own, cfg, room, paid):
             else:
                 first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts, sized)}", []
             shown += [terminal.styled(mark, kind) + first[len(mark):], *rest]
+    # broken between its clauses as the team line is, a ` ·` that would end a line left out
+    shown += ["", *(terminal.styled(line.removesuffix(" ·"), "muted")
+                    for line in menu.packed(NOTE, " ", room))]
     return shown
 
 
@@ -151,9 +158,9 @@ def per_live(counts, parts=HOURS):
 
 
 def took(row, role, paid, *, per=None, share=True):
-    """`$0.25 · 0.6% of a week` (or `$0.25` with `share=False`): what `row` took of its plans in
-    `role` (one role or several) per `per` (`row["live"]` when omitted), each plan's points (100
-    one login's week on it) at its price a month in `paid` (`money.month`'s), a week 12/52 of a
+    """`$0.25 · 0.6%` (or `$0.25` with `share=False`): what `row` took of its plans in `role`
+    (one role or several) per `per` (`row["live"]` when omitted), each plan's points (100 one
+    login's week on it) at its price a month in `paid` (`money.month`'s), a week 12/52 of a
     month; with `share`, the points summed beside it, and the share alone where a plan has no
     price, else `-` there; `-` where it took no points; `""` where it would divide by zero: each
     from its exact value (`fixed`), the points' Fractions and the price as written."""
@@ -169,8 +176,7 @@ def took(row, role, paid, *, per=None, share=True):
         return "-"
     if divisor <= 0:
         return ""
-    said = (f"{fixed(sum(points for points, _ in priced) / divisor, 1)}% of a week"
-            if share else None)
+    said = f"{fixed(sum(points for points, _ in priced) / divisor, 1)}%" if share else None
     if any(price is None for _, price in priced):
         return said
     cost = (sum(points * Fraction(str(price)) for points, price in priced)
@@ -207,17 +213,22 @@ def named(cfg, row):
 def told(said, room):
     """A folded row's (column's name, its text) pairs, each text after its name, two cells in and
     as many to a line as fit: the indent gives way before a number is parted from its name, and
-    one too wide for the screen wraps at its words, never past `room`."""
-    lines = []
+    one too wide for the screen goes on at its words on lines of its own, two in where each word
+    fits there, never past `room`."""
+    lines, joins = [], False    # whether the last line takes another pair
     for head, text in said:
         part = f"{terminal.styled(head, 'muted')} {text}"
         if not text:
             continue
-        if lines and lines[-1].startswith("  ") and terminal.cells(f"{lines[-1]}  {part}") <= room:
+        if joins and terminal.cells(f"{lines[-1]}  {part}") <= room:
             lines[-1] += "  " + part
+        elif terminal.cells(part) <= room:
+            lines.append(" " * min(2, room - terminal.cells(part)) + part)
+            joins = lines[-1].startswith("  ")
         else:
-            lead = " " * max(0, min(2, room - terminal.cells(part)))
-            lines += [lead + line for line in menu.packed([part], "", room)]
+            lead = "  " if all(terminal.cells(word) <= room - 2 for word in part.split()) else ""
+            lines += [lead + line for line in terminal.wrap(part, room - len(lead))]
+            joins = False
     return lines
 
 

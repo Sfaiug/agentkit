@@ -19,7 +19,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, boards
 from test_key_models_json_counts_tasks_by_team import history, run
-from test_key_models_own_tables import HEADS
+from test_key_models_own_tables import HEADS, NOTE
 
 HAIKU = {"harness": "claude", "model": "claude-haiku-4-5", "effort": "none"}
 # a run haiku executed at effort none, merged in round 1
@@ -63,7 +63,8 @@ class OwnRunsNamed(unittest.TestCase):
             HEAD["ORCHESTRATOR"], ["●", "Haiku", "4.5", "1"], [],
             HEAD["BUILDER"], ["■", "Haiku", "4.5", "max", "1"], ["□", "Haiku", "4.5", "1"],
             [],
-            HEAD["REVIEWER"], ["■", "Haiku", "4.5", "max", "1"]])
+            HEAD["REVIEWER"], ["■", "Haiku", "4.5", "max", "1"],
+            [], *(line.split() for line in NOTE)])
 
     def test_a_run_at_an_effort_stays_apart_from_a_name_holding_it(self):
         with Home() as home:
