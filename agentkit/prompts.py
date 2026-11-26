@@ -526,11 +526,12 @@ def dispute_rows(lp):
                 claims.add(claim)
                 group.append(row)
     rows = []
-    for group, _ in by_site.values():
-        latest = group[-1]
+    for (path, line), (group, _) in by_site.items():
+        # Keep the handed finding's own site so downstream answers and concessions match it.
+        latest = {**group[-1], "path": path, "line": line}
         if len(group) > 1:
-            latest = {**latest, "earlier": [
-                {"why": prior["why"], "evidence": prior["evidence"]} for prior in group[:-1]]}
+            latest["earlier"] = [
+                {"why": prior["why"], "evidence": prior["evidence"]} for prior in group[:-1]]
         rows.append(latest)
     return rows
 

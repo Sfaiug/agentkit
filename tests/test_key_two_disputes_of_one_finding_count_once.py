@@ -48,8 +48,10 @@ class TwoDisputesOfOneFinding(unittest.TestCase):
 
     def test_history_and_models_ledger_count_the_disputed_finding_once(self):
         self.assertEqual(
-            read(self.home, "SELECT path, line, outcome, reason FROM findings WHERE kind='dispute'"),
-            [{"path": "retry.txt", "line": 1, "outcome": "conceded", "reason": CONCEDED}])
+            read(self.home, "SELECT path, line, proof, commit_exit, outcome, reason "
+                            "FROM findings WHERE kind='dispute'"),
+            [{"path": "retry.txt", "line": 1, "proof": "echo first proof output",
+              "commit_exit": 0, "outcome": "conceded", "reason": CONCEDED}])
         self.assertEqual(self.models.code, 0, self.models.out + self.models.err)
         team, = json.loads(self.models.out)["runs"]["teams"]
         self.assertEqual({key: team[key] for key in ("issues", "disputed", "taken_back")},

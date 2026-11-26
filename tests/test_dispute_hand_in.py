@@ -241,9 +241,26 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.assertEqual(self.cli(pair_turn, "dispute", "api.py:1", why, "--run", "true").returncode, 0)
         self.assertEqual(self.cli(pair_turn, "dispute", "other.py:1", "other reason", "--run", "true").returncode, 0)
         linked = prompts.dispute_rows(SimpleNamespace(state={"dispute_files": [pair_turn]}))
-        self.assertEqual([(row["finding"]["path"], row["why"]) for row in linked],
-                         [("api.py", why), ("other.py", "other reason")])
+        self.assertEqual([(row["path"], row["finding"]["path"], row["why"]) for row in linked],
+                         [("api.py", "api.py", why), ("other.py", "other.py", "other reason")])
         self.assertEqual([part["why"] for part in linked[0]["earlier"]], [first])
+        # An earlier executable proof followed by a quote stays in findings history with its exit.
+        cmd = "grep -qx 'enabled = False' other.py"
+        exec_dir = self.directory / "exec-turn"
+        exec_dir.mkdir()
+        exec_turn = hand_in.start(exec_dir, self.wt, role="fixer", findings=listed)
+        self.assertEqual(self.cli(exec_turn, "dispute", "api.py:1", first, "--run", cmd).returncode, 0)
+        self.assertEqual(self.cli(exec_turn, "dispute", "api.py:1", why, "--quote", "enabled = False").returncode, 0)
+        with patch.object(prompts, "proof_on",
+                          return_value={"returncode": 1, "output": "reviewed proof failed", "killed": False}):
+            reviewed = prompts.review_disputes(
+                SimpleNamespace(state={"dispute_files": [exec_turn]}, round_dir=self.directory),
+                "fixture-head").disputes
+        history.record_review("fix-api", "round-3", blocking=0, round=3, verdict="PASS",
+                              records=[dict(row, outcome="conceded", conceded="agreed") for row in reviewed],
+                              **options)
+        saved = [row for row in history.run_findings("fix-api") if row["review_id"] == "round-3"]
+        self.assertEqual([(row["proof"], row["commit_exit"]) for row in saved], [(cmd, 1)])
 
     def cli(self, file, *args):
         return subprocess.run([sys.executable, str(REPO / "bin/ak"), "hand-in", *args],

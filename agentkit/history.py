@@ -1068,9 +1068,17 @@ def _finding(row):
     on a reviewed commit that is base's own.  A record whose kind weighing left alone was handed
     in as that kind."""
     evidence = row["evidence"]
+    # A merged dispute keeps every accepted executable proof command and prefers a non-zero or
+    # killed reviewed exit over a passing one or a later quote that carries no exit.
+    runs = [part["evidence"] for part in (*row.get("earlier", ()), row) if "run" in part["evidence"]]
+    if row.get("earlier") and runs:
+        evidence = next((ev for ev in reversed(runs) if ev.get("returncode") or ev.get("killed")), runs[-1])
+        proof = "\n".join(dict.fromkeys(ev["run"] for ev in runs))
+    else:
+        proof = evidence.get("run", evidence.get("quote"))
     on_base = evidence.get("base") or (evidence if "before" in row and "commit" in evidence else {})
     return (row["path"], row["line"], row.get("handed", row["kind"]), row["kind"],
-            evidence.get("run", evidence.get("quote")),
+            proof,
             None if on_base is evidence else evidence.get("returncode"), on_base.get("returncode"),
             row.get("replayed"), row.get("conceded") or row.get("outside") or row.get("dropped"), row.get("outcome"),
             row.get("inside_fix"))
