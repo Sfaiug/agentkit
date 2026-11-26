@@ -1,8 +1,9 @@
 """A client has no runs: on a machine whose server record (`state/server`) names a home,
-`ak run status`, `ak run resume ID`, `ak run merge ID`, `ak run stop ID` and `ak run TASK.md` each
-exit 2 naming that home on stderr, open no session, and leave a run's record there byte for byte
-as it was; the version of ak that record names (`ak_checkout`) answers none of them.  Without the
-server record `ak run status` exits 0.
+`ak run status`, `ak run resume ID`, `ak run merge ID`, `ak run stop ID`, `ak run TASK.md` and
+`ak run gc` each exit 2 naming that home on stderr, open no session, and leave a run's record there
+byte for byte as it was, one interrupted a month ago whose process is gone; the version of ak that
+record names (`ak_checkout`) answers none of them.  Without the server record `ak run status`
+exits 0.
 
 A standby holds a copy of its home's run records and none of their processes.  Black-box: the
 program `AK_BIN` names runs from outside through tests/fixtures/akbin.py.
@@ -14,7 +15,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 
 RUN = "20260101-0000-fix-api"
 
@@ -27,12 +28,16 @@ class AClientHasNoRuns(unittest.TestCase):
             # the version the run was launched on, older than this refusal: its bin/ak exits 0
             home.write("old-ak/bin/ak", "")
             record = home.write(f".agentkit/runs/{RUN}/run.json",
-                                {"id": RUN, "pid": 1, "ak_checkout": str(home.path / "old-ak")})
+                                {"run_id": RUN, "state": "interrupted", "pid": 2147483647,
+                                 "started_at": 1, "interrupted_at": 1,
+                                 "ak_checkout": str(home.path / "old-ak")})
             task = home.write("fix-api.md", "# Fix the api\n")
             home.write(".agentkit/state/server", "acme-box\n")
             before = record.read_bytes()
-            for args in (["status"], ["resume", RUN], ["merge", RUN], ["stop", RUN], [str(task)]):
-                done = home.ak("run", *args, input="")
+            boxed = boxable()     # a collection that runs sweeps only this Home's /tmp
+            for args in (["status"], ["resume", RUN], ["merge", RUN], ["stop", RUN], [str(task)],
+                         ["gc"]):
+                done = home.ak("run", *args, input="", boxed=boxed)
                 self.assertEqual(done.code, 2, (args, done.out, done.err))
                 self.assertIn("acme-box", done.err, args)
             self.assertEqual(record.read_bytes(), before)
