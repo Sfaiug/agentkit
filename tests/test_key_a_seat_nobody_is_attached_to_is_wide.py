@@ -153,6 +153,46 @@ class ASeatNobodyIsAttachedToIsWide(unittest.TestCase):
         self.assertEqual(self.home.tmux("detach-client", "-t", shell_tty).code, 0)
         self.assertEqual(shell.exit_code(), 0)
 
+    def test_detaching_preserves_pane_splits_even_after_an_earlier_manual_resize(self):
+        self.home.fake("claude", "#!/bin/sh\nexec sleep 60\n")
+        open_seat(self.home, "acme")
+        target = "=acme:"
+        self.assertEqual(self.home.tmux("resize-window", "-t", target, "-x", "60", "-y", "18").code, 0)
+        self.assertEqual(self.home.tmux("set-option", "-wu", "-t", target, "window-size").code, 0)
+        def widths():
+            return tuple(map(int, self.home.tmux(
+                "list-panes", "-t", target, "-F", "#{pane_width}").out.split()))
+        first, tty = self.attach("acme", 120, 32)
+        until(lambda: size(self.home, "acme") == "120x30", "size acme to first client")
+        self.assertEqual(self.home.tmux("split-window", "-hd", "-l", "18", "-t", target,
+                                        "sleep 60").code, 0)
+        original = widths()
+        self.assertEqual(original, (101, 18))
+        self.assertEqual(self.home.tmux("detach-client", "-t", tty).code, 0)
+        self.assertEqual(first.exit_code(), 0)
+        self.assertEqual(size(self.home, "acme"), "240x50")
+        second, tty = self.attach("acme", 120, 32)
+        until(lambda: size(self.home, "acme") == "120x30", "size acme to second client")
+        self.assertEqual(widths(), original)
+        self.assertEqual(self.home.tmux("detach-client", "-t", tty).code, 0)
+        self.assertEqual(second.exit_code(), 0)
+
+    def test_an_unseen_aggressive_resize_window_returns_to_240_by_50(self):
+        self.home.fake("claude", "#!/bin/sh\nexec sleep 60\n")
+        open_seat(self.home, "acme")
+        self.assertEqual(self.home.tmux("new-session", "-d", "-s", "shell", "sleep 60").code, 0)
+        self.assertEqual(self.home.tmux("link-window", "-d", "-s", "=acme:", "-t", "=shell:").code, 0)
+        self.assertEqual(self.home.tmux("set-option", "-w", "-t", "=acme:",
+                                        "aggressive-resize", "on").code, 0)
+        shell, shell_tty = self.attach("shell", 101, 32)
+        claude, claude_tty = self.attach("acme", 80, 26)
+        until(lambda: size(self.home, "acme") == "80x24", "size acme to its client")
+        self.assertEqual(self.home.tmux("detach-client", "-t", claude_tty).code, 0)
+        self.assertEqual(claude.exit_code(), 0)
+        self.assertEqual(size(self.home, "acme"), "240x50")
+        self.assertEqual(self.home.tmux("detach-client", "-t", shell_tty).code, 0)
+        self.assertEqual(shell.exit_code(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
