@@ -1,9 +1,10 @@
 """A running turn unparks the login it ran on: a Stop judges the turn it ends by the later of its
-start and the last tool's result on its record, after which Claude Code sent the request the
-model last answered, that answer's entry written yet or not.  A refusal made after the seat's
-prompt was heard and before that result goes; one made after it stays, and so does every one
-where no result outside a sidechain stands after the owner's last words.  A line the read cannot
-follow leaves every one, the Stop answered as with none made.
+start and the last request of the seat's own turn on its record (or the last tool's result outside
+a sidechain where the record holds no request line), that answer's entry written yet or not.  A
+refusal made after the seat's prompt was heard and before that request or result goes; one made
+after it stays, and so does every one where no request of the seat's own turn or result outside a
+sidechain stands after the owner's last words.  A line the read cannot follow leaves every one,
+the Stop answered as with none made.
 
 The Home, its seat and its refusals are tests/fixtures/unparking.py's.  Each refusal and each
 entry written here is dated whole seconds past a moment read once the prompt hook has returned,
@@ -27,6 +28,17 @@ def stamp(at):
     """A moment as Claude Code's transcripts write it."""
     return datetime.fromtimestamp(at, timezone.utc).isoformat(
         timespec="milliseconds").replace("+00:00", "Z")
+
+
+def request(at, source="repl_main_thread"):
+    """A request to the model on Claude Code's record."""
+    return {"type": "api-request", "timestamp": stamp(at), "querySource": source,
+            "version": "2.1.332"}
+
+
+def other_request(at):
+    """A request line of another querySource."""
+    return request(at, source="other")
 
 
 def result(at):
@@ -104,6 +116,26 @@ class ARunningTurnUnparksItsLogin(Unparking):
         marked = self.ran(*record)
         self.assertEqual(self.parked(), {"default": True, "second": True})
         self.assertEqual(marked.out, unmarked.out)
+
+    def test_a_refusal_before_the_last_request_goes(self):
+        self.ran((result, BEFORE), (request, AFTER))
+        self.assertEqual(self.parked(), {"default": True, "second": False})
+
+    def test_a_request_with_no_result_after_the_refusals_does_the_same(self):
+        self.ran((request, AFTER), (answer, ANSWERED))
+        self.assertEqual(self.parked(), {"default": True, "second": False})
+
+    def test_a_request_before_the_refusals_leaves_them(self):
+        self.ran((result, BEFORE), (request, BEFORE), (answer, ANSWERED))
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+
+    def test_a_request_of_another_query_source_leaves_them(self):
+        self.ran((result, BEFORE), (other_request, AFTER), (answer, ANSWERED))
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+
+    def test_the_owners_words_after_the_request_leave_them(self):
+        self.ran((result, BEFORE), (request, AFTER), (said, SAID), (answer, ANSWERED))
+        self.assertEqual(self.parked(), {"default": True, "second": True})
 
 
 if __name__ == "__main__":
