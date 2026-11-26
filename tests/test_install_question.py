@@ -77,8 +77,9 @@ class InstallQuestion(unittest.TestCase):
         path.chmod(0o755)
 
     def child_env(self):
+        # a UTF-8 locale, as a newcomer's terminal has, where more than ASCII is a space
         return {**os.environ, "HOME": str(self.home), "PATH": str(self.bindir),
-                "FAKE_ADAPTER_LOG": str(self.log)}
+                "FAKE_ADAPTER_LOG": str(self.log), "LC_ALL": "C.UTF-8"}
 
     def slice_script(self, start, end, tty):
         """Section (3) of the real install.sh."""
@@ -215,9 +216,10 @@ class InstallQuestion(unittest.TestCase):
         self.assertEqual(len(self.calls()), 12)
 
     def test_unknown_answer_installs_nothing(self):
-        # A space inside a name makes it no name; only the ones around it are trimmed.
+        # A space inside a subscription's name makes it no name, and one that is not
+        # ASCII any name.
         self.all_adapters()
-        for answer in ("vim", "Chat GPT"):
+        for answer in ("vim", "Chat GPT", "Co\u2003dex", "a\u2009ll"):
             proc = self.run_harnesses(tty=1, answer=f"{answer}\n")
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             self.assertEqual(self.calls(), [])

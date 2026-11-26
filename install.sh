@@ -357,10 +357,10 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   if [ "$TTY" = 1 ] && [ -z "$installed" ] && [ -n "$offered" ]; then
     read -r -p "Which subscription do you have ($names, or all)? [all] " answer || answer=""
     # `read` trims the answer, and case folds as ASCII: a Turkish locale folds I to no i.  A
-    # subscription's name is matched as typed; a program's, and `all`, with every space
+    # subscription's name is matched as typed; a program's, and `all`, with every ASCII space
     # removed, as they always were.
     answer=$(printf '%s' "$answer" | LC_ALL=C tr '[:upper:]' '[:lower:]')
-    program=${answer//[[:space:]]/}
+    program=$(printf '%s' "$answer" | LC_ALL=C tr -d '[:space:]')
     case "$program" in
       ""|all) ;;
       *) chosen=""
