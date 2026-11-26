@@ -71,12 +71,17 @@ def sum_seats(by_seat):
     return rows, total
 
 
+def recorded(effort):
+    """A team's effort, None where it names none or a blank one."""
+    return effort if isinstance(effort, str) and effort.strip() else None
+
+
 def _seat(team):
     """The key of `week_meters.seat_usage` that `team`'s orchestrator's own turns are kept under:
-    neither its name nor its effort where it has no effort (`seat_tokens.orchestrating`)."""
+    neither its name nor its effort where it has none recorded (`seat_tokens.orchestrating`)."""
     orchestrator = team["orchestrator"]
-    return ((None, None) if orchestrator["effort"] is None
-            else (orchestrator["name"], orchestrator["effort"]))
+    effort = recorded(orchestrator["effort"])
+    return (None, None) if effort is None else (orchestrator["name"], effort)
 
 
 def counted(usage=None, seats=None, *, until=None):

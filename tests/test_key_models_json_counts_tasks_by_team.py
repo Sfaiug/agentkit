@@ -29,9 +29,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, NOW, boards
-from test_key_models_json_week_meters import WeekMeters
+from test_key_models_json_week_meters import TABLES as BASE, WeekMeters
 import test_key_models_json_run_usage as run_usage
 from test_key_models_json_run_usage import EMPTY, TABLES
+
+# a `seat_usage` table from before it named the orchestrator and effort a seat ran as
+METER_TABLES = {**TABLES, "seat_usage": BASE["seat_usage"]}
 
 DAY = 86400
 # Each run: an hour of build, half of review, a quarter of checks and an hour waiting,
@@ -217,7 +220,8 @@ def took(points=None, unrated=0):
 
 
 class ModelsJsonTeamUsage(WeekMeters):
-    seat, turn = run_usage.ModelsJsonRunUsage.seat, run_usage.ModelsJsonRunUsage.turn
+    # `seat_as` writes the orchestrator and effort `TABLES` holds; `seat` neither, as `METER_TABLES`
+    seat_as, turn = run_usage.ModelsJsonRunUsage.seat, run_usage.ModelsJsonRunUsage.turn
 
     def teams(self, runs):
         """`runs`, each reviewed once in round 1, and `ak models --json`'s `runs`."""
@@ -268,7 +272,7 @@ class ModelsJsonTeamUsage(WeekMeters):
                   run_id="fix-api-again", role="reviewer")
         self.turn(35, (20_000, 0, 0, 0), run_id="fix-old-again", role="executor")
         history(self.home, runs, reviews)
-        found = self.answer(TABLES)["runs"]
+        found = self.answer(METER_TABLES)["runs"]
         self.assertCountEqual(found["teams"], [
             team("max", 2, 2, 2, 2.0, 2, 2, usage={**EMPTY,
                 "executor": {"points": {"acme": {"Max": 10}}, "unrated": 2_000},
@@ -285,9 +289,9 @@ class ModelsJsonTeamUsage(WeekMeters):
     def test_one_orchestrator_s_seats_divide_over_its_teams_by_their_tasks(self):
         # acme/Max: 100 pts/M for anvil-1; nova at high took 10 points and 2,002 unrated tokens
         self.read(50, 10)
-        self.seat(45, 100_000, orchestrator="nova", effort="high")
+        self.seat_as(45, 100_000, orchestrator="nova", effort="high")
         self.read(40, 20)
-        self.seat(35, 2_002, model="anvil-9", orchestrator="nova", effort="high")
+        self.seat_as(35, 2_002, model="anvil-9", orchestrator="nova", effort="high")
         found = self.teams([run("fix-api", 5), run("fix-docs", 4), run("fix-cache", 3),
                             run("fix-login", 2, executor_effort="low")])
         # 3/4 and 1/4: 1,501.5 and 500.5 tokens, each rounded half to even
@@ -296,22 +300,23 @@ class ModelsJsonTeamUsage(WeekMeters):
             team("low", 1, 1, 1, 1.0, 1, 1, usage=took({"acme": {"Max": 2.5}}, 500))])
 
     def test_teams_of_no_orchestrator_effort_share_the_seats_of_no_name(self):
+        # a blank effort is none recorded
         self.read(50, 10)
-        self.seat(45, 100_000)                                  # no name, no effort: 10 points
+        self.seat_as(45, 100_000)                               # no name, no effort: 10 points
         self.read(40, 20)
-        self.seat(35, 3_000, orchestrator="nova")              # nova's, of no effort
+        self.seat_as(35, 3_000, orchestrator="nova")           # nova's, of no effort
         found = self.teams([run("fix-api", 5, orchestrator_effort=None),
-                            run("fix-docs", 4, orchestrator="vega", orchestrator_effort=None),
-                            run("fix-cache", 3, orchestrator="vega", orchestrator_effort=None)])
+                            run("fix-docs", 4, orchestrator="vega", orchestrator_effort=" "),
+                            run("fix-cache", 3, orchestrator="vega", orchestrator_effort=" ")])
         self.assertCountEqual(found["teams"], [
             team("max", 1, 1, 1, 1.0, 1, 1, orchestrator_effort=None,
                  usage=took({"acme": {"Max": 3.33333}})),
-            team("max", 2, 2, 2, 2.0, 2, 2, orchestrator="vega", orchestrator_effort=None,
+            team("max", 2, 2, 2, 2.0, 2, 2, orchestrator="vega", orchestrator_effort=" ",
                  usage=took({"acme": {"Max": 6.66667}}))])
 
     def test_seats_no_team_matches_stay_in_seats_alone_and_a_team_none_matches_holds_zeros(self):
         self.read(50, 10)
-        self.seat(45, 100_000, orchestrator="nova", effort="low")
+        self.seat_as(45, 100_000, orchestrator="nova", effort="low")
         self.read(40, 20)
         found = self.teams([run("fix-api", 5)])                 # nova at high
         self.assertEqual(found["teams"], [team("max", 1, 1, 1, 1.0, 1, 1, usage=took())])
