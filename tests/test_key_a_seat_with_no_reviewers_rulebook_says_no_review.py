@@ -4,17 +4,24 @@ Each run a seat whose record marks no reviewer (`reviewers: []`) launches review
 (`record.review_off`), so its rulebook reads as review off does: its project's numbers with
 review_rounds 0.  A seat with a reviewer reads its project's, and so does a record with no
 `reviewers` key, whose builders review; a seat with no builder and no reviewer is told both.
-Black-box: Claude's prompt hook as ak's adapter registers it, fired for a seat that holds no
-rulebook yet, so it is told its rulebook whole (tests/fixtures/hookdrive.py); this test fails
-against `/bin/false`.
+A seat the menu's picker opens with no reviewer marked is launched told so: its record is
+saved before its harness is handed the rulebook.  Black-box: Claude's prompt hook as ak's
+adapter registers it, fired for a seat that holds no rulebook yet, so it is told its rulebook
+whole (tests/fixtures/hookdrive.py), and the menu on a terminal of tests/fixtures/akterm.py
+opening a seat on tests/fixtures/fakeadapter.py's harness; this test fails against `/bin/false`.
 """
 
+import json
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import Home
+from fixtures import akconfig, fakeadapter
+from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akseat import Seat
+from fixtures.akterm import Terminal
 from fixtures.gitrig import Rig
 from fixtures.hookdrive import Hooks
 
@@ -65,6 +72,38 @@ class NoReviewer(unittest.TestCase):
         solo = self.rulebook("solo", workers=[], reviewers=[])
         self.assertIn(NO_REVIEW, solo)
         self.assertIn(EXECUTORS_OFF, solo)
+
+
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+class Opened(unittest.TestCase):
+    def test_a_seat_the_picker_opens_with_no_reviewer_is_launched_told_so(self):
+        home = Home()
+        self.addCleanup(home.close)
+        fakeadapter.install(home, claude="pass")
+        akconfig.write(home, {"fable": {}})
+        Seat(home, "acme", model="fable")
+        menu = Terminal(home, size=(100, 40), env={"NO_COLOR": "1"})
+        menu.wait("acme")
+        menu.keys("n")
+        menu.wait("tab models")
+        menu.type("fix-api")
+        menu.keys("Tab")
+        menu.wait("␣ mark")
+        # past orch's mark and effort and the builds column's to its reviews mark: unmarked
+        menu.keys("Right", "Right", "Right", "Right", "Space")
+        menu.wait("[□]")
+        menu.keys("Enter")
+        deadline = time.monotonic() + 30
+        while "fix-api 1" not in home.tmux("list-sessions", "-F",
+                                           "#{session_name} #{session_attached}").out.splitlines():
+            self.assertLess(time.monotonic(), deadline, menu.screen())
+            time.sleep(0.05)
+        state = home.path / ".agentkit/state"
+        record = json.loads((state / "session-fix-api.json").read_text())
+        self.assertEqual((record["workers"], record["reviewers"]), (["fable"], []))
+        launched = (state / "rulebook-fix-api.md").read_text()
+        self.assertIn(NO_REVIEW, launched)
+        self.assertNotIn(THREE, launched)
 
 
 if __name__ == "__main__":

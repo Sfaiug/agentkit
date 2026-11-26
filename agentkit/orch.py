@@ -239,9 +239,9 @@ def for_seat(name, repo=None):
 
     In $AGENTKIT_SESSION, the name every part of agentkit says a seat by, because the rulebook
     an adapter writes at launch is that seat's -- and a launch is often made from another seat,
-    whose name is the one this process inherited.  `repo`, the project a new seat is filed under
-    ("" for none), goes in $AGENTKIT_SEAT_REPO, since its record is written once it has opened;
-    without one the rulebook reads the seat's record, whatever project this process inherited.
+    whose name is the one this process inherited.  `repo`, the project of a new seat no record
+    says ("" for none), a dry run's (`fresh_seat`), goes in $AGENTKIT_SEAT_REPO; without one the
+    rulebook reads the seat's record, whatever project this process inherited.
     """
     def put(values):
         for key, value in values.items():
@@ -379,7 +379,7 @@ def command_env(cmd):
 
 def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None, repo=None):
     """(command, conversation) for a seat opening a conversation of its own, `repo` the project
-    of a new one that no record says yet (`for_seat`).
+    of a new one that no record says (`for_seat`).
 
     The id is generated here, before anything starts, and handed to the adapter as one its
     harness has not opened yet, so the seat owns it from the moment it is launched.  A TUI that
@@ -395,6 +395,29 @@ def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None, repo=
         if cmd:
             return cmd, conversation
         return command(cfg, name, account=account, rulebook=rulebook, line=line, cwd=cwd), None
+
+
+def fresh_seat(cfg, name, model, workers, extra, account, cwd, dry_run=False):
+    """(command, conversation, record) opening the new seat `name`, its record saved before its
+    command is built: the adapter words its rulebook from that record, so the seat opens told
+    the project and the marks it is saved with.  Saved again with the conversation it owns,
+    written down before it starts wherever its harness can be told one; a launch that fails
+    takes its record back.  A dry run saves none, since a record of a seat nothing opened is one
+    the next `ak orch` resumes: its rulebook reads its project alone, and its record is None."""
+    held = config.at_efforts(cfg, extra)      # at the seat's own efforts
+    if dry_run:
+        with scratch(True):
+            return (*fresh_command(held, model, seat=name, account=account, cwd=cwd,
+                                   repo=extra["repo"] or ""), None)
+    config.save_session(cfg, name, model, workers, extra)
+    try:
+        cmd, conversation = fresh_command(held, model, seat=name, account=account, cwd=cwd)
+    except Exception:
+        config.discard_session(name, extra["created"])
+        raise
+    if conversation:
+        extra = {**extra, "conversation": conversation, "id_source": LAUNCHER}
+    return cmd, conversation, config.save_session(cfg, name, model, workers, extra)
 
 
 # --- tmux sessions ----------------------------------------------------------
@@ -5071,35 +5094,15 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     providers, selected = selection
     model, reason, workers = selected[:3]
     account = opening_account(cfg, model, providers, prompting)
-    # where and when, because that is what opens the seat again once tmux has lost it -- and the
-    # conversation it owns, written down before it starts wherever its harness can be told one.
-    # Not for a dry run: a record of a seat nothing opened is one the next `ak orch` resumes.
     extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     extra.update(zip(("reviewers", "efforts"), selected[3:]))
-    saved = unnamed and not dry_run
-    if saved:
-        # The adapter writes the rulebook while building its command, before the seat starts.
+    if unnamed:
         extra["unnamed"] = True
-        config.save_session(cfg, name, model, workers, extra)
-    elif not dry_run:
-        config.update_session(name, unnamed=None)
-    try:
-        # the project this launch files it under where no record says it yet: one saved above
-        # says it, with the builders the seat opens with
-        filed = None if saved else str(repo) if repo else ""
-        with scratch(dry_run):
-            cmd, conversation = fresh_command(config.at_efforts(cfg, extra), model, seat=name,
-                                              account=account, cwd=cwd, repo=filed)
-    except Exception:
-        if saved:
-            config.discard_session(name, extra["created"])
-        raise
-    if not dry_run:
-        if conversation:
-            extra["conversation"] = conversation
-            extra["id_source"] = LAUNCHER
-        config.remember_defaults(config.save_session(cfg, name, model, workers, extra))
+    cmd, conversation, record = fresh_seat(cfg, name, model, workers, extra, account, cwd,
+                                           dry_run)
+    if record:
+        config.remember_defaults(record)
     # a name may be used again once its seat is gone, and this seat has said nothing yet: the
     # last message of the one before it is not this one's state, nor is its plan, and a
     # question it left standing on Discord is closed rather than dropped with its card -- by a
@@ -5172,14 +5175,9 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
         model, reason, workers = select(cfg, providers, prompting=False)
     # The usual login when none answers, as this seat always opened: it has a question to take.
     account = opening_account(cfg, model, providers, True)
-    cmd, conversation = fresh_command(cfg, model, seat=name, account=account, cwd=seat_cwd(),
-                                      repo=str(repo) if repo else "")
     extra = {"cwd": str(seat_cwd()), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
-    if conversation:
-        extra["conversation"] = conversation
-        extra["id_source"] = LAUNCHER
-    recorded = config.save_session(cfg, name, model, workers, extra)
+    cmd, conversation, recorded = fresh_seat(cfg, name, model, workers, extra, account, seat_cwd())
     if not roles:
         config.remember_defaults(recorded)
     from . import watch
