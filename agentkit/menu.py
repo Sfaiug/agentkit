@@ -5776,7 +5776,7 @@ def page_body(rows, at=None, moves=None):
         if label is not None and any(terminal.cells(word) > left for word in whole):
             # too wide beside the label: the value folds under it, never cut in a word, and so
             # does a label too wide for its line, wrapped at its words
-            for number, part in enumerate(terminal.wrap(label, room - 2)):
+            for number, part in enumerate(terminal.wrap(label, room - 2, spaced=True)):
                 places[len(lines)] = (row, around)
                 lines.append(terminal.highlight(f"  {part}", number == 0, band=not celled)
                              if row == at else f"  {part}")
