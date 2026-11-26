@@ -124,6 +124,21 @@ class ReviewPrSuiteFallback(unittest.TestCase):
         self.assertIn(f"runs once at landing on the commit to be merged: {SUITE}", prompt)
         self.assertNotIn("the repository suite runs after a passing review", prompt)
 
+    def test_own_pr_with_comment_apostrophe_still_says_suite_runs_at_landing(self):
+        suite = f"{SUITE} # it's a smoke check"
+        target = self.commit(f"---\ntests: {suite}\n---\n# acme\n")
+        head = self.commit("# acme\n\nChanged.\n")
+        with patch.object(run, "pr_writer", return_value=(True, "opus", None)), \
+                patch.object(run, "own_pr_budget", return_value=(1, None)), \
+                patch.object(run, "plan_context", return_value=""), \
+                patch.object(run, "unanswered_head", return_value=None), \
+                patch.object(run, "own_pr_first_review", return_value=None), \
+                patch.object(run, "merge_own_pr", return_value=True):
+            self.review(target, head)
+        self.assertEqual(self.gates, [], self.logs)
+        self.assertIn("(the repository suite runs once at landing; nothing was run before this review)",
+                      self.reviews[-1])
+
     def test_retried_pr_review_clears_stale_donewhen_log_before_fail(self):
         from agentkit import prompts
         target = self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")

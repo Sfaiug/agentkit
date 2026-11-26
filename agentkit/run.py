@@ -2896,7 +2896,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     ok = None
     if not tests:
         dw_log = "(AGENTS.md declares no `tests:` command; nothing was run)"
-    elif lp.once:
+    elif is_own or lp.once:
         dw_log = "(the repository suite runs once at landing; nothing was run before this review)"
     else:
         dw_log = "(the repository suite runs after a passing review; nothing was run before this review)"
