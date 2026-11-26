@@ -29,18 +29,23 @@ FIXTURES = Path(__file__).resolve().parent
 PANE = FIXTURES / "akpane.py"
 # Colours and titles a screen's capture holds: the pane draws them, and they take no cell.
 ESCAPE = re.compile(r"\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
-# An open line of a seat's plan, which a seat's own run launch needs: it names no checkout, so
-# no check ever ticks it.
-PLAN_LINE = "- [ ] The work is done · check: `false` · acme · written 2026-10-23 09:00"
+
+
+def plan_line(check, outcome=None):
+    """An open line naming no checkout, so no check ever ticks it."""
+    return f"- [ ] {outcome or check} · check: `{check}` · acme · written 2026-10-23 09:00"
+
+
+PLAN_LINE = plan_line("test -f retry.txt", "The work is done")
 
 
 class Seat:
     """`model` names a [models.*] entry of the Home's config; `record` adds to or replaces the
     record's fields; `alive=False` leaves only the record, as a seat tmux lost; `planned=True`
-    gives its plan PLAN_LINE; `asks` maps a line's start to the screen of the card its harness
-    asks before it takes such a line (akpane.py); `program` names the pane's process as a
-    harness's program is named, by a link to akpane.py.  The pane is the size the screen was
-    captured at."""
+    gives its plan PLAN_LINE, or an iterable gives it a line per check; `asks` maps a line's
+    start to the card its harness asks before taking it (akpane.py); `program` names the pane's
+    process as a harness's program is named, by a link to akpane.py. The pane is the size the
+    screen was captured at."""
 
     def __init__(self, home, name="acme", *, model="opus", screen="claude-prompt-pane.txt",
                  cwd=None, record=None, alive=True, composer="❯", planned=False, asks=None,
@@ -68,7 +73,8 @@ class Seat:
                        **(record or {})}
         home.write(f".agentkit/state/session-{name}.json", self.record)
         if planned:
-            home.write(f".agentkit/state/plan-{name}.md", PLAN_LINE + "\n")
+            lines = [PLAN_LINE] if planned is True else map(plan_line, planned)
+            home.write(f".agentkit/state/plan-{name}.md", "".join(f"{line}\n" for line in lines))
         self.pane = None
         self.screen = self._text(screen)
         self.screen_file.write_text(self.screen, encoding="utf-8")

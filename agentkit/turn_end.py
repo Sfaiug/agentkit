@@ -270,6 +270,20 @@ def unpark(launched, payload):
     the last tool's result outside a sidechain where the record holds no request line
     (`last_request`, its plugin's), asked last of the same record: no answer shows one made
     after it wrong.
+
+    On 26 Nov 2026, tried on a real seat on a parked login answering a real turn, an error-
+    recording harness (0.172.0) unparked its provider at the turn's Stop, while two harnesses
+    whose plugins keep no error record (`keeps_errors`: 1.0.92 and agy 1.5.18) each answered,
+    their Stop was judged, and the login stayed parked.  The owner, 26 Nov 2026: "I want you
+    to also apply to every other harness. All should work the same way with ak."  What
+    `keeps_errors` guards is a Stop heard for a refused turn: agy names an error ending in
+    `terminationReason` (its hooks documentation, 1.5.18), already returned on above, and the
+    other runs StopFailure and no Stop for a refused turn (observed 6 Nov 2026, 1.0.46, its
+    `updates.jsonl`: `hook_execution` `stop_failure`, then nothing until the session ended).
+    So `error` and `wrapped_up` are asked only where the harness keeps errors; where it keeps
+    none, a Stop past that first check unparks as well, dated by `last_request` where the
+    plugin has one else the turn's start, without looking up the conversation when neither
+    reader needs it (one plugin learns its conversation under a lock).
     """
     try:
         if (payload.get("terminationReason") not in (None, "", "NO_TOOL_CALL")
@@ -285,15 +299,18 @@ def unpark(launched, payload):
         if config.account_env(record.get("account"))[config.ACCOUNT_ENV] != told:
             return
         plugin = harness.load(entry["harness"])
-        if not plugin.keeps_errors:
-            return
-        cwd = record.get("cwd")
-        conversation = plugin.conversation(record, cwd)
-        if (plugin.error(record, cwd, conversation) == ""
-                and plugin.wrapped_up(record, cwd, conversation) is None):
+        sent = None
+        if plugin.keeps_errors or getattr(plugin.module, "last_request", None):
+            # only look up the conversation when a reader needs it: a plugin may claim under a lock
+            cwd = record.get("cwd")
+            conversation = plugin.conversation(record, cwd)
+            if plugin.keeps_errors and (
+                    plugin.error(record, cwd, conversation) != ""
+                    or plugin.wrapped_up(record, cwd, conversation) is not None):
+                return
             sent = plugin.last_request(record, cwd, conversation)
-            usage.answered(cfg, entry["provider"], told or None, record["orchestrator"],
-                           turn if sent is None else max(turn, sent))
+        usage.answered(cfg, entry["provider"], told or None, record["orchestrator"],
+                       turn if sent is None else max(turn, sent))
     except Exception:
         pass        # the login stays parked as it was; the Stop is no less judged
 

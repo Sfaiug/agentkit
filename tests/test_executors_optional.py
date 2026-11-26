@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.akseat import plan_line
 from fixtures.sandbox import Sandbox
 from agentkit import config, gitcall, menu, orch, plan, run, staffing, terminal, usage
 from agentkit import record
@@ -38,9 +39,7 @@ class ExecutorsOptional(Sandbox):
         self.stack.enter_context(patch.object(usage, "unready", return_value=""))
         config.save_session(self.cfg, "fix-api", "opus", [],
                             {"reviewers": ["astra"], "cwd": str(self.root), "created": 100})
-        # a seat launches only with an open line in its plan
-        plan.write("fix-api", [plan.compose("Fix the api", "check: `false`", "acme",
-                                            "2026-10-23 09:00", None)])
+        plan.write("fix-api", [plan_line("true")])
         self.task = self.root / "task.md"
         self.task.write_text("---\nrepo: none\n---\n# Fix the endpoint\n\n"
                              "## Done when\n```bash\ntrue\n```\n")

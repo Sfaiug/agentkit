@@ -7,6 +7,7 @@
   "antigravity-ctrl-c-pane.txt",
   "antigravity-dialog-pane.txt",
   "antigravity-draft-pane.txt",
+  "antigravity-more-background-draft-pane.txt",
   "antigravity-narrow-pane.txt",
   "antigravity-permission-pane.txt",
   "antigravity-prompt-pane.txt",
@@ -466,7 +467,7 @@
   {
    "harness": "antigravity",
    "key": "draft",
-   "pattern": "(?:(?P<opening>^─+\\n)> ?|\\A(?:> ?)?(?!─))(?P<text>.*(?:\\n(?!─+$).*)*)\\n─+$(?:(?:\\n\\s*● \\[\\d\\d:\\d\\d:\\d\\d\\] .+)+\\n─+$)?(?![\\s\\S]*^─)",
+   "pattern": "(?:(?P<opening>^─+\\n)> ?|\\A(?:> ?)?(?!─))(?P<text>.*(?:\\n(?!─+$).*)*)\\n─+$(?:(?:\\n\\s*● \\[\\d\\d:\\d\\d:\\d\\d\\] .+)+(?:\\n\\s*↓ \\d+ more *)?\\n─+$)?(?![\\s\\S]*^─)",
    "flags": "m",
    "matches": [
     {
@@ -3537,6 +3538,60 @@
     {
      "fixture": "antigravity-draft-pane.txt",
      "row": 5,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "antigravity-more-background-draft-pane.txt",
+     "row": 1,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "antigravity-more-background-draft-pane.txt",
+     "row": 4,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "antigravity-more-background-draft-pane.txt",
+     "row": 7,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "antigravity-more-background-draft-pane.txt",
+     "row": 10,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "antigravity-more-background-draft-pane.txt",
+     "row": 11,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "antigravity-more-background-draft-pane.txt",
+     "row": 12,
      "span": [
       0,
       3

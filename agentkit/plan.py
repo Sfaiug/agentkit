@@ -28,7 +28,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import command_help, config, gitcall, guard, history, parsed, terminal
+from . import command_help, config, gitcall, guard, history, parsed, task, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 # an eye line, from before every line had a check, reads done: how a change looks is the
@@ -214,10 +214,12 @@ def place(name, project):
     path moved or reused, a name another checkout shares, proves nothing, and a branch
     checked out there changes nothing."""
     shown, _, written = project.rpartition("#") if "#" in project else (project, "", "")
-    path = Path(shown).expanduser()
-    if not path.is_absolute() or not (path / ".git").exists():
+    try:
+        path = Path(shown).expanduser()
+        exists = path.is_absolute() and (path / ".git").exists()
+    except (OSError, RuntimeError, ValueError):
         return None
-    return path if written and holds(path, written) else None
+    return path if exists and written and holds(path, written) else None
 
 
 def holds(repo, commit, history=None):
@@ -421,7 +423,7 @@ def served_line(name, commands):
 
     Outcome and written stamp keep the link when `ak plan check` replaces the check.
     """
-    checks = {" ".join(command.split()) for command in commands}
+    checks = {" ".join(task.split_once(command)[0].split()) for command in commands}
     found = next((line for line in map(LINE.match, open_lines(name))
                   if " ".join(line["check"].split()) in checks), None)
     return link(found) if found else None

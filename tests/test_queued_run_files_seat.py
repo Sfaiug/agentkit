@@ -18,8 +18,9 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.akseat import plan_line
 from fixtures.sandbox import Sandbox, menu_input
-from agentkit import config, gc, handback, menu, orch, run, staffing, terminal, watch
+from agentkit import config, gc, handback, menu, orch, plan, run, staffing, terminal, watch
 from agentkit import record
 
 
@@ -31,6 +32,7 @@ class QueuedRunFilesSeat(Sandbox):
         self.acme, self.beta = self.checkout("acme"), self.checkout("beta")
         config.save_session(self.cfg, "fix-api", "fable", ["opus"],
                             {"cwd": str(config.CODE), "repo": None})
+        plan.write("fix-api", [plan_line("true")])
         self.seat = {"name": "fix-api", "path": str(config.CODE), "created": 9000,
                      "attached": False, "exited": False, "legacy": False, "resumable": False}
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[self.seat]))
