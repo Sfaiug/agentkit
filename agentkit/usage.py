@@ -2122,7 +2122,7 @@ def _held(dollars, meter):
         return "-"
     window = _number(meter.get("window_secs"))
     named = "week" if window in (None, 7 * 86400) else terminal.format_age(window)
-    about = _glyph("≈", "~")
+    about = "≈" if terminal.utf8() else "~"
     return f"{named} {about} ${dollars:.0f} at list prices"
 
 
@@ -2173,19 +2173,6 @@ def marked_providers(cfg):
     return {cfg["models"][name]["provider"] for name in config.offered(cfg) if name in used}
 
 
-def _glyph(utf, plain):
-    """`utf` when the locale is UTF-8 and stdout can encode it, else `plain`."""
-    if not terminal.utf8():
-        return plain
-    encoding = getattr(sys.stdout, "encoding", None)
-    if encoding:
-        try:
-            utf.encode(encoding)
-        except (LookupError, UnicodeEncodeError):
-            return plain
-    return utf
-
-
 def no_use_read(cfg, provider, account, prov, cost, marked, now):
     """Whether the login `account` of `provider` (None, its usual one), `prov` its reading, priced
     at `cost` and its provider `marked`, shows no use read in the MONTH up to `now`: the readings
@@ -2217,7 +2204,7 @@ def _month(cost, marked, no_use):
         return "-"
     note = ("no role marks its models" if not marked
             else "no use read in a month" if no_use else None)
-    return _digits(cost) + (f"{_glyph(' · ', ', ')}{note}" if note else "")
+    return _digits(cost) + (f"{terminal.separator()}{note}" if note else "")
 
 
 def _budget_label(value, reason):
@@ -2410,7 +2397,7 @@ def render(cfg, providers, order, *, repo=None):
         # The full headings and all the meters still fit on a phone, as aligned label/value
         # pairs under each provider. Nothing is silently cut to squeeze a row.
         lines = []
-        sep = _glyph(" · ", " - ")
+        sep = " · " if terminal.utf8() else " - "
         label_width = max(len(label) for label in HEADERS[2:])
         for row in table[1:]:
             if lines:

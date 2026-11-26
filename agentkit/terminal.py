@@ -69,10 +69,17 @@ def utf8():
     # Keep that caller's requested ASCII display unless LC_ALL explicitly overrides it.
     if not os.environ.get("LC_ALL") and os.environ.get("LANG") in ("C", "POSIX"):
         return False
+    encoding = getattr(sys.stdout, "encoding", None) or ""
     locale = (os.environ.get("LC_ALL") or os.environ.get("LC_CTYPE") or
-              os.environ.get("LANG") or "")
-    return "utf8" in locale.lower().replace("-", "") if locale else (
-        "utf8" in (sys.stdout.encoding or "").lower().replace("-", ""))
+              os.environ.get("LANG") or encoding)
+    # stdout's encoding, where it names one, may say no too: PYTHONIOENCODING may name ASCII
+    # under a UTF-8 locale, and a StringIO, as a test captures with, names none
+    return all("utf8" in said.lower().replace("-", "") for said in (locale, encoding or locale))
+
+
+def separator():
+    """What stands between two parts of a line: ` · `, without UTF-8 `, `."""
+    return " · " if utf8() else ", "
 
 
 def style_of(word):
@@ -605,12 +612,12 @@ NO_PLAN = "no plan yet"     # a working seat's count where it has no plan (`plan
 
 
 def with_tasks(said, tasks, room=None):
-    """`said`, then how many `tasks` a seat has in flight, ` · 2 tasks`, `, 2 tasks` without
-    UTF-8, or that count alone where nothing is said, `2 tasks`: a row's last column says it
-    whatever its word, as the menu says tasks by this count alone (the owner, 17 Nov 2026).
+    """`said`, then how many `tasks` a seat has in flight after a `separator`, ` · 2 tasks`, or
+    that count alone where nothing is said, `2 tasks`: a row's last column says it whatever its
+    word, as the menu says tasks by this count alone (the owner, 17 Nov 2026).
     Where `room` cells do not hold it the count gives way, `said` alone."""
     count = f"{tasks} task{'s' * (tasks != 1)}"
-    going = (f"{said}{' · ' if utf8() else ', '}{count}" if said else count) if tasks else said
+    going = (f"{said}{separator()}{count}" if said else count) if tasks else said
     return said if room is not None and cells(going) > room else going
 
 
