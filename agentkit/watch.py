@@ -4198,7 +4198,13 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not sent:
                 return sent
             time.sleep(KEY_GAP)
-        if not _wait_ready(alone, held if held is not None else name) or not _send_enter(seat, log):
+        if not _wait_ready(alone, held if held is not None else name):
+            # said, because a screen ak cannot read looks like this too: on 26 Nov 2026 a line sat
+            # four minutes over a row its adapter did not know, and the log held nothing
+            log(f"WARN {name}: its composer does not read as the line typed, so no Enter: "
+                f"{text[:60]}")
+            return False
+        if not _send_enter(seat, log):
             return False
     if _wait_sent(seat, harness, text):
         return True
