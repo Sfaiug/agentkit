@@ -159,12 +159,26 @@ _LITERAL = {}              # ... and the `systemd-run` a seat's scope runs, and 
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
 
-def in_order(cfg):
-    """The models a seat may run on, as a pick tries them: the default orchestrator, then every
-    other offered model in list order, none of them off in the model list (matrix.off)."""
+def seat_models(cfg):
+    """(names, left out): the models a seat may run on, as a pick tries them -- the default
+    orchestrator, then every other offered model in list order -- and why each other is left
+    out, by name: off in the model list (matrix.off), or its harness not installed
+    (`config.harness_present`) while a model not off has its own installed.  Where none has,
+    that leaves none out: every seat would end at once, and the install is what to see to."""
     default, off = cfg["defaults"]["orchestrator"], matrix.off(cfg)
-    return [name for name in [default, *(name for name in config.offered(cfg) if name != default)]
-            if name not in off]
+    names = [default, *(name for name in config.offered(cfg) if name != default)]
+    out = {name: matrix.OFF for name in names if name in off}
+    missing = {name: f"{harness} is not installed" for name in names if name not in out
+               for harness in [cfg["models"][name]["harness"]]
+               if not config.harness_present(harness)}
+    if len(out) + len(missing) < len(names):
+        out.update(missing)
+    return [name for name in names if name not in out], out
+
+
+def in_order(cfg):
+    """The models a seat may run on, as a pick tries them (`seat_models`)."""
+    return seat_models(cfg)[0]
 
 
 def choose(cfg, providers):
@@ -172,17 +186,17 @@ def choose(cfg, providers):
 
     Pace does not enter into it.  The orchestrator is the seat the user works from, so the only
     reason to pass the default over is that it cannot be spent at all: its gate meter, or the
-    5h session window it runs inside, reads 100% used, or it is off in the model list.  Then the
-    first model in `in_order` that can still be spent takes the seat.  Never refuses for usage
+    5h session window it runs inside, reads 100% used, or `seat_models` leaves it out.  Then the
+    first model in that order that can still be spent takes the seat.  Never refuses for usage
     either -- a refusal costs more than an overspend, so with every model spent the first is
     launched anyway with a WARN; only with every model off is there none to launch.  A model
     on credits (`usage.on_credits`) goes after every one with a window left.
     """
-    names, default = in_order(cfg), cfg["defaults"]["orchestrator"]
+    (names, out), default = seat_models(cfg), cfg["defaults"]["orchestrator"]
     if not names:
         raise config.Error(f"every model is {matrix.OFF}: turn one on with `companies` or "
                            "`models_off` in config.toml")
-    notes = [] if names[0] == default else [f"skipped {default}: {matrix.OFF}"]
+    notes = [f"skipped {default}: {out[default]}"] if default in out else []
     default, credits = names[0], None
     for name in names:
         spent, why = usage.model_spent(cfg, name, providers)
