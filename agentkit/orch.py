@@ -2187,8 +2187,11 @@ def hook_options():
     because tmux keeps the last client's size after it goes; when another client is still on a
     different session, `client-detached` does not even name the session left behind.  So both
     hooks synchronously walk every detached seat (`MARK`, `session_attached == 0`) inside the
-    server via `run-shell -C`, resize any window not at `SEAT_SIZE` back to it, and unset
-    `window-size` (which `resize-window` flips to `manual`) so the next client sizes it again.
+    server via `run-shell -C`, skipping windows set to `manual` or linked into any attached
+    session, resize each remaining window not at `SEAT_SIZE` back to it, and restore its prior
+    `window-size` option (which `resize-window` flips to `manual`) -- unsetting it where it was
+    inherited (`set-option -woq` succeeds only when no window option is set), or setting its
+    explicit value back so policies like `smallest` are preserved.
     """
     from . import watch   # here, not at the top: watch imports this module
     ak = shlex.join([sys.executable, str(versions.live() / "bin" / "ak"), "orch"])
@@ -2198,13 +2201,29 @@ def hook_options():
     def job(verb):
         return "run-shell -b " + tmux_word(f"{tmux_text(ak)} {verb} >>{tmux_text(log)} 2>&1; true")
     front = job("front")
-    # inside `run-shell -C`, tmux expands `#{S:...}` / `#{W:...}` into the resize commands for
-    # every detached seat window not already SEAT_SIZE; empty expands to a silent no-op
+    # inside `run-shell -C`, tmux expands `#{S:...}` / `#{W:...}` into one guarded restore per
+    # detached seat window not already SEAT_SIZE (empty expands to a silent no-op).  The inner
+    # guard checks every attached session so a window linked into another attached session is
+    # never touched; `set-option -woq ... manual` only takes when `window-size` was inherited,
+    # telling inherited (unset afterwards) from explicit (restored to its prior value).
+    attached = "#{S:#{?#{session_attached},#{W:#{?#{==:#{window_id},__WID__},1,}},}}"
+    diff = f"#{{||:#{{!=:#{{window_width}},{width}}},#{{!=:#{{window_height}},{height}}}}}"
+    resize = f"resize-window -t __WID__ -x {width} -y {height}"
+    per_win = (
+        f"if-shell -t __WID__ -F '#{{&&:#{{==:{attached},}},{diff}}}' {{ "
+        f"set-option -woq -t __WID__ window-size manual ; "
+        f"if-shell -t __WID__ -F '#{{==:#{{window-size}},manual}}' "
+        f"{{ {resize} ; set-option -wu -t __WID__ window-size }} "
+        f"{{ {resize} ; set-option -w -t __WID__ window-size __WS__ }} "
+        f"}} ; "
+    )
+    # escape format delimiters for the enclosing `#{?...,arm,}`, then splice the outer window fields
+    per_win = (per_win.replace("#", "##").replace(",", "#,").replace("}", "#}")
+               .replace("__WID__", "#{window_id}").replace("__WS__", "#{window-size}"))
+    need = f"#{{&&:#{{!=:#{{window-size}},manual}},{diff}}}"
     restore = ('run-shell -C "'
                f"#{{S:#{{?#{{&&:#{{{MARK}}},#{{==:#{{session_attached}},0}}}},"
-               f"#{{W:#{{?#{{||:#{{!=:#{{window_width}},{width}}},#{{!=:#{{window_height}},{height}}}}},"
-               f"resize-window -t #{{window_id}} -x {width} -y {height} ; "
-               f"set-option -wu -t #{{window_id}} window-size ; ,}}}},}}}}" + '"')
+               f"#{{W:#{{?{need},{per_win},}}}},}}}}" + '"')
     left = f"{restore} ; {front}"
     return {"pane-died": job("ended #{q:session_name} #{pane_dead_time}"),
             "remain-on-exit-format": WAY_BACK,

@@ -60,6 +60,8 @@ class ASeatNobodyIsAttachedToIsWide(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(first.exit_code(), 0)
         self.assertEqual(size(self.home, "acme"), "240x50")
+        self.assertEqual(
+            self.home.tmux("show-options", "-wv", "-t", "=acme:", "window-size").out.strip(), "")
 
         second, _ = self.attach("acme", 90, 30)
         until(lambda: size(self.home, "acme") == "90x28", "size to the next client")
@@ -86,6 +88,8 @@ class ASeatNobodyIsAttachedToIsWide(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(first.exit_code(), 0)
         self.assertEqual(size(self.home, "acme"), "240x50")
+        self.assertEqual(
+            self.home.tmux("show-options", "-wv", "-t", "=acme:", "window-size").out.strip(), "")
         self.assertEqual(size(self.home, "beta"), "100x30")
 
         done = self.home.tmux("switch-client", "-c", second_tty, "-t", "=acme")
@@ -98,6 +102,56 @@ class ASeatNobodyIsAttachedToIsWide(unittest.TestCase):
         self.assertEqual(second.exit_code(), 0)
         self.assertEqual(size(self.home, "acme"), "240x50")
         self.assertEqual(size(self.home, "beta"), "240x50")
+
+    def test_leaving_preserves_explicit_and_inherited_window_size_policies(self):
+        self.home.fake("claude", "#!/bin/sh\nexec sleep 60\n")
+        for event in ("detach-client", "switch-client"):
+            with self.subTest(event=event), Home() as home:
+                home.fake("claude", "#!/bin/sh\nexec sleep 60\n")
+                open_seat(home, "acme")
+                if event == "switch-client":
+                    open_seat(home, "beta")
+                target = "=acme:"
+                self.assertEqual(
+                    home.tmux("set-option", "-w", "-t", target, "window-size", "smallest").code, 0)
+                term = Terminal(home, "-L", SOCKET, "attach-session", "-t", target,
+                                size=(80, 26), program=REAL_TMUX)
+                tty = home.tmux("display-message", "-p", "-t", term.pane, "#{pane_tty}",
+                                server=SERVER).out.strip()
+                until(lambda: size(home, "acme") == "80x24", "size acme to client")
+                if event == "detach-client":
+                    self.assertEqual(home.tmux("detach-client", "-t", tty).code, 0)
+                    self.assertEqual(term.exit_code(), 0)
+                else:
+                    self.assertEqual(home.tmux("switch-client", "-c", tty, "-t", "=beta").code, 0)
+                self.assertEqual(size(home, "acme"), "240x50")
+                self.assertEqual(
+                    home.tmux("show-options", "-wv", "-t", target, "window-size").out.strip(),
+                    "smallest")
+
+    def test_a_window_linked_into_another_attached_session_is_not_resized(self):
+        self.home.fake("claude", "#!/bin/sh\nexec sleep 60\n")
+        open_seat(self.home, "acme")
+        open_seat(self.home, "beta")
+        self.assertEqual(self.home.tmux("new-session", "-d", "-s", "shell", "sleep 60").code, 0)
+        self.assertEqual(self.home.tmux("link-window", "-s", "=shell:", "-t", "=acme:").code, 0)
+        shell, shell_tty = self.attach("shell", 80, 26)
+        until(lambda: self.home.tmux("display-message", "-p", "-t", "=shell:",
+                                     "#{window_width}").out.strip() == "80",
+              "size shell to its client")
+        shared = self.home.tmux("display-message", "-p", "-t", "=shell:", "#{window_id}").out.strip()
+        self.assertEqual(self.home.tmux(
+            "set-hook", "-g", "window-resized",
+            f"if-shell -F '#{{==:#{{hook_window}},{shared}}}' "
+            "'set-option -g @acme_shared_resized yes'").code, 0)
+        beta, beta_tty = self.attach("beta", 100, 32)
+        self.assertEqual(self.home.tmux("detach-client", "-t", beta_tty).code, 0)
+        self.assertEqual(beta.exit_code(), 0)
+        self.assertEqual(self.home.tmux("show-options", "-gqv", "@acme_shared_resized").out.strip(), "")
+        self.assertEqual(self.home.tmux("display-message", "-p", "-t", "=shell:",
+                                        "#{window_width}").out.strip(), "80")
+        self.assertEqual(self.home.tmux("detach-client", "-t", shell_tty).code, 0)
+        self.assertEqual(shell.exit_code(), 0)
 
 
 if __name__ == "__main__":
