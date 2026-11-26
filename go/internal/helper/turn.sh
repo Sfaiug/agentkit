@@ -4,6 +4,10 @@
 # the checkout left uncommitted; then the adapter's ARGV, ak's bin and the harness program on
 # PATH. At its end /in/back.bundle holds refs/ak/left, a commit of what the turn left uncommitted
 # on its HEAD, and /in/code the turn's exit: its own is 0, so the helper's exits keep their meaning.
+# A user the image has no name for, or an image with no `id` to ask, is a machine with no room for
+# the turn (252), which then runs at home: whoami, ssh-keygen and initdb refuse a nameless user, and
+# so broke 27 runs (25 Nov 2026).
+id -un >/dev/null 2>&1 || exit 252
 work=$1 ak=$2 branch=$3 default=$4
 shift 4
 fail() { echo "ak machine: $*" >&2; exit 253; }

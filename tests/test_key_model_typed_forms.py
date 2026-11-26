@@ -25,8 +25,8 @@ USAGE = {
     "wait": "usage: ak wait PR_URL|RUN_ID",
     "run stop": "usage: ak run stop ID [--keep]",
     "run resume": "usage: ak run resume ID [--rounds N] [--bg]",
-    "plan": "usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | ak plan check N "
-            "'COMMAND'",
+    "plan": "usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' [--repo PATH] | "
+            "ak plan check N 'COMMAND'",
     "fetch": "usage: ak fetch PATH [PATH ...] | ak fetch --serve",
     "hand-in done": "usage: ak hand-in done",
     "hand-in blocked": 'usage: ak hand-in blocked "WHY"',

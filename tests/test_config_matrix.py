@@ -1,5 +1,5 @@
 """`c` is a matrix of models moved through with the keys: a session's mark flipped is saved to
-its record at once, there is always one orchestrator and one reviewer, an effort steps only within
+its record at once, there is always one orchestrator, new seats keep a reviewer, an effort steps only within
 its model's own list, a click flips a mark, and the rows under the models run their steps.
 Without a session the matrix is the efforts alone.
 
@@ -310,7 +310,7 @@ class Matrix(unittest.TestCase):
                             for line in tail), tail)
         # the build under the last row, nothing said of the highlighted model
         version = tail.index("Version 2816 · 2026-09-29")
-        self.assertEqual(tail[version - 2].split()[0], "Limits", tail)
+        self.assertEqual(tail[version - 2].split()[0], "Money", tail)
         self.assertEqual(tail[version - 1:], ["", "Version 2816 · 2026-09-29", "",
                                               KEYS.strip()])
         self.assertEqual(lines[-1], KEYS)
@@ -549,31 +549,35 @@ class Matrix(unittest.TestCase):
         lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Done check"))
         self.assertEqual(lines[-1], OPEN_KEYS)   # its step, like Discord's
         # the last stop: the build under the page is read, and never highlighted
-        lines = screen.press(DOWN * 2, lambda lines: highlighted(lines).startswith("› Limits"))
+        lines = screen.press(DOWN * 3, lambda lines: highlighted(lines).startswith("› Money"))
         self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])
         screen.leave()
         self.assertEqual(screen.text().count("<discord step>"), 1)
 
     def test_a_phone_draws_it_in_forty_columns(self):
-        screen = Screen(self, workers=["opus"], rows=24, cols=40)
+        screen = Screen(self, rows=24, cols=40, session=None)
         lines = screen.frame()
         self.assertLessEqual(len(lines), 23)
         self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # on the first page
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews"])
-        # what a key could not do has lines of its own, however little room the rows leave
-        lines = screen.press(DOWN + RIGHT * 4 + SPACE,
+        # what a key could not do has lines of its own, however little room the rows leave:
+        # Astra's review off, Opus's, the last one new seats keep, refused
+        screen.press(DOWN * 3 + RIGHT * 3 + SPACE,
+                     lambda lines: row(lines, "astra")[1].split()[-1] == "□")
+        self.assertEqual(screen.saved()["defaults"]["reviewers"], ["opus"])
+        lines = screen.press(UP * 2 + SPACE,
                              lambda lines: "at least one model reviews" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
-        lines = screen.press(DOWN * 14,
-                             lambda lines: highlighted(lines).startswith("› Limits"))
+        lines = screen.press(DOWN * 15,
+                             lambda lines: highlighted(lines).startswith("› Money"))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 5, lambda lines: highlighted(lines) == "› Models")
+        lines = screen.press(UP * 6, lambda lines: highlighted(lines) == "› Models")
         self.assertEqual(highlighted(lines), "› Models")
         self.assertLessEqual(len(lines), 23)
         screen.leave()

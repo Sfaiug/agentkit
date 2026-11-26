@@ -38,14 +38,16 @@ HARNESSES = [
     ("muse", "muse.sh", ".local/bin", "1.3.0"),
     ("grok", "grokbuild.sh", ".grok/bin", "1.0.40"),
     ("opencode", "opencode.sh", ".opencode/bin", "2.0.13"),
+    ("agy", "antigravity.sh", ".local/bin", "1.2.9"),
 ]
 
-# Where a missing binary's installer would come from: curl for four, npm for codex.
+# Where a missing binary's installer would come from: curl for five, npm for codex.
 INSTALLER_URL = {
     "claude": "https://claude.ai/install.sh",
     "muse": "https://dev.meta.ai/install.sh",
     "grok": "https://x.ai/cli/install.sh",
     "opencode": "https://opencode.ai/v2/install",
+    "agy": "https://antigravity.google/cli/install.sh",
 }
 
 FAKE_BINARY = """#!/usr/bin/env bash
@@ -238,6 +240,52 @@ class InstallFindsBinary(unittest.TestCase):
         lines = log.read_text().splitlines()
         for name, _, _, _ in HARNESSES:
             with self.subTest(harness=name):
+                if name == "codex":
+                    self.assertIn("npm i -g @openai/codex", lines)
+                else:
+                    self.assertIn(f"curl -fsSL {INSTALLER_URL[name]}", lines)
+
+    def test_non_executable_file_does_not_skip_install_or_hide_own_bin_dir(self):
+        # bash's `command -v` and `type -P` return a 0644 file on PATH when nothing else matches:
+        # install must still run the installer, login must say not installed, and an executable
+        # copy in the harness's own bin dir must still be found behind the non-executable file.
+        log = self.root / "installer.log"
+        (self.tools / "curl").write_text(
+            "#!/usr/bin/env bash\n"
+            f"printf 'curl %s\\n' \"$*\" >>'{log}'\n"
+            "echo :\n")
+        (self.tools / "curl").chmod(0o755)
+        (self.tools / "npm").write_text(
+            "#!/usr/bin/env bash\n"
+            f"printf 'npm %s\\n' \"$*\" >>'{log}'\n")
+        (self.tools / "npm").chmod(0o755)
+        for name, script, bindir, version in HARNESSES:
+            with self.subTest(harness=name):
+                decoy = self.tools / name
+                decoy.write_text("#!/bin/sh\nexit 0\n")
+                decoy.chmod(0o644)
+                try:
+                    proc = self.adapter(script, "install")
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertNotIn("already installed", proc.stdout)
+                    login = self.adapter(script, "login", stdin=subprocess.DEVNULL)
+                    self.assertEqual(login.returncode, 2, login.stdout + login.stderr)
+                    self.assertIn("is not installed", login.stderr)
+                    # Once an executable binary sits in its own bin dir, the fallback PATH
+                    # finds it instead of stopping at the non-executable file on PATH.
+                    real = self.plant(name, bindir, version)
+                    try:
+                        found = self.adapter(script, "install")
+                        self.assertEqual(found.returncode, 0, found.stderr)
+                        self.assertIn("already installed", found.stdout)
+                        self.assertIn(version, found.stdout)
+                    finally:
+                        real.unlink()
+                finally:
+                    decoy.unlink()
+        lines = log.read_text().splitlines()
+        for name, _, _, _ in HARNESSES:
+            with self.subTest(installed=name):
                 if name == "codex":
                     self.assertIn("npm i -g @openai/codex", lines)
                 else:

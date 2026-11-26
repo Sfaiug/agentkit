@@ -44,6 +44,15 @@ class AnAnsweredTurnUnparksItsLogin(Unparking):
         self.stop(seat, ANSWER)
         self.assertEqual(self.parked(), {"default": True, "second": True})
 
+    def test_a_refusal_made_without_a_model_goes_as_one_of_the_turns_model(self):
+        self.mark("default", model="")
+        self.mark("second", model="")
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+        seat = self.seat("acme")
+        self.prompt(seat)
+        self.stop(seat, ANSWER)
+        self.assertEqual(self.parked(), {"default": True, "second": False})
+
     def test_a_stop_heard_on_the_usual_login_unparks_nothing(self):
         self.answered(env={"AGENTKIT_ACCOUNT": ""})
         self.assertEqual(self.parked(), {"default": True, "second": True})

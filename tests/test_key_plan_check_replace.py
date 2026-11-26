@@ -19,7 +19,7 @@ from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.gitrig import Rig
 
-USAGE = ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
+USAGE = ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' [--repo PATH] | "
          "ak plan check N 'COMMAND'")
 PLAN = ".agentkit/state/plan-fix-api.md"
 
@@ -90,7 +90,7 @@ class PlanCheck(unittest.TestCase):
         error = (f"this check already passes on {self.base}, the commit line 1 names, so it "
                  "proves nothing; write one that fails until the work is done")
         # notes.txt is gone from the default branch, but the line's commit holds it
-        for check in ("test -f notes.txt", "true"):
+        for check in ("test -f notes.txt", "exit 0"):
             self.refused(("check", "1", check), error, before)
 
     def test_a_line_naming_no_commit_takes_its_new_check_unproven(self):

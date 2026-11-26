@@ -197,16 +197,19 @@ class ConfigScreen(Screens):
         self.assertEqual(screen.record()["workers"], ["opus", "astra"])
         screen.leave()
 
-    def test_the_last_reviewer_refused_shakes_and_nothing_is_saved(self):
-        screen = Screen(self, workers=["opus"])
+    def test_new_seats_last_reviewer_refused_shakes_and_nothing_is_saved(self):
+        screen = Screen(self, session=None)     # a seat may go without; [defaults] may not
+        number, line = row(screen.frame(), "astra")
+        moved(screen, click(mark_column(line, 2), number))
+        self.assertEqual(screen.saved()["defaults"]["reviewers"], ["opus"])
         number, line = row(screen.frame(), "opus")
-        before = screen.record()
+        before = screen.path.read_bytes()
         cells = moved(screen, click(mark_column(line, 2), number))
         self.assertIn("  at least one model reviews", screen.frame())
         landed(self, glyphs(cells, number), ["■"] * 4)
         landed(self, shifts(cells, number, mark_column(line, 2)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
-        self.assertEqual(screen.record(), before)
+        self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
 
     def test_the_last_reviewer_refusal_can_skip_frames(self):
@@ -225,7 +228,7 @@ with closing(""", 1)
         create = Screen
         with patch(__name__ + ".Screen", side_effect=lambda *args, **kwargs:
                    create(*args, child=child, **kwargs)):
-            self.test_the_last_reviewer_refused_shakes_and_nothing_is_saved()
+            self.test_new_seats_last_reviewer_refused_shakes_and_nothing_is_saved()
 
 class NewSessionScreen(Screens):
     def picker(self):
@@ -249,18 +252,17 @@ class NewSessionScreen(Screens):
         screen.saw("<created new opus astra,opus opus,astra>")
         screen.leave()
 
-    def test_the_last_reviewer_refused_shakes_and_stays_chosen(self):
+    def test_the_last_reviewer_empties_and_the_seat_is_made_with_none(self):
         screen, lines = self.picker()
         screen.send(RIGHT * 2 + new_session.SPACE)      # Opus's review off: Astra is the last one
         lines = screen.picker(lambda lines: new_session.marks(highlighted(lines)) == "●■□")
         number, line = numbered(lines, new_session.full("astra"))
         cells = moved(screen, click(mark_column(line, 2), number))
-        self.assertIn("at least one model reviews", "\n".join(screen.picker()))
-        landed(self, shifts(cells, number, mark_column(line, 2)), [-1, 1, -1, 0])
+        landed(self, glyphs(cells, number), ["■", "□"])
         lit_through(self, cells, number)
-        self.assertEqual(new_session.marks(highlighted(screen.picker())), "○■■")
+        self.assertEqual(new_session.marks(highlighted(screen.picker())), "○■□")
         screen.start()
-        screen.saw("<created new opus opus,astra astra>")
+        screen.saw("<created new opus opus,astra >")
         screen.leave()
 
 

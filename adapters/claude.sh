@@ -31,7 +31,9 @@
 #                       $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
 #                       uses that subscription's own login, and no other
 set -uo pipefail
-command -v claude >/dev/null || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
+# bash's `command -v` and `type -P` fall back to a non-executable file on PATH when none can run
+program() { [ -x "$(type -P "$1")" ]; }
+program claude || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 # No CLAUDE.md or .claude/rules, the user's or the repository's, and no auto-memory MEMORY.md
 # reach a worker's turn or a seat (2.1.280's own switches): their rules are the ones ak hands
 # them, a seat's its rulebook with the project's AGENTS.md in it (`config.seat_rulebook`),
@@ -396,11 +398,11 @@ reset)
   { [ "$code" = 200 ] && jq -ce "$READ"' reading | {code: "reset", available: .resets, reset_kinds,
       meters}' <<<"$body" 2>/dev/null; } || printf '{"code":"reset","available":%s}\n' "${left:-null}" ;;
 install)
-  if command -v claude >/dev/null; then echo "claude: already installed ($(claude --version 2>/dev/null | head -1))"; exit 0; fi
+  if program claude; then echo "claude: already installed ($(claude --version 2>/dev/null | head -1))"; exit 0; fi
   command -v curl >/dev/null || { echo "claude.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://claude.ai/install.sh | bash ;;
 login)
-  command -v claude >/dev/null || { echo "claude.sh login: claude is not installed" >&2; exit 2; }
+  program claude || { echo "claude.sh login: claude is not installed" >&2; exit 2; }
   # the token lives in the macOS Keychain or in ~/.claude/.credentials.json; either means logged in
   if [ "${1:-}" != again ] && { security find-generic-password -s "Claude Code-credentials" -w >/dev/null 2>&1 ||
      { [ -r "$CREDS" ] && grep -q '"accessToken"' "$CREDS" 2>/dev/null; }; }; then

@@ -1,10 +1,11 @@
-"""A resumed run whose checkout git does not know ends `exhausted`, not `error`, and is never
-retried again.
+"""A resumed run whose checkout git does not know ends `exhausted`, not `error`, before waiting for
+a slot, and is never retried again.
 
 When a worktree's `.git` names a directory that is not there -- as on a machine that took over as
-home without the clone it was cut from -- git refuses `repository_lock` before any round runs.
-Treating that refusal as `exhausted` stops the tick's error-retry ladder from re-running it for a
-day before handing the ending to its seat; a run in a checkout git answers in carries on as usual.
+home without the clone it was cut from -- git refuses `repository_lock` before the run waits for a
+slot or enters a round. Treating that refusal as `exhausted` stops the tick's error-retry ladder
+from re-running it for a day and avoids queuing it behind live work before handing the ending to
+its seat; a run in a checkout git answers in waits for its slot and carries on as usual.
 Black-box over `AK_BIN` through tests/fixtures/akbin.py, on the same fixtures as
 tests/test_key_error_retry.py.
 """
@@ -27,6 +28,10 @@ LOCKED = {"sh": "echo hello > retry.txt && git add -A && git commit -qm 'add ret
                 'touch "$(git rev-parse --git-path index.lock)"',
           "final": "## Summary\nwrote retry.txt", "hand_in": [["done"]]}
 STAMPS = ("error_retry_at", "error_retries")
+# Admission enabled (`AK_MAX_RUNS` unset) with free memory below the host gate, so no run gets a slot.
+FULL = {"AK_MAX_RUNS": None,
+        "AK_HOST_READINGS": json.dumps({"free_mb": 100, "mem_total_mb": 16384,
+                                        "cpus": 8, "load": 0.1})}
 
 
 def offline(home):
@@ -45,7 +50,7 @@ def record(run_dir):
 def stage_errored_run(case):
     """A run in `error` with a due retry stamp on a Home of its own."""
     home = Home()
-    case.addClassCleanup(home.close)
+    (case.addClassCleanup if isinstance(case, type) else case.addCleanup)(home.close)
     offline(home)
     rig = Rig(home, "widgets")
     akconfig.write(home, ["opus"])
@@ -104,6 +109,23 @@ class CheckoutGitDoesNotKnow(unittest.TestCase):
         self.assertEqual(self.after_second["finished_at"], self.after_first["finished_at"])
         self.assertEqual(len(self.fake.runs()), 1)
 
+    def test_it_ends_before_it_waits_for_a_slot(self):
+        home, run_dir, born, fake = stage_errored_run(self)
+        missing = home.path / "missing-clone" / ".git" / "worktrees" / "gone"
+        (Path(born["worktree"]) / ".git").write_text(f"gitdir: {missing}\n")
+        tick = home.tick(env=FULL)
+        self.assertEqual(tick.code, 0, tick.out + tick.err)
+        self.assertIn(f"resumed {run_dir.name}: error retry 1", tick.out.splitlines())
+        after = record(run_dir)
+        self.assertEqual(after["state"], "exhausted")
+        self.assertIn(born["worktree"], after["error"])
+        self.assertIn("not a git repository", after["error"])
+        self.assertFalse(after.get("slot_waiting"))
+        self.assertFalse(after.get("slot_waited"))
+        self.assertIsNone(after.get("slot_wait_reason"))
+        self.assertIsNone(after.get("slot_wait_kind"))
+        self.assertEqual(len(fake.runs()), 1)
+
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
@@ -125,6 +147,32 @@ class CheckoutGitKnows(unittest.TestCase):
         for key in STAMPS:
             self.assertIsNone(self.after.get(key), key)
         self.assertEqual([run["role"] for run in self.fake.runs()], ["executor", "reviewer"])
+
+    def test_it_waits_for_a_slot_on_a_full_machine(self):
+        home, run_dir, born, fake = stage_errored_run(self)
+        lock = home.run("git", "-C", born["worktree"], "rev-parse",
+                        "--path-format=absolute", "--git-path", "index.lock").out.strip()
+        Path(lock).unlink()
+        tick = home.ak("watch", boxed=True, env=FULL)
+        self.assertEqual(tick.code, 0, tick.out + tick.err)
+        self.assertIn(f"resumed {run_dir.name}: error retry 1", tick.out.splitlines())
+        deadline = time.monotonic() + 60
+        after = {}
+        while True:
+            try:
+                after = record(run_dir)
+            except (OSError, ValueError):
+                after = {}
+            if after.get("slot_waited") or after.get("state") not in ("queued", "running"):
+                break
+            if time.monotonic() > deadline:
+                self.fail(f"never waited for a slot: {after}")
+            time.sleep(0.1)
+        self.assertEqual(after["state"], "queued")
+        self.assertTrue(after.get("slot_waiting"))
+        self.assertTrue(after.get("slot_waited"))
+        self.assertEqual(after.get("slot_wait_kind"), "memory")
+        self.assertEqual(len(fake.runs()), 1)
 
 
 if __name__ == "__main__":

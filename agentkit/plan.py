@@ -269,10 +269,10 @@ def verifying(name, wait=True):
 
 
 @contextmanager
-def default_branch(repo, at=None):
+def default_branch(repo):
     """(its commit as `<sha12> <subject>`, the environment a check runs in, `checkout`): the
-    project's current default branch, fetched first -- or, with `at`, that commit, the one a
-    line's check was proven failing on.  `checkout()` is a clean checkout of that commit made
+    project's current default branch, fetched first.  `checkout()` is a clean checkout of
+    that commit (or the line's recorded commit when given one) made
     for one check and removed after it, so nothing one check writes or moves -- files, HEAD, a
     submodule -- is there for the next.  It sits beside runs' checkouts in `config.WT`, as
     the landing line's do: ak's history counts a repository under `.agentkit/tmp` as a test
@@ -297,16 +297,16 @@ def default_branch(repo, at=None):
     git("fetch", "-q", "origin")
     git("remote", "set-head", "origin", "--auto")
     base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-    sha = git("rev-parse", "--verify", f"{at or base}^{{commit}}")
+    sha = git("rev-parse", "--verify", f"{base}^{{commit}}")
     commit = git("log", "-1", "--format=%h %s", "--abbrev=12", sha)
-    config.WT.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
-    def checkout():
+    def checkout(at=sha):
+        config.WT.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=config.WT, prefix="plan-") as tmp:
             tree = Path(tmp) / "main"
             try:
-                git("worktree", "add", "--detach", str(tree), sha)
+                git("worktree", "add", "--detach", str(tree), at)
                 yield tree
             finally:
                 if tree.exists():
@@ -349,12 +349,17 @@ def fails(tree, cmd, env):
     return proc.returncode != 0
 
 
-def fails_on_main(repo, cmd, at=None):
-    """(Whether `cmd` fails on a clean checkout of the project's default branch, or of commit
-    `at`, that checkout's root commit, its commit): the repository a line names is the one
-    its check ran in, and the commit the one it failed on."""
-    with default_branch(repo, at) as (commit, env, checkout), checkout() as tree:
-        return fails(tree, cmd, env), root(tree), commit.split()[0]
+@contextmanager
+def focused_check(repo, check):
+    with default_branch(repo) as (commit, env, checkout):
+        base = commit.split()[0]
+        # declared_at overlays its environment, so explicitly drop variables git_env removed.
+        overrides = {**dict.fromkeys(os.environ.keys() - env.keys()), **env}
+        suite = gitcall.declared_at(repo, base, "tests", env=overrides)
+        if " ".join(check.split()) in gitcall.suite_commands(suite):
+            raise config.Error(f"this check is {repo.name}'s whole-suite `tests:` command, which "
+                               "ak runs on every PR. Write a focused check for this deliverable instead.")
+        yield base, env, checkout
 
 
 # a list line with a box, however it is spelled: `- [ ]`, `* [X]`, `1.  [done]` -- any
@@ -631,11 +636,12 @@ def add(name, what, check, repo=None):
         raise config.Error("an outcome is plain words without `·`")
     repo = Path(repo) if repo else project_of(name)
     check = one_command(check)
-    holds_checkout(check, repo)
+    repo = checked_checkout(check, repo)
     from . import retire
     retire.vet_check(repo, check)
     passed = None
-    failing, found, base = fails_on_main(repo, check)
+    with focused_check(repo, check) as (base, env, checkout), checkout() as tree:
+        failing, found = fails(tree, check, env), root(tree)
     if not failing:
         # The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, work done
         # there proves itself, so a check already passing is written done on that commit
@@ -679,8 +685,8 @@ def one_command(check):
     return check
 
 
-def holds_checkout(check, repo):
-    """Refuse a check whose text holds the path of the project's checkout `repo`: a check runs
+def checked_checkout(check, repo):
+    """Return the resolved checkout after guarding both its given and resolved paths. A check runs
     in a clean checkout of the default branch, and one that goes to `repo` tests what that
     checkout holds instead (uncommitted work, or ak's install behind main).  It reads text, not
     the shell: the path is looked for as written from `/`, `~`, `$HOME` or `${HOME}`, with every
@@ -688,7 +694,8 @@ def holds_checkout(check, repo):
     starts with it (`acme-old`) is refused too.  A path the check builds as it runs (a variable,
     `..`, a link) is not seen."""
     home, paths = Path.home(), set()
-    for path in {Path(repo), Path(repo).resolve()}:
+    resolved = repo.resolve()
+    for path in {repo, resolved}:
         paths.add(str(path))
         for top in {home, home.resolve()}:
             if path.is_relative_to(top):
@@ -699,6 +706,7 @@ def holds_checkout(check, repo):
         raise config.Error(f"this check holds {shown}, the path of the project's checkout, but a "
                            "check runs in a clean checkout of its default branch: name paths "
                            "relative to the repository, as in `python3 tests/test_x.py`")
+    return resolved
 
 
 def numbered(text, number):
@@ -724,14 +732,16 @@ def recheck(name, number, check):
         raise config.Error("only a check line takes another check")
     repo = place(name, found["project"])
     if repo:
-        holds_checkout(check, repo)
-    if found["base"]:
-        if not repo:
-            raise config.Error(f"this host has no checkout of {found['project']}")
-        if not fails_on_main(repo, check, found["base"])[0]:
-            raise config.Error(f"this check already passes on {found['base']}, the commit line "
-                               f"{number} names, so it proves nothing; write one that fails "
-                               "until the work is done")
+        repo = checked_checkout(check, repo)
+        with focused_check(repo, check) as (_, env, checkout):
+            if found["base"]:
+                with checkout(found["base"]) as tree:
+                    if not fails(tree, check, env):
+                        raise config.Error(f"this check already passes on {found['base']}, the commit "
+                                           f"line {number} names, so it proves nothing; write one "
+                                           "that fails until the work is done")
+    elif found["base"]:
+        raise config.Error(f"this host has no checkout of {found['project']}")
     # the line as it reads, open, the seat's own, with only its check changed
     new = compose(found["what"], f"check: `{check}`", found["project"], found["when"], found["base"])
     with held(name) as current:
@@ -769,8 +779,26 @@ def main(argv):
                   "each screen your work changed with `ak orch look FILE`, an image or a text "
                   "capture of a terminal screen.")
         return 0
-    if argv[0] == "add" and len(argv) == 4 and argv[2] == "--check":
-        print(add(name, argv[1], argv[3]))
+    if argv[0] == "add" and len(argv) in (4, 6):
+        usage = command_help.COMMANDS["plan"][0]
+        options = {}
+        for flag, value in zip(argv[2::2], argv[3::2]):
+            if (flag not in ("--check", "--repo") or flag in options
+                    or not value or value.startswith("--")):
+                raise config.Error(usage)
+            options[flag] = value
+        if "--check" not in options:
+            raise config.Error(usage)
+        repo = None
+        if "--repo" in options:
+            raw = options["--repo"]
+            try:
+                repo = Path(raw).expanduser().absolute()
+                if not (repo / ".git").exists():
+                    raise config.Error(f"{repo} is not a git checkout")
+            except (OSError, RuntimeError) as exc:
+                raise config.Error(f"{raw}: {exc}") from None
+        print(add(name, argv[1], options["--check"], repo=repo))
         return 0
     if argv[0] == "check" and len(argv) == 3 and argv[1].isdigit():
         print(recheck(name, int(argv[1]), argv[2]))

@@ -91,11 +91,13 @@ linux() {
     grep -vxF -f <(cat "$ROOT"/*/image/name 2>/dev/null) | xargs -r docker image rm >/dev/null 2>&1
     return 0
   }
-  # build KEY IMAGE: the suite's image, built unless the machine has it.
+  # build KEY IMAGE: the suite's image, built unless the machine has it, handed the machine's user
+  # and group ids so a recipe may make `ak` match the user turns run as.
   build() {
     docker image inspect "$2" >/dev/null 2>&1 || {
       cd "$ROOT/$1" && mkdir -p context &&
-        docker build -q -t "$2" -f "$PWD/image/Containerfile" context </dev/null >build.log 2>&1 ||
+        docker build -q -t "$2" --build-arg "AK_UID=$(id -u)" --build-arg "AK_GID=$(id -g)" \
+          -f "$PWD/image/Containerfile" context </dev/null >build.log 2>&1 ||
         exit 253
     }
   }

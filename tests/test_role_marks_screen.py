@@ -269,7 +269,7 @@ class RoleMarksScreen(unittest.TestCase):
         screen.saw("<created new opus opus,astra opus,astra,mimo>")
         screen.leave()
 
-    def test_config_reviewer_click_saves_self_pair_and_last_one_is_one_line(self):
+    def test_config_reviewer_click_saves_self_pair_and_the_last_one_goes(self):
         # tall enough for Astra's row over the For line and the lines the longest full name's
         # line takes
         screen = ConfigScreen(self, workers=["opus"], cols=40, rows=27)
@@ -285,13 +285,9 @@ class RoleMarksScreen(unittest.TestCase):
                              lambda lines: marks(row(lines, "astra")[1]) == "○□□")
         self.assertEqual(screen.record()["reviewers"], ["opus"])
         self.assertFalse(any("no allowed" in line for line in lines))
-        before = screen.session.read_bytes()
         number, line = row(lines, "opus")
-        lines = screen.click(mark, number,
-                             lambda lines: any("at least one model reviews" in line for line in lines))
-        self.assertEqual([line.strip() for line in lines if "at least one model reviews" in line],
-                         ["at least one model reviews"])
-        self.assertEqual(screen.session.read_bytes(), before)
+        screen.click(mark, number, lambda lines: marks(row(lines, "opus")[1]) == "●■□")
+        self.assertEqual(screen.record()["reviewers"], [])
         screen.leave()
 
     def test_new_session_copies_explicit_defaults_and_creates_with_changed_reviewers(self):
