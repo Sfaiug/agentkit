@@ -7,8 +7,9 @@ stop, however many its turn spent, with one line naming that checkout by its pat
 what its runner must do as `ak orch project` says it, and telling it to write that outcome into its
 plan and build it; nothing is kept, so it stops by itself at the first landing whose runner
 reports.  An open line in its plan, a time on record for that project, being filed under a project
-with times, one `unreported` does not name or none at all -- even with a done line naming the
-silent project -- and a plan holding nothing done end the turn as today.
+with times or one `unreported` does not name (with no done line naming a silent one), being filed
+under no project -- even with a done line naming the silent project -- and a plan holding nothing
+done end the turn as today.
 Black-box: hooks/seat-state.sh starting each turn and hooks/orchestrator-stop.sh ending it, beside
 the program `AK_BIN` names, in an answer-key Home holding the history's rows and the test-times
 record, as tests/test_key_a_session_is_told_its_suite_reports_no_tests.py writes them.
@@ -162,12 +163,20 @@ class NotDone(unittest.TestCase):
         self.addCleanup(times.unlink)
         self.assertEqual(self.stop(), "")
 
-    def test_filed_elsewhere_or_under_no_project_ends_it_even_with_a_done_line_on_the_silent_one(self):
-        for repo in (self.rigs["timed"].path, self.rigs["fresh"].path, None):
-            with self.subTest(repo=repo):
-                self.file(repo)
+    def test_filed_elsewhere_or_under_no_project(self):
+        for name in ("timed", "fresh"):
+            with self.subTest(name=name, done=SILENT):
+                self.file(self.rigs[name].path)
+                self.prompt()
+                self.assertEqual(self.stop(), self.back(SILENT))
+            with self.subTest(name=name, done=name):
+                self.lines(self.done(self.where(name)))
                 self.prompt()
                 self.assertEqual(self.stop(), "")
+                self.lines(self.done(self.where(SILENT)))
+        self.file(None)
+        self.prompt()
+        self.assertEqual(self.stop(), "")
 
     def test_no_done_line_ends_it(self):
         self.plan.unlink(missing_ok=True)

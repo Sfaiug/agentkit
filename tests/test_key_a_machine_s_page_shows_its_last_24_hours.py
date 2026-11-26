@@ -55,7 +55,7 @@ class AMachinesPageShowsItsLast24Hours(unittest.TestCase):
         marks = "▁" + "·" * 10 + "▄" + "·" * 9 + "▇██"
         flat = " ".join(self.open_machine("builds and reviews", "tests", f"last 24 hours {marks}").split())
         self.assertLess(flat.index("tests"), flat.index(f"last 24 hours {marks}"))
-        self.term.keys("Down", "Down")
+        self.term.keys("Down", "Down", "Down")
         keys = next(line for line in reversed(self.term.wait("› last 24 hours").splitlines()) if line.strip())
         self.assertTrue("⏎" not in keys and "␣" not in keys, keys)
         self.term.keys("Enter", "Space")

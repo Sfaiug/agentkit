@@ -4,9 +4,11 @@ ak put that menu away only at a look while the seat's stored hook fact was a fai
 (tests/test_key_a_limit_menu_is_dismissed.py): one drawn later, once another event had replaced
 that fact, stood until the tick's pass, three minutes at most, and the seat read `needs you`
 meanwhile (22 Nov 2026).  The owner, 19 Nov 2026: "Should always pick stop and wait for limit to
-reset"; asked whether ak should check for it on every later event, 20 Nov: "Yes, build it".  So
-a look started in the pane ak launched the harness in sends the menu's key there, and only there:
-a look from another pane of the seat, or on a seat whose session names no launch pane, sends none.
+reset"; asked whether ak should check for it on every later event, 20 Nov: "Yes, build it";
+asked on 26 Nov 2026 whether to drop sessions naming no launch pane: "Build them".  So a look
+started in the pane ak launched the harness in, or in a session naming no launch pane, sends the
+menu's key at its own pane, and only there: a look from another pane of a session naming its
+launch pane sends none.
 Black-box: the seat of tests/test_key_a_limit_menu_is_dismissed.py, whose harness draws its
 screen again when its file changes, its hooks fired as Claude fires them, and the look a seat's
 wrapper starts with no event (agentkit/looker.py, as tools/codex-seat.py starts it); no tick runs.
@@ -83,13 +85,32 @@ class ALaterLookDismissesTheLimitMenu(LimitSeat, unittest.TestCase):
         self.fire("PostToolUse", ENDED, pane=seat)
         self.assertEqual((seat.typed(), typed()), ("\x1b", ""))
 
-    def test_a_launch_pane_set_on_the_window_alone_is_none(self):
+    def test_a_session_naming_no_launch_pane_is_keyed_at_the_looks_own_pane(self):
         seat = self.seat(MENU, heard=False)
-        done = self.home.tmux("set-option", "-u", "-t", "=acme:", "@ak_harness_pane", ";",
-                              "set-option", "-w", "-t", "=acme:", "@ak_harness_pane", seat.pane)
+        done = self.home.tmux("set-option", "-u", "-t", "=acme:", "@ak_harness_pane")
         self.assertEqual(done.code, 0, done.err)
         self.fire("PostToolUse", ENDED, pane=seat)
-        self.assertEqual(seat.typed(), "")
+        self.put_away(seat)
+
+    def test_a_session_naming_no_launch_pane_keys_the_looks_pane_with_another_window_selected(self):
+        seat = self.seat(MENU, heard=False)
+        done = self.home.tmux("set-option", "-u", "-t", "=acme:", "@ak_harness_pane")
+        self.assertEqual(done.code, 0, done.err)
+        _, typed = self.window(seat)
+        self.fire("PostToolUse", ENDED, pane=seat)
+        self.assertEqual((seat.typed(), typed()), ("\x1b", ""))
+        self.assertNotIn(STOP, seat.capture())
+
+    def test_a_launch_pane_set_on_the_window_alone_is_none(self):
+        seat = self.seat(MENU, heard=False)
+        other, typed = self.window(seat)
+        # Set on the window alone to another pane, so reading it would withhold Esc from `seat`.
+        done = self.home.tmux("set-option", "-u", "-t", "=acme:", "@ak_harness_pane", ";",
+                              "set-option", "-w", "-t", "=acme:", "@ak_harness_pane", other.pane)
+        self.assertEqual(done.code, 0, done.err)
+        self.fire("PostToolUse", ENDED, pane=seat)
+        self.assertEqual((seat.typed(), typed()), ("\x1b", ""))
+        self.assertNotIn(STOP, seat.capture())
 
     def test_the_trust_dialog_gets_no_key(self):
         seat = self.failed_then("claude-dialog-pane.txt")

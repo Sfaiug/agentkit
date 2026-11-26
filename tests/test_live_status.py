@@ -35,7 +35,7 @@ from agentkit.guard import commands  # noqa: E402
 
 # The hook's own process asks tmux through PATH, so this stands in for the server: one marked
 # seat on the suite's socket, which lives at /fake/agentkit-test, whose pane is %7, a capture held
-# until $FAKE_TMUX_GATE is there, and every option it is told to set written down as
+# while $FAKE_TMUX_GATE is named and absent, and every option it is told to set written down as
 # `option<TAB>value`.
 FAKE_TMUX = r"""#!/bin/bash
 socket=
@@ -45,7 +45,8 @@ case $1 in
                  printf 'herdr\t%s\t1\t0\t1\t$0\n' "$HOME" ;;
   list-panes) printf 'herdr\t0\n' ;;
   display-message) [[ $4 = %7 ]] && printf '/fake/agentkit-test\therdr\n' ;;
-  capture-pane) until [[ -e $FAKE_TMUX_GATE ]]; do sleep 0.05; done; printf '$ \n' ;;
+  capture-pane) [[ -n $FAKE_TMUX_GATE ]] && until [[ -e $FAKE_TMUX_GATE ]]; do sleep 0.05; done
+                printf '$ \n' ;;
   set-option) while (( $# )); do   # each command of a list, as tmux runs them
                 [[ $1 = set-option && $2 != -u ]] && printf '%s\t%s\n' "$4" "$5" >>"$FAKE_TMUX_LOG"
                 while (( $# )) && [[ $1 != ";" ]]; do shift; done
