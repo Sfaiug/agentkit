@@ -47,8 +47,9 @@ done < <(jq -r --arg limits "${1:-}" '
           | "l:\(.key) \(.value.used_percentage + 0) \(.value.resets_at + 0)"))' <<<"$payload" 2>/dev/null)
 launch=${AGENTKIT_PANE_LAUNCH:-}
 if [[ ( $word = idle || $word = busy ) && -n $rendered && -n ${TMUX:-} && ${TMUX_PANE:-} =~ ^%[0-9]+$ && $launch =~ ^[A-Za-z0-9_-]*$ ]]; then
-  socket=${TMUX%%,*}; rest=${TMUX#*,}; server_pid=${rest%%,*}; stamp=${rendered/[!0-9]/.}
-  if [[ -n $socket && $rest != "$TMUX" && $server_pid =~ ^[0-9]+$ && $stamp =~ ^[0-9]+[.][0-9]+$ ]]; then
+  # TMUX is `<socket path>,<server pid>,<session>`, and the path may hold commas: read from the right.
+  rest=${TMUX%,*}; server_pid=${rest##*,}; socket=${rest%,*}; stamp=${rendered/[!0-9]/.}
+  if [[ -n $socket && $socket != "$rest" && $server_pid =~ ^[0-9]+$ && $stamp =~ ^[0-9]+[.][0-9]+$ ]]; then
     # Fixed-width text stamp orders as text (`#{<:...}`); comparing `$stamp` alone skips ties.
     # Matching `#{pid}` and `@ak_pane_launch` blocks delayed writes from earlier servers or launches.
     sec="000000000000${stamp%%.*}"; frac="${stamp#*.}000000"; stamp="${sec:${#sec}-12}.${frac:0:6}"

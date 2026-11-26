@@ -153,6 +153,19 @@ class SeatPaneHoldsAgysWord(unittest.TestCase):
             if written: self.assertRegex(kept or "", rf"^{STAMP.pattern} busy$")
             else: self.assertIsNone(kept)
 
+    def test_a_socket_path_holding_a_comma_keeps_the_word(self):
+        made = self.home.tmux("-f", "/dev/null", "new-session", "-d", "-P", "-F", "#{socket_path},#{pid},0 #{pane_id}", "sleep 60", server="acme,two")
+        self.assertEqual(made.code, 0, made.err); tmux, pane = made.out.split()
+        # The Home's tmux takes no socket path but its own server's.
+        tools = self._tools("comma-tmux", ("cat", "jq"), tmux=f'exec {shlex.quote(REAL_TMUX)} "$@"')
+        r, w = os.pipe()
+        try: subprocess.run([str(HOOK)], input='{"agent_state":"idle"}', text=True, stdout=subprocess.DEVNULL, check=True, pass_fds=(w,),
+                            env=self._pane_env(str(tools), TMUX=tmux, TMUX_PANE=pane, AGENTKIT_PANE_LAUNCH=""))
+        finally: os.close(w)
+        with os.fdopen(r, "rb") as drained: drained.read()
+        kept = self.home.tmux("show-options", "-pqv", "-t", pane, "@ak_agent_state", server="acme,two").out.strip()
+        self.assertRegex(kept, rf"^{STAMP.pattern} idle$")
+
     def test_tmux_call_does_not_delay_stdout_and_concurrent_renders_keep_latest(self):
         gate, payload = self.home.root / "tmux-gate", json.dumps({"agent_state": "working"})
         slow = self._tools("slow-tmux", ("bash", "cat", "jq", "sh", "sleep"), tmux=f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.05; done")

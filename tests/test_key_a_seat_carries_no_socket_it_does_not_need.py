@@ -43,6 +43,9 @@ def seat_started_with(home, socket):
                    env={VARIABLE: socket})
     assert done.code == 0, done.err
     started = next(call for call in home.calls("tmux") if "new-session" in call)
+    # new-session's own words: its command list may hold others before and after it, past a `;`.
+    own = [*started[started.index("new-session"):], ";"]
+    started = own[:own.index(";")]
     values = dict(word.split("=", 1) for before, word in zip(started, started[1:])
                   if before == "-e")
     launch = Path(shlex.split(started[-1])[-1]).read_text()
