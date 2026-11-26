@@ -9,6 +9,7 @@ never move with a reviewer no longer used.  The owner, 24 Nov 2026: "I really li
 combination of models, and I would like to see why, in numbers".
 """
 
+from fractions import Fraction
 import math
 
 from . import config, menu, terminal
@@ -45,21 +46,35 @@ def by_role(teams, now):
     """{"team", "orchestrator", "executor", "reviewer"} off the ledger's `teams` and the team now
     `now`, {role: [(name, effort or None)]} in the order held.  `team` sums the teams all three of
     whose roles are the team now's; a role's rows {"name", "effort", "in_use", "tasks", "live",
-    "first_pass", "reviews", "issues", "disputed", "taken_back", "hours"} sum the teams their
-    model at their effort (None where not recorded) did that role in, each held model with its
-    row at its effort now, in use where that effort is recorded: those in use first, in the order
-    held, then most tasks, name and effort, None last."""
+    "first_pass", "reviews", "issues", "disputed", "taken_back", "hours", "usage"} sum the teams
+    their model at their effort (None where not recorded) did that role in, each held model with
+    its row at its effort now, in use where that effort is recorded: those in use first, in the
+    order held, then most tasks, name and effort, None last."""
     def ours(team, role):
         did = team[role]
         return any(did["name"] == name and recorded(did["effort"]) in (None, effort)
                    for name, effort in now[role])
+
+    def usage_of(found):
+        out = {role: {"points": {}, "unrated": 0} for role in ROLES}
+        for team in found:
+            for role, used in team["usage"].items():
+                to = out[role]
+                to["unrated"] += used["unrated"]
+                for provider, plans in used["points"].items():
+                    for plan, value in plans.items():
+                        if value:
+                            kept = to["points"].setdefault(provider, {})
+                            kept[plan] = kept.get(plan, Fraction(0)) + value
+        return out
 
     def summed(found):
         return {**{key: sum(team[key] for team in found)
                    for key in ("tasks", "live", "first_pass", "reviews", "issues",
                                "disputed", "taken_back")},
                 "hours": {part: math.fsum(team["hours"][part] for team in found)
-                          for part in HOURS}}
+                          for part in HOURS},
+                "usage": usage_of(found)}
     own = {"team": summed([team for team in teams if all(ours(team, role) for role in ROLES)])}
     for role in ROLES:
         did = {held: [] for held in now[role]}     # {(name, effort): the teams it did role in}
