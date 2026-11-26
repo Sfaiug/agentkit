@@ -645,7 +645,7 @@ def _close():
     whose terminal closes."""
     # The owner, 26 Nov 2026, "stop here": a seat's own hooks stay unrefused on a client, tmux's
     # `pane-died` (`ak orch ended`) and the harness's stop hook (`watch.hook_look`).  Either
-    # needs a seat already running here, which this ends.
+    # needs a seat's session already here, which this ends.
     # One call a server, so the server that lists is the one that ends: one started at the socket
     # between two calls numbers its sessions from $0 again, under the pid of one gone.
     # `run-shell -C` reads what its loop (`#{S:}`) lists as one command list, so each session's
