@@ -63,8 +63,8 @@ class Walk(Firings):
 
     def copies(self, machine, home, minute):
         """`machine`'s pass at `minute`, which ends well, its copy of `home`'s file reading as
-        `home` wrote it first, as no other machine's does."""
-        notes = f"{home.name}'s notes\n"
+        `home` wrote it just before, as no machine's read at any pass before."""
+        notes = f"{home.name}'s notes at {minute}\n"
         home.write(NOTES, notes)
         self.passes(machine, minute)
         self.assertEqual((machine.path / NOTES).read_bytes(), notes.encode())
