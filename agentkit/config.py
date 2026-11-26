@@ -1797,12 +1797,14 @@ def _validate_session(cfg, name, data, prune=False):
                 except Error as exc:
                     raise Error(f"{session_path(name)}: {exc}") from None
     efforts = data.get("efforts", {})
-    # every role's effort held is text, as role_effort hands it to the screens and the harness
-    if not isinstance(efforts, dict) or any(
-            not isinstance(held, dict) or "effort" not in held
-            or not all(isinstance(word, str) for word in efforts_of(held).values())
-            for held in efforts.values()):
+    if not isinstance(efforts, dict) or any(not isinstance(held, dict) or not isinstance(
+            held.get("effort"), str) for held in efforts.values()):
         raise Error(f"{session_path(name)}: efforts must give each model its effort")
+    if efforts:
+        # a build or review effort that is no word (a hand-edited null) is none of its own: that
+        # role follows the effort, as one never set does, and role_effort hands on only words
+        data = {**data, "efforts": {model: {key: word for key, word in held.items() if isinstance(
+            word, str) or key not in ROLE_EFFORTS.values()} for model, held in efforts.items()}}
     # the orchestrator's own model may work for it too: nothing here excludes one from the other
     # Whatever else the record carries -- where the seat ran, when, and the conversation the
     # harness kept -- is handed back untouched: only the model fields are this file's to judge.
