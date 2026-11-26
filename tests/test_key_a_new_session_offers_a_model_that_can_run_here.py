@@ -6,7 +6,8 @@ so of a default off in the model list.  With every program installed the default
 A newcomer with one harness installed got a seat on the default's missing one, whose pane said
 only that the harness ended.  Black-box: the program `AK_BIN` names runs from outside
 (tests/fixtures/akbin.py), its menu on a terminal of tests/fixtures/akterm.py, its harnesses
-tests/fixtures/fakeadapter.py's; a program is missing once the Home's fake of it is gone.
+tests/fixtures/fakeadapter.py's; Claude's program is missing once its manifest names it at a
+path where nothing is, so no Claude the host installed stands in for it.
 """
 
 import json
@@ -29,11 +30,16 @@ class OffersWhatRunsHere(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
-        fakeadapter.install(self.home, claude="pass", codex="pass")
+        self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
         akconfig.write(self.home, ["opus", "astra"])
 
     def uninstall_claude(self):
-        (self.home.bin / "claude").unlink()
+        manifest = self.fakes["claude"].manifest
+        named = 'version = ["claude", '
+        text = manifest.read_text()
+        self.assertEqual(text.count(named), 1, "the shipped claude.toml's [update] changed")
+        gone = self.home.root / "gone" / "claude"
+        manifest.write_text(text.replace(named, f"version = [{json.dumps(str(gone))}, "))
 
     def picked(self):
         """The line `ak orch fix-api --dry-run` names the orchestrator on."""
