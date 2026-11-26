@@ -85,11 +85,11 @@ def main():
             return 2
         if sub in SUBS and command_help.show(sub if argv and argv[0] == sub else "", rest):
             return 0
-        if sub == "run" and rest[:1] != ["gc"] and (alias := config.server_alias()):
+        if sub == "run" and (alias := config.server_alias()):
             # A client's runs are on its home, and a standby holds a copy of their records with no
             # process of theirs here: refused before `versions.dispatch` reads one and enters the
-            # version it names, which may be older than this refusal.  `ak run gc` is the
-            # collector's, below.
+            # version it names, which may be older than this refusal, and before `ak run gc` takes
+            # a copy the standby would take over from.
             raise config.Error(f"this machine is a client of {alias} and has no runs: "
                                f"they are on {alias}")
         if sub in ("run", "hand-in"):
@@ -98,9 +98,6 @@ def main():
         mod_name, entry = ENTRY.get(sub, (sub, "main"))
         module = __import__(f"agentkit.{mod_name}", fromlist=[entry])
         owner.mark(f"ak {sub}")
-        if sub == "run" and rest[:1] == ["gc"]:
-            from agentkit import gc
-            return gc.cmd_gc(rest[1:])
         return getattr(module, entry)(rest)
     except config.Error as exc:
         print(f"ak {sub}: {exc}", file=sys.stderr)

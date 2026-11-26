@@ -6,9 +6,12 @@ whose review_rounds is 3 so only the seat's empty reviewers list turns review of
 
 import contextlib
 import json
+import os
 from pathlib import Path
+import shlex
 import sqlite3
 import sys
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -120,6 +123,87 @@ class SeatWithNoReviewer(unittest.TestCase):
         self.assertEqual([turn["role"] for turn in fakes["claude"].runs()], ["fixer"])
         self.assertEqual(fakes["codex"].n, 0)
         self.assertNotIn("bad.txt", rig.files())
+
+    def test_a_followup_run_of_a_seat_with_no_reviewer_lands_on_its_checks(self):
+        home = Home()
+        self.addCleanup(home.close)
+        home.env.update(AK_NOTIFY_SINK=None,
+                        AK_HOST_READINGS=json.dumps({"cpus": 4, "load": 0, "free_mb": 16000}))
+        akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"],
+                       settings={"review_rounds": 3})
+        rules = "---\ntests: test ! -f bad.txt\nhealth: none\nusers: none\nreview_rounds: 3\n---\n# Widgets\n"
+        rig = Rig(home, "widgets", files={"AGENTS.md": rules})
+        rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+        GitHub(home).grant(rig.slug, "WRITE")
+        release = home.root / "adapters" / "release"
+        wait = (f"i=0; while [ ! -f {shlex.quote(str(release))} ] && [ $i -lt 1000 ]; "
+                "do sleep 0.1; i=$((i+1)); done")
+        fix_work = {"write": {"sturdy.txt": "sturdy\n"}, "commit": "add sturdy.txt",
+                    "final": "## Summary\nwrote sturdy.txt", "hand_in": [["done"]]}
+        followup_review = {"final": "One more defect.", "hand_in": [
+            ["follow-up", "retry.txt:1", "flimsy widget", "it breaks later", "--run",
+             "test -f sturdy.txt"], ["done"]]}
+        fakes = fakeadapter.install(home, claude=[{"sh": wait, **fakeadapter.WORK}, fix_work],
+                                    codex=[followup_review, FAILING])
+        Seat(home, "acme", model="opus", cwd=rig.path, alive=False, planned=True,
+             record={"workers": ["opus"], "reviewers": ["astra"]})
+        task = taskfile.write(home, rig.path, done_when=("test -f retry.txt",))
+
+        def alive(pid):
+            if not isinstance(pid, int):
+                return False
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+            return True
+
+        def settle():
+            release.write_text("")
+            for run_dir in taskfile.runs(home):
+                rec = json.loads((run_dir / "run.json").read_text())
+                if alive(rec.get("pid")):
+                    home.ak("run", "stop", run_dir.name)
+        self.addCleanup(settle)
+
+        proc = home.spawn("run", str(task), env={"AGENTKIT_SESSION": "acme"})
+        deadline = time.monotonic() + 120
+        while fakes["claude"].n < 1 and proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertEqual(fakes["claude"].n, 1, home.log("spawn-1.err").read_text())
+        # The owner unmarks the seat's reviewers while its run is in flight.
+        seat_file = home.path / ".agentkit/state/session-acme.json"
+        home.write(seat_file.relative_to(home.path),
+                   {**json.loads(seat_file.read_text()), "reviewers": []})
+        release.write_text("")
+        self.assertEqual(proc.wait(300), 0, home.log("spawn-1.err").read_text())
+
+        runs = taskfile.runs(home)
+        self.assertEqual(len(runs), 2, runs)
+        parent_dir, fix_dir = runs
+        parent = json.loads((parent_dir / "run.json").read_text())
+        self.assertEqual(parent.get("followup_runs"), [fix_dir.name])
+
+        deadline = time.monotonic() + 300
+        fix = {}
+        while time.monotonic() < deadline:
+            fix = json.loads((fix_dir / "run.json").read_text())
+            if fix.get("finished_at") is not None and not alive(fix.get("pid")):
+                break
+            time.sleep(0.1)
+        self.assertEqual((fix.get("verdict"), fix.get("merged")), ("PASS", True), fix)
+        self.assertEqual((fix.get("workers"), fix.get("reviewers"), fix.get("reviewer")),
+                         (["opus"], [], None))
+        self.assertEqual([turn["role"] for turn in fakes["claude"].runs()], ["executor", "executor"])
+        self.assertEqual(fakes["codex"].n, 1)
+        self.assertIn("sturdy.txt", rig.files())
+        self.assertIn("no review", (fix_dir / "result.md").read_text().splitlines())
+        with contextlib.closing(sqlite3.connect(home.path / ".agentkit/history.db")) as db:
+            row = db.execute("SELECT no_review, rounds_used FROM runs WHERE run_id=?",
+                             (fix_dir.name,)).fetchone()
+            self.assertEqual(row, (1, 0))
 
 
 if __name__ == "__main__":
