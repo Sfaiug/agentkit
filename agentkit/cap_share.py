@@ -1,12 +1,12 @@
 """What a point of a model's own cap takes from its login's shared week: it hides how the share is
 read off the kept readings.
 
-A probe reads a login's shared week and its scoped cap together, both in whole points, so each end
-of a stretch between two readings is off by up to half a point.  Across any two readings of one
-login on a plan with no reading between them where either meter fell, a cap rise `f` above 1 beside
-a week rise `a` bounds the share from above by `(a + 1) / (f - 1)`: any other model that ran only
-added to `a`, and rounding can only raise the ceiling.  The least ceiling over every stretch of
-every login on the plan is the share.
+A reading holds a login's shared week and its scoped cap at one moment, both in whole points, so
+each end of a stretch between two readings is off by up to half a point.  Across any two readings
+of one login on a plan with no reading between them where either meter fell, a cap rise `f` above
+1 beside a week rise `a` bounds the share from above by `(a + 1) / (f - 1)`: any other model that
+ran only added to `a`, and rounding can only raise the ceiling.  The least ceiling over every
+stretch of every login on the plan is the share.
 """
 
 from contextlib import closing
@@ -40,7 +40,7 @@ def of(provider, plan, scope):
                 return None
             rows = db.execute(
                 "SELECT account, meter, used, at, scope FROM meter_readings "
-                "WHERE provider = ? AND plan = ? AND source = 'probe' "
+                "WHERE provider = ? AND plan = ? "
                 "AND (scope IS NULL OR scope = ?) "
                 "AND typeof(used) IN ('integer', 'real') AND used >= 0 AND used <= 100 "
                 "AND typeof(at) IN ('integer', 'real') "

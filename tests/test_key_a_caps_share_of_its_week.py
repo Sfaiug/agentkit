@@ -42,15 +42,15 @@ class ACapsShareOfItsWeek(unittest.TestCase):
                                   for account in ("default", "second")}}}})
         self.rows = []
 
-    def pair(self, step, week, cap, *, plan="Max", account="default"):
-        """One probe reading of both the login's shared week and Anvil's cap at `step`."""
-        self.one(step, "weekly", week, plan=plan, account=account, scope=None)
-        self.one(step, "weekly_cap", cap, plan=plan, account=account, scope="Anvil")
+    def pair(self, step, week, cap, *, plan="Max", account="default", source="probe"):
+        """One reading of both the login's shared week and Anvil's cap at `step`."""
+        self.one(step, "weekly", week, plan=plan, account=account, scope=None, source=source)
+        self.one(step, "weekly_cap", cap, plan=plan, account=account, scope="Anvil", source=source)
 
-    def one(self, step, meter, used, *, plan="Max", account="default", scope=None):
-        """One probe row of `meter` at `step`."""
+    def one(self, step, meter, used, *, plan="Max", account="default", scope=None, source="probe"):
+        """One row of `meter` at `step`."""
         self.rows.append(("acme", account, meter, used, NOW + DAY, 7 * DAY,
-                          NOW - (100 - step) * HOUR, "probe", plan, scope))
+                          NOW - (100 - step) * HOUR, source, plan, scope))
 
     def share(self, plan, scope="Anvil"):
         """`cap_share.of('acme', plan, scope)` against a read-only history.db holding `self.rows`."""
@@ -80,9 +80,10 @@ class ACapsShareOfItsWeek(unittest.TestCase):
         self.assertEqual(self.share("Max"), 29 / 56)
 
     def test_no_stretch_crosses_a_reading_where_a_meter_fell(self):
-        # week and cap both fall at step 2; crossing step 0 -> step 3 would give 11/44
-        for step, (week, cap) in enumerate(((50, 0), (70, 10), (20, 5), (60, 45))):
-            self.pair(step, week, cap, plan="Max")
+        # week and cap both fall at step 2 (kept by a turn); crossing step 0 -> step 3 gives 11/44
+        for step, (week, cap, source) in enumerate((
+                (50, 0, "probe"), (70, 10, "probe"), (20, 5, "turn"), (60, 45, "probe"))):
+            self.pair(step, week, cap, plan="Max", source=source)
         # only the cap falls at step 2; crossing step 0 -> step 3 would give 11/20 < 11/19
         for step, (week, cap) in enumerate(((0, 0), (10, 20), (10, 19), (10, 21))):
             self.pair(step, week, cap, plan="Pro", account="second")
@@ -96,8 +97,8 @@ class ACapsShareOfItsWeek(unittest.TestCase):
     def test_the_least_over_a_plans_logins_wins_and_another_plan_changes_nothing(self):
         self.pair(1, 0, 0, plan="Max", account="default")
         self.pair(2, 10, 10, plan="Max", account="default")
-        self.pair(1, 5, 10, plan="Max", account="second")
-        self.pair(2, 19, 40, plan="Max", account="second")
+        self.pair(1, 5, 10, plan="Max", account="second", source="turn")
+        self.pair(2, 19, 40, plan="Max", account="second", source="turn")
         self.pair(3, 0, 0, plan="Pro", account="default")
         self.pair(4, 0, 50, plan="Pro", account="default")
         self.assertEqual(self.share("Max"), 15 / 29)
