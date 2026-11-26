@@ -253,7 +253,7 @@ class EffortCells(unittest.TestCase):
                  "efforts": {"opus": {"exec_effort": "very_retired_word"}}}
         with patch.object(menu, "effort_levels", side_effect=lambda entry, _c: taken[entry["model"]]), \
                 patch.object(terminal, "utf8", return_value=True):
-            for room in (100, 40):
+            for room in (100, 50, 40):
                 with patch.object(terminal, "layout_width", return_value=room):
                     a, _ = menu.config_body(cfg, selected=clean, rows=())
                     b, _ = menu.config_body(cfg, selected=unseen, rows=())

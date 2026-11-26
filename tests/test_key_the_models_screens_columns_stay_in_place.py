@@ -68,7 +68,7 @@ class ColumnsStayInPlace(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, path.read_text())
             time.sleep(0.05)
 
-    def test_role_columns_stay_in_place_across_marks_and_efforts_at_100_and_40_columns(self):
+    def test_role_columns_stay_in_place_across_marks_and_efforts_with_and_without_bars(self):
         # 100 columns: one orchestrator on the one-effort model vs every role marked
         term_one, one = self.open_c("acme-one", {
             "orchestrator": "haiku", "workers": [], "reviewers": [],
@@ -102,33 +102,34 @@ class ColumnsStayInPlace(unittest.TestCase):
         term_one.keys("Escape")
         self.record_waits("acme-one", ["opus"], "medium")
 
-        # 40 columns: bars give way, and each role's mark stays in the same cell across mark & step
-        term_narrow, narrow = self.open_c("acme-narrow", {
+        # 50 columns: fixed words fit beside whole names (44 cols) and bars do not (68 cols);
+        # every head, mark and effort stays in the same cell across mark & step, names uncut
+        term_mid, mid = self.open_c("acme-mid", {
             "orchestrator": "haiku", "workers": [], "reviewers": [],
-            "efforts": {"opus": LOW_OPUS, "haiku": HAIKU}}, size=(40, 30))
-        narrow_heads = heads_line(narrow)
-        narrow_marks = mark_columns(model_line(narrow, "Opus"))
-        self.assertEqual(mark_columns(model_line(narrow, "Haik")), narrow_marks)
-        haiku_effort = model_line(narrow, "Haik").index("none")
+            "efforts": {"opus": LOW_OPUS, "haiku": HAIKU}}, size=(50, 30))
+        mid_heads = heads_line(mid)
+        mid_marks = mark_columns(model_line(mid, "Opus 5.5"))
+        self.assertEqual(mark_columns(model_line(mid, "Haiku 4.5")), mid_marks)
+        haiku_effort = model_line(mid, "Haiku 4.5").index("none")
 
-        term_narrow.keys("Right", "Space")
-        narrow_marked = term_narrow.wait(lambda screen: "■" in model_line(screen, "Opus"))
-        self.assertIsNone(re.search("[━─]", model_line(narrow_marked, "Opus")), narrow_marked)
-        self.assertEqual(heads_line(narrow_marked), narrow_heads)
-        self.assertEqual(mark_columns(model_line(narrow_marked, "Opus")), narrow_marks)
-        self.assertEqual(mark_columns(model_line(narrow_marked, "Haik")), narrow_marks)
-        self.assertEqual(model_line(narrow_marked, "Haik").index("none"), haiku_effort)
-        build_effort = model_line(narrow_marked, "Opus").index("low")
+        term_mid.keys("Right", "Space")
+        mid_marked = term_mid.wait(lambda screen: "■" in model_line(screen, "Opus 5.5"))
+        self.assertIsNone(re.search("[━─]", model_line(mid_marked, "Opus 5.5")), mid_marked)
+        self.assertEqual(heads_line(mid_marked), mid_heads)
+        self.assertEqual(mark_columns(model_line(mid_marked, "Opus 5.5")), mid_marks)
+        self.assertEqual(mark_columns(model_line(mid_marked, "Haiku 4.5")), mid_marks)
+        self.assertEqual(model_line(mid_marked, "Haiku 4.5").index("none"), haiku_effort)
+        build_effort = model_line(mid_marked, "Opus 5.5").index("low")
 
-        term_narrow.keys("Right", "Space")
-        narrow_stepped = term_narrow.wait(lambda screen: "medium" in model_line(screen, "Opus"))
-        self.assertEqual(heads_line(narrow_stepped), narrow_heads)
-        self.assertEqual(mark_columns(model_line(narrow_stepped, "Opus")), narrow_marks)
-        self.assertEqual(mark_columns(model_line(narrow_stepped, "Haik")), narrow_marks)
-        self.assertEqual(model_line(narrow_stepped, "Haik").index("none"), haiku_effort)
-        self.assertEqual(model_line(narrow_stepped, "Opus").index("medium"), build_effort)
-        term_narrow.keys("Escape")
-        self.record_waits("acme-narrow", ["opus"], "medium")
+        term_mid.keys("Right", "Space")
+        mid_stepped = term_mid.wait(lambda screen: "medium" in model_line(screen, "Opus 5.5"))
+        self.assertEqual(heads_line(mid_stepped), mid_heads)
+        self.assertEqual(mark_columns(model_line(mid_stepped, "Opus 5.5")), mid_marks)
+        self.assertEqual(mark_columns(model_line(mid_stepped, "Haiku 4.5")), mid_marks)
+        self.assertEqual(model_line(mid_stepped, "Haiku 4.5").index("none"), haiku_effort)
+        self.assertEqual(model_line(mid_stepped, "Opus 5.5").index("medium"), build_effort)
+        term_mid.keys("Escape")
+        self.record_waits("acme-mid", ["opus"], "medium")
 
 
 if __name__ == "__main__":

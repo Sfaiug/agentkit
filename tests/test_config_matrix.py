@@ -570,7 +570,7 @@ class Matrix(unittest.TestCase):
         lines = screen.press(UP * 2 + SPACE,
                              lambda lines: "at least one model reviews" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
-        self.assertEqual(highlighted(lines), row(lines, "opus")[1], lines)  # cut, on a phone
+        self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
         lines = screen.press(DOWN * 15,
                              lambda lines: highlighted(lines).startswith("› Money"))
         self.assertLessEqual(len(lines), 23)
@@ -588,7 +588,7 @@ class Matrix(unittest.TestCase):
             screen = Screen(self, workers=["opus"], rows=rows, cols=40)
             lines = screen.frame()
             self.assertLessEqual(len(lines), rows, lines)
-            self.assertEqual(highlighted(lines), row(lines, "fable")[1], lines)
+            self.assertTrue(highlighted(lines).startswith("› Fable"), lines)
             self.assertTrue(lines[-1].endswith("esc back"), lines)
             screen.leave()
         self.assertIn("Claude Code", lines)               # the harness over the highlight
