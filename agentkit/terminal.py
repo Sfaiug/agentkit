@@ -1616,6 +1616,19 @@ def counting(word, done, total):
              f"\033[2;1H{_cleared(rule_line(filled=done / total))}\0338")
 
 
+def doing(job, titled=True):
+    """The screen up again as its last draw made it, at rest -- nothing part way through coming
+    up, growing or breathing -- and nothing read anew, its header naming `job`, which its
+    program does now with no key read, as `counting` names a count: in its own header's place,
+    or on a row above its first where it was drawn with none (not `titled`).  Each row is
+    addressed, as `counting` writes its two: a header above a screen that left only its last
+    row free fills that row, and no newline under it scrolls the header away."""
+    rows = on_screen()
+    lines = [header_line(job, time.strftime("%H:%M")), *(rows[1:] if titled else rows)]
+    over("".join(f"\033[{row};1H{_cleared(line)}" for row, line in _starts(lines).items())
+         + (f"\033[{len(lines) + 1};1H\033[J" if len(lines) < height() else ""))
+
+
 def _cleared(line):
     """`line`, then its row's tail cleared, so no cell that is text before and after is ever blank
     between.  A line ending on the last column gets no clear: it leaves the cursor on that column,

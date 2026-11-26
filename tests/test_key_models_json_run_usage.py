@@ -144,6 +144,16 @@ class ModelsJsonRunUsage(WeekMeters):
             "provider, account, meter, used, resets_at, window_secs, at, source, "
             "PRIMARY KEY (provider, account, meter, at)")}), EMPTY)
 
+    def test_a_login_no_longer_configured_values_its_builds_under_its_plan(self):
+        # removed acme login: 10 points for 100,000 tokens -> 100 pts/M; both builds rated
+        self.read(50, 10, account="removed")
+        self.turn(45, (100_000, 0, 0, 0), account="removed", run_id="fix-api", role="executor")
+        self.read(40, 20, account="removed")
+        self.turn(35, (50_000, 0, 0, 0), account="removed", run_id="fix-docs", role="executor")
+        self.assertEqual(self.usage(), {
+            "executor": {"points": {"acme": {"Max": 15}}, "unrated": 0},
+            "reviewer": {"points": {}, "unrated": 0}})
+
 
 if __name__ == "__main__":
     unittest.main()

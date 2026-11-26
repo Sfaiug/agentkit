@@ -1,8 +1,8 @@
 """`ak lease`: one turn creating the lease on ak's remote where the remote holds none, and
 swapping a new value in where it holds this machine's own.  This hides where the lease is, how it
 is read and written, what a machine keeps of the values it made, whether the lease is its own
-(`ours`), and what a standby keeps of the value it reads and when it sends a swap of its own
-(`watch`).
+(`ours`), and what a machine watching another's lease keeps of the value it reads and when it
+sends a standby's swap of its own or a still home's removal of the lease (`watch`).
 
 The lease says which machine is ak's home: `REF` in the repository at the push address of ak's
 checkout.  It changes only by compare-and-swap, so two machines never both create it and a swap
@@ -47,9 +47,9 @@ MADE = "refs/made/"
 # all, so no pass meets a set of them to make consistent.
 SEEN = "refs/seen"
 REMOTE = 45     # seconds for each call that reaches the remote
-# How long a standby reads one lease unchanged, by the younger of its clocks, before its watch
-# sends a swap: twice `pause.STALE`, so its home has stood still a while by then.  A number, as
-# `pause` imports this module.
+# How long a watch reads one lease unchanged, by the younger of its clocks, before it sends a
+# standby's swap or a home's removal: twice `pause.STALE`, so the machine whose lease it is has
+# stood still a while by then.  A number, as `pause` imports this module.
 STILL = 20 * 60
 VALUE = rb"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})"
 # One address, of printable bytes without a space, that is no option: the one string git
@@ -157,25 +157,41 @@ def _unlinked(git, name):
     return False
 
 
-def watch(takes):
-    """A standby's watch of the lease its home holds, at each pass: SEEN at a commit made here
-    whose message is the value read and the stamp of the pass that first read it (`_seen`), the
-    lease read as a turn reads it, under its lock.  A value SEEN holds with a stamp of this boot
-    leaves it as it is, and once that stamp is STILL old by `age_at_least`, where `takes` says this
-    machine may take the lease, a swap from it is sent as a turn sends one (`_swap`), its value
-    kept for this pass's stamp where no ref holds the name; any other value read puts it at a
-    commit of that value and this pass's stamp, as a stamp of another boot counts for nothing;
+def _taken(git, address, read, stamp):
+    """A standby's swap from `read`, as a turn sends one (`_swap`), its value kept for `stamp`
+    where no ref holds the name."""
+    if _unlinked(git, _named(stamp)):
+        _swap(git, address, read, stamp)
+
+
+def removal(git, address, read, _stamp):
+    """The lease at `address` removed as a swap from `read`, by `git` in the lease's repository: a
+    home's in a standby's swap's place, which makes no value and keeps none, so the next turn
+    finds the remote holding no lease and creates one, as a home does.  Its exit is not read, as
+    the next read says what the remote holds."""
+    git("push", address, f":{REF}", f"--force-with-lease={REF}:{read.decode()}",
+        timeout=REMOTE, check=False)
+
+
+def watch(takes, sends=_taken):
+    """A watch of the lease another machine holds, a standby's or a home's that keeps no value, at
+    each pass: SEEN at a commit made here whose message is the value read and the stamp of the
+    pass that first read it (`_seen`), the lease read as a turn reads it, under its lock.  A value
+    SEEN holds with a stamp of this boot leaves it as it is, and once that stamp is STILL old by
+    `age_at_least`, where `takes` says this machine may take the lease, `sends` is sent from it
+    with this pass's stamp, a standby's swap (`_taken`) unless named; any other value read puts it
+    at a commit of that value and this pass's stamp, as a stamp of another boot counts for nothing;
     whatever else is met once the lock is held, no lease among it, removes it.  Each is one
     update-ref of SEEN at most, which git does whole or not at all, and what it refused stays as it
     was: a home writes no value twice, so a record of an older value matches no later read.  Where
     another turn holds the lock, or the lease's folder cannot be made or opened, none of them.
-    Nothing is fetched from the remote, nor written to it but that swap, and whatever the watch
-    meets is dropped unsaid."""
+    Nothing is fetched from the remote, nor written to it but what `sends` sends, and whatever the
+    watch meets is dropped unsaid."""
     with contextlib.suppress(Exception):
-        _locked(lambda: _watched(takes))
+        _locked(lambda: _watched(takes, sends))
 
 
-def _watched(takes):
+def _watched(takes, sends):
     """The watch, with no turn under way."""
     env, made = {}, None
     try:
@@ -186,12 +202,12 @@ def _watched(takes):
         stamp = pair_clock.now()
         seen = read and _seen(git)
         if seen and seen[0] == read and seen[1].boot == stamp.boot:
-            # The record stays, whatever the swap meets: the next pass reads what the remote
+            # The record stays, whatever what is sent meets: the next pass reads what the remote
             # holds.  Nothing the repository lacks is fetched, as for `_seen`.
             with contextlib.suppress(Exception):
                 git = functools.partial(git, env={**env, "GIT_NO_LAZY_FETCH": "1"})
-                if takes and seen[1].age_at_least() >= STILL and _unlinked(git, _named(stamp)):
-                    _swap(git, address, read, stamp)
+                if takes and seen[1].age_at_least() >= STILL:
+                    sends(git, address, read, stamp)
             return
         if read:
             made = git("commit-tree", git("mktree").strip(), "-m", _message(read, stamp),

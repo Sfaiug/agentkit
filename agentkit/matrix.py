@@ -736,7 +736,7 @@ def main(argv):
     if "--json" in flags:
         until = time.time()
         since = until - ledger.WINDOW
-        meters = week_meters.shared_weeks(cfg)
+        meters = week_meters.shared_weeks(cfg, since, until)
         days = week_meters.days(cfg, since, until, meters=meters)
         fits = rates.fitted(days)
         by_run = week_meters.run_usage(cfg, since, until, fits, meters=meters)

@@ -47,10 +47,10 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, hand_back,
-               handback, history, host, lease, login_refusals, logins, look, notify, orch, owner,
-               parsed, pause, questions, seat_tokens, staffing, standby, statusbar, step_down,
-               transitions, turns, update, usage, versions, worker)
+from . import (aside_editor, box, browser, change_rules, command_help, config, front, gc, gitcall,
+               hand_back, handback, history, host, lease, login_refusals, logins, look, notify,
+               orch, owner, parsed, pause, questions, seat_tokens, staffing, standby, statusbar,
+               step_down, transitions, turns, update, usage, versions, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
@@ -8600,8 +8600,7 @@ def after_merge_revert(statuses, probes, key, now, dry_run, log):
     if code:
         log(f"WARN cannot inspect run {directory.name}'s release for a revert: {paths}")
         return None
-    if any({"migrations", "alembic"} & set(Path(path).parts) or Path(path).suffix.lower() == ".sql"
-           for path in paths.split("\0") if path):
+    if any(map(change_rules.schema, filter(None, paths.split("\0")))):
         return release, REVERT_SCHEMA
     code, parents = gitcall.git_out(st["repo"], "rev-list", "--parents", "-n", "1", sha)
     if code:
@@ -9220,8 +9219,14 @@ def main(argv):
             with suppress(Exception):
                 lease._turn()
         # ... and one that has not known for long that it is the home stands still, none of the
-        # tick's work done, and becomes the client of a machine that says it is home
+        # tick's work done, and becomes the client of a machine that says it is home.  One keeping
+        # no value watches the lease it read as a standby does, and removes it once it has stood
+        # still `lease.STILL`, as the machine holding it may have stopped for good: the next
+        # firing's turn creates the lease as a home does.  One with a proof holds the lease or is
+        # giving it back, and watches nothing.
         if pause.paused():
+            if lease.proof_age() is None:
+                lease.watch(True, lease.removal)
             step_down.where_another_is_home()
             return 0
         try:

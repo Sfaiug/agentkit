@@ -1,5 +1,6 @@
 """Scope and rule refusals, shared by the round loop and a worker's hand-in."""
 
+from pathlib import PurePosixPath
 import re
 
 from . import config, gitcall
@@ -28,6 +29,14 @@ BODY_WORDS = 300
 # text the base's `content:` names grows freely.
 PROSE = (".md", ".markdown", ".mdx", ".rst", ".adoc")
 README_WORDS = 300
+
+
+def schema(path):
+    """Does `path` change a database's schema, which putting code back cannot undo: a part
+    `migrations` or `alembic`, or the suffix `.sql` in any case?  ak reverts no release naming one
+    (`watch.after_merge_revert`), so no change naming one lands as looks alone (`looks_alone`)."""
+    path = PurePosixPath(path)
+    return bool({"migrations", "alembic"} & {*path.parts}) or path.suffix.lower() == ".sql"
 
 
 # An answer key: a black-box test of the program from outside, which a port to another language
