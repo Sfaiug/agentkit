@@ -356,14 +356,17 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   chosen=${installed:-$offered}
   if [ "$TTY" = 1 ] && [ -z "$installed" ] && [ -n "$offered" ]; then
     read -r -p "Which subscription do you have ($names, or all)? [all] " answer || answer=""
-    # `read` trims the answer, and case folds as ASCII: a Turkish locale folds I to no i
+    # `read` trims the answer, and case folds as ASCII: a Turkish locale folds I to no i.  A
+    # subscription's name is matched as typed; a program's, and `all`, with every space
+    # removed, as they always were.
     answer=$(printf '%s' "$answer" | LC_ALL=C tr '[:upper:]' '[:lower:]')
-    case "$answer" in
+    program=${answer//[[:space:]]/}
+    case "$program" in
       ""|all) ;;
       *) chosen=""
          for each in $(printf '%s' "$offered" | LC_ALL=C tr '[:upper:]' '[:lower:]'); do
            IFS=: read -r name bin _ <<<"$each"
-           case "$answer" in "$name"|"$bin") chosen=$each ;; esac
+           if [ "$answer" = "$name" ] || [ "$program" = "$bin" ]; then chosen=$each; fi
          done
          [ -n "$chosen" ] ||
            note "'$answer' is not one of: $names, or all; installing nothing -- run ./install.sh again to choose" ;;

@@ -201,10 +201,10 @@ class InstallQuestion(unittest.TestCase):
         proc = self.run_harnesses(tty=1, answer="grok\n")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(self.calls(), ["grokbuild install", "grokbuild login"])
-        # The answer is read forgivingly: case and surrounding whitespace do not
-        # change which harness it names.
+        # The answer is read forgivingly: case and whitespace, even inside a
+        # program's name, do not change which harness it names.
         self.log.unlink()
-        proc = self.run_harnesses(tty=1, answer="  Codex\t\n")
+        proc = self.run_harnesses(tty=1, answer="  Co dex\t\n")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(self.calls(), ["codex install", "codex login"])
 
