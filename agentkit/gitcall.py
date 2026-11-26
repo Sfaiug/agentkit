@@ -482,6 +482,13 @@ def declared_suite(wt, target=None, *, ref=None):
     return suite or None
 
 
+def suite_commands(suite):
+    """The declared suite with and without its output plumbing, whitespace folded."""
+    if not suite:
+        return set()
+    return {" ".join(cmd.split()) for cmd in (suite, first_command(suite)) if cmd.strip()}
+
+
 def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
     """Task checks, plus the declared `tests:` suite as a `# once` line when landing.
 
@@ -498,10 +505,7 @@ def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
     suite = declared_suite(wt, target, ref=ref)
     if not suite:
         return cmds
-    targets = {" ".join(suite.split())}
-    first = " ".join(first_command(suite).split())
-    if first:
-        targets.add(first)
+    targets = suite_commands(suite)
     kept = []
     for cmd in cmds:
         bare, once = taskfile.split_once(cmd)

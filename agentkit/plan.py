@@ -269,10 +269,10 @@ def verifying(name, wait=True):
 
 
 @contextmanager
-def default_branch(repo, at=None):
+def default_branch(repo):
     """(its commit as `<sha12> <subject>`, the environment a check runs in, `checkout`): the
-    project's current default branch, fetched first -- or, with `at`, that commit, the one a
-    line's check was proven failing on.  `checkout()` is a clean checkout of that commit made
+    project's current default branch, fetched first.  `checkout()` is a clean checkout of
+    that commit (or the line's recorded commit when given one) made
     for one check and removed after it, so nothing one check writes or moves -- files, HEAD, a
     submodule -- is there for the next.  It sits beside runs' checkouts in `config.WT`, as
     the landing line's do: ak's history counts a repository under `.agentkit/tmp` as a test
@@ -297,16 +297,16 @@ def default_branch(repo, at=None):
     git("fetch", "-q", "origin")
     git("remote", "set-head", "origin", "--auto")
     base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-    sha = git("rev-parse", "--verify", f"{at or base}^{{commit}}")
+    sha = git("rev-parse", "--verify", f"{base}^{{commit}}")
     commit = git("log", "-1", "--format=%h %s", "--abbrev=12", sha)
-    config.WT.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
-    def checkout():
+    def checkout(at=sha):
+        config.WT.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=config.WT, prefix="plan-") as tmp:
             tree = Path(tmp) / "main"
             try:
-                git("worktree", "add", "--detach", str(tree), sha)
+                git("worktree", "add", "--detach", str(tree), at)
                 yield tree
             finally:
                 if tree.exists():
@@ -349,12 +349,17 @@ def fails(tree, cmd, env):
     return proc.returncode != 0
 
 
-def fails_on_main(repo, cmd, at=None):
-    """(Whether `cmd` fails on a clean checkout of the project's default branch, or of commit
-    `at`, that checkout's root commit, its commit): the repository a line names is the one
-    its check ran in, and the commit the one it failed on."""
-    with default_branch(repo, at) as (commit, env, checkout), checkout() as tree:
-        return fails(tree, cmd, env), root(tree), commit.split()[0]
+@contextmanager
+def focused_check(repo, check):
+    with default_branch(repo) as (commit, env, checkout):
+        base = commit.split()[0]
+        # declared_at overlays its environment, so explicitly drop variables git_env removed.
+        overrides = {**dict.fromkeys(os.environ.keys() - env.keys()), **env}
+        suite = gitcall.declared_at(repo, base, "tests", env=overrides)
+        if " ".join(check.split()) in gitcall.suite_commands(suite):
+            raise config.Error(f"this check is {repo.name}'s whole-suite `tests:` command, which "
+                               "ak runs on every PR. Write a focused check for this deliverable instead.")
+        yield base, env, checkout
 
 
 # a list line with a box, however it is spelled: `- [ ]`, `* [X]`, `1.  [done]` -- any
@@ -635,7 +640,8 @@ def add(name, what, check, repo=None):
     from . import retire
     retire.vet_check(repo, check)
     passed = None
-    failing, found, base = fails_on_main(repo, check)
+    with focused_check(repo, check) as (base, env, checkout), checkout() as tree:
+        failing, found = fails(tree, check, env), root(tree)
     if not failing:
         # The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, work done
         # there proves itself, so a check already passing is written done on that commit
@@ -725,13 +731,15 @@ def recheck(name, number, check):
     repo = place(name, found["project"])
     if repo:
         holds_checkout(check, repo)
-    if found["base"]:
-        if not repo:
-            raise config.Error(f"this host has no checkout of {found['project']}")
-        if not fails_on_main(repo, check, found["base"])[0]:
-            raise config.Error(f"this check already passes on {found['base']}, the commit line "
-                               f"{number} names, so it proves nothing; write one that fails "
-                               "until the work is done")
+        with focused_check(repo, check) as (_, env, checkout):
+            if found["base"]:
+                with checkout(found["base"]) as tree:
+                    if not fails(tree, check, env):
+                        raise config.Error(f"this check already passes on {found['base']}, the commit "
+                                           f"line {number} names, so it proves nothing; write one "
+                                           "that fails until the work is done")
+    elif found["base"]:
+        raise config.Error(f"this host has no checkout of {found['project']}")
     # the line as it reads, open, the seat's own, with only its check changed
     new = compose(found["what"], f"check: `{check}`", found["project"], found["when"], found["base"])
     with held(name) as current:

@@ -74,7 +74,7 @@ class PlanAddRefusals(unittest.TestCase):
         self.assertFalse((self.home.path / "ran").exists())
 
     def test_a_check_that_already_passes_on_the_default_branch_proves_nothing(self):
-        for check in ("true", "test -f done.txt", "touch made.txt"):
+        for check in ("exit 0", "test -f done.txt", "touch made.txt"):
             with self.subTest(check=check):
                 self.assertEqual(self.refused("the work is done", check), PASSES)
         # it ran in a checkout of its own, never in the seat's
