@@ -38,7 +38,7 @@ HEADING = "What your tasks of each size took, for every 100 lines that went live
 TABLE = ["lines    tasks  went live  building  reviewing  own tests  waiting  usage",
          "1–100       20        80%     5.0 h      2.5 h      1.2 h   10.0 h      -",
          "101–200     19",
-         "301–400     20         0%"]
+         "301–400     20         0%                                               -"]
 FOLDED_HEADING = ["What your tasks of each size took, for",
                   "every 100 lines that went live · last",
                   "30 days"]
@@ -48,7 +48,7 @@ FOLDED = ["1–100  20 tasks",
           "  waiting 10.0 h  usage -",
           "101–200  19 tasks",
           "301–400  20 tasks  over",
-          "  went live 0%"]
+          "  went live 0%  usage -"]
 
 
 def over(table):
@@ -56,9 +56,10 @@ def over(table):
     return [*table[:3], f"{table[3]:<{len(table[0]) + 2}}over"]
 
 
-def with_usage(table, text):
-    """`table` with 1–100's `usage` cell reading `text`."""
-    return [table[0], table[1][:-len(text)] + text, *table[2:]]
+def with_usage(table, text, last=None):
+    """`table` with 1–100's `usage` cell reading `text`, and 301–400's `last` when given."""
+    row3 = table[3].rstrip(" -") if last == "" else table[3]
+    return [table[0], table[1][:-len(text)] + text, table[2], row3]
 
 
 def drawn(body, heading=(HEADING,)):
@@ -157,14 +158,14 @@ class SizeTable(unittest.TestCase):
         self.assertFalse(wider(term, 40))
 
     def test_usage_of_two_roles_on_priced_plans_reads_money_for_every_100_lines_live(self):
-        open_used(self, 300).wait(drawn(over(with_usage(TABLE, "$3.69"))))
+        open_used(self, 300).wait(drawn(over(with_usage(TABLE, "$3.69", last=""))))
 
     def test_a_plan_with_no_price_reads_a_dash(self):
         # ChatGPT Pro has no euro price, so 1–100's usage reads a dash even beside priced Max 20x
-        open_used(self, 300, currency="EUR").wait(drawn(over(TABLE)))
+        open_used(self, 300, currency="EUR").wait(drawn(over(with_usage(TABLE, "-", last=""))))
 
     def test_the_folded_layout_names_usage(self):
-        folded = [*FOLDED[:3], "  waiting 10.0 h  usage $3.69", *FOLDED[4:]]
+        folded = [*FOLDED[:3], "  waiting 10.0 h  usage $3.69", *FOLDED[4:6], "  went live 0%"]
         term = open_used(self, 200, size=(40, 50))
         term.wait(drawn(folded, FOLDED_HEADING))
         self.assertFalse(wider(term, 40))

@@ -51,7 +51,7 @@ def lines(sizes, limit, width, paid):
 
 def _shown(row, paid):
     """The numbers `row` shows, by column, each written once: none for a few tasks or an hour no
-    finite number of zero or more; else the share that went live, a whole percent, and with a line
+    finite number of zero or more; else the share that went live, a whole percent, with a line
     live each part's hours for every 100 lines live, the exact quotient rounded half to even to a
     tenth and in plain digits whatever its size, and what its tasks took in all three roles
     together for every 100 lines live as money (`own.took`), `-` with no points or an unpriced
@@ -64,7 +64,8 @@ def _shown(row, paid):
         for name, part in PARTS.items():
             tenths = round(Fraction(hours[part]) * 1000 / Fraction(live))
             shown[name] = f"{tenths // 10}.{tenths % 10} h"
-        shown["usage"] = own.took(row, ledger.ROLES, paid, per=Fraction(live, 100), share=False)
+    if cell := own.took(row, ledger.ROLES, paid, per=Fraction(live, 100), share=False):
+        shown["usage"] = cell
     return shown
 
 

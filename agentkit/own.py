@@ -155,8 +155,8 @@ def took(row, role, paid, *, per=None, share=True):
     `role` (one role or several) per `per` (`row["live"]` when omitted), each plan's points (100
     one login's week on it) at its price a month in `paid` (`money.month`'s), a week 12/52 of a
     month; with `share`, the points summed beside it, and the share alone where a plan has no
-    price, else `-` there; `-` where it took no points: each from its exact value (`fixed`), the
-    points' Fractions and the price as written."""
+    price, else `-` there; `-` where it took no points; `""` where it would divide by zero: each
+    from its exact value (`fixed`), the points' Fractions and the price as written."""
     roles = (role,) if isinstance(role, str) else role
     priced = [(points, paid["month"].get(provider, {}).get(plan))
               for one in roles
@@ -165,10 +165,14 @@ def took(row, role, paid, *, per=None, share=True):
     if not priced:
         return "-"
     divisor = row["live"] if per is None else per
+    if not share and any(price is None for _, price in priced):
+        return "-"
+    if divisor <= 0:
+        return ""
     said = (f"{fixed(sum(points for points, _ in priced) / divisor, 1)}% of a week"
             if share else None)
     if any(price is None for _, price in priced):
-        return said or "-"
+        return said
     cost = (sum(points * Fraction(str(price)) for points, price in priced)
             / divisor / 100 * 12 / 52)
     text = f"{usage.SIGNS[paid['currency']]}{fixed(cost, 2)}"
