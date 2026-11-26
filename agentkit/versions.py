@@ -196,9 +196,13 @@ def unpinned(env):
 def pinned(state):
     """The `ak_checkout` `state` keeps, if any: a run that ended in `error` has no process left
     that depends on its version, so resuming it runs the installed ak, as does one ended for
-    rescoping, so that the installed ak's refusal holds for it whichever version ended it."""
-    from . import transitions     # here, not at the top: every command starts in this module
+    rescoping, so that the installed ak's refusal holds for it whichever version ended it, and
+    one delivering the line's green verdict until its slot admits it on the installed ak
+    (`run.run_slot`), as its landing is the installed ak's (`land.start_line`): a verdict an
+    older lander saved it is the installed ak's to refuse."""
+    from . import land, transitions  # here, not at the top: every command starts in this module
     if not state or state.get("state") == "error" or transitions.rescoped(state) or (
+            state.get("state") != "running" and land.green_delivery(state.get("waiting_on") or {})) or (
             state.get("state") == "queued" and state.get("resume_from") == "error"):
         return None
     return state.get("ak_checkout")
@@ -222,7 +226,7 @@ def dispatch(argv):
         # one decides, and its slot enters that version for the work (`run.run_slot`)
         in_flight = (argv[1] == "resume" and state.get("state") in record.ACTIVE
                      and os.environ.get(config.RUN_DIR_ENV) != str(run_dir))
-        if code := (state.get("ak_checkout") if argv[1] == "merge" else not in_flight and pinned(state)):
+        if code := not in_flight and pinned(state):
             with checkout(code) as path:
                 enter(path)
         elif (argv[1] == "resume" and state

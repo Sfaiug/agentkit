@@ -1000,7 +1000,7 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
     log_path = run_dir / "log.txt"
     # on the install, whoever starts it: a run's own process runs the version it was admitted
     # on, and a launch from there would wait, pick up and be admitted by that version's rules;
-    # `resume` (unless the run ended in `error`) and `merge` go back to the run's own version
+    # `resume` and `merge` go back to the run's own version where `versions.pinned` keeps it
     # (`versions.dispatch`)
     env = dict(versions.unpinned(os.environ), **{config.RUN_DIR_ENV: str(run_dir)})
     child = ([sys.executable, str(versions.live() / "bin" / "ak"), "run"]

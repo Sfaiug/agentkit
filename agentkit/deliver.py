@@ -906,6 +906,10 @@ def rejoin_line(lp, upstream, reason):
 def land_from_line(lp, upstream, deliver):
     """Consume the lander's verdict in this run; only delivery holds the plain merge flock."""
     wait = lp.state["waiting_on"]
+    if wait.get("looks") and lp.state["review"].get("no_review"):
+        # saved by a lander from before `land.check_line` kept such a PASS off that lane
+        return rejoin_line(lp, upstream, "its PASS took no review, so it lands through the "
+                                         "whole suite, not as looks alone")
     if landing.green_delivery(wait):
         turn = turn_path(lp, upstream)
         try:
