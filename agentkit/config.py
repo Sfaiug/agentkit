@@ -1380,6 +1380,17 @@ def efforts_of(entry):
     return {key: entry[key] for key in ROLE_EFFORTS.values() if key in entry}
 
 
+def _worded(efforts):
+    """A seat record's `efforts` without a build or review effort that is no word (a hand-edited
+    null), as it is read (_validate_session) and as its efforts are changed (change_efforts): that
+    role follows the effort, as one never set does.  Any other shape is handed back as it is."""
+    if not isinstance(efforts, dict):
+        return efforts
+    return {model: {key: word for key, word in held.items()
+                    if isinstance(word, str) or key not in ROLE_EFFORTS.values()}
+            if isinstance(held, dict) else held for model, held in efforts.items()}
+
+
 def held_efforts(entry, keys):
     """`entry` with each of `keys` (ROLE_EFFORTS) that follows its effort set to that effort,
     every key it sets kept: a new effort then leaves those where they stood."""
@@ -1796,15 +1807,12 @@ def _validate_session(cfg, name, data, prune=False):
                     model(cfg, worker)
                 except Error as exc:
                     raise Error(f"{session_path(name)}: {exc}") from None
-    efforts = data.get("efforts", {})
+    efforts = _worded(data.get("efforts", {}))
     if not isinstance(efforts, dict) or any(not isinstance(held, dict) or not isinstance(
             held.get("effort"), str) for held in efforts.values()):
         raise Error(f"{session_path(name)}: efforts must give each model its effort")
-    if efforts:
-        # a build or review effort that is no word (a hand-edited null) is none of its own: that
-        # role follows the effort, as one never set does, and role_effort hands on only words
-        data = {**data, "efforts": {model: {key: word for key, word in held.items() if isinstance(
-            word, str) or key not in ROLE_EFFORTS.values()} for model, held in efforts.items()}}
+    if "efforts" in data:
+        data = {**data, "efforts": efforts}
     # the orchestrator's own model may work for it too: nothing here excludes one from the other
     # Whatever else the record carries -- where the seat ran, when, and the conversation the
     # harness kept -- is handed back untouched: only the model fields are this file's to judge.
@@ -1945,6 +1953,8 @@ def change_efforts(name, change):
         data = _read_json(path)
         if not isinstance(data, dict) or "renamed" in data:
             return None
+        if "efforts" in data:
+            data["efforts"] = _worded(data["efforts"])
         efforts = change(data)
         if efforts != data.get("efforts"):
             data["efforts"] = efforts
