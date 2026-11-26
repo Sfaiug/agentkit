@@ -220,13 +220,15 @@ class ModelsJsonRunUsage(WeekMeters):
         self.seat(35, 3_000, model=None, orchestrator="nova", effort="high")
         self.seat(35, 4_000, model="", orchestrator="nova", effort="high")
         self.seat(35, 5_000, model="anvil-9", orchestrator="nova", effort="low")
+        self.seat(35, 2_000, model="anvil-9", orchestrator="nova", effort="")
         self.seat(35, 1_000, account="second")              # login with no reading
         runs = self.runs()
         self.assertEqual(runs["seats"], [
+            {"name": "nova", "effort": "", "points": {}, "unrated": 2_000},
             {"name": "nova", "effort": "high", "points": {}, "unrated": 7_000},
             {"name": "nova", "effort": "low", "points": {}, "unrated": 5_000},
             {"name": None, "effort": None, "points": {}, "unrated": 1_000}])
-        self.assertEqual(runs["usage"]["orchestrator"], {"points": {}, "unrated": 13_000})
+        self.assertEqual(runs["usage"]["orchestrator"], {"points": {}, "unrated": 15_000})
 
     def test_a_history_without_seat_usage_gives_zero_orchestrator_and_no_seats(self):
         self.read(50, 0)

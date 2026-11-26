@@ -136,7 +136,8 @@ def seat_usage(cfg, since, until, fitted, *, meters=None):
     rows = []
     for orchestrator, effort, account, event, model, at, tokens in seats:
         if (found := _seat(ours, event, tokens)) is not None:
-            rows.append(((usage._text(orchestrator), usage._text(effort)),
+            rows.append(((orchestrator if isinstance(orchestrator, str) else None,
+                          effort if isinstance(effort, str) else None),
                          found[0], account, model, at, found[1]))
     return _valued(logins, fitted, rows)
 
