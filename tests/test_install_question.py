@@ -1,10 +1,10 @@
 """install.sh asks one question, and one provider finishes the install.
 
 On a machine with none of the harnesses installed, a terminal run asks once which
-to install and log in -- one of the adapters present, or all -- and only those go
-in.  With no terminal there is nobody to ask, so nothing is installed and each
-adapter only says whether it is logged in and the command that logs it in.  A run
-on a machine that has one keeps what it has and adds none unasked.
+subscription the person has -- one whose program's adapter is present, or all -- and
+only those programs go in.  With no terminal there is nobody to ask, so nothing is
+installed and each adapter only says whether it is logged in and the command that logs
+it in.  A run on a machine that has one keeps what it has and adds none unasked.
 
 Offline: section (3) of the real install.sh, run against fixture adapters and a
 fixture PATH, with the answer on stdin.  The runs that look at the question
@@ -25,8 +25,8 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 
-# Display name -> adapter file stem.  grokbuild's binary is grok, so that is the
-# name it is offered under.
+# Program name -> adapter file stem: grokbuild's binary is grok, and an answer may
+# name the program.
 ADAPTERS = (("claude", "claude"), ("codex", "codex"), ("muse", "muse"),
             ("grok", "grokbuild"), ("opencode", "opencode"), ("agy", "antigravity"))
 
@@ -166,16 +166,16 @@ class InstallQuestion(unittest.TestCase):
         self.all_adapters()
         rc, question = self.run_harnesses_pty("all\n")
         self.assertEqual(rc, 0, question)
-        self.assertIn("Which harness to install and log in "
-                      "(claude, codex, muse, grok, opencode, agy, or all)? [all] ", question)
+        self.assertIn("Which subscription do you have "
+                      "(Claude, ChatGPT, Muse, Grok, Gemini, MiMo, or all)? [all] ", question)
         self.assertEqual(len(self.calls()), 12)
         # An adapter file that is not there is not offered.
         (self.adapters / "muse.sh").unlink()
         self.log.unlink()
         rc, question = self.run_harnesses_pty("all\n")
         self.assertEqual(rc, 0, question)
-        self.assertIn("Which harness to install and log in "
-                      "(claude, codex, grok, opencode, agy, or all)? [all] ", question)
+        self.assertIn("Which subscription do you have "
+                      "(Claude, ChatGPT, Grok, Gemini, MiMo, or all)? [all] ", question)
         self.assertNotIn("muse install", self.calls())
         self.assertNotIn("muse login", self.calls())
         self.assertEqual(len(self.calls()), 10)
@@ -231,7 +231,7 @@ class InstallQuestion(unittest.TestCase):
         self.binary("grok")
         rc, out = self.run_harnesses_pty(None)
         self.assertEqual(rc, 0, out)
-        self.assertNotIn("Which harness", out)
+        self.assertNotIn("Which subscription", out)
         self.assertEqual(self.calls(), ["claude install", "claude login",
                                         "grokbuild install", "grokbuild login"])
         # With no terminal it only says how the installed ones are logged in.
@@ -247,7 +247,7 @@ class InstallQuestion(unittest.TestCase):
         (self.bindir / "claude").chmod(0o644)
         rc, out = self.run_harnesses_pty("codex\n")
         self.assertEqual(rc, 0, out)
-        self.assertIn("Which harness", out)
+        self.assertIn("Which subscription", out)
         self.assertEqual(self.calls(), ["codex install", "codex login"])
 
     # --- no terminal -------------------------------------------------------
@@ -258,7 +258,7 @@ class InstallQuestion(unittest.TestCase):
         self.all_adapters()
         rc, out = self.run_harnesses_pty(None, tty=0)
         self.assertEqual(rc, 0, out)
-        self.assertNotIn("Which harness", out)
+        self.assertNotIn("Which subscription", out)
         self.assertEqual([call for call in self.calls() if call.endswith(" install")], [])
         for _, stem in ADAPTERS:
             self.assertIn(f"{stem} login", self.calls())

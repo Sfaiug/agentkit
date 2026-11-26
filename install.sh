@@ -335,40 +335,44 @@ fi
 
 # --- (3) the harnesses: each adapter installs and logs its own in ------------
 # One provider is enough to finish: on a machine with none of the harnesses installed,
-# a terminal run asks once which to install and log in, and only those go in.  With no
-# terminal there is nobody to ask, so nothing is installed and each adapter only says
-# whether it is logged in and the command that logs it in.  A run on a machine that has
-# one keeps what it has: only the harnesses installed are checked and logged in, and none
-# is added unasked.  The names offered are the adapters present: grokbuild's binary is
-# grok and antigravity's is agy, so those are the names they are offered under, and an
-# adapter file that is not there is not offered.
+# a terminal run asks once which subscription the person has, and only the program that runs
+# its models goes in.  With no terminal there is nobody to ask, so nothing is installed and
+# each adapter only says whether it is logged in and the command that logs it in.  A run on a
+# machine that has one keeps what it has: only the harnesses installed are checked and logged
+# in, and none is added unasked.  A subscription is offered where its program's adapter is
+# present, under the name every screen gives it (config.NAMES, which
+# tests/test_key_install_asks_which_subscription.py holds these to), and is answered by that
+# name in any case or by its program's: grokbuild's binary is grok and antigravity's is agy.
 if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
-  present="" installed=""
-  for pair in claude:claude codex:codex muse:muse grok:grokbuild opencode:opencode agy:antigravity; do
-    name=${pair%%:*} h=${pair##*:}
+  offered="" names="" installed=""
+  # a subscription, the program that runs its models, and that program's adapter
+  for each in Claude:claude:claude ChatGPT:codex:codex Muse:muse:muse Grok:grok:grokbuild \
+              Gemini:agy:antigravity MiMo:opencode:opencode; do
+    IFS=: read -r name bin h <<<"$each"
     [ -f "$REPO/adapters/$h.sh" ] || continue
-    present="$present${present:+ }$name"
-    if program "$name"; then installed="$installed${installed:+ }$name"; fi
+    offered="$offered${offered:+ }$each" names="$names${names:+, }$name"
+    if program "$bin"; then installed="$installed${installed:+ }$each"; fi
   done
-  chosen=${installed:-$present}
-  if [ "$TTY" = 1 ] && [ -z "$installed" ] && [ -n "$present" ]; then
-    list=${present// /, }
-    read -r -p "Which harness to install and log in ($list, or all)? [all] " answer || answer=""
+  chosen=${installed:-$offered}
+  if [ "$TTY" = 1 ] && [ -z "$installed" ] && [ -n "$offered" ]; then
+    read -r -p "Which subscription do you have ($names, or all)? [all] " answer || answer=""
     answer=$(printf '%s' "$answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-    chosen=""
     case "$answer" in
-      ""|all) chosen=$present ;;
-      *) case " $present " in
-           *" $answer "*) chosen=$answer ;;
-           *) note "'$answer' is not one of: $list, or all; installing nothing -- run ./install.sh again to choose" ;;
-         esac ;;
+      ""|all) ;;
+      *) chosen=""
+         for each in $(printf '%s' "$offered" | tr '[:upper:]' '[:lower:]'); do
+           IFS=: read -r name bin _ <<<"$each"
+           case "$answer" in "$name"|"$bin") chosen=$each ;; esac
+         done
+         [ -n "$chosen" ] ||
+           note "'$answer' is not one of: $names, or all; installing nothing -- run ./install.sh again to choose" ;;
     esac
   fi
-  for name in $chosen; do
-    case $name in grok) h=grokbuild ;; agy) h=antigravity ;; *) h=$name ;; esac
+  for each in $chosen; do
+    IFS=: read -r _ bin h <<<"$each"
     if [ "$TTY" = 1 ]; then
-      "$REPO/adapters/$h.sh" install || note "$name did not install; see above"
-      "$REPO/adapters/$h.sh" login || note "$name login did not finish; run ./install.sh again to retry"
+      "$REPO/adapters/$h.sh" install || note "$bin did not install; see above"
+      "$REPO/adapters/$h.sh" login || note "$bin login did not finish; run ./install.sh again to retry"
     else
       "$REPO/adapters/$h.sh" login </dev/null || true    # says whether it is logged in, and how to
     fi
