@@ -1725,6 +1725,14 @@ def clicks_its_own(read):
     return reading
 
 
+def pressed(key):
+    """`key`, or the Enter or Esc a click on the key line's own presses: either answers as its
+    key does on every screen a question is asked on."""
+    named = {"⏎": "enter", "enter": "enter", "esc": "esc"}.get(
+        under(key, _SPOTS).cell if key.name == "click" else None)
+    return Key(named) if named else key
+
+
 @clicks_its_own
 def field(prompt, placeholder="", around=None):
     """One answer typed a key at a time on a taken keyboard: `readline`'s while the menu has it.
@@ -1760,12 +1768,12 @@ def field(prompt, placeholder="", around=None):
             key = read_key()
             if key is None:
                 continue                 # a resize: drawn again at the new width
+            key = pressed(key)
             if key.name == "point":
                 relight()                # the screen it is typed on lights what it is on
             if key.name == "enter":
                 return text
-            if key.name in ("esc", "eof") or (key.name == "click"
-                                               and under(key, _SPOTS).cell == "esc"):
+            if key.name in ("esc", "eof"):
                 return None if key.name == "eof" else ESC
             if key.name == "backspace":
                 text = text[:-1]
@@ -1835,9 +1843,7 @@ def choose(choices, default=None, around=None, wait=None, warn=None, above=list)
         key = read_key() if wait is None else wait()
         if key is None:
             continue
-        cell = under(key, _SPOTS).cell if key.name == "click" and around else None
-        if cell in ("⏎", "enter", "esc"):
-            key = Key("esc" if cell == "esc" else "enter")
+        key = pressed(key) if around else key
         spot = under(key, rows)
         if key.name == "point":
             at = at if spot.what is None else spot.what
