@@ -141,7 +141,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, ledger, logins, look, machines, money, open_runs, parsed, record
+from . import done_check, ledger, logins, look, machines, money, open_runs, parsed, readings, record
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -6304,6 +6304,18 @@ def work_words(name, cfg):
     return ", ".join(tasks) or "no work"
 
 
+def machine_hours(name):
+    """`name`'s last 24 hours of processors as 24 marks (EIGHTHS and GLYPHS's full cell, 1 or
+    more full, `·` with no reading), or `no readings yet` when none of the 24 has one."""
+    series = readings.hours(name, math.ceil(time.time()), 24, home=False)
+    if not any(hour.processors is not None for hour in series):
+        return "no readings yet"
+    marks, empty = (EIGHTHS[1:] + GLYPHS[True][0], "·") if terminal.utf8() else ("_,-:=+*#", ".")
+    return "".join(empty if hour.processors is None
+                   else marks[max(1, round(8 * min(1.0, hour.processors))) - 1]
+                   for hour in series)
+
+
 def config_machines(cfg):
     """Recorded machines; Enter opens their work marks.  Under them, each machine that copies this
     one (standby.copies), whose row, as this host's, opens nothing, or under the rows why they
@@ -6358,10 +6370,11 @@ def config_machines(cfg):
         def page():
             work = machines.work(name, cfg)
             config.load()       # as on Machines' own page
-            return [(label, [(on, "accent") if word in work else (off, "dim"),
-                             ("on" if word in work else "off", None)],
-                     ("mark", lambda word=word: flip(word)))
-                    for word, label in (("turns", "builds and reviews"), ("tests", "tests"))], ""
+            return [*((label, [(on, "accent") if word in work else (off, "dim"),
+                               ("on" if word in work else "off", None)],
+                       ("mark", lambda word=word: flip(word)))
+                      for word, label in (("turns", "builds and reviews"), ("tests", "tests"))),
+                    ("last 24 hours", machine_hours(name), None)], ""
 
         def open_page(draw):
             config_page(f"machines · {name}", page)

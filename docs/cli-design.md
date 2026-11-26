@@ -49,6 +49,8 @@ Words are plain and explain themselves.
 - **Progress:** every bar is a seat's progress line; every row ends in its tasks going:
   `━━━━╸──── 3 of 8 · 2 tasks` (owner, 11 Nov 2026; `terminal.plan_bar`,
   `terminal.share_line`).
+- **Over time:** a row of hourly marks runs oldest first in eighths of a cell (`▁` to `█`, full at
+  1 or more), `·` for an hour with no reading, or `no readings yet` when none has one.
 
 Nothing explains itself on hover. A highlighted row opens its models alone (owner, 9, 17 Nov
 2026).
