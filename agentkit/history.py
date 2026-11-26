@@ -109,10 +109,10 @@ CREATE TABLE IF NOT EXISTS phases (
 PHASE_MIGRATIONS = (("wait_kind", "TEXT"),)
 
 # One row per check a round, the lander or a merged run's live probe runs, written where it runs
-# (`check`): `kind` is a round's `done-when`, `rules`, `base-proof` or `replay`, the lander's
-# `landing` or `tip` (`round` NULL), or the live probe's `health`; `command` the text ak ran (a
-# list a helper ran as one shell, a command a line; a suite's piece its `AK_SHARD=` share before
-# it), `tree` the commit checked (the base's for a base proof, the target's tip for `tip`, the
+# (`check`): `kind` is a round's `done-when`, `chosen`, `rules`, `base-proof` or `replay`, the
+# lander's `landing` or `tip` (`round` NULL), or the live probe's `health`; `command` the text ak
+# ran (a list a helper ran as one shell, a command a line; a suite's piece its `AK_SHARD=` share
+# before it), `tree` the commit checked (the base's for a base proof, the target's tip for `tip`,
 # merge for `health`; NULL for a scratch run's one workspace), `place` the host or helper, `exit`
 # NULL where it never returned.  Its wait and wall are differences of its moments, and `rerun` is
 # 1 where the command, or a list holding it, already ran on this tree in this run.  Since
@@ -683,6 +683,35 @@ def _started(connection, values):
     return cursor.lastrowid if cursor.rowcount else None
 
 
+def check_passed(run_id, kind, tree):
+    """Whether the last `checks` row for `(run_id, kind, tree)` ended green (`exit == 0` and
+    `finished_at` set): False on no row, a red or open one, None inputs, or any read error.
+
+    Each `chosen` go (`roundloop.chosen_tests`) runs one command as one piece (`shard="1/1"`),
+    recording the gate's exit after `gate.unnamed` (`None` on a kill) per attempt in insertion
+    order (`rowid`), so the last row by `rowid` is the last go's outcome.
+    """
+    if not run_id or not isinstance(kind, str) or not kind or not isinstance(tree, str) or not tree:
+        return False
+    run = Path(run_id).name if isinstance(run_id, os.PathLike) else str(run_id)
+    if not run:
+        return False
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                row = connection.execute(
+                    "SELECT exit, finished_at FROM checks "
+                    "WHERE run_id=? AND kind=? AND tree=? "
+                    "ORDER BY rowid DESC LIMIT 1",
+                    (run, kind, tree)).fetchone()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return False
+    return bool(row and row[0] == 0 and row[1] is not None)
+
+
 def test_reds(checked, confirmed, flaky, known=()):
     """Keep a suite's named outcomes with its check's identity; a run with no row keeps none,
     and a check none of `known`, the target's own red it let fail (`land.red_part`).  A landing's
@@ -723,7 +752,7 @@ def test_audit(repo, since=0):
                 reds = {row["test"]: dict(row) for row in connection.execute(
                     "SELECT test, SUM(CASE WHEN flaky=1 THEN 1 ELSE 0 END) AS flakes, "
                     "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind IN "
-                    "('done-when','rules','landing') THEN t.run_id END) AS catches, "
+                    "('done-when','chosen','rules','landing') THEN t.run_id END) AS catches, "
                     "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind='landing' AND t.at>=? "
                     "THEN t.run_id END) AS landings, "
                     "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind='tip' THEN t.run_id END) "
