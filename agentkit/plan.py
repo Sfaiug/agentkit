@@ -791,11 +791,11 @@ def main(argv):
         if "--repo" in options:
             raw = options["--repo"]
             try:
-                repo = Path(raw).expanduser().absolute()
-            except RuntimeError as exc:
+                repo = Path(raw).expanduser().resolve(strict=True)
+                if not (repo / ".git").exists():
+                    raise config.Error(f"{repo} is not a git checkout")
+            except (OSError, RuntimeError) as exc:
                 raise config.Error(f"{raw}: {exc}") from None
-            if not (repo / ".git").exists():
-                raise config.Error(f"{repo} is not a git checkout")
         print(add(name, argv[1], options["--check"], repo=repo))
         return 0
     if argv[0] == "check" and len(argv) == 3 and argv[1].isdigit():

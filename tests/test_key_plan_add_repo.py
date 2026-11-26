@@ -47,8 +47,21 @@ class PlanAddRepo(unittest.TestCase):
                          [line.replace("[ ]", "[x]", 1) + f" · done {commit} deliver files"
                           for line in opened])
 
+    def test_checkout_aliases_use_the_project_environment_when_adding(self):
+        helper = Rig(self.home, "helper", files={"src/keep.txt": ""})
+        alias = self.home.path / "service"
+        alias.symlink_to(helper.path, target_is_directory=True)
+        self.home.write(".agentkit/env/helper.env", "HELPER_READY=1\n")
+        for path in (alias, helper.path / "src" / ".."):
+            with self.subTest(path=path):
+                done = self.ak("add", "helper is ready", "--repo", str(path),
+                               "--check", 'test "$HELPER_READY" = 1')
+                self.assertEqual(done.code, 2, done.err)
+                self.assertIn("already passes on helper's default branch", done.err)
+                self.assertFalse(self.plan.exists())
+
     def test_repo_must_be_a_checkout(self):
-        for path in (self.home.path / "code", self.home.path / "missing"):
+        for path in (self.home.path / "code", self.home.path / "missing", self.home.path / ("a" * 300)):
             with self.subTest(path=path):
                 done = self.ak("add", "fix api", "--check", "false", "--repo", str(path))
                 self.assertEqual(done.code, 2, done.err)
