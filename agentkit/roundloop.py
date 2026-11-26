@@ -528,17 +528,17 @@ def chosen_tests(lp, named, head):
 
     A PASS alone runs them: run before each review, on 18-20 Nov 2026 about half their time fell
     in runs that failed review (owner, 20 Nov 2026: "Once, after review passes").  On no suite
-    turn, the line given just those tests (`AK_ONLY`), red by its exit, a pass that does not name
-    each one as run among them (`gate.unnamed`), chosen from the time record (`chosen`): it keeps
-    no times, and its re-run asks for no part its tree lacks, as on 18 Nov 2026 one removed on
-    7 Nov, still timed, failed six runs' rounds in a quarter of an hour.  A stop in it leaves the
-    review to ask again.
+    turn, the line given just those tests (`AK_ONLY`), recorded under its own `checks` kind
+    `chosen`, red by its exit, a pass that does not name each one as run among them
+    (`gate.unnamed`), chosen from the time record (`chosen`): it keeps no times, and its re-run
+    asks for no part its tree lacks, as on 18 Nov 2026 one removed on 7 Nov, still timed, failed
+    six runs' rounds in a quarter of an hour.  A stop in it leaves the review to ask again.
     """
     from . import gate  # here, not at the top: it reaches run
     return gate.run_done_when(
         [named[0]], lp.wt, lp.round_dir / "donewhen.log", lp.artifacts, lp.done_when_limit,
         lp.log, silence=lp.turn_limit, run_dir=lp.run_dir, shard="1/1", only=named[1],
-        checked=(lp.run_dir, lp.rnd, "done-when", head), chosen=True)
+        checked=(lp.run_dir, lp.rnd, "chosen", head), chosen=True)
 
 
 def passed_review_head(state):
@@ -1578,16 +1578,20 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     checkout_changed = checkout_changed or moved()
     if verdict == "PASS" and not checkout_changed:
         if named := round_tests.chosen(lp):
-            passed, more = chosen_tests(lp, named, validation["head_sha"])
-            dw_log = f"{dw_log}\n\n{more}"    # the round's log, its flakes recorded with a PASS
-            (lp.round_dir / "donewhen.log").write_text(dw_log)
-            if lp.state.get("review_pr"):
-                restore_review_checkout(lp, "tests")
-            if not passed:
-                verdict = "FAIL"
-                overridden = ("the reviewer said PASS but the project's tests failed: "
-                              + prompts.first_failure(more))
-                lp.log(f"WARN {overridden}; overriding to FAIL")
+            head = validation.get("head_sha")
+            if history.check_passed(Path(lp.run_dir).name, "chosen", head):
+                lp.log(f"chosen tests: already passed on {head[:12]}; not running again")
+            else:
+                passed, more = chosen_tests(lp, named, head)
+                dw_log = f"{dw_log}\n\n{more}"    # the round's log, its flakes recorded with a PASS
+                (lp.round_dir / "donewhen.log").write_text(dw_log)
+                if lp.state.get("review_pr"):
+                    restore_review_checkout(lp, "tests")
+                if not passed:
+                    verdict = "FAIL"
+                    overridden = ("the reviewer said PASS but the project's tests failed: "
+                                  + prompts.first_failure(more))
+                    lp.log(f"WARN {overridden}; overriding to FAIL")
         checkout_changed = moved()      # weighed again once they are chosen, and once they end
     if checkout_changed:
         verdict = "FAIL"
