@@ -37,24 +37,27 @@ set -- unshare --user --map-current-user --net --keep-caps sh -c \
   'echo "$0" >/proc/sys/net/unix/max_dgram_qlen
    ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen &&
      [ -z "$(ip -o link show | grep -v ": lo:")" ] || exit 253
-   echo built >&9
-   exec setpriv --inh-caps=-all --ambient-caps=-all "$@" 9>&-' "$notes"
+   exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes"
 # It builds, asked before the command by sh, which the sandbox runs anyway: an image may hold no
 # true program.
-"$@" sh -c : 9>/dev/null || { echo "ak helper: the sandbox did not build" >&2; exit 253; }
+"$@" sh -c : || { echo "ak helper: the sandbox did not build" >&2; exit 253; }
 # Kills for memory, before the command's launch and after it: of the piece's own cgroup where it
 # has one, as a container on a kernel other pieces share does, else of its VM's kernel.
 before=$({ cat /sys/fs/cgroup/memory.events || cat /proc/vmstat; } 2>/dev/null | awk '/^oom_kill /')
-# Built, the sandbox says so on a descriptor of its own, closed to the command, whose output goes
-# where the piece's does: one that said nothing ran nothing, as unshare ends 1 where it builds
-# none, this once or since the preflight.
-exec 8>&1
-built=$("$@" bash -c "$command" 9>&1 >&8 8>&-)
+# The command is unrun until its sandbox, built and without its capabilities, starts it: sh there
+# empties this note, by itself, as its last act. A file of origin.git's own, outside the checkout,
+# which no image or tree holds: a variable or a descriptor of the piece's could be one the image
+# handed the command.
+echo unrun >|/home/ak/origin.git/.unrun ||
+  { echo "ak helper: the sandbox ran nothing" >&2; exit 253; }
+"$@" sh -c ': >|/home/ak/origin.git/.unrun && exec "$@"' sh bash -c "$command"
 code=$?
 # The kernel killed a process for memory: the VM or container was too small for the piece, which
 # ak then runs here and gives a larger one next time (helper.short).
 [ "$({ cat /sys/fs/cgroup/memory.events || cat /proc/vmstat; } 2>/dev/null | awk '/^oom_kill /')" \
   = "$before" ] || { echo "ak helper: the VM ran out of memory" >&2; exit 254; }
-# A launch that ran nothing ends the piece as one the helper could not run, which ak then runs here.
-[ -n "$built" ] || { echo "ak helper: the sandbox ran nothing" >&2; exit 253; }
+# Its note not emptied, the launch ran nothing, as unshare ends 1 where it builds no sandbox, this
+# once or since the preflight: the piece ends as one the helper could not run, which ak then runs
+# here.
+[ ! -s /home/ak/origin.git/.unrun ] || { echo "ak helper: the sandbox ran nothing" >&2; exit 253; }
 exit "$code"
