@@ -1321,6 +1321,10 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                                for cmd in lp.once)
                     + "\nThese run at landing; their absence here is by design "
                       "and is never a finding.")
+    elif lp.state.get("review_pr") and not lp.state.get("own_pr") and getattr(lp, "every", ()):
+        deferred = ("\n".join(f"runs after a passing review: {cmd}" for cmd in lp.every)
+                    + "\nThese run after a passing review; their absence here is by design "
+                      "and is never a finding.")
     flaky = ""
     if re.search(r"^flaky: ", dw_log or "", re.M):
         flaky = ("A `flaky:` record is ak's own rule, not a weakened check: a done-when command "
@@ -1577,7 +1581,15 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     checkout_changed = checkout_changed or moved()
     if verdict == "PASS" and not checkout_changed:
-        if named := round_tests.chosen(lp):
+        failed_log = None
+        if lp.state.get("review_pr") and not lp.state.get("own_pr") and getattr(lp, "cmds", None):
+            # Another author's PR has no landing line; its whole suite runs only behind a PASS.
+            ok, dw_log = verify_work(lp)
+            lp.log(f"tests ({', '.join(lp.cmds)}): {'passed' if ok else 'FAILED'}")
+            restore_review_checkout(lp, "tests")
+            if not ok:
+                failed_log = dw_log
+        elif named := round_tests.chosen(lp):
             head = validation.get("head_sha")
             if history.check_passed(Path(lp.run_dir).name, "chosen", head):
                 lp.log(f"chosen tests: already passed on {head[:12]}; not running again")
@@ -1588,10 +1600,12 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                 if lp.state.get("review_pr"):
                     restore_review_checkout(lp, "tests")
                 if not passed:
-                    verdict = "FAIL"
-                    overridden = ("the reviewer said PASS but the project's tests failed: "
-                                  + prompts.first_failure(more))
-                    lp.log(f"WARN {overridden}; overriding to FAIL")
+                    failed_log = more
+        if failed_log is not None:
+            verdict = "FAIL"
+            overridden = ("the reviewer said PASS but the project's tests failed: "
+                          + prompts.first_failure(failed_log))
+            lp.log(f"WARN {overridden}; overriding to FAIL")
         checkout_changed = moved()      # weighed again once they are chosen, and once they end
     if checkout_changed:
         verdict = "FAIL"
