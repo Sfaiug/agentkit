@@ -60,6 +60,17 @@ class PlanAddRepo(unittest.TestCase):
                 self.assertIn("already passes on helper's default branch", done.err)
                 self.assertFalse(self.plan.exists())
 
+    def test_check_cannot_read_the_working_copy_through_its_alias(self):
+        helper = Rig(self.home, "helper")
+        (self.home.path / "service").symlink_to(helper.path, target_is_directory=True)
+        for checkout in ("~/code/helper", "~/service"):
+            with self.subTest(checkout=checkout):
+                done = self.ak("add", "api is ready", "--repo", "~/service",
+                               "--check", f"test -f {checkout}/api.txt")
+                self.assertEqual(done.code, 2, done.err)
+                self.assertIn("the path of the project's checkout", done.err)
+                self.assertFalse(self.plan.exists())
+
     def test_repo_must_be_a_checkout(self):
         for path in (self.home.path / "code", self.home.path / "missing", self.home.path / ("a" * 300)):
             with self.subTest(path=path):
