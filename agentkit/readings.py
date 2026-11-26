@@ -24,6 +24,7 @@ import json
 import math
 import os
 import socket
+import stat
 import time
 
 from . import config, history
@@ -88,7 +89,9 @@ def hours(name, until, count, *, home):
     memory = [0.0] * count
     for entry in files:
         with suppress(OSError):
-            with open(folder / entry, "rb") as file:
+            with open(os.open(folder / entry, os.O_RDONLY | os.O_NONBLOCK), "rb") as file:
+                if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+                    continue
                 for raw in file:
                     reading = _usable(raw, key, other, name)
                     if reading is None:

@@ -1,6 +1,6 @@
-"""What the machine-page key cannot reach of `readings.hours`: this host's `home` lines apart from
-a listed machine's of the same name, unusable lines and unreadable files, exact edges, finite
-running means and calendar-free placement with no clock read."""
+"""What the machine-page key cannot reach of `readings.hours`: `home` lines apart from a listed
+machine's of the same name, memory means, unusable lines and non-regular/unreadable files, exact
+hour edges, finite running means and calendar-free placement with no clock read."""
 
 import calendar, json, math, os, socket, sys, tempfile, unittest
 from pathlib import Path
@@ -47,24 +47,34 @@ class ReadingsByTheHour(unittest.TestCase):
             self.check(("acme-none", M + H, 1, False), [(M, None, None)])
             self.check(("acme-none", M, 0, True), [])
             said = {"system": "Linux", "processor": "x86_64", "cores": 4, "memory_mb": 1000, "disk_free_mb": 50000, "battery": 0, "power": 1}
-            readings.keep(M + 10, {machines.HERE: {**said, "load": 4.0, "free_mb": 200}, "acme-home": {**said, "load": 1.0, "free_mb": 800}})
+            for at, group in ((M - 3000, {machines.HERE: {**said, "load": 2.0, "free_mb": 500}}),
+                              (M - 600, {machines.HERE: {**said, "load": 6.0, "free_mb": 300}}),
+                              (M + 10, {machines.HERE: {**said, "load": 4.0, "free_mb": 200}, "acme-home": {**said, "load": 1.0, "free_mb": 800}})):
+                readings.keep(at, group)
             try:
                 with (folder / "2026-11-26.jsonl").open("ab") as file:
                     file.write(b"".join((
                         raw(M + 20, {"home": "acme-home", "machine": "acme-home"}, 99.0, 1, 1000, 0),
                         unusable, raw(M + 10, "acme-bad", 2.0, 4),
-                        raw(math.nextafter(float(M), -math.inf), "acme-edge", 99.0, 1), raw(float(M), "acme-edge", 1.0, 1),
-                        raw(math.nextafter(float(M + H), -math.inf), "acme-edge", 3.0, 1), raw(float(M + H), "acme-edge", 99.0, 1),
-                        raw(M + 10, "acme-big", 1e308, 1, 1e308, 0), raw(M + 20, "acme-big", 1e308, 1, 1e308, 0), raw(Y9999, "acme-time", 4.0, 2))))
+                        *(raw(at, "acme-edge", load, 1, 1000, 250) for at, load in (
+                            (math.nextafter(float(M), -math.inf), 99.0), (float(M), 1.0), (math.nextafter(float(M + H), -math.inf), 3.0),
+                            (float(M + H), 5.0), (math.nextafter(float(M + 2 * H), -math.inf), 7.0), (float(M + 2 * H), 99.0))),
+                        *(raw(M + dt, "acme-big", load, 1, mem, free) for dt, load, mem, free in (
+                            (10, 1e308, 1e308, 0), (20, 1e308, 1e308, 0), (H + 10, 1e308, 1000, 1000), (H + 20, 0.0, 1000, 1000))),
+                        raw(0, "acme-time", 2.0, 2, 100, 25), raw(Y9999, "acme-time", 4.0, 2))))
                 (folder / "acme.jsonl").write_bytes(raw(M + 20, "acme-bad", 99.0, 1))
-                (folder / "2026-11-25.jsonl").mkdir()
+                (folder / "2026-11-22.jsonl").mkdir()
+                os.mkfifo(folder / "2026-11-23.jsonl")
                 if os.geteuid() != 0:
                     locked.write_bytes(raw(M + 20, "acme-bad", 99.0, 1))
                     locked.chmod(0)
-                for q, exp in ((("acme-home", M + H, 1, True), [(M, 1.0, 0.8)]), (("acme-home", M + H, 1, False), [(M, 0.25, 0.2)]),
-                               (("acme-bad", M + H, 1, False), [(M, 0.5, 0.5)]), (("acme-edge", M + H, 1, False), [(M, 2.0, 0.5)]),
-                               (("acme-big", M + H, 1, False), [(M, 1e308, 1.0)]), (("acme-time", -62135596800, 1, False), [(-62135596800 - H, None, None)]),
-                               (("acme-time", Y9999 + 1, 1, False), [(Y9999 + 1 - H, 2.0, 0.5)])):
+                for q, exp in (
+                    (("acme-home", M + H, 2, True), [(M - H, 1.0, 0.6), (M, 1.0, 0.8)]), (("acme-home", M + H, 1, False), [(M, 0.25, 0.2)]),
+                    (("acme-bad", M + H, 1, False), [(M, 0.5, 0.5)]), (("acme-edge", M + 2 * H, 2, False), [(M, 2.0, 0.75), (M + H, 6.0, 0.75)]),
+                    (("acme-big", M + 2 * H, 2, False), [(M, 1e308, 1.0), (M + H, 5e307, 0.0)]),
+                    (("acme-time", -62135596800, 1, False), [(-62135596800 - H, None, None)]),
+                    (("acme-time", H, 2, False), [(-H, None, None), (0, 1.0, 0.75)]), (("acme-time", Y9999 + 1, 1, False), [(Y9999 + 1 - H, 2.0, 0.5)]),
+                ):
                     self.check(q, exp)
             finally:
                 if locked.exists():

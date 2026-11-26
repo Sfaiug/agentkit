@@ -1,7 +1,6 @@
 """A listed machine's page shows its last 24 hours of processors under its marks: 24 marks, oldest
-first, in eighths of a cell (`▁` to `█`, full at 1 or more, `·` with no reading), or `no readings
-yet` when none has one.  Black-box: AK_BIN under a terminal with state/readings' UTC day files.
-"""
+first, in eighths (`▁`–`█`, full at 1 or more, `·` with no reading), or `no readings yet`.
+Black-box: AK_BIN under a terminal with state/readings' UTC day files."""
 
 import json, sys, time, unittest
 from pathlib import Path
@@ -27,23 +26,17 @@ class AMachinesPageShowsItsLast24Hours(unittest.TestCase):
     def keep(self, at, who, load):
         folder = self.home.path / ".agentkit/state/readings"
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / time.strftime("%Y-%m-%d.jsonl", time.gmtime(at))
         tag = {"machine": who} if isinstance(who, str) else who
-        with path.open("ab") as file:
+        with (folder / time.strftime("%Y-%m-%d.jsonl", time.gmtime(at))).open("ab") as file:
             file.write(("\n" + json.dumps({"at": at, **tag, **SAID, "load": load}) + "\n").encode())
 
     def open_machine(self, *expect):
         self.term = Terminal(self.home, "attach", "--overlay", size=(120, 40), env={"NO_COLOR": "1"})
-        self.term.wait("esc leave")
-        self.term.keys("c")
-        self.term.wait(lambda s: "agentkit · config " in s and "Machines" in s)
-        self.term.keys(*(["Down"] * 5))
-        self.term.wait("› Machines")
-        self.term.keys("Enter")
-        self.term.wait("config · machines")
-        self.term.keys("Down")
-        self.term.wait("› acme-linux")
-        self.term.keys("Enter")
+        for wait, keys in (("esc leave", ("c",)),
+                           (lambda s: "agentkit · config " in s and "Machines" in s, ("Down",) * 5),
+                           ("› Machines", ("Enter",)), ("config · machines", ("Down",)), ("› acme-linux", ("Enter",))):
+            self.term.wait(wait)
+            self.term.keys(*keys)
         return self.term.wait(lambda s: "config · machines · acme-linux" in s and "esc back" in s
                               and all(text in " ".join(s.split()) for text in expect))
 
@@ -52,13 +45,14 @@ class AMachinesPageShowsItsLast24Hours(unittest.TestCase):
         for offset, who, load in (
             (25 * H + 1800, "acme-linux", 8.0), (23 * H + 1800, "acme-linux", 0.0),
             (18 * H + 1800, "acme-other", 8.0), (18 * H + 1800, {"home": "acme-linux"}, 8.0),
-            (12 * H + 1800, "acme-linux", 1.0), (12 * H + 1200, "acme-linux", 3.0), (1800, "acme-linux", 6.0),
+            (12 * H + 1800, "acme-linux", 1.0), (12 * H + 1200, "acme-linux", 3.0),
+            (2 * H + 1800, "acme-linux", 3.9), (H + 1800, "acme-linux", 4.0), (1800, "acme-linux", 6.0),
         ):
             self.keep(self.now - offset, who, load)
         today = self.home.path / ".agentkit/state/readings" / time.strftime("%Y-%m-%d.jsonl", time.gmtime(self.now))
         with today.open("ab") as file:
             file.write(b'{"at": 1, "machine": "acme-linux", "cor')
-        marks = "▁" + "·" * 10 + "▄" + "·" * 11 + "█"
+        marks = "▁" + "·" * 10 + "▄" + "·" * 9 + "▇██"
         flat = " ".join(self.open_machine("builds and reviews", "tests", f"last 24 hours {marks}").split())
         self.assertLess(flat.index("tests"), flat.index(f"last 24 hours {marks}"))
         self.term.keys("Down", "Down")

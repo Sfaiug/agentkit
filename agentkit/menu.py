@@ -6307,13 +6307,13 @@ def work_words(name, cfg):
 def machine_hours(name):
     """`name`'s last 24 hours of processors as 24 marks (EIGHTHS and GLYPHS's full cell, 1 or
     more full, `·` with no reading), or `no readings yet` when none of the 24 has one."""
-    series = readings.hours(name, math.ceil(time.time()), 24, home=False)
+    series = readings.hours(name, math.floor(time.time()), 24, home=False)
     if not any(hour.processors is not None for hour in series):
         return "no readings yet"
     marks, empty = (EIGHTHS[1:] + GLYPHS[True][0], "·") if terminal.utf8() else ("_,-:=+*#", ".")
-    return "".join(empty if hour.processors is None
-                   else marks[max(1, round(8 * min(1.0, hour.processors))) - 1]
-                   for hour in series)
+    return "".join(empty if h.processors is None
+                   else marks[7 if h.processors >= 1 else min(6, max(0, round(8 * h.processors) - 1))]
+                   for h in series)
 
 
 def config_machines(cfg):
