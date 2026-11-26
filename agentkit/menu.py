@@ -695,8 +695,7 @@ def moving(clock, wake=None, timeout=TICK, going=None, rest=True):
         key = wait_key("> ", left if due is None else max(0, min(due, left)), wake)
         if key is None and terminal.asked_again():
             clock.clear()
-            if not terminal.unseen():     # resize or ^Z; unseen Space/Enter only restores the highlight
-                clock.forget()
+            (clock.settle if terminal.unseen() else clock.forget)()
             return None
         if rest and isinstance(key, terminal.Key) and key.name != "point":
             terminal.over(clock.rest())
@@ -737,6 +736,7 @@ def asking(clock, around, going=lambda: None, title=""):
         return key
 
     def ask(question, meaning, answer, doing=""):
+        clock.swept = None
         clock.touch(("asked",))
         clock.hold()
         if not terminal.confirm(question, meaning, answer, around, wait):
@@ -6657,6 +6657,8 @@ def apply_defaults(cfg, ask, clock=None):
     {each reason a seat was refused for: the seats it held}, in the order the seats are listed,
     a reason no seat holds said alone."""
     from . import audit     # here, not at the top: audit imports this module
+    if clock is not None:
+        clock.swept = None
     defaults, records = cfg["defaults"], config.session_records()
     skip = config.resolve_session(audit.NAME)
     seats = {s["name"]: records[s["name"]] for s in orch.listing(reconcile=False)

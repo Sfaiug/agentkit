@@ -183,6 +183,30 @@ class RuleIsSweptWhenApplyingEnds(unittest.TestCase):
         self.wait_rule(term, lambda r: not lit_cells(r, border),
                        "rule stayed lit past SWEEP on second Apply")
 
+        # Opening a second Apply card mid-sweep clears the light on the card and after Keep/Esc.
+        for answer in ("Enter", "Escape"):
+            with self.subTest(cancel_mid_sweep=answer):
+                began = self.now + 1.0
+                self.at(began)
+                self.apply_on(term)
+                self.at(began + SWEEP / 2)
+                self.wait_rule(
+                    term,
+                    lambda r: (c := lit_cells(r, border)) and 0 not in c and len(c) < 100,
+                    "no light passed before opening second card")
+                term.keys("a")
+                self.wait_coloured(
+                    term,
+                    lambda s: "› ✓ Keep" in SGR.sub("", s) and not lit_cells(s.splitlines()[1], border),
+                    "second Apply card inherited the previous sweep")
+                term.keys(answer)
+                self.wait_coloured(
+                    term,
+                    lambda s: "a apply to all sessions" in key_line(SGR.sub("", s))
+                    and "× Apply" not in SGR.sub("", s)
+                    and not lit_cells(s.splitlines()[1], border),
+                    f"{answer} on second Apply card left the rule lit")
+
     def test_keep_and_motion_off_light_no_cell_of_the_rule(self):
         # After Keep in true colour, no cell of the rule is ever lit.
         term = self.open_c()
