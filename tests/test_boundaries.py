@@ -132,16 +132,13 @@ RULES = [
     # subscription's week holds in tokens (`capacity.json`, `ak usage --json`'s
     # `capacity_tokens` and `capacity_pairs`) until it holds it in listed dollars, and
     # GitHub's hourly API allowance (gh's `api rate_limit` endpoint and the
-    # `github_rate_limit` key that waits on it).  Google Compute's refusal codes and limits are
-    # agentkit/google_cloud.py's and, in Go, go/internal/googlecloud/'s: the one place in each
-    # program that knows Google.
+    # `github_rate_limit` key that waits on it).
     {"name": "provider failure words",
      "flags": ("-i",),
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)"
               r"|capacity[._](json|tokens|pairs)|(\"api\", \"|github_)rate_limit",
-     "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/",
-              "agentkit/google_cloud.py", "go/internal/googlecloud/"),
+     "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/"),
      "max": 57},
     # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the

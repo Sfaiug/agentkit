@@ -1,4 +1,4 @@
-"""A model turn on a rented machine keeps the timeouts its commands declared: a command there that
+"""A model turn on another machine keeps the timeouts its commands declared: a command there that
 prints nothing goes on past the silence limit while it is inside its `timeout N`, as one here
 does, and so does the next under a bound of its own; one with no bound is stopped at the limit.
 

@@ -5,9 +5,8 @@ package loop
 // passing alone are search evidence only: below each culprit a whole check must cover the
 // surviving prefix before the rebuilt suffix runs. Each check keeps what it saw of flaky tests
 // (flakes.go). Named tests that failed probe the stacks between on the suite helpers, many at
-// once (probes.go), and only the step that decides the blame runs here. Probes on a machine ak may
-// rent and reviews of PRs other than a seat's own stay with Python, as do
-// integration or rules refusals on a stack.
+// once (probes.go), and only the step that decides the blame runs here. Reviews of PRs other than a
+// seat's own stay with Python, as do integration or rules refusals on a stack.
 
 import (
 	"context"

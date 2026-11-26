@@ -8923,7 +8923,7 @@ def gates_health():
 def doctor(argv):
     """`ak doctor`: where the agents run, whether the tick that watches them is alive, what each
     machine ak may use is, and any model set to an effort its model does not take, its `effort`
-    or the one a role runs it at, then what ak rents while it may, else the best machine to rent.
+    or the one a role runs it at.
 
     The first lines are read and never asked, so they cost nothing on a host already in
     trouble -- which is the host this is typed on -- and come out before the efforts, which
@@ -8957,12 +8957,6 @@ def doctor(argv):
                 wrong.append(f"{key}  {name}: {entry.get('model')} takes {' '.join(takes)}, "
                              f"not {entry.get(key)}")
     print("\n".join(wrong) or "effort  every model takes the effort it is set to", flush=True)
-    from . import gate, google_cloud, helper   # here, not at the top: the gate imports this module
-    try:
-        lines = google_cloud.said(helper.cpu_mb(gate.HEAVY_CPUS, gate.HEAVY_MEM_MB, 0))
-    except config.Error as exc:
-        lines = [str(exc)]
-    print("\n".join(f"rented machines: {line}" for line in lines))
     return 1 if hung or stuck else 0
 
 
@@ -9040,8 +9034,8 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import (alive, cores, google_cloud, history, job as jobs, logins, machine_setup,
-                   machines, night_review, nightly, retire, run, waiter)
+    from . import (alive, cores, history, job as jobs, logins, machine_setup, machines,
+                   night_review, nightly, retire, run, waiter)
     providers, fetched = {}, set()
 
     def read_usage():
@@ -9154,10 +9148,7 @@ def local_passes(state, dry_run, log):
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
         ("browser tidy", lambda: browser.tidy(log), False),
-        # Google is asked what ak rents, given back past its time, the month's cap or idle, the
-        # rest serving once ready ...
-        ("rented machines", google_cloud.watch, False),
-        # ... and each machine ak may use what it is; one that does not answer holds the tick no
+        # Each machine ak may use is asked what it is; one that does not answer holds the tick no
         # longer than its ssh timeout.
         ("machine check", machines.check, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.

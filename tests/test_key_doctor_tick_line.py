@@ -45,8 +45,8 @@ class DoctorTickLine(unittest.TestCase):
         self.assertEqual(done.code, code, done.out + done.err)
         said = done.out.splitlines()
         self.assertTrue(set(lines) & set(said), done.out)
-        # the exit comes after the report: the last line is still the rented machine
-        self.assertTrue(said[-1].startswith("rented machines: "), done.out)
+        # the exit comes after the report: the last line is still the efforts'
+        self.assertTrue(said[-1].startswith("effort  "), done.out)
 
     def test_a_tick_ended_a_minute_ago_is_named_and_doctor_exits_0(self):
         done, lines = self.doctor(MINUTE + 30)

@@ -108,7 +108,7 @@ class DoctorRunsInEqualOut(unittest.TestCase):
         done = self.home.run(*argv, AK, "doctor", env={MARKER: str(under)} if under else None)
         self.assertEqual(done.code, code, done.out + done.err)
         self.assertIn(f"runs  {line}", done.out.splitlines())
-        self.assertTrue(done.out.splitlines()[-1].startswith("rented machines: "), done.out)
+        self.assertTrue(done.out.splitlines()[-1].startswith("effort  "), done.out)
         self.assertEqual(kept(), before, "doctor must leave the run and tick records alone")
 
     def test_a_run_neither_ended_nor_going_is_named(self):

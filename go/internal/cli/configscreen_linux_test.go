@@ -24,11 +24,10 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-for feature in ("roles", "mark_on", "mark_off", "discord", "cloud"):
+for feature in ("roles", "mark_on", "mark_off", "discord"):
     with Home() as home:
-        extra = "[google_cloud]\nactive = true\n" if feature == "cloud" else ""
         akconfig.write(home, {"fable": "claude", "astra": {"harness": "codex", "effort": "high"}},
-                       workers=["astra"], extra=extra)
+                       workers=["astra"])
         fakeadapter.install(home, claude="pass", codex="pass")
         workers = ["astra", "fable"] if feature == "mark_off" else ["astra"]
         Seat(home, "acme", model="fable", record={"workers": workers, "reviewers": ["astra"]})
@@ -42,8 +41,6 @@ for feature in ("roles", "mark_on", "mark_off", "discord", "cloud"):
         if feature == "discord":
             assert "webhook …ebhook" in shown, shown
             assert "https://example.com/acme-webhook" not in shown, shown
-        if feature == "cloud":
-            assert "Google Cloud on · spend unknown" in shown, shown
         term.keys("Right", "Right")
         term.wait("[■]" if feature == "mark_off" else "[□]", bound=10)
         record = home.path / ".agentkit/state/session-acme.json"

@@ -48,40 +48,20 @@ func home(t *testing.T, config string) (string, string) {
 	return root, adapters
 }
 
-// Each read Go cannot make says nothing and leaves all of it to Python.
+// A read Go cannot make, a harness with no adapter to ask, says nothing and leaves all of it to
+// Python.
 func TestAReadGoCannotMakeSaysNothing(t *testing.T) {
-	// ak may rent, every harness askable, and the tick has left text in the state file name
-	renting := func(t *testing.T, root, name, text string) {
-		os.WriteFile(filepath.Join(root, ".agentkit", "config.toml"), []byte(models+"\n[google_cloud]\nactive = true\n"), 0o600)
-		os.WriteFile(filepath.Join(os.Getenv("AGENTKIT_ADAPTER_DIR"), "acme.sh"), []byte("#!/bin/sh\n"), 0o755)
-		os.MkdirAll(filepath.Join(root, ".agentkit", "state"), 0o700)
-		os.WriteFile(filepath.Join(root, ".agentkit", "state", name), []byte(text), 0o600)
-	}
-	for name, arrange := range map[string]func(t *testing.T, root string){
-		"no adapter to ask": func(t *testing.T, _ string) { t.Setenv("AGENTKIT_ADAPTER_DIR", "") },
-		"the tick's lines not a list of them": func(t *testing.T, root string) {
-			renting(t, root, "google-cloud-late.json", `{"acme-1": "given back"}`)
-		},
-		"Google's clock unreadable": func(t *testing.T, root string) {
-			renting(t, root, "google-cloud-ledger.json", `{"answered": 1, "spent": 0, "machines": {}}`)
-			t.Setenv("AK_GOOGLE_CLOCK", filepath.Join(root, "no-clock"))
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			root, _ := home(t, models)
-			arrange(t, root)
-			var out, errOut bytes.Buffer
-			if _, read := Report(&out, &errOut); read || out.Len() != 0 || errOut.Len() != 0 {
-				t.Fatalf("read=%v stdout=%q stderr=%q", read, out.String(), errOut.String())
-			}
-		})
+	home(t, models)
+	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
+	var out, errOut bytes.Buffer
+	if _, read := Report(&out, &errOut); read || out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("read=%v stdout=%q stderr=%q", read, out.String(), errOut.String())
 	}
 }
 
-// A config refused comes after what doctor reads without one, though a key is there too.
+// A config refused comes after what doctor reads without one.
 func TestARefusedConfigFollowsTheHostLines(t *testing.T) {
-	root, _ := home(t, "[defaults]\norchestrator = \"one\"\n")
-	os.WriteFile(filepath.Join(root, ".agentkit", "secrets", "google-cloud.json"), []byte("{}"), 0o600)
+	home(t, "[defaults]\norchestrator = \"one\"\n")
 	var out, errOut bytes.Buffer
 	code, read := Report(&out, &errOut)
 	if code != 2 || !read || strings.Count(out.String(), "\n") != 5 || !strings.HasPrefix(errOut.String(), "ak doctor: ") {

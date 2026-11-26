@@ -141,7 +141,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, google_cloud, ledger, logins, look, machines, open_runs, parsed, record
+from . import done_check, ledger, logins, look, machines, open_runs, parsed, record
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -6213,24 +6213,21 @@ def config_done_check(cfg):
 
 
 def machines_value():
-    """`Machines`' count and the tick's cloud spending, with no probe or Google call; both read
-    config.toml as it is now, so one that will not read is shown as the error that says why,
-    `c` drawn over it while it goes on with the config it read last."""
+    """`Machines`' count, with no probe; it loads config.toml as it is now, so one that will not
+    load is shown as the error that says why, `c` drawn over it while it goes on with the config
+    it read last."""
     try:
-        count, cloud = len(machines.known()), google_cloud.summary(count=False)
+        config.load()
+        count = len(machines.known())
     except config.Error as exc:
         return str(exc)
-    return f"{count} machine{'' if count == 1 else 's'} · Google Cloud {cloud}"
+    return f"{count} machine{'' if count == 1 else 's'}"
 
 
-def machine_value(machine, rented, cfg):
+def machine_value(machine, cfg):
     """What the tick last found, and the work this machine's marks allow."""
     here, said = machine.name == machines.HERE, machine.said
-    kind = "home" if here else machine.kind
-    if not here and machine.name in rented:
-        until = time.strftime("%H:%M", time.localtime(rented[machine.name]))
-        kind = f"rented until {until}"
-    words = [kind]
+    words = ["home" if here else machine.kind]
     if said:
         total, free = said["memory_mb"], said["free_mb"]
         words += [f"{said['cores']} cores · {machines._gb(total)}"]
@@ -6268,27 +6265,13 @@ def work_words(name, cfg):
 
 
 def config_machines(cfg):
-    """Recorded machines; Enter opens their work marks, and the cloud's monthly cap.  Under them,
-    each machine that copies this one (standby.copies), whose row, as this host's, opens nothing,
-    or under the rows why they cannot be read.  Last,
-    `+ add a machine` takes an ssh address, or with none typed finds those that ran the line
-    making a new machine one it adds (machines.join_line, under its field; machines.found), and
-    writes each to config.toml once it answers (machines.add), else says why not."""
+    """Recorded machines; Enter opens their work marks.  Under them, each machine that copies this
+    one (standby.copies), whose row, as this host's, opens nothing, or under the rows why they
+    cannot be read.  Last, `+ add a machine` takes an ssh address, or with none typed finds those
+    that ran the line making a new machine one it adds (machines.join_line, under its field;
+    machines.found), and writes each to config.toml once it answers (machines.add), else says why
+    not."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
-
-    def save(key, value):
-        before = copy.deepcopy(cfg)
-        cfg["google_cloud"] = {**(cfg.get("google_cloud") or {}), key: value}
-        return _saved(cfg, cfg, before)
-
-    def cap_field(draw):
-        value = terminal.field("    ", "whole euros per month, 0 or more",
-                               around=lambda line: draw([line]))
-        if value is None or terminal.is_esc(value):
-            return ""
-        if not re.fullmatch(r"[0-9]+", value.strip()):
-            return "the monthly cap must be a whole number of euros, 0 or more"
-        return save("max_month", int(value))
 
     def add_field(draw):
         join = machines.join_line()
@@ -6320,14 +6303,10 @@ def config_machines(cfg):
         return _saved(cfg, cfg, before)
 
     def work_page(name):
-        if name and google_cloud.ssh_config(name):
-            name = None
-
         def flip(word):
             before = copy.deepcopy(cfg)
             work = machines.work(name, cfg)
-            table = cfg.setdefault("google_cloud", {}) if name is None else \
-                cfg.setdefault("machines", {}).setdefault(name, {})
+            table = cfg.setdefault("machines", {}).setdefault(name, {})
             table["work"] = [item for item in ("turns", "tests")
                              if (item in work) != (item == word)]
             if table["work"] != machines.work(name, cfg):
@@ -6338,22 +6317,19 @@ def config_machines(cfg):
 
         def page():
             work = machines.work(name, cfg)
-            rows = [(label, [(on, "accent") if word in work else (off, "dim"),
+            config.load()       # as on Machines' own page
+            return [(label, [(on, "accent") if word in work else (off, "dim"),
                              ("on" if word in work else "off", None)],
                      ("mark", lambda word=word: flip(word)))
-                    for word, label in (("turns", "builds and reviews"), ("tests", "tests"))]
-            return rows + ([("Monthly cap", f"€{google_cloud._setting()[1]:g}", cap_field)]
-                           if name is None else []), ""
+                    for word, label in (("turns", "builds and reviews"), ("tests", "tests"))], ""
 
         def open_page(draw):
-            config_page(f"machines · {name or 'Google Cloud'}", page)
+            config_page(f"machines · {name}", page)
             return ""
         return open_page
 
     def page():
-        active, _ = google_cloud._setting()
-        rented = google_cloud.serving()
-        rows = [(machine.name, machine_value(machine, rented, cfg),
+        rows = [(machine.name, machine_value(machine, cfg),
                  None if machine.name == machines.HERE else work_page(machine.name))
                 for machine in machines.known()]
         try:
@@ -6361,10 +6337,10 @@ def config_machines(cfg):
         except config.Error as exc:
             stand_ins, why = [], str(exc)
         rows += [(host, stand_in_value(age, takes), None) for host, age, takes in stand_ins]
-        return [*rows, ("Google Cloud", [(on, "accent") if active else (off, "dim"),
-                                         (f"{google_cloud.summary()} · {work_words(None, cfg)}", None)],
-                        ("mark", lambda: save("active", not active), work_page(None))),
-                ("+ add a machine", "", add_field)], why
+        # a file that will not load closes the page, saying why on `c`; read last, so one
+        # breaking under the reads above does too
+        config.load()
+        return [*rows, ("+ add a machine", "", add_field)], why
     config_page("machines", page)
 
 

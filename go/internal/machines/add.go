@@ -16,7 +16,7 @@ import (
 // first check, both until ctx ends: "" for Add to write it, else why not (Python's
 // machines.add).  One ak may use already is not asked.
 func Ask(ctx context.Context, name string) string {
-	if names, _, _ := known(); slices.Contains(names, name) {
+	if names, _ := known(); slices.Contains(names, name) {
 		return name + " is a machine already"
 	}
 	now := float64(time.Now().UnixNano()) / 1e9

@@ -1,15 +1,12 @@
 package cli
 
 import (
-	"cmp"
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
 
 	"agentkit/internal/config"
-	"agentkit/internal/googlecloud"
 	"agentkit/internal/machines"
 	"agentkit/internal/menu"
 	"agentkit/internal/seat"
@@ -17,12 +14,13 @@ import (
 )
 
 // menuMachines is `Machines` on `c` (menu.config_machines), from the tick's records alone: a row
-// for every machine ak may use, this one first, Enter opening its work but on this one's; then
-// the cloud's, Space switching it on or off, saved at once, and Enter opening its work.  Last,
+// for every machine ak may use, this one first, Enter opening its work but on this one's.  Last,
 // `+ add a machine` takes an ssh address, with the line that makes a new machine ready under its
 // field, and adds the machine once it answers, else says why not (machines.Ask, machines.Add);
-// Esc while it is asked goes back, nothing written.
-func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+// Esc while it is asked goes back, nothing written.  A read of config.toml that fails closes it
+// and a machine's page over it, what it returns saying why for `c` to show under its rows, as
+// Python's config.Error brings the owner back; false hands it to Python.
+func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) (string, bool) {
 	join := sync.OnceValues(machines.JoinLine) // made as the field first opens: it makes ak's key
 	add := menu.PageRow{Label: "+ add a machine", Field: func(typed string) string {
 		name := strings.TrimFunc(typed, config.Space)
@@ -52,38 +50,42 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			}
 			return append(lines, s.Unbroken("    "+line)...)
 		}}
-	return configPage("machines", "", func() ([]menu.PageRow, bool) {
+	var why error // the read of config.toml that failed
+	if configPage("machines", "", func() ([]menu.PageRow, bool) {
 		var rows []menu.PageRow
 		for _, machine := range machines.Known() {
-			work, known := workWords(machine)
-			if !known {
+			var work string
+			if work, why = workWords(machine); why != nil {
 				return nil, false
 			}
 			row := menu.PageRow{Label: machine.Name, Value: machine.Overview() + " · " + work}
 			if machine.Name != machines.Here {
-				row.Open = func() bool { return menuMachineWork(machine.Name, keyboard, painter) }
+				row.Open = func() bool { return menuMachineWork(machine.Name, &why, keyboard, painter) }
 			}
 			rows = append(rows, row)
 		}
-		active, _ := config.CloudBudget()
-		work, known := workWords(machines.Cloud)
-		return append(rows, menu.PageRow{Label: "Google Cloud", Value: googlecloud.Summary(true) + " · " + work, On: active,
-			Flip: func() string { return saved(machines.Cloud.Save("active", !active, seat.KeepConfigEfforts)) },
-			Open: func() bool { return menuMachineWork(machines.Cloud.Name, keyboard, painter) }}, add), known
-	}, keyboard, painter)
+		why = config.Check() // last, so a file breaking under the reads above closes it too
+		return append(rows, add), why == nil
+	}, keyboard, painter) {
+		return "", true
+	}
+	if why != nil {
+		return why.Error(), true
+	}
+	return "", false
 }
 
 // menuMachineWork is `config · machines · <name>`: a mark for each work a machine may take,
-// Space flipping it, saved at once, but builds and reviews on a Mac.  A machine ak rents takes
-// the cloud's marks, whose page has its monthly cap too, a field (saveCap).  Each draw and each
-// flip reads the machine afresh, as a probe may land while the page is open.
-func menuMachineWork(name string, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
-	if machines.Named(name).Rented() {
-		name = ""
-	}
-	return configPage("machines · "+cmp.Or(name, "Google Cloud"), "", func() ([]menu.PageRow, bool) {
-		work, known := machines.Named(name).Work()
-		if !known {
+// Space flipping it, saved at once, but builds and reviews on a Mac.  Each draw and each flip reads
+// the machine afresh, as a probe may land while the page is open, and one of config.toml that
+// fails closes it, `why` saying so, as on Machines' own page.
+func menuMachineWork(name string, why *error, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+	return configPage("machines · "+name, "", func() ([]menu.PageRow, bool) {
+		work, err := machines.Named(name).Work()
+		if err == nil {
+			err = config.Check() // last, as on Machines' page
+		}
+		if *why = err; err != nil {
 			return nil, false
 		}
 		var rows []menu.PageRow
@@ -93,11 +95,6 @@ func menuMachineWork(name string, keyboard *terminal.Keyboard, painter *terminal
 				value = "on"
 			}
 			rows = append(rows, menu.PageRow{Label: mark[1], Value: value, On: on, Flip: func() string { return flipWork(name, mark[0]) }})
-		}
-		if name == "" {
-			_, cap := config.CloudBudget()
-			rows = append(rows, menu.PageRow{Label: "Monthly cap", Value: fmt.Sprintf("€%.6g", cap),
-				Field: saveCap, Placeholder: "whole euros per month, 0 or more"})
 		}
 		return rows, true
 	}, keyboard, painter)
@@ -114,12 +111,12 @@ func flipWork(name, word string) string {
 	if !slices.Equal(machine.Takes(flipped), flipped) {
 		return "this machine cannot build or review"
 	}
-	return saved(machine.Save("work", flipped, seat.KeepConfigEfforts))
+	return saved(machine.Save(flipped, seat.KeepConfigEfforts))
 }
 
 // workWords is the work a machine's marks allow as the page names it (menu.work_words).
-func workWords(machine machines.Machine) (string, bool) {
-	work, known := machine.Work()
+func workWords(machine machines.Machine) (string, error) {
+	work, err := machine.Work()
 	var words []string
 	if machine.Name == machines.Here {
 		words = append(words, "sessions")
@@ -131,9 +128,9 @@ func workWords(machine machines.Machine) (string, bool) {
 		words = append(words, "tests")
 	}
 	if len(words) == 0 {
-		return "no work", known
+		return "no work", err
 	}
-	return strings.Join(words, ", "), known
+	return strings.Join(words, ", "), err
 }
 
 // saved is what a page says of a save, Python's menu._saved: nothing where it held.

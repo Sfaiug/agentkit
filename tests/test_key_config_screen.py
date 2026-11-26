@@ -35,7 +35,7 @@ ROWS = ["Claude Code",
         "  Subscriptions",
         "  Discord     not connected",
         "  Done check  on · the seat's reviewer",
-        "  Machines    1 machine · Google Cloud off",
+        "  Machines    1 machine",
         "  Limits      review 3 rounds · executor 300 lines · orchestrator 50 lines · extra 2 rounds",
         ""]
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # a seat's, on a mark

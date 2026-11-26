@@ -180,7 +180,7 @@ def _transcript_usage(out, init):
 
     The stream counts a message's input and cache but only its first chunk of output; the
     transcript keeps each message's final counts, and a resumed session's earlier turns too.  A
-    turn on a rented machine (agentkit/machine_turn.py) brings its transcript home only when it
+    turn on another machine (agentkit/machine_turn.py) brings its transcript home only when it
     ends with its session reported, so one killed there keeps its stream's counts, and this
     host's conversation, which a later turn resumes, holds none of them.
     """

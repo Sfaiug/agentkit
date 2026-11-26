@@ -1,6 +1,6 @@
 """A model turn on a machine marked for turns in config.toml once this host has no room for it
 (`_room_here`), its results back here when it ends. Hidden here: the machine, the busiest taking
-turns and outliving its login (agentkit/helper.py), and the ssh to it; the parcel beside a suite's:
+turns (agentkit/helper.py), and the ssh to it; the parcel beside a suite's:
 the out dir, the checkout's uncommitted paths, ak itself, a HOME of the turn's own, holding a copy
 of its login the adapter lends and the conversation it resumes, and the harness program to run,
 which the machine fetches the first time a turn names it (mac.sh's `fetch`), a new version here
@@ -30,7 +30,7 @@ from . import config, gitcall, helper, host, machines
 
 AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `bin` on PATH
 # Seconds a lent login must last, else the turn runs here: a longer turn would end on an expired
-# login. A harness may say fewer (`[worker] lent_for`). A machine Google ends sooner takes no turn.
+# login. A harness may say fewer (`[worker] lent_for`).
 LENT_FOR = 3600
 # What a turn is given on a machine (helper.start), and what this host must spare to keep it
 # (`_room_here`): 2 CPUs and 2048 MiB, twice that, 4 GiB, for its VM (helper.each_mb), as on 30 Oct
@@ -81,7 +81,7 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     reported, whatever its exit."""
     harness = entry["harness"]
     try:
-        on = any("turns" in machines.work(name) for name in [None, *machines.helpers()])
+        on = any("turns" in machines.work(name) for name in machines.helpers())
         program = (_program(harness) if on and not places and _sessions(harness)
                    and not _room_here() else None)
     except config.Error:    # a config.toml mid-edit fails no turn: it runs here
@@ -101,9 +101,9 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
         lent = _lend(entry, cmd[0], env, home, lasting)
         if not lent:
             return None
-        away = helper.start(CPUS, MEMORY_MB, cwd, lambda line: None, shlex.join(cmd),
-                            lambda tar: _parcel(tar, program, cwd, out_dir, env, home, lent, held),
-                            lasting=LENT_FOR)[0]
+        away = helper.start(
+            CPUS, MEMORY_MB, cwd, lambda line: None, shlex.join(cmd),
+            lambda tar: _parcel(tar, program, cwd, out_dir, env, home, lent, held))[0]
     if away is None:
         return None
     volumes = [f"home:{env['HOME']}", f"work:{cwd}", f"out:{out_dir}",

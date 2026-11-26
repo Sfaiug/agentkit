@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/googlecloud"
 	"agentkit/internal/run"
 )
 
@@ -25,14 +24,13 @@ const (
 // whether it answered], and what it said when it last answered, nil for never.
 type Machine struct {
 	Name   string
-	until  int64 // the end of a rental that serves, 0 for any other
 	checks []any
 	said   *run.Object
 }
 
 // Known is every machine ak may use, this one first, off one reading of the ticks' record.
 func Known() []Machine {
-	names, record, rentals := known()
+	names, record := known()
 	machines := make([]Machine, len(names))
 	for i, name := range names {
 		entry := record.Dict(name)
@@ -43,14 +41,11 @@ func Known() []Machine {
 		if said := machines[i].said; said != nil && len(said.Keys()) == 0 {
 			machines[i].said = nil
 		}
-		if at := slices.IndexFunc(rentals, func(r googlecloud.Rental) bool { return r.Name == name }); at >= 0 && name != Here {
-			machines[i].until = rentals[at].Until
-		}
 	}
 	return machines
 }
 
-// Named is the machine of that name as the ticks' record has it now, the Cloud for "".
+// Named is the machine of that name as the ticks' record has it now.
 func Named(name string) Machine {
 	for _, machine := range Known() {
 		if machine.Name == name {
@@ -60,20 +55,16 @@ func Named(name string) Machine {
 	return Machine{Name: name}
 }
 
-// known is every machine ak may use, this one first: config.toml's, then those ak rents that
-// serve; the ticks' record of them; and those rentals.
-func known() ([]string, *run.Object, []googlecloud.Rental) {
-	names, rentals := append([]string{Here}, config.MachineNames()...), googlecloud.Serving()
-	for _, rental := range rentals {
-		names = append(names, rental.Name)
-	}
+// known is every machine ak may use, this one first, then config.toml's; and the ticks' record of
+// them.
+func known() ([]string, *run.Object) {
 	var unique []string
-	for _, name := range names {
+	for _, name := range append([]string{Here}, config.MachineNames()...) {
 		if name != "" && !slices.Contains(unique, name) {
 			unique = append(unique, name)
 		}
 	}
-	return unique, recorded(), rentals
+	return unique, recorded()
 }
 
 // recorded is the ticks' record, empty where it cannot be read.

@@ -1,6 +1,6 @@
 // Package doctor is `ak doctor`, as Python's watch.doctor: where the agents run, whether the tick
-// is alive, whether the night review is armed, what each machine ak may use is, any model set to
-// an effort it does not take, and what ak rents. It changes nothing.
+// is alive, whether the night review is armed, what each machine ak may use is, and any model set
+// to an effort it does not take. It changes nothing.
 package doctor
 
 import (
@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
-	"agentkit/internal/googlecloud"
 	"agentkit/internal/host"
 	"agentkit/internal/listing"
 	"agentkit/internal/machines"
@@ -20,7 +19,7 @@ import (
 // Report says all of it and is the exit: 2 for a config Python's config.load refuses, after what
 // it reads without one, 1 where the tick reads as hung or a run started in the last day is lost.
 // False, with nothing said, where a read is one Go cannot make. The first lines come out before
-// the efforts, which ask each harness, and the best machine to rent, which may ask Google.
+// the efforts, which ask each harness.
 func Report(out, errOut io.Writer) (int, bool) {
 	health, stuck, read := tick.Health()
 	if !read {
@@ -39,10 +38,6 @@ func Report(out, errOut io.Writer) (int, bool) {
 		return 0, false
 	}
 	nights, read := tick.NightReviewLine()
-	if !read {
-		return 0, false
-	}
-	bill, read := googlecloud.Bill()
 	if !read {
 		return 0, false
 	}
@@ -66,12 +61,6 @@ func Report(out, errOut io.Writer) (int, bool) {
 		wrong = []string{"effort  every model takes the effort it is set to"}
 	}
 	fmt.Fprintln(out, strings.Join(wrong, "\n"))
-	if bill == nil {
-		bill = []string{googlecloud.Cheapest(host.MBPerCPU())}
-	}
-	for _, line := range bill {
-		fmt.Fprintln(out, "rented machines: "+line)
-	}
 	if stuck || lost {
 		return 1, true
 	}

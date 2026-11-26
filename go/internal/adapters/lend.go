@@ -12,7 +12,7 @@ import (
 	"agentkit/internal/harness"
 )
 
-// Lend answers `lend <home> [own]` as the Python adapters do: the login a turn on a rented
+// Lend answers `lend <home> [own]` as the Python adapters do: the login a turn on another
 // machine runs on, copied to where a turn run with HOME=home reads it, and on stdout the epoch
 // second it lapses, where it does.  With own and an account named, that is where a turn naming
 // the account reads it; else where one naming none does, as a machine's turn runs.  It answers

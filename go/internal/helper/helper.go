@@ -5,7 +5,7 @@
 // mac.sh VERB ...`, the script tools/helper's linux.sh and mac.sh as this program carries them, and
 // a suite reaches the machine as one tar on `prepare`'s stdin: the recipe and the files it copies,
 // the piece's script and the files each piece reads, the heads under test and the history the
-// machine lacks, and a model turn's own files where it carries one.  A machine ak rents is reached by the route the tick keeps.
+// machine lacks, and a model turn's own files where it carries one.
 package helper
 
 import (
@@ -29,7 +29,6 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
-	"agentkit/internal/googlecloud"
 	"agentkit/internal/harness"
 )
 
@@ -82,10 +81,7 @@ type Away struct {
 // one turns it away, Python's start: the Away there, or nil and why its pieces run here.  command
 // is what each piece runs there, handed times in a file (pinned); cpus and memoryMB one piece's cost; what it has to say goes to say.  A model turn's,
 // with its own files for the parcel (turnFiles), is one piece that goes to the machine with the
-// least room that takes turns, holding its cpus there until it starts, not half the machine.  It
-// passes over a rental Google ends before the work would start there, a turn's before the hour its
-// login is lent for (lentFor) is out there, and asks the tick for a machine (need) where none took
-// it, or none with room outlives the chosen one by a rent and a pass.
+// least room that takes turns, holding its cpus there until it starts, not half the machine.
 func Start(cwd string, cpus, memoryMB float64, command, times string, turn map[string]file, say func(string)) (*Away, string, error) {
 	line, handed := pinned(command, times, nil)
 	return start(cwd, cpus, memoryMB, line, handed, turn, false, say)
@@ -94,9 +90,9 @@ func Start(cwd string, cpus, memoryMB float64, command, times string, turn map[s
 // start is Start of the line command each piece runs there and the files handed it, as pinned;
 // with one, a probe's, it holds only the CPUs its one piece gets (Probe).
 func start(cwd string, cpus, memoryMB float64, command string, handed, turn map[string]file, one bool, say func(string)) (*Away, string, error) {
-	work, first, holds, lasting := "tests", -1, []string(nil), time.Duration(0)
+	work, first, holds := "tests", -1, []string(nil)
 	if turn != nil {
-		work, first, holds, lasting = "turns", 1, []string{strconv.FormatFloat(cpus, 'f', -1, 64)}, lentFor*time.Second
+		work, first, holds = "turns", 1, []string{strconv.FormatFloat(cpus, 'f', -1, 64)}
 	}
 	aliases := takers(work)
 	caps := map[string]string{}
@@ -112,11 +108,9 @@ func start(cwd string, cpus, memoryMB float64, command string, handed, turn map[
 			}
 		}
 	}
-	if len(aliases) == 0 && !googlecloud.Rents(work) {
+	if len(aliases) == 0 {
 		return nil, "no suite helper set up", nil
 	}
-	ends := googlecloud.Serving()
-	aliases = slices.DeleteFunc(aliases, func(alias string) bool { return !lasts(ends, alias, lasting) })
 	away := &Away{key: token(), repo: gitcall.RepositoryID(cwd), command: command, programs: programs(), cwd: cwd}
 	image, files, err := recipeOf(cwd, away.repo)
 	if err != nil {
@@ -161,21 +155,13 @@ func start(cwd string, cpus, memoryMB float64, command string, handed, turn map[
 			sendHolds = []string{strconv.Itoa(there.CPUs)}
 		}
 		sent := there.send(cwd, files, sendHolds)
-		// asked again once prepared, which may take 30 minutes, as the work starts then
-		if sent == 0 && lasts(ends, there.Alias, lasting) {
+		if sent == 0 {
 			say(fmt.Sprintf("suite on %s: %d pieces, %d CPUs and %d MiB each", there.Alias, there.Count, there.CPUs, there.MemoryMB))
-			if soon(aliases, fits, ends, lasting) {
-				need(cpus, memoryMB, away.repo, work)
-			}
 			return &there, "", nil
 		}
 		there.Finish()
-		fits[i], why[i] = fit{}, "ends too soon" // its room is gone
-		if sent != 0 {
-			why[i] = Failure(sent)
-		}
+		why[i] = Failure(sent)
 	}
-	need(cpus, memoryMB, away.repo, work)
 	for i, alias := range aliases {
 		why[i] = "helper " + alias + " " + why[i]
 	}
@@ -319,6 +305,12 @@ func room(alias string, cpus, memoryMB float64, least int, turns bool) (fit, str
 	return fit{count, int(math.Floor(spare / float64(count))), mb, int(math.Floor(machine / each))}, ""
 }
 
+// eachMB is the MiB a piece's VM gets: twice the piece's, as it holds its own kernel, page cache
+// and clone too, or least where that is more.
+func eachMB(memoryMB float64, least int) int {
+	return int(max(2*memoryMB, float64(least)))
+}
+
 // Failure is the machine's reason, decided from its exit, never its diagnostic output.
 func Failure(code int) string {
 	switch code {
@@ -352,11 +344,9 @@ func ask(alias string, limit time.Duration, stdin *os.File, verb string, args ..
 	return cmd.ProcessState.ExitCode(), string(said)
 }
 
-// remote is ssh running one verb there, never asking for a password, ended with ctx: a rental by
-// the route the tick keeps.
+// remote is ssh running one verb there, never asking for a password, ended with ctx.
 func remote(ctx context.Context, alias, verb string, args ...string) *exec.Cmd {
-	ssh := append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15"}, googlecloud.SSHConfig(alias)...)
-	return exec.CommandContext(ctx, "ssh", append(ssh, alias, Line(verb, args...))...)
+	return exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", alias, Line(verb, args...))
 }
 
 // Line is the shell line running one verb on a machine: the remote script, every kind's functions,

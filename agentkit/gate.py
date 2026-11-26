@@ -321,7 +321,7 @@ def frozen_runs(state):
 
 def _shows_nothing_yet(run):
     """Has `run` launched no worker since it went in, or its last under `STARTING` ago?  Peaks
-    settled within 110 s on 2 Nov 2026; then the readings show what it holds.  A turn on a rented
+    settled within 110 s on 2 Nov 2026; then the readings show what it holds.  A turn on another
     machine holds 43 MiB here: counted to a median of 763 for life, 9 such held 22 runs in line."""
     try:
         at = (config.RUNS / str(run.get("run_id")) / worker.LAUNCHED).stat().st_mtime

@@ -15,7 +15,6 @@ from collections import namedtuple
 import fcntl
 import hashlib
 import io
-import math
 import os
 import posixpath
 import re
@@ -24,9 +23,8 @@ import shlex
 import subprocess
 import tarfile
 import tempfile
-import time
 
-from . import config, gitcall, google_cloud, machines, orch
+from . import config, gitcall, machines, orch
 
 LOST = 255            # ssh's own failure
 LACKS = 3             # mac.sh's `prepare`: the copy there lacks history the parcel left out
@@ -133,12 +131,6 @@ def each_mb(piece_mem_mb, least_mb):
     return int(max(2 * piece_mem_mb, least_mb))
 
 
-def cpu_mb(piece_cpus, piece_mem_mb, least_mb):
-    """The MiB each CPU of a machine to rent must hold, rounded up: a CPU's share of a piece's
-    VM, beside the tenth of its memory the machine's system keeps (linux.sh's `left`)."""
-    return -(-each_mb(piece_mem_mb, least_mb) * 10 // (9 * int(max(piece_cpus, VM_CPUS))))
-
-
 def failure(code):
     """The helper's reason, decided from its exit, never its diagnostic output."""
     return {LOST: "did not answer (asleep or away)", BATTERY: "is on battery", FULL: "has no room",
@@ -181,8 +173,7 @@ def _parcel(cwd, default, known, files, parcel, turn=None):
             tar.addfile(tar.gettarinfo(arcname="repo.bundle", fileobj=bundle), bundle)
 
 
-def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one=False,
-          files=None):
+def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, one=False, files=None):
     """(the suite sent to a helper that takes it, reason): an Away, or (None, why it runs here).
     `command` is what each of its pieces runs there (`piece`): one whose line is longer than one
     argument holds keeps the suite here; `files`, {variable: text}, go in the parcel, of any
@@ -190,28 +181,14 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one
     model turn's (agentkit/machine_turn.py), it goes to a machine that takes turns, holding
     `piece_cpus` of it until it starts, not half, `turn(tar)` adding its own files to the parcel.
     With `one`, a probe of a red stack's narrowing (land._probe), it holds only the CPUs its one
-    piece gets, so the probes of its round started beside it find the rest (`places`). None goes
-    to a machine Google ends within `lasting` seconds of when it would start there, and one
-    placed where no machine with room lasts a rent and a pass more (google_cloud.READY, PASS)
-    asks for a machine, as none does: the next is ready as the chosen one stops taking that
-    work, not turns run here meanwhile."""
-    work = "turns" if turn else "tests"
+    piece gets, so the probes of its round started beside it find the rest (`places`)."""
     try:
-        aliases = _takers(work)
+        aliases = _takers("turns" if turn else "tests")
         caps = {alias: machines.max_runs(alias) for alias in aliases} if turn else {}
-        renting = google_cloud.renting() and work in machines.work(None)
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
-        aliases, caps, renting = [], {}, False
-    if not aliases and not renting:
+        aliases, caps = [], {}
+    if not aliases:
         return None, "no suite helper set up"
-    ends = google_cloud.serving()
-
-    def lasts(alias, more=0):
-        """Whether Google ends `alias` `lasting` and `more` seconds from now or later: asked before
-        its probe, and again once it is prepared, which may take 30 minutes, as the work starts
-        then."""
-        return ends.get(alias, math.inf) >= time.time() + lasting + more
-    aliases = list(filter(lasts, aliases))
     repo = gitcall.repository_id(cwd)
     try:
         image, recipe = _recipe(cwd, repo) or (None, None)
@@ -236,15 +213,10 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one
              for alias in aliases}
     handed = {name: (0o644, text.encode()) for name, text in (files or {}).items()}
 
-    def need():
-        """Asks the tick for a machine, the MiB read now: `short` may raise them meanwhile."""
-        google_cloud.need(cpu_mb(piece_cpus, piece_mem_mb, _least(repo)), work)
-
     # A suite splits into as many pieces as fit, so most room first; a turn takes one place and
-    # is as fast on a busy machine, so least first, and one it leaves empty goes back
-    # (google_cloud.IDLE_FOR): 12 turns kept three 72-core machines a tenth busy at €46 a day
-    # (31 Oct 2026). On to the next where that refuses: its room can go between the probe and
-    # `prepare`, and 40 checks in two hours then ran here on a host out of CPU (30 Oct 2026).
+    # is as fast on a busy machine, so least first, leaving the most room to a suite. On to the
+    # next where that refuses: its room can go between the probe and `prepare`, and 40 checks in
+    # two hours then ran here on a host out of CPU (30 Oct 2026).
     for alias in sorted(filter(lambda alias: rooms[alias][0], aliases),
                         key=lambda alias: rooms[alias][0][0] * (1 if turn else -1)):
         fit = rooms[alias][0]
@@ -264,25 +236,17 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one
                 known = [] if known and sent == LACKS else None
         except (OSError, subprocess.SubprocessError):
             sent = LOST
-        if not sent and lasts(alias):
+        if not sent:
             log(f"suite on {alias}: {fit[0]} pieces, {fit[1]} CPUs and {fit[2]} MiB each")
-            if not any(left and lasts(other, google_cloud.READY + google_cloud.PASS)
-                       for other, (left, _) in rooms.items()):
-                need()
             return away, ""
         finish(away)
-        rooms[alias] = None, failure(sent) if sent else "ends too soon"   # its room is gone
-    need()
-    return None, " · ".join(f"helper {alias} {reason}"
-                            for alias, (_, reason) in rooms.items()) or "no suite helper set up"
+        rooms[alias] = None, failure(sent)   # its room is gone
+    return None, " · ".join(f"helper {alias} {reason}" for alias, (_, reason) in rooms.items())
 
 
 def _takers(work):
-    """The machines that take `work`, rentals taking no more work aside; config.Error where a
-    config.toml is mid-edit."""
-    not_serving = google_cloud.not_serving()
-    return [alias for alias in machines.helpers()
-            if alias not in not_serving and work in machines.work(alias)]
+    """The machines that take `work`; config.Error where a config.toml is mid-edit."""
+    return [alias for alias in machines.helpers() if work in machines.work(alias)]
 
 
 def places(piece_cpus, piece_mem_mb, cwd):

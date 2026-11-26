@@ -28,12 +28,9 @@ mode = "subscription"
 
 [machines.acme-mac]
 work = ["tests"]
-
-[google_cloud]
-max_month = 200
 `)
-	implied := []Marks{{"acme-mac", []string{"turns", "tests"}}, {"acme-linux", []string{"turns", "tests"}}, {"", []string{"turns", "tests"}}}
-	if err := SaveMachine("", "active", true, implied, func() error { return nil }); err != nil {
+	implied := []Marks{{"acme-mac", []string{"turns", "tests"}}, {"acme-linux", []string{"turns", "tests"}}}
+	if err := SaveMachine("acme-new", []string{"tests"}, implied, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -49,15 +46,14 @@ max_month = 200
 	}
 	want := map[string]any{
 		"machines": map[string]any{"acme-mac": map[string]any{"work": []any{"tests"}},
-			"acme-linux": map[string]any{"work": []any{"turns", "tests"}}},
-		"google_cloud": map[string]any{"max_month": 200, "active": true, "work": []any{"turns", "tests"}},
+			"acme-linux": map[string]any{"work": []any{"turns", "tests"}}, "acme-new": map[string]any{"work": []any{"tests"}}},
 	}
 	for key, value := range want {
 		if fmt.Sprint(got[key]) != fmt.Sprint(value) {
 			t.Errorf("%s: %#v, want %#v", key, got[key], value)
 		}
 	}
-	if work, known := MachineWork("acme-linux"); !known || !reflect.DeepEqual(work, []string{"turns", "tests"}) {
-		t.Errorf("read back: %v %v", work, known)
+	if work, err := MachineWork("acme-linux"); err != nil || !reflect.DeepEqual(work, []string{"turns", "tests"}) {
+		t.Errorf("read back: %v %v", work, err)
 	}
 }

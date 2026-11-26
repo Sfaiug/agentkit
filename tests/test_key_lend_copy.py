@@ -1,6 +1,6 @@
 """`adapters/<harness>.sh lend <home>` copies a login nothing can renew and says when it lapses.
 
-A turn on a rented machine reads its login from that copy.  Renewing a subscription login
+A turn on another machine reads its login from that copy.  Renewing a subscription login
 retires the one before it, so the copy is the login with every refresh token taken out,
 owner-only, where a turn run with HOME=<home> reads it, and the original stays as it was.  The
 verb prints the epoch second the copy lapses, read from the login's own expiry in each form

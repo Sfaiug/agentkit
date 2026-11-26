@@ -1,6 +1,6 @@
-"""`config · machines` on a home lists, under the machines ak uses and above `Google Cloud`, each
-machine a record there says copied this one, as `ak standby --copied` keeps it: its name, then
-`stand-in · copy 3m old`, with `takes over when this one stops` where its record says so and
+"""`config · machines` on a home lists, under the machines ak uses and above `+ add a machine`,
+each machine a record there says copied this one, as `ak standby --copied` keeps it: its name,
+then `stand-in · copy 3m old`, with `takes over when this one stops` where its record says so and
 `home goes back to it once it is steady` where it says `back`, or `stand-in · its record cannot
 be read`.  Enter on the row does nothing, ↓ reaches it below a machine ak uses of its name too,
 and the highlight stays on whichever of the two it is on as rows come and go above it.  `c`'s
@@ -35,7 +35,7 @@ class TheMachinesPageListsTheStandIn(unittest.TestCase):
         self.addCleanup(self.home.close)
         fakeadapter.install(self.home, claude="pass")
         self.config = akconfig.write(self.home, ["fable"],
-                                     extra="[machines.acme-mac]\n[google_cloud]\nactive = false\n")
+                                     extra="[machines.acme-mac]\n")
 
     def told(self, takes, host="acme-vm"):
         """`host`'s request, as its pass makes it: the home's stamp, handed back."""
@@ -60,7 +60,7 @@ class TheMachinesPageListsTheStandIn(unittest.TestCase):
         screen = self.term.wait(lambda screen: "config · machines" in screen
                                 and "esc back" in screen
                                 and all(row in " ".join(screen.split()) for row in (
-                                    "this one home", "acme-mac", "Google Cloud ○", *rows)))
+                                    "this one home", "acme-mac", "+ add a machine", *rows)))
         return " ".join(screen.split())
 
     def leave(self):
@@ -74,15 +74,15 @@ class TheMachinesPageListsTheStandIn(unittest.TestCase):
         shown = self.page(f"acme-vm stand-in · copy 3m old · {TAKES_OVER}")
         self.assertNotIn(GOES_BACK, shown)
         self.assertLess(shown.index("acme-mac"), shown.index("acme-vm"))
-        self.assertLess(shown.index("acme-vm"), shown.index("Google Cloud ○"))
-        self.assertIn("2 machines · Google Cloud off", " ".join(self.config_screen.split()))
+        self.assertLess(shown.index("acme-vm"), shown.index("+ add a machine"))
+        self.assertIn("Machines 2 machines Limits", " ".join(self.config_screen.split()))
         self.term.keys("Down", "Down")
         row = self.term.wait("› acme-vm")
         keys = next(line for line in reversed(row.splitlines()) if line.strip())
         self.assertNotIn("⏎", keys)
         self.assertNotIn("␣", keys)
         self.term.keys("Enter", "Down")
-        self.assertIn("config · machines", self.term.wait("› Google Cloud"))
+        self.assertIn("config · machines", self.term.wait("› + add a machine"))
         self.assertEqual(kept, [path.read_bytes() for path in (
             self.config, self.home.path / RECORDS / "acme-vm")])
         self.leave()
@@ -104,15 +104,14 @@ class TheMachinesPageListsTheStandIn(unittest.TestCase):
         self.leave()
 
     def test_a_machine_ak_uses_that_also_stands_in_has_both_rows_each_reached_in_turn(self):
-        akconfig.write(self.home, ["fable"], extra="[machines.acme-mac]\n[machines.acme-vm]\n"
-                                                   "[google_cloud]\nactive = false\n")
+        akconfig.write(self.home, ["fable"], extra="[machines.acme-mac]\n[machines.acme-vm]\n")
         self.told("yes")
         self.page("acme-vm new", f"acme-vm stand-in · copy 3m old · {TAKES_OVER}")
         self.term.keys("Down", "Down", "Down")
         self.term.wait(lambda screen: any("› acme-vm" in line and "stand-in" in line
                                           for line in screen.splitlines()))
         self.term.keys("Down")
-        self.term.wait("› Google Cloud")
+        self.term.wait("› + add a machine")
         self.leave()
 
     def test_the_highlight_keeps_to_its_row_of_a_name_two_rows_share_as_others_come_and_go(self):
@@ -121,8 +120,7 @@ class TheMachinesPageListsTheStandIn(unittest.TestCase):
                                       and all(word in line for word in words)
                                       for line in screen.splitlines())
         machines = "[machines.acme-mac]\n[machines.acme-laptop]\n[machines.acme-vm]\n"
-        self.config = akconfig.write(self.home, ["fable"],
-                                     extra=f"{machines}[google_cloud]\nactive = false\n")
+        self.config = akconfig.write(self.home, ["fable"], extra=machines)
         self.told("yes")
         self.page("acme-laptop", "acme-vm new", "acme-vm stand-in")
         self.term.keys("Down", "Down", "Down")
@@ -136,7 +134,7 @@ class TheMachinesPageListsTheStandIn(unittest.TestCase):
         self.term.keys("Space")
         self.term.wait(lambda screen: "acme-aaa" in screen and pointed("stand-in")(screen))
         self.term.keys("Enter", "Down")
-        self.term.wait("› Google Cloud")
+        self.term.wait("› + add a machine")
         self.leave()
 
     @unittest.skipIf(os.geteuid() == 0, "root lists a folder whatever its mode")

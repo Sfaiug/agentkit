@@ -48,8 +48,8 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
             git(where, "commit", "-q", "-m", text)
         stack = ExitStack()
         self.addCleanup(stack.close)
-        stack.enter_context(patch.object(config, "_read_toml",
-                                         return_value={"turns_on_machines": True}))
+        stack.enter_context(patch.object(config, "_read_toml", return_value={
+            "turns_on_machines": True, "machines": {"acme-box": {}}}))
         stack.enter_context(patch.object(config, "manifest", return_value={
             "worker": {"sessions": ["~/.acme/{id}*"]}}))
         stack.enter_context(patch.object(machine_turn, "_program",

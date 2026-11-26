@@ -217,7 +217,7 @@ var entries = map[string]entry{
 	},
 	"doctor": {
 		"usage: ak doctor",
-		"Show the agents' slice, the tick's state, each machine ak may use, and any\nmodel set to an effort it does not take, which it names and never changes,\nthen the best machine to rent from Google Cloud now, or why there is none.\nSays `no slice` where the machine has no user systemd manager.\nExits 1 when no tick has ended for long enough to call the tick hung.",
+		"Show the agents' slice, the tick's state, each machine ak may use, and any\nmodel set to an effort it does not take, which it names and never changes.\nSays `no slice` where the machine has no user systemd manager.\nExits 1 when no tick has ended for long enough to call the tick hung.",
 		"ak doctor",
 	},
 	"attach": {

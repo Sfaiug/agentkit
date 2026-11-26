@@ -1,9 +1,9 @@
 """The machines ak may use and what each one is: this one, each `[machines.<ssh alias>]` of
-config.toml, the `suite_helper` and those ak rents that serve.  Hidden here: the probe,
-tools/machine.sh, each tick's on all of them side by side and one on a machine `c` adds, over ssh
-but for this one; how ak's ssh reaches each, with ak's key to those it adds, and the line that
-makes a new machine one of them, and how one that ran it is found; and their answers,
-state/machines.json, the last three days' checks.
+config.toml and the `suite_helper`.  Hidden here: the probe, tools/machine.sh, each tick's on all
+of them side by side and one on a machine `c` adds, over ssh but for this one; how ak's ssh
+reaches each, with ak's key to those it adds, and the line that makes a new machine one of them,
+and how one that ran it is found; and their answers, state/machines.json, the last three days'
+checks.
 """
 
 from collections import namedtuple
@@ -16,7 +16,7 @@ import socket
 import subprocess
 import time
 
-from . import config, gitcall, google_cloud, readings
+from . import config, gitcall, readings
 
 HERE = "this one"
 PROBE = config.REPO / "tools" / "machine.sh"
@@ -72,15 +72,14 @@ def helpers():
 
 
 def _listed():
-    """Every machine listed: config.toml's as is, not `config.load`'s; rented."""
+    """Every machine listed: config.toml's as is, not `config.load`'s."""
     named = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machines")
-    names = [*(named if isinstance(named, dict) else ()), config.suite_helper(),
-             *google_cloud.serving()]
+    names = [*(named if isinstance(named, dict) else ()), config.suite_helper()]
     return [name for name in dict.fromkeys(names) if name]
 
 
 def work(name, cfg=None):
-    """The work `name` takes; None names every rental, including one not rented yet.
+    """The work `name` takes.
 
     Unwritten marks follow the old switch while config.toml holds it, else what the machine
     last said it is: Linux without a battery takes turns too; a laptop, a Mac or one not
@@ -90,12 +89,10 @@ def work(name, cfg=None):
     config._work_in(cfg)
     if name == HERE:
         return ["turns", "tests"]
-    rented = name is None or bool(google_cloud.ssh_config(name))
     named = cfg.get("machines")
-    table = (cfg.get("google_cloud") or {}) if rented else \
-        named.get(name, {}) if isinstance(named, dict) else {}
+    table = named.get(name, {}) if isinstance(named, dict) else {}
     try:
-        said = {} if rented else (config._read_json(_path()) or {}).get(name, {}).get("said") or {}
+        said = (config._read_json(_path()) or {}).get(name, {}).get("said") or {}
     except config.Error:
         said = {}
     turns = cfg["turns_on_machines"] is True if "turns_on_machines" in cfg else \
@@ -208,12 +205,10 @@ def _recorded(name, answer, now):
 
 
 def ssh(name, *options):
-    """The words of ak's ssh to `name` with ssh's `options`, its command after them: a rental by
-    its route (google_cloud.ssh_config), any other by SSH's own config, ak's key, once made,
-    offered after the keys that gives it."""
-    route = google_cloud.ssh_config(name) or [word for path in _keys(name)
-                                              for word in ("-o", f'IdentityFile="{path}"')]
-    return [*SSH, *options, *route, "--", name]
+    """The words of ak's ssh to `name` with ssh's `options`, its command after them: SSH's own
+    config, ak's key, once made, offered after the keys that gives it."""
+    keys = [word for path in _keys(name) for word in ("-o", f'IdentityFile="{path}"')]
+    return [*SSH, *options, *keys, "--", name]
 
 
 def _keys(name):
@@ -249,7 +244,7 @@ def join_line():
     branch = gitcall.git(config.REPO, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD",
                          check=False).removeprefix("origin/") or "HEAD"
     url = (f"https://raw.githubusercontent.com/{gitcall.owner_name(origin)}/{branch}/"
-           f"{google_cloud.JOIN.relative_to(config.REPO)}")
+           "tools/join.sh")
     return f"curl -fsSL {shlex.quote(url)} | sudo bash -s -- {shlex.quote(public_key())} tailscale"
 
 

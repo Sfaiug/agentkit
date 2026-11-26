@@ -79,7 +79,7 @@ upgrade = ["claude", "install", "latest"]
 revert = ["claude", "install", "{version}"]
 latest = ["npm", "view", "@anthropic-ai/claude-code", "version"]
 
-# Where a rented Linux machine fetches the program a turn needs (`machine_turn._program`).
+# Where a Linux machine fetches the program a turn needs (`machine_turn._program`).
 [fetch]
 aarch64 = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/{version}/linux-arm64/claude"
 x86_64 = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/{version}/linux-x64/claude"

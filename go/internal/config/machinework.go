@@ -1,59 +1,57 @@
 package config
 
 import (
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
 )
 
-// machineTable parses config.toml and validates every machine table (workIn); nil, false where
-// the file cannot be read or any table is refused.
-func machineTable() (*table, bool) {
-	data, err := os.ReadFile(filepath.Join(Home(), "config.toml"))
+// machineTable parses config.toml and validates every machine table (workIn), refusing, as
+// Python's machines.work does, a file that cannot be read or any table refused.
+func machineTable() (*table, error) {
+	path := filepath.Join(Home(), "config.toml")
+	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, false
+		return nil, fmt.Errorf("cannot read %s: %w", path, err)
 	}
 	root, err := parseDocument(string(data))
-	if err != nil || workIn(root) != nil {
-		return nil, false
+	if err == nil {
+		err = workIn(root)
 	}
-	return root, true
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return root, nil
 }
 
 // MachineWork is the work config.toml marks machine `name` for, as Python's machines.work reads
-// the marks before a Mac's probe rules turns out: its `[machines.<name>]` table's `work`, or for
-// "" `[google_cloud]`'s, every rental's; with none, the old turns_on_machines switch's, turns
-// while it is true, and tests.  False where the file cannot be read or any table's marks or cap
-// are some Python refuses (config._work_in).
-func MachineWork(name string) ([]string, bool) {
-	root, ok := machineTable()
-	if !ok {
-		return nil, false
+// the marks before a Mac's probe rules turns out: its `[machines.<name>]` table's `work`; with
+// none, the old turns_on_machines switch's, turns while it is true, and tests.  Refused where the
+// file cannot be read or any table's marks or cap are some Python refuses (config._work_in).
+func MachineWork(name string) ([]string, error) {
+	root, err := machineTable()
+	if err != nil {
+		return nil, err
 	}
 	named, _ := root.get("machines").(*table)
-	own, _ := root.get("google_cloud").(*table)
-	if name != "" {
-		own, _ = named.get(name).(*table)
-	}
+	own, _ := named.get(name).(*table)
 	if work := own.get("work"); work != nil {
-		return marks(work), true
+		return marks(work), nil
 	}
 	if root.get("turns_on_machines") == true {
-		return []string{"turns", "tests"}, true
+		return []string{"turns", "tests"}, nil
 	}
-	return []string{"tests"}, true
+	return []string{"tests"}, nil
 }
 
 // MachineMaxRuns is machine `name`'s `[machines.<name>] max_runs` cap as decimal digits, "" where
 // none is set, as Python's machines.max_runs reads it; false where config.toml cannot be read or
 // any machine table is refused (config._work_in).
 func MachineMaxRuns(name string) (string, bool) {
-	root, ok := machineTable()
-	if !ok {
+	root, err := machineTable()
+	if err != nil {
 		return "", false
-	}
-	if name == "" {
-		return "", true
 	}
 	named, _ := root.get("machines").(*table)
 	own, _ := named.get(name).(*table)
