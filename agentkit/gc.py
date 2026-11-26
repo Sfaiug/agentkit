@@ -4,7 +4,7 @@ Retention supplies the ownership proofs and deletion primitives; harness plugins
 supply their temporary-folder rules.
 """
 
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 import fcntl
 import functools
@@ -1124,11 +1124,19 @@ def git_housekeeping(log):
             log(f"WARN git gc could not run in {repo}: {exc}")
 
 
+@contextmanager
 def _one_pass():
-    """What one collection at a time locks, with no lock file of its own: the state directory.
-    Not ak's home, which every config write locks (`config._config_lock`): a pass runs for
-    minutes, and held there it stopped the models screen at the first mark made meanwhile."""
-    return retention.reading(config.STATE, directory=True)
+    """One collection pass at a time, with no lock file of its own: the pass holds the state
+    directory, made where a home has none.  Not ak's home, which every config write locks
+    (`config._config_lock`): a pass runs for minutes, and held there it stopped the models
+    screen at the first mark made meanwhile.  Home is locked only to look, since a pass of a
+    version from before this lock holds it throughout.  OSError where a pass already runs."""
+    with retention.reading(config.HOME, directory=True) as home:
+        fcntl.flock(home, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        config.STATE.mkdir(mode=0o700, exist_ok=True)
+    with retention.reading(config.STATE, directory=True) as state:
+        fcntl.flock(state, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
 
 
 def schedule_gc(log):
@@ -1136,7 +1144,7 @@ def schedule_gc(log):
     # Do not repeatedly spawn a collector on platforms/filesystems where its read-only
     # primitives cannot work. This probe neither creates nor changes state.
     try:
-        with _one_pass():
+        with retention.reading(config.HOME, directory=True):
             pass
     except OSError:
         return
@@ -1152,7 +1160,7 @@ def schedule_gc(log):
 
 
 def record_gc(message):
-    """Bounded local audit trail, called only while collection holds the home lock."""
+    """Bounded local audit trail, called only within a pass (`_one_pass`)."""
     path, previous = config.STATE / "gc.log", config.STATE / "gc.log.1"
     if any(retention.present(p) and not retention.safe(p) for p in (path, previous)):
         raise OSError("unsafe collection log")
@@ -1314,15 +1322,12 @@ def gc(report, automatic=False):
     """Apply the planner conservatively; changed, busy or unverifiable candidates stay put."""
     removed = []
     balked = set()     # a harness whose own way of ending a conversation failed this pass
-    # Serialize automatic passes without creating a lock file (dry-run never takes this lock).
     try:
-        with _one_pass() as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with _one_pass():
             if automatic:
                 stamp = config.STATE / "gc.json"
-                if (not gc_due() or not retention.safe(config.STATE)
-                        or any(retention.present(p) and not retention.safe(p)
-                               for p in (stamp, stamp.with_suffix(".tmp")))):
+                if not gc_due() or any(retention.present(p) and not retention.safe(p)
+                                       for p in (stamp, stamp.with_suffix(".tmp"))):
                     return []
                 caller = report
                 def report(message):
@@ -1603,8 +1608,7 @@ def sweep(report):
     """Apply `sweep_plan` under the collector's lock: the items removed, `bytes` on each."""
     removed = []
     try:
-        with _one_pass() as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with _one_pass():
             for item in sweep_plan():
                 path = Path(item["path"])
                 size = tree_bytes(path)
