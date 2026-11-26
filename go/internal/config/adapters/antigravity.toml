@@ -93,11 +93,12 @@ footer = ['(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)?\s*(?:
 # What the composer holds: everything after its `>` down to the last rule on the screen, so a
 # `>` in a wrapped line is the line's own and a chooser's `> /usage` under that rule is not it,
 # and nor is a prompt the transcript echoes under an earlier rule.  The background commands
-# agy lists under the composer (`● [12:08:46] sleep 45 running`) close with a rule of their own.
+# agy lists under the composer (`● [12:08:46] sleep 45 running`) close with a rule of their own,
+# and it shows four of them: a row `↓ 1 more` counts the others (agy 1.5.18, captured).
 # A composer taller than the read starts at its top, its `opening` rule above it: what the read
 # shows is its last rows, never proof of all it holds.  Only its prompt row starts at the left
 # edge, so a `>` an owner typed in an indented row stays text.
-draft = '(?:(?P<opening>^─+\n)> ?|\A(?:> ?)?(?!─))(?P<text>.*(?:\n(?!─+$).*)*)\n─+$(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+\n─+$)?(?![\s\S]*^─)'
+draft = '(?:(?P<opening>^─+\n)> ?|\A(?:> ?)?(?!─))(?P<text>.*(?:\n(?!─+$).*)*)\n─+$(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+(?:\n\s*↓ \d+ more *)?\n─+$)?(?![\s\S]*^─)'
 # The background work a turn left running: the commands agy lists under the composer, each a
 # `shell` in Claude's terms.  Read only off the composer's closing rule, that list and the footer
 # as captured at rest; under a turn's or a dialog's `esc to cancel`, or a footer too narrow to
