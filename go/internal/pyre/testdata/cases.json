@@ -3334,7 +3334,7 @@
   {
    "harness": "codex",
    "key": "rule asking.limit rows",
-   "pattern": "^  Approaching rate limits\\n(?:(?:  |› \\d+\\. ).+\\n)*?(?:› |  )\\d+\\. Keep current model\\n(?:(?:  |› \\d+\\. ).+\\n)*  (?:enter select · esc back|Press enter to confirm or esc to go back)\\Z",
+   "pattern": "^  Approaching rate limits\\n(?:  \\S.+\\n)?(?=(?:› |  )1\\. )(?:(?:› |  )\\d+\\. .+\\n(?:   +\\S.*\\n)*)*?(?:› |  )\\d+\\. Keep current model\\n(?:(?:› |  )\\d+\\. .+\\n(?:   +\\S.*\\n)*)*  (?:enter select · esc back|Press enter to confirm or esc to go back)\\Z",
    "flags": "m",
    "matches": []
   },

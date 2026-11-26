@@ -153,7 +153,7 @@ footer = ['(?:← for agents · )?\? for shortcuts(?:\s+⚠ \d+ warnings? · f2 
 id = "asking.limit"
 state = "asking"
 lines = 8
-rows = '^  Approaching rate limits\n(?:(?:  |› \d+\. ).+\n)*?(?:› |  )\d+\. Keep current model\n(?:(?:  |› \d+\. ).+\n)*  (?:enter select · esc back|Press enter to confirm or esc to go back)\Z'
+rows = '^  Approaching rate limits\n(?:  \S.+\n)?(?=(?:› |  )1\. )(?:(?:› |  )\d+\. .+\n(?:   +\S.*\n)*)*?(?:› |  )\d+\. Keep current model\n(?:(?:› |  )\d+\. .+\n(?:   +\S.*\n)*)*  (?:enter select · esc back|Press enter to confirm or esc to go back)\Z'
 answer = "Escape"
 
 # Every screen Codex stops on and waits -- the directory-trust prompt, the hook review, a

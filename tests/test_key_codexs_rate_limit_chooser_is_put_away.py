@@ -131,6 +131,10 @@ class CodexsRateLimitChooserIsPutAway(unittest.TestCase):
                                                 "  Approaching rate\n  limits")),
             ("wrapped-keep", CHOOSER.replace("  2. Keep current model",
                                              "  2. Keep current\n     model")),
+            ("wrapped-never-show", CHOOSER.replace("  2. Keep current model\n",
+                                                   "  2. Decide later\n").replace(
+                                                       "  3. Keep current model (never show again)",
+                                                       "  3. Keep current model\n     (never show again)")),
             ("wrapped-hint", CHOOSER.replace("  enter select · esc back",
                                              "  enter select ·\n  esc back")),
             ("model-picker", "codex-model-picker-pane.txt"),
