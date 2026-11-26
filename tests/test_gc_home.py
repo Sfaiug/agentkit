@@ -64,9 +64,9 @@ class GcHome(Sandbox):
         notes = self.made(config.HOME / "handover" / "seat.md")
         backup = self.made(config.HOME / "rules.md-20260929")
         own = [self.made(config.HOME / name / "x") if name in ("bin", "tasks") else
-               self.made(config.HOME / name) for name in ("bin", "rules.md", "history.db",
-                                                         "history.db-journal", "history.db-wal",
-                                                         "history.lock", "tasks")]
+               self.made(config.HOME / name) for name in ("bin", "config.tmp", "rules.md",
+                                                         "history.db", "history.db-journal",
+                                                         "history.db-wal", "history.lock", "tasks")]
         self.now += 6 * DAY
         self.made(config.HOME / "handover" / "today.md")
         self.now += 2 * DAY
@@ -141,6 +141,16 @@ class GcHome(Sandbox):
                  for match in map(lambda line: re.fullmatch(pattern, line), found) if match}
         self.assertGreater(len(names), 5, names)
         self.assertEqual({name for name in names if name not in config.OWN}, set())
+
+    def test_without_an_openable_state_dir_no_pass_runs_or_is_scheduled(self):
+        stray = self.made(config.HOME / "handover.md")
+        self.now += 8 * DAY
+        config.STATE.rmdir()
+        with patch.object(gc.subprocess, "Popen", side_effect=AssertionError("scheduled")):
+            gc.schedule_gc(lambda _: None)
+        self.assertEqual(gc.gc(lambda _: None), [])
+        self.assertEqual(gc.sweep(lambda _: None), [])
+        self.assertTrue(stray.exists())
 
 
 if __name__ == "__main__":

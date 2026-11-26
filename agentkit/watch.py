@@ -2987,12 +2987,15 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
     # tick's pass, three minutes at most, the seat `needs you` (measured 22 Nov 2026).  The owner,
     # 19 Nov: "Should always pick stop and wait for limit to reset"; asked whether ak should check
     # for it on every later event, 20 Nov: "Yes, build it".  So every look puts it away, its key
-    # only at this hook's own pane and only where that is the one ak launched the harness in: a
-    # pane the owner selected is not the harness's (20, 24 Nov).  The tick's pass settles the seat.
-    # A manifest somebody is in the middle of writing has no rule, as `live_state` reads it.
+    # only at this look's own pane and only where that is the launch pane or the session names
+    # none (a hook or wrapper look starts in its harness's pane, never a pane the owner merely
+    # selected; asked on 26 Nov 2026 whether to drop sessions naming no launch pane, the owner:
+    # "Build them").  Where the session names another pane, none (20, 24 Nov).  The tick's pass
+    # settles the seat.  A manifest somebody is in the middle of writing has no rule, as
+    # `live_state` reads it.
     with suppress(config.Error):
         if any(rule["answer"] for rule in screen(harness)["rules"]) and orch.launch_pane(
-                name, orch.seat_socket(session)) == pane:
+                name, orch.seat_socket(session)) in (None, pane):
             dismiss(dict(session, pane=pane), harness)
     answer = announce_state(session, cfg=cfg, look=True, number=number, records=records)
     # The tick's pass for this one seat: what it is owed goes in at the event that ends its

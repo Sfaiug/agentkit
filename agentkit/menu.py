@@ -141,7 +141,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, ledger, logins, look, machines, money, open_runs, parsed, record
+from . import done_check, logins, look, machines, money, open_runs, parsed, record
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -6314,12 +6314,12 @@ def work_words(name, cfg):
 
 
 def config_machines(cfg):
-    """Recorded machines; Enter opens their work marks.  Under them, each machine that copies this
-    one (standby.copies), whose row, as this host's, opens nothing, or under the rows why they
-    cannot be read.  Last, `+ add a machine` takes an ssh address, or with none typed finds those
-    that ran the line making a new machine one it adds (machines.join_line, under its field;
-    machines.found), and writes each to config.toml once it answers (machines.add), else says why
-    not."""
+    """Recorded machines; Enter opens their work marks and cap on runs at once.  Under them, each
+    machine that copies this one (standby.copies), whose row, as this host's, opens nothing, or
+    under the rows why they cannot be read.  Last, `+ add a machine` takes an ssh address, or with
+    none typed finds those that ran the line making a new machine one it adds (machines.join_line,
+    under its field; machines.found), and writes each to config.toml once it answers (machines.add),
+    else says why not."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def add_field(draw):
@@ -6364,13 +6364,46 @@ def config_machines(cfg):
                 return "this machine cannot build or review"
             return _saved(cfg, cfg, before)
 
+        def cap_field(draw):
+            typed = terminal.field("    ", "a whole number, or 0 for no limit",
+                                   around=lambda line: draw([line]))
+            if typed is None or terminal.is_esc(typed):
+                return ""
+            if not typed:
+                number = 0
+            elif not re.fullmatch(r"[0-9]+", typed.strip()):
+                return "runs at once must be a whole number, or 0 for no limit"
+            else:
+                # Parse in short chunks so numbers past sys.get_int_max_str_digits work, as
+                # tomllib and config.whole already handle them.
+                digits, number = typed.strip().lstrip("0"), 0
+                for start in range(0, len(digits), 9):
+                    chunk = digits[start:start + 9]
+                    number = number * 10 ** len(chunk) + int(chunk)
+            named = cfg.get("machines")
+            if named is not None and not isinstance(named, dict):
+                return "config: [machines] must be a table" if number else ""
+            table = named.get(name) if isinstance(named, dict) else None
+            if table is not None and not isinstance(table, dict):
+                return f"config: [machines.{name}] must be a table" if number else ""
+            before = copy.deepcopy(cfg)
+            if number:
+                cfg.setdefault("machines", {}).setdefault(name, {})["max_runs"] = number
+            else:
+                if not isinstance(table, dict) or "max_runs" not in table:
+                    return ""
+                del table["max_runs"]
+            return _saved(cfg, cfg, before)
+
         def page():
             work = machines.work(name, cfg)
+            cap = machines.max_runs(name, cfg)
             config.load()       # as on Machines' own page
-            return [(label, [(on, "accent") if word in work else (off, "dim"),
-                             ("on" if word in work else "off", None)],
-                     ("mark", lambda word=word: flip(word)))
-                    for word, label in (("turns", "builds and reviews"), ("tests", "tests"))], ""
+            return [*((label, [(on, "accent") if word in work else (off, "dim"),
+                               ("on" if word in work else "off", None)],
+                       ("mark", lambda word=word: flip(word)))
+                      for word, label in (("turns", "builds and reviews"), ("tests", "tests"))),
+                    ("runs at once", "no limit" if cap is None else config.whole(cap), cap_field)], ""
 
         def open_page(draw):
             config_page(f"machines · {name}", page)
@@ -6563,12 +6596,13 @@ def config_limits(cfg):
     it.  The owner's design of 5 Nov 2026."""
     ended = history.round_endings()
     builds, own = history.first_review_sizes()
-    sizes = ledger.counted()["sizes"]
+    runs, _, paid = matrix.counted(cfg)
+    sizes = runs["sizes"]
     # each number's chart and what its runs would have done at `held`; one no run records how
     # it did yet has neither
     evidence = {"review_rounds": lambda held: (rounds_chart(ended), rounds_said(ended, held)),
                 "executor_lines": lambda held: (
-                    size_table.lines(sizes, held, terminal.layout_width()),
+                    size_table.lines(sizes, held, terminal.layout_width(), paid),
                     lines_said("executor_lines", builds, held)),
                 "orchestrator_lines": lambda held: (
                     size_chart(own, held), lines_said("orchestrator_lines", own, held))}

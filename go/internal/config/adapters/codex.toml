@@ -139,6 +139,23 @@ editor = ["C-g"]
 # so on every start with a `-c` override, as ak's.
 footer = ['(?:← for agents · )?\? for shortcuts(?:\s+⚠ \d+ warnings? · f2 to view)?', '⚠ \d+ warnings? · f2 to view']
 
+# The chooser Codex draws in its composer's place once a login nears or reaches its limit
+# (0.153.4, 28 Sep 2026; 0.172.0, 26 Nov 2026): heading `Approaching rate limits`, a row
+# `Keep current model`, and either hint as the pane's last row, so a row that wraps or other
+# wording is no such chooser; before `asking.chooser` and `draft.picker`, which otherwise leave
+# the seat standing and any refusal under it unsettled.  `answer` is Esc (`watch.dismiss`),
+# which picks no row, leaves the model unchanged, and types nothing into the composer if the
+# chooser has gone meanwhile (unlike `2`).  The owner, 19 Nov 2026: "seems like a bug in ak,
+# where this shows needs you even through its just asking what I want to do. Should always pick
+# stop and wait for limit to reset"; 26 Nov 2026: "I want you to also apply to every other
+# harness. All should work the same way with ak."
+[[rule]]
+id = "asking.limit"
+state = "asking"
+lines = 8
+rows = '^  Approaching rate limits\n(?:  \S.+\n)?(?=(?:› |  )1\. )(?:(?:› |  )\d+\. .+\n(?:   +\S.*\n)*)*?(?:› |  )\d+\. Keep current model\n(?:(?:› |  )\d+\. .+\n(?:   +\S.*\n)*)*  (?:enter select · esc back|Press enter to confirm or esc to go back)\Z'
+answer = "Escape"
+
 # Every screen Codex stops on and waits -- the directory-trust prompt, the hook review, a
 # permission request -- is the same numbered chooser, so one rule covers them: the selected
 # option, a second option, and the key hint, in the last few lines with the hint newest.

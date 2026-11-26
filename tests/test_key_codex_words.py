@@ -19,7 +19,7 @@ from fixtures.akseat import Seat
 
 # Each screen is tests/fixtures/codex-<name>-pane.txt, with the rule that reads it.
 NEEDS_YOU = {"dialog": "asking.chooser", "hooks-review": "asking.chooser",
-             "hooks-review-0160": "asking.chooser", "seat-server-turn": "asking.chooser",
+             "hooks-review-0160": "asking.chooser", "seat-server-turn": "asking.limit",
              "question-up": "asking.question", "question-up-narrow": "asking.question"}
 WORKING = {"working": "working.interrupt", "approved": "working.interrupt",
            "title-working": "working.interrupt", "title-working-accepted": "working.interrupt",
