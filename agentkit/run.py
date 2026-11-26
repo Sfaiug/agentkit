@@ -46,7 +46,7 @@ from .transitions import (change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, drop_error_retry, extra_round, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, leaves_line, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, rescope, rescoped, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
+    queued, report_config, rescope, rescoped, review_pass, review_providers, round_budget, run_kind, run_session, runs_on, seat_lines, settled,
     stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
@@ -1569,12 +1569,15 @@ def finish(state, run_dir, log, cfg=None):
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the follow-ups
         log(f"WARN could not start follow-ups: {exc}")
     try:
-        redress_seat(launched_session(state))   # the ending lands on the bar too
+        redress_seat(run_session(state))        # the ending lands on the bar too
     except run_record.StopRequested:
         raise
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the bar
         log(f"WARN could not redraw the seat's bar: {exc}")
-    announce(state, run_dir, log, cfg)
+    try:
+        announce(state, run_dir, log, cfg)
+    except config.Error as exc:
+        log(f"WARN the ending was not handed back: {exc}")
     history_finish(state, log, cfg=cfg)
     worktrees.settle_run(run_record.read_state(run_dir) or state, run_dir, log)
     if state["state"] == "error":
@@ -2437,7 +2440,9 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     if change_reviewed(pr=url):
         return None
     state = run_record.read_state(run_dir) or {}
-    numbers = config.seat_numbers(launched_session(state), run_record.policy_of(state))
+    workers = state.get("workers") if isinstance(state.get("workers"), list) else None
+    numbers = config.seat_numbers(None if workers is not None else run_session(state),
+                                  run_record.policy_of(state), workers=workers)
     limit = numbers["orchestrator_lines"]
     read, over = seat_lines(repo, target_sha, head, limit)
     if over:
@@ -3167,11 +3172,7 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
             Path(state["task_file"]).expanduser().resolve() == task_path
         if not shared and not same_task:
             continue
-        try:
-            seat = launched_session(state)
-        except config.Error:
-            owner = state.get("launched_session") or state.get("session")
-            seat = owner if isinstance(owner, str) and owner else None
+        seat = run_session(state)
         started = state.get("started_at")
         matches.append({"id": directory.name, "seat": seat,
                         "started": started if isinstance(started, (int, float)) else None,

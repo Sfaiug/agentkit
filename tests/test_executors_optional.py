@@ -352,5 +352,52 @@ class ExecutorsOptional(Sandbox):
                 run.review_pr_round(self.cfg, pr_dir, "https://github.com/acme/api/pull/7",
                                     {"--review": "opus"}, lambda _: None)
 
+    def test_post_launch_seat_edits_do_not_abort_multi_account_history_or_own_pr_size(self):
+        import json
+        from agentkit import history, transitions
+
+        config.save_session(self.cfg, "fix-api", "opus", ["opus"],
+                            {"reviewers": ["astra"], "account": "first"})
+        state = {"run_id": "widgets", "launched_session": "fix-api",
+                 "launched_orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"],
+                 "policy": {"review_rounds": 0}}
+        live = config.session_path("fix-api")
+        broken = json.loads(live.read_text())
+        broken["reviewers"] = ["astra", "astra"]
+        live.write_text(json.dumps(broken))
+
+        entry = config.model(self.cfg, "opus")
+        readings = {"first": {"tag": "first"}, "second": {"tag": "second"}}
+        with self.outside_a_seat(), patch.object(gitcall._RUN_CONTEXT, "state", state, create=True), \
+                patch.object(usage, "_logins", return_value=readings), \
+                patch.object(usage, "_worker_rank", return_value=0), \
+                patch.object(usage.worker, "auth_ok", return_value=(True, "")):
+            # malformed reviewers still spare the seat's own account without aborting
+            picked = usage._worker_reading(self.cfg, "opus", {entry["provider"]: {"accounts": {}}})
+            self.assertEqual(picked[entry["provider"]], {"tag": "second"})
+            live.write_text("invalid JSON")
+            picked = usage._worker_reading(self.cfg, "opus", {entry["provider"]: {"accounts": {}}})
+            self.assertEqual(picked[entry["provider"]], {"tag": "first"})
+
+        # history startup and ending survive a corrupt live seat and keep captured orchestrator
+        transitions.history_start(state)
+        row = history.get("widgets")
+        self.assertEqual((row["session"], row["orchestrator"]), ("fix-api", "opus"))
+        self.assertEqual(transitions.history_ending(state)["session"], "fix-api")
+
+        # own-PR size gate uses captured workers rather than reading a live or corrupt seat
+        url = "https://github.com/acme/api/pull/7"
+        with patch.object(run, "change_reviewed", return_value=False), \
+                patch.object(run, "seat_lines", return_value=(1000, True)):
+            for receipt, expected in (
+                ({**state, "own_pr": True}, "Write it as a task"),
+                ({**state, "workers": [], "own_pr": True}, "Split it into smaller PRs."),
+                ({"run_id": "legacy", "launched_session": "fix-api", "own_pr": True},
+                 "Write it as a task"),
+            ):
+                with patch.object(run.run_record, "read_state", return_value=receipt):
+                    _, why = run.own_pr_first_review(self.root, url, "7", "a", "a", "b", self.root)
+                self.assertIn(expected, why)
+
 if __name__ == "__main__":
     unittest.main()

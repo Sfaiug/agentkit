@@ -171,9 +171,13 @@ def history_start(state, log=None):
     """
     if state.get("notify_sink"):
         return
-    session = launched_session(state)
-    record = config.session_records().get(session) if session else None
-    orchestrator = record.get("orchestrator") if record else None
+    session = run_session(state)
+    orchestrator = state.get("launched_orchestrator")
+    if orchestrator is None and state.get("own_pr"):
+        orchestrator = state.get("own_orchestrator")
+    if orchestrator is None and session:
+        record = config.session_records().get(session)
+        orchestrator = record.get("orchestrator") if record else None
     history.start_run(state.get("run_id"), repo=state.get("repo"),
                       executor=state.get("executor"), reviewer=state.get("reviewer"),
                       rounds_used=len(state.get("round_summaries") or []),
@@ -484,7 +488,7 @@ def history_ending(state, cfg=None):
               "final_state": state.get("state"), "verdict": state.get("verdict"),
               "started_at": state.get("started_at"),
               "finished_at": state.get("finished_at") or time.time(),
-              "session": launched_session(state), "peak_rss_mb": state.get("peak_rss_mb"),
+              "session": run_session(state), "peak_rss_mb": state.get("peak_rss_mb"),
               "own_orchestrator": state.get("own_orchestrator"),
               "own_orchestrator_effort": state.get("own_orchestrator_effort")}
     if state.get("merged") and (reds := state.get("landing_red_patches")):
@@ -809,6 +813,15 @@ def launched_session(state, resolved=None):
     if name not in resolved:
         resolved[name] = config.resolve_session(name)
     return resolved[name]
+
+
+def run_session(state):
+    """`launched_session(state)`, falling back to its recorded name (`launched_name`) when the
+    live seat file cannot be read: a post-launch edit never aborts a run's own bookkeeping."""
+    try:
+        return launched_session(state)
+    except config.Error:
+        return launched_name(state)
 
 
 def runs_by_seat(records):

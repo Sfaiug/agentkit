@@ -147,7 +147,7 @@ class Loop:
                            executor_effort=self.state.get("executor_effort"),
                            no_review=int(run_record.no_review(self.state)),
                            rounds_used=len(self.state.get("round_summaries") or []),
-                           session=transitions.launched_session(self.state), log=self.log)
+                           session=transitions.run_session(self.state), log=self.log)
 
     def write(self):
         """Write what this loop changed since it was handed the record or last wrote it, no more.
@@ -179,7 +179,7 @@ class Loop:
         history.open_step(self.state.get("run_id"), name, now, log=self.log)
         self.state.update(step=name, step_at=now, step_round=self.rnd)
         self.save()
-        handback.redress_seat(transitions.launched_session(self.state))
+        handback.redress_seat(transitions.run_session(self.state))
 
 
 def settled_gate(lp):
