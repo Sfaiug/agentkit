@@ -90,7 +90,8 @@ UNTESTED_LINE = ("The suite of {checkout} reports no tests to ak: {runner}. Writ
 def untested(name):
     """UNTESTED_LINE naming the first checkout `suite_times.unreported` names -- the one the
     seat is filed under, as its session's record holds it (`repo`), and then each checkout a
-    done line of its plan names (`plan.place`), in the plan's order, each asked once -- where
+    done line of its plan names (`plan.place`, mapped to its project checkout by
+    `orch.checkout_of` where one stands for it), in the plan's order, each asked once -- where
     the seat's plan holds done work and no open line, else None.  Its callers send it back at
     every such turn's end, past nothing that ends a turn first (`recorded_ending`), and keep
     nothing, so it stops by itself once that no longer holds."""
@@ -103,15 +104,37 @@ def untested(name):
     if not any(plan.BOX.match(line) for line in text) or any(plan.is_open(line) for line in text):
         return None
 
+    def same(path):
+        try:
+            return Path(path).resolve()
+        except (OSError, ValueError):
+            return Path(path)
+
     def checkouts():
         yield repo
-        seen = {Path(repo)}
+        seen, stands = {same(repo)}, None
         for project in dict.fromkeys(found["project"] for line in text
                                      if (found := plan.LINE.match(line.strip()))):
             checkout = plan.place(name, project)
-            if checkout is not None and checkout not in seen:
-                seen.add(checkout)
-                yield str(checkout)
+            if checkout is None:
+                continue
+            key = same(checkout)
+            if key in seen:
+                continue
+            if stands is None:
+                try:
+                    stands = orch.listed()
+                except OSError:
+                    stands = {}
+            try:
+                checkout = orch.checkout_of(checkout, stands) or checkout
+            except OSError:
+                pass
+            keys = {key, same(checkout)}
+            if keys & seen:
+                continue
+            seen |= keys
+            yield str(checkout)
 
     for checkout in checkouts():
         if suite_times.unreported(checkout):
