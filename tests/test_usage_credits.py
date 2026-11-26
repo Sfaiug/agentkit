@@ -88,6 +88,10 @@ class Picks(unittest.TestCase):
         env = patch.dict(os.environ, {"AK_PICK_DRAW": ""})
         env.start()
         self.addCleanup(env.stop)
+        # every harness installed here, whatever PATH holds: a pick passes over one that is not
+        present = patch.object(config, "harness_present", return_value=True)
+        present.start()
+        self.addCleanup(present.stop)
         self.cfg = tomllib.loads((REPO / "config.default.toml").read_text())
         for model in ("grok", "gemini", "mimo"):
             self.cfg["providers"].pop(self.cfg["models"].pop(model)["provider"])

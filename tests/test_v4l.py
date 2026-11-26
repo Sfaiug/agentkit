@@ -619,9 +619,11 @@ esac
         block = source[source.index("# --- 6: orch"):source.index("# --- 6c:")]
         with tempfile.TemporaryDirectory(prefix=".ak-test-v4l-", dir=REPO) as directory:
             root = Path(directory)
-            fake = root / "tmux"
-            fake.write_text("#!/bin/sh\nexit 1\n")
-            fake.chmod(0o755)
+            # Claude, Codex and Muse installed here, whatever the caller's PATH holds: the pick
+            # passes over a model whose program is not
+            for name in ("tmux", "claude", "codex", "muse"):
+                (root / name).write_text("#!/bin/sh\nexit 1\n")
+                (root / name).chmod(0o755)
             env = {**os.environ, "HOME": directory, "WORK": directory, "REPO": str(REPO),
                    "U": str(root / "usage.json"), "AGENTKIT_SESSION": "",
                    "AGENTKIT_ADAPTER_DIR": str(REPO / "adapters"),

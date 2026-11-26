@@ -46,6 +46,8 @@ class SeatAccount(unittest.TestCase):
                    AK_RUN_ROLE="orchestrator", AGENTKIT_DISCORD_WEBHOOK="off",
                    AGENTKIT_TMUX_SOCKET="agentkit-test", AK_NOTIFY_SINK=str(self.root / "notices"))
         self.stack.enter_context(patch.dict(os.environ, env, clear=True))
+        # every harness installed here, whatever PATH holds: a pick passes over one that is not
+        self.stack.enter_context(patch.object(config, "harness_present", return_value=True))
         config.ensure_dirs()
         config_text = (REPO / "config.default.toml").read_text().replace(
             "[providers.anthropic]", '[providers.anthropic]\naccounts = ["default", "second"]')

@@ -38,6 +38,10 @@ class WeeklyBalance(unittest.TestCase):
         env = patch.dict(os.environ, {"OPENCODE_CONFIG_DIR": opencode.name, "AK_PICK_DRAW": ""})
         env.start()
         self.addCleanup(env.stop)
+        # every harness installed here, whatever PATH holds: a pick passes over one that is not
+        present = patch.object(config, "harness_present", return_value=True)
+        present.start()
+        self.addCleanup(present.stop)
         # the usage table reads ak's state: this temporary one's, never the caller's
         state = tempfile.TemporaryDirectory(prefix=".ak-test-usage-state-", dir=REPO)
         self.addCleanup(state.cleanup)
