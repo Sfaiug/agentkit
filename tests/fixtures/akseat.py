@@ -44,13 +44,14 @@ class Seat:
     record's fields; `alive=False` leaves only the record, as a seat tmux lost; `planned=True`
     gives its plan PLAN_LINE, or an iterable gives it a line per check; `asks` maps a line's
     start to the card its harness asks before taking it (akpane.py); `program` names the pane's
-    process as a harness's program is named, by a link to akpane.py. The pane is the size the
-    screen was captured at."""
+    process as a harness's program is named, by a link to akpane.py; `editor=True` hands its
+    composer to $VISUAL on Ctrl-G (akpane.py's --editor). The pane is the size the screen was
+    captured at."""
 
     def __init__(self, home, name="acme", *, model="opus", screen="claude-prompt-pane.txt",
                  cwd=None, record=None, alive=True, composer="❯", planned=False, asks=None,
-                 program=None):
-        self.home, self.name, self.composer = home, name, composer
+                 program=None, editor=False):
+        self.home, self.name, self.composer, self.editor = home, name, composer, editor
         self.cwd = Path(cwd or home.path / "code" / name)
         self.cwd.mkdir(parents=True, exist_ok=True)
         panes = home.root / "panes"
@@ -84,7 +85,8 @@ class Seat:
     def start(self):
         """Open the seat's session, as ak's launch does, and wait for its screen."""
         width, height = _size(self.screen)
-        command = shlex.join([sys.executable, str(self.program), str(self.screen_file),
+        command = shlex.join([sys.executable, str(self.program),
+                              *(["--editor"] if self.editor else []), str(self.screen_file),
                               str(self.typed_file), self.composer, *self.asks])
         done = self.home.tmux("-f", "/dev/null", "new-session", "-d", "-s", self.name,
                               "-x", str(width), "-y", str(height), "-c", str(self.cwd),
