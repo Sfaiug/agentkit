@@ -59,7 +59,9 @@
 # per-model in the camelCase `modelUsage` object) -- event_tokens reads them untaught, and
 # agentkit/harness/grokbuild.py `turn_usage` the result's by type.
 set -uo pipefail
-command -v grok >/dev/null || PATH="${GROK_BIN_DIR:-$HOME/.grok/bin}${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
+# bash's `command -v` and `type -P` fall back to a non-executable file on PATH when none can run
+program() { [ -x "$(type -P "$1")" ]; }
+program grok || PATH="${GROK_BIN_DIR:-$HOME/.grok/bin}${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 # The instruction files grok reads for Claude and Cursor -- CLAUDE.md under .claude, their
 # rules and skills -- are off for a worker's turn and a seat (`grok inspect` shows each cell
 # OFF (env)): their rules are the ones ak hands them, a seat's its rulebook with the
@@ -205,7 +207,7 @@ usage)
   # ran and said something, while an adapter that crashed or printed nothing usable was
   # never reached at all.  The check stays light, asking only for the token's presence;
   # expiry is still the auth verb's answer at turn time.
-  command -v grok >/dev/null || err "grok is not installed"
+  program grok || err "grok is not installed"
   { [ -n "${XAI_API_KEY:-}" ] || grep -q '[^[:space:]]' "$AUTH" 2>/dev/null; } || \
     err "no $AUTH; run 'grok login' once"
   # The meter the Usage limit tab draws.  billing.rs requests `/billing?format=credits`
@@ -348,11 +350,11 @@ usage)
   # [usage] none keeps the provider neutral, unlike a failed ask above.
   printf '%s\n' '{"provider":"xai","meters":[],"error":null,"none":"no meter: cli-chat-proxy.grok.com/v1/billing?format=credits reports no usage percent, and the settings cache carries no subscription_usage entries"}' ;;
 install)
-  if command -v grok >/dev/null; then echo "grok: already installed ($(grok --version 2>/dev/null))"; exit 0; fi
+  if program grok; then echo "grok: already installed ($(grok --version 2>/dev/null))"; exit 0; fi
   command -v curl >/dev/null || { echo "grokbuild.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://x.ai/cli/install.sh | bash ;;
 login)
-  command -v grok >/dev/null || { echo "grokbuild.sh login: grok is not installed" >&2; exit 2; }
+  program grok || { echo "grokbuild.sh login: grok is not installed" >&2; exit 2; }
   if [ "${1:-}" != again ] && grep -q '[^[:space:]]' "$AUTH" 2>/dev/null; then echo "grok: already logged in"; exit 0; fi
   [ -t 0 ] || { echo "grok: not logged in; run \`grok login\` in a terminal" >&2; exit 1; }
   share || exit 2
