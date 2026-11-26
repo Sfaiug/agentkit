@@ -4960,12 +4960,13 @@ def opening_account(cfg, model, providers, prompting):
 
 
 def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry_run=False,
-           selection=None, repo=None, unnamed=False, taken=None):
+           selection=None, repo=None, unnamed=False, taken=None, give=lambda: None):
     """Select the models, record them, start the seat detached.  The TUI command it runs.
     `taken` is the names its caller listed for the name question (`taken_names`), which spares
     listing them again; tmux is still asked whether it holds the name now.  `selection` is
     (providers, (orchestrator, reason, workers[, reviewers[, efforts]])), efforts as a record
-    holds them, the orchestrator launched at its own."""
+    holds them, the orchestrator launched at its own.  `give` gives back the terminal a caller
+    holds, called before a harness with no tmux takes this terminal in its place."""
     name = session_name(name)
     if not name:
         raise config.Error("a session needs a name")
@@ -5039,6 +5040,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         # no tmux to outlive the connection: the seat is this terminal and ends with it, so
         # there is no record to keep and nothing to come back to
         os.environ[config.SESSION_ENV] = name
+        give()
         try:
             os.execvp(cmd[0], cmd)
         except OSError as exc:

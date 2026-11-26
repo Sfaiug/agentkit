@@ -179,7 +179,7 @@ class Row(unittest.TestCase):
                 patch.object(orch, "held_names", set), \
                 patch.object(menu, "open_session", lambda *_args: None), \
                 redirect_stdout(printed):
-            self.assertEqual(menu.start_born(born, dry_run=True), "new-2")
+            self.assertEqual(menu.start_born(born, dry_run=True, give=lambda: None), "new-2")
         self.assertIn("would start new-2", printed.getvalue())
 
 

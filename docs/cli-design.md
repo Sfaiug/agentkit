@@ -6,11 +6,11 @@ code and tests.
 
 ## Frame
 
-Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit` and
-the screen's name left, the clock right. Under it: one `border` rule,
+Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit`,
+the screen's name and the job it waits on left, the clock right. Under it: one `border` rule,
 the rows, one blank line, the key line last. On the main screen and `c`, usage sits
-under the header. The rule is ak's one progress indicator. A counted job fills it, the header
-saying how far; the rainbow glides along it while a screen loads. Ctrl-b m's popup's border
+under the header. The rule is ak's one progress indicator: a counted job fills it; the rainbow
+glides along it while a screen loads. Ctrl-b m's popup's border
 is rounded. Helpers:
 `terminal.header_line`, `terminal.rule_line`, `terminal.key_line`, `terminal.layout_width`.
 
