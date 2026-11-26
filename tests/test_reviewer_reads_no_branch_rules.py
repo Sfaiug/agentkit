@@ -114,7 +114,7 @@ class ReviewerReadsNoBranchRules(unittest.TestCase):
                   "pr_view": {"state": "OPEN", "author": "owner", "title": "Mend fence",
                               "baseRefName": "main", "headRefOid": "a" * 40},
                   "pr_writer": (True, "acme-reads", "high"), "own_pr_budget": (3, None),
-                  "checkout_for": checkout, "git": "a" * 40, "plan_context": "",
+                  "checkout_for": checkout, "origin_default": "main", "git": "a" * 40, "plan_context": "",
                   "make_worktree": (checkout, "ak/pr-7"),
                   "own_pr_first_review": None, "unanswered_head": None}
         with ExitStack() as stack:

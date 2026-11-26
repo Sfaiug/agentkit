@@ -1426,16 +1426,11 @@ def preflight(run_dir, opts, log):
             why = own_pr_budget(url, run_dir)[1]
             if why:
                 raise Refused(why)
-            # ... and a PR too large for the seat is refused before it waits for a slot
+            # ... and a PR off the default branch or too large for the seat is refused before it waits for a slot
             checkout = checkout_for(f"{owner}/{name}", log)
-            default = origin_default(checkout)
-            if info["baseRefName"] != default:
-                # it would land on its base: stacked on an unmerged change, into that change's
-                # branch under that change's own review, never on the default branch
-                raise Refused(f"PR #{number} is based on {info['baseRefName']}, not {default}: "
-                              f"ak lands a seat's own PR on {default} only. If it builds on "
-                              f"an unmerged change, wait for that to land, then rebase this "
-                              f"branch onto origin/{default} and point the PR at {default}")
+            why = own_pr_base_refusal(checkout, number, info["baseRefName"])
+            if why:
+                raise Refused(why)
             head = info["headRefOid"]
             fetch_pr(checkout, number, info["baseRefName"], log)
             target_sha = git(checkout, "rev-parse", f"origin/{info['baseRefName']}^{{commit}}")
@@ -2456,6 +2451,19 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
                                            numbers["review_rounds"], exclude=run_dir))
 
 
+def own_pr_base_refusal(repo, number, base):
+    """Why a seat's own PR cannot land on `base`, or None: it would land on its base, so one
+    stacked on an unmerged change would land into that branch under that branch's own review,
+    never on the repository's default branch."""
+    default = origin_default(repo)
+    if base == default:
+        return None
+    return (f"PR #{number} is based on {base}, not {default}: "
+            f"ak lands a seat's own PR on {default} only. If it builds on "
+            f"an unmerged change, wait for that to land, then rebase this "
+            f"branch onto origin/{default} and point the PR at {default}")
+
+
 def unanswered_head(repo, head):
     """Why no round of a seat's own PR's review starts on `head`, or None: its AGENTS.md has no
     `users:` answer (`users_refusal`).  Asked of every round's head, review off too, not only a
@@ -2721,8 +2729,14 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     run_record.save_state(run_dir, receipt)
     owner, name, number = PR_PARTS.match(url).groups()
     repo = checkout_for(f"{owner}/{name}", log)
-    gc.before_run(log)
     base, head = info["baseRefName"], info["headRefOid"]
+    if is_own:
+        # preflight checks this at launch; re-checked here because the PR target can move
+        # while queued or between rounds
+        why = own_pr_base_refusal(repo, number, base)
+        if why:
+            raise config.Error(why)
+    gc.before_run(log)
     fetch_pr(repo, number, base, log)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     target_sha = git(repo, "rev-parse", f"origin/{base}^{{commit}}")
@@ -2794,14 +2808,15 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
     # preflight refuses these before the run waits for a slot; here again on the head checked
-    # out, which may have moved since, as on a resume or a restart
-    first = is_own and not off and own_pr_first_review(repo, url, number, base_sha, target_sha,
-                                                       head, run_dir)
+    # out, which may have moved since, as on a resume or a restart — checks-only runs too,
+    # where `own_pr_first_review` still enforces the seat's size cap
+    first = is_own and own_pr_first_review(repo, url, number, base_sha, target_sha,
+                                           head, run_dir)
     why = is_own and (unanswered_head(repo, head) or (first or (0, None))[1])
     if why:
         lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
         return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
-    if first:
+    if first and not off:
         # what the first review reads, whatever the run's ending (`roundloop.first_review_ceiling`)
         history.first_review(state.get("run_id"), first[0], log=log)
 

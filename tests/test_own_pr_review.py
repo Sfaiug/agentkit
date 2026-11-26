@@ -166,7 +166,8 @@ class OwnPrReview(unittest.TestCase):
                     baseRefName="main", headRefOid=head, body="small fix")
         with ExitStack() as mocks:
             for name, value in (("pr_view", info), ("viewer_login", "owner"),
-                                ("checkout_for", self.repo), ("fetch", (0, "")),
+                                ("checkout_for", self.repo), ("origin_default", "main"),
+                                ("fetch", (0, "")),
                                 ("collect_usage", {}), ("ready_order", ["astra"]),
                                 ("make_worktree", (self.repo, "ak/pr-7"))):
                 mocks.enter_context(patch.object(run, name, return_value=value))
