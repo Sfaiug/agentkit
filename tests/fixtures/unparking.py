@@ -22,11 +22,12 @@ from .hookdrive import Hooks, conversation
 TESTS = Path(__file__).resolve().parents[1]
 LOGINS = ["default", "second"]
 SECOND = {"AGENTKIT_ACCOUNT": "second"}     # the seat's harness, as ak launched it on that login
-# A refusal of Opus on the login named that no meter showed, at the moment named.
+# A refusal on the login named that no meter showed, at the moment named, of the model named:
+# of none where that is "".
 MARK = ("import sys; sys.path[:0] = sys.argv[1:3]; from agentkit import config, usage; "
         "from fixtures.clock import Clock; usage.time = clock = Clock(None); "
-        "clock.time = lambda: float(sys.argv[4]); "
-        "usage.mark_exhausted(config.load(), 'anthropic', account=sys.argv[3], model='opus')")
+        "clock.time = lambda: float(sys.argv[4]); usage.mark_exhausted("
+        "config.load(), 'anthropic', account=sys.argv[3], model=sys.argv[5] or None)")
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux")
@@ -46,10 +47,10 @@ class Unparking(unittest.TestCase):
             **room, "accounts": {login: room for login in LOGINS}}}})
         self.hooks = Hooks(home)
 
-    def mark(self, login, at=None):
-        """A refusal on `login` at `at`, now where None."""
+    def mark(self, login, at=None, model="opus"):
+        """A refusal of `model` on `login` at `at`, now where None."""
         done = self.home.run(sys.executable, "-c", MARK, str(TESTS.parent), str(TESTS), login,
-                             repr(time.time() if at is None else at))
+                             repr(time.time() if at is None else at), model)
         self.assertEqual(done.code, 0, done.err)
 
     def parked(self):

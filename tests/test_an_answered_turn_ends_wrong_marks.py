@@ -127,8 +127,18 @@ class AnsweredTurnEndsWrongMarks(unittest.TestCase):
         self.assertIsNotNone(self.login("second")["exhausted_by"])
         self.assert_stays()
 
-    def test_a_refusal_made_without_a_model_stays(self):
+    def test_a_refusal_made_without_a_model_goes(self):
         self.refuse("second", None, NOW)
+        self.assertEqual(self.login("second")["exhausted_meters"], [])
+        self.assertTrue(usage.answered(self.cfg, "acme", "second", "one", self.now + 10))
+        self.assertEqual(self.made(self.login("second")), [])
+
+    def test_a_refusal_whose_meters_are_no_list_stays(self):
+        self.refuse("second", "one", NOW)
+        cache = config.STATE / "usage.json"
+        held = json.loads(cache.read_text())
+        del held["providers"]["acme"]["accounts"]["second"]["exhausted_meters"]
+        cache.write_text(json.dumps(held))
         self.assert_stays()
 
     def test_a_refusal_of_a_model_one_of_whose_meters_does_not_gate_the_turns_stays(self):
