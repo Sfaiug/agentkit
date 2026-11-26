@@ -84,14 +84,21 @@ class RoleGroups(unittest.TestCase):
                             config.load()
                 record = {"orchestrator": "seat", "workers": ["alpha"], "reviewers": bad}
                 config.session_path("bad").write_text(json.dumps(record))
-                if bad == ["missing"]:    # a model removed since: passed over, as in [defaults]
+                if bad == []:
+                    self.assertEqual(config.load_session(self.cfg, "bad")["reviewers"], [])
+                    self.assertEqual(
+                        config.save_session(self.cfg, "bad", "seat", ["alpha"], {"reviewers": bad})["reviewers"],
+                        [])
+                elif bad == ["missing"]:    # a model removed since: passed over, as in [defaults]
                     self.assertNotIn("missing",
                                      config.load_session(self.cfg, "bad")["reviewers"])
+                    with self.assertRaises(config.Error):
+                        config.save_session(self.cfg, "bad", "seat", ["alpha"], {"reviewers": bad})
                 else:
                     with self.assertRaises(config.Error):
                         config.load_session(self.cfg, "bad")
-                with self.assertRaises(config.Error):
-                    config.save_session(self.cfg, "bad", "seat", ["alpha"], {"reviewers": bad})
+                    with self.assertRaises(config.Error):
+                        config.save_session(self.cfg, "bad", "seat", ["alpha"], {"reviewers": bad})
 
     def test_removed_models_leave_valid_explicit_defaults(self):
         self.groups(reviewers=("delta",))

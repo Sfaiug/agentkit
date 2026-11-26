@@ -49,12 +49,26 @@ class ExecutorsOptional(Sandbox):
         return {"orchestrator": found["orchestrator"], "workers": list(found["workers"]),
                 "reviewers": list(found["reviewers"])}
 
-    def test_record_without_executor_loads_and_one_without_reviewers_still_needs_one(self):
+    def test_record_without_executor_or_reviewers_loads_and_legacy_still_needs_one(self):
         self.assertEqual(config.load_session(self.cfg, "fix-api")["workers"], [])
         with self.assertRaisesRegex(config.Error, "workers must be a non-empty list"):
             config.save_session(self.cfg, "legacy", "opus", [])
-        with self.assertRaisesRegex(config.Error, "reviewers must be a non-empty list"):
-            config.save_session(self.cfg, "empty", "opus", [], {"reviewers": []})
+        config.save_session(self.cfg, "empty", "opus", [], {"reviewers": []})
+        loaded = config.load_session(self.cfg, "empty")
+        self.assertEqual((loaded["workers"], loaded["reviewers"]), ([], []))
+        config.save_session(self.cfg, "no-rev", "opus", ["opus"], {"reviewers": []})
+        self.assertEqual(config.load_session(self.cfg, "no-rev")["reviewers"], [])
+        # [defaults] cannot hold an empty reviewer list yet: remember_defaults leaves it as it stands
+        before = config.load()["defaults"].get("reviewers")
+        self.assertEqual(config.remember_defaults(loaded), "")
+        self.assertEqual(config.load()["defaults"].get("reviewers"), before)
+        self.assertTrue(record.review_off({"reviewers": []}))
+        self.assertTrue(record.review_off({"reviewers": [], "review_pr": "https://github.com/acme/api/pull/7", "own_pr": True}))
+        self.assertFalse(record.review_off({"reviewers": [], "review_pr": "https://github.com/acme/api/pull/7", "own_pr": False}))
+        self.assertFalse(record.review_off({"reviewers": [], "own_pr": False}))
+        self.assertFalse(record.review_off({"reviewers": [], "job_id": "batch"}))
+        self.assertFalse(record.review_off({"workers": ["opus"]}))
+        self.assertFalse(record.review_off({"reviewers": ["astra"]}))
 
     def test_task_launch_is_refused_before_any_run_or_job_exists(self):
         config.remember_defaults(config.load_session(self.cfg, "fix-api"))
@@ -220,6 +234,123 @@ class ExecutorsOptional(Sandbox):
                 patch.object(run, "spawn_bg", return_value=0) as spawn:
             watch.resume_exhausted(cfg, providers, log=lambda _: None, now=now)
         spawn.assert_called_once()
+
+    def test_no_reviewer_run_stays_bound_to_its_receipt_and_leaves_jobs_and_other_prs_alone(self):
+        import json
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+        from agentkit import job as jobs
+
+        config.save_session(self.cfg, "fix-api", "opus", ["opus"], {"reviewers": []})
+        # a job task does not inherit the seat's empty reviewers list
+        batch_dir = self.root / "batch"
+        policy = {key: row[0] for key, row in config.POLICY.items()}
+        policy["review_rounds"] = 3
+        with patch.object(run, "launch_policy", return_value=policy), patch.object(run, "preflight"), \
+                patch.object(run, "redress_seat"), patch.object(run.gate, "claim_slot"):
+            job_run, _ = jobs.job_start_task(
+                self.cfg, batch_dir, {"name": "task.md", "task_file": str(self.task)},
+                {}, lambda _: None)
+        job_receipt = record.read_state(job_run)
+        self.assertEqual(job_receipt["job_id"], "batch")
+        self.assertFalse(record.review_off(job_receipt))
+
+        # capture a task receipt and an own-PR receipt, then corrupt/edit the live seat
+        task_dir, pr_dir = config.RUNS / "bound-task", config.RUNS / "bound-pr"
+        task_dir.mkdir()
+        pr_dir.mkdir()
+        with patch.object(run.gate, "admission", nullcontext), patch.object(run.gate, "claim_slot"), \
+                patch.object(run, "redress_seat"):
+            run.capture_launch(task_dir, cfg=self.cfg)
+            config.save_session(self.cfg, "fix-api", "opus", [], {"reviewers": []})
+            run.capture_launch(pr_dir, opts={"--review-pr": "https://github.com/acme/api/pull/7"}, cfg=self.cfg)
+        task_receipt = {**record.read_state(task_dir), "policy": {"review_rounds": 3}}
+        pr_receipt = {**record.read_state(pr_dir), "policy": {"review_rounds": 3}}
+
+        live = config.session_path("fix-api")
+        broken = json.loads(live.read_text())
+        broken["reviewers"] = ["opus", "opus"]
+        live.write_text(json.dumps(broken))
+        with patch.object(run.run_record, "read_state", return_value=task_receipt), \
+                patch.object(run, "refused"), patch.object(run, "collect_usage", return_value={}), \
+                patch.object(staffing, "ready_order", return_value=["opus"]), \
+                patch.object(staffing, "refuse_unready"):
+            self.assertEqual(
+                run.preset_models(self.cfg, {"--exec": None, "--review": None}, lambda _: None, task_dir),
+                ("opus", None))
+
+        class Reached(Exception):
+            pass
+
+        with patch.object(run.run_record, "read_state", return_value=pr_receipt), \
+                patch.object(config, "load_session", wraps=config.load_session) as loaded, \
+                patch.object(run, "pr_view", side_effect=Reached):
+            with self.assertRaises(Reached):
+                run.review_pr_round(self.cfg, pr_dir, "https://github.com/acme/api/pull/7", {}, lambda _: None)
+            loaded.assert_not_called()
+
+        config.save_session(self.cfg, "fix-api", "astra", [], {"reviewers": []})
+        with patch.object(run, "viewer_login", return_value="acme"):
+            own, writer, _ = run.pr_writer(self.cfg, pr_receipt, pr_receipt["launched_session"], "acme")
+        self.assertEqual((own, writer), (True, "opus"))
+
+        # an inconclusive ownership probe must not fall back to own_pr_orchestrator / live seat
+        with patch.object(run, "viewer_login", side_effect=[None, "acme"]), \
+                patch.object(config, "load_session", return_value={"orchestrator": "astra"}) as probe_read:
+            own, writer, _ = run.pr_writer(self.cfg, pr_receipt, pr_receipt["launched_session"], "acme")
+        probe_read.assert_not_called()
+        self.assertEqual((own, writer), (False, None))
+
+        # an own PR refused in preflight still records no_review=1 in history
+        import sqlite3
+        from contextlib import closing
+        from agentkit import history, transitions
+        refused_dir = config.RUNS / "refused-own-pr"
+        refused_dir.mkdir()
+        pr_info = {"author": "acme", "title": "Fix", "headRefOid": "a" * 40, "baseRefName": "topic"}
+        config.save_session(self.cfg, "fix-api", "opus", [], {"reviewers": []})
+        with patch.object(run, "history_start", wraps=transitions.history_start), \
+                patch.object(run.gate, "admission", nullcontext), patch.object(run.gate, "claim_slot"), \
+                patch.object(run, "redress_seat"), patch.object(run, "installed_head", return_value="fixture"), \
+                patch.object(run, "launch_policy", return_value=policy), patch.object(run, "pr_view", return_value=pr_info), \
+                patch.object(run, "viewer_login", return_value="acme"), patch.object(run, "checkout_for", return_value=self.root), \
+                patch.object(run, "origin_default", return_value="main"), patch.object(run, "printed_at_launch"):
+            with self.assertRaisesRegex(run.Refused, "is based on topic"):
+                run.prepare(refused_dir, {"--review-pr": "https://github.com/acme/api/pull/8"},
+                            lambda _: None, self.cfg, printed=True)
+        with closing(sqlite3.connect(history.path())) as db:
+            row = db.execute("SELECT kind, no_review FROM runs WHERE run_id = ?",
+                             (refused_dir.name,)).fetchone()
+        self.assertEqual(row, ("seat PR", 1))
+
+        live.write_text("invalid JSON")
+        with patch.dict(os.environ, {config.RUN_DIR_ENV: str(pr_dir)}), \
+                patch.object(run, "depth_refused", return_value=False), \
+                patch.object(run.box, "check", side_effect=Reached):
+            with self.assertRaises(Reached):
+                run.main(["--review-pr", "https://github.com/acme/api/pull/7"])
+
+        # external PR with reviewers: [] and review_rounds: 3 still offers to inbox, never merges
+        info = {"title": "Fix", "author": "other-dev", "headRefOid": "a" * 40, "state": "OPEN"}
+        ext_state = {"verdict": "PASS", "head_sha": info["headRefOid"], "own_pr": False,
+                     "workers": ["opus"], "reviewers": [], "policy": {"review_rounds": 3}}
+        lp = SimpleNamespace(cfg={}, run_dir=pr_dir, state=ext_state, log=lambda _: None,
+                             cmds=[], write=lambda: None)
+        with patch.object(run, "restore_review_checkout"), patch.object(run, "post_review", return_value=True), \
+                patch.object(run, "checks", return_value=(True, None)), patch.object(run, "pr_view", return_value=info), \
+                patch.object(run.watch, "ask_inbox", return_value=0), patch.object(run, "write_result"), \
+                patch.object(run, "merge_own_pr") as merge:
+            run.settle_pr_round(lp, "https://github.com/acme/api/pull/7", info)
+        merge.assert_not_called()
+
+        # review_rounds: 0 with explicit reviewers still refuses an out-of-group --review
+        zero_receipt = {"reviewers": ["astra"], "workers": ["opus"], "policy": {"review_rounds": 0},
+                        "launched_session": None}
+        with patch.object(run.run_record, "read_state", return_value=zero_receipt), \
+                patch.object(run, "pr_view", side_effect=AssertionError("should refuse")):
+            with self.assertRaisesRegex(config.Error, "not a reviewer of this run"):
+                run.review_pr_round(self.cfg, pr_dir, "https://github.com/acme/api/pull/7",
+                                    {"--review": "opus"}, lambda _: None)
 
 if __name__ == "__main__":
     unittest.main()

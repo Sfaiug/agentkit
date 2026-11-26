@@ -259,11 +259,12 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 # the change continues on that branch: the run the branch belongs to names it,
                 # and the rounds earlier runs spent on it are spent
                 change = change_on(from_branch, repo, exclude=run_dir)
-                n_rounds, why = round_budget(n_rounds, run_record.policy_of(receipt)["review_rounds"],
-                                             change=change, exclude=run_dir,
-                                             what=f"branch {from_branch}")
-                if why:
-                    raise config.Error(f"{task_path}: {why}")
+                if not run_record.review_off(receipt):
+                    n_rounds, why = round_budget(n_rounds, run_record.policy_of(receipt)["review_rounds"],
+                                                 change=change, exclude=run_dir,
+                                                 what=f"branch {from_branch}")
+                    if why:
+                        raise config.Error(f"{task_path}: {why}")
             if opts["--no-worktree"]:
                 wt, branch = repo, git(repo, "rev-parse", "--abbrev-ref", "HEAD")
                 log(f"no worktree: working directly in {wt} on {branch}")
@@ -685,9 +686,10 @@ def users_refusal(checkout, ref, then):
 def from_seat():
     """Whether this launch is a seat's own: a recorded session's (`config.session_records`),
     outside any run (`RUN_DIR_ENV`)."""
+    if os.environ.get(config.RUN_DIR_ENV):
+        return False
     seat = config.current_session()
-    return bool(seat and seat in config.session_records()
-                and not os.environ.get(config.RUN_DIR_ENV))
+    return bool(seat and seat in config.session_records())
 
 
 def rival_advice():
@@ -1187,10 +1189,14 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         groups = {role: list(receipt[role]) for role in ("workers", "reviewers")
                   if isinstance(receipt.get(role), list) and receipt[role]}
     else:
-        selection = (config.active_session(cfg) or cfg["defaults"]) if cfg is not None else {}
+        active = config.active_session(cfg) if cfg is not None else None
+        selection = (active or cfg["defaults"]) if cfg is not None else {}
         groups = {"workers": workers} if workers else {}
-        if "reviewers" in selection:
+        if "reviewers" in selection and (selection["reviewers"] or job_id is None):
             groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
+        if active and active.get("orchestrator"):
+            # Captured at launch so an incomplete preflight never reads a later seat edit.
+            groups["launched_orchestrator"] = active["orchestrator"]
         if cfg is not None:     # what each of them is and runs at, as bound as whom (Loop)
             groups.update(config.run_marks(cfg, selection))
     limit = config.max_runs()
@@ -1410,7 +1416,8 @@ def preflight(run_dir, opts, log):
         state.setdefault("own_orchestrator", orch if is_own else None)
         state.setdefault("own_orchestrator_effort", effort if is_own else None)
         run_record.save_state(run_dir, state)
-        history.update_run(state.get("run_id"), kind=run_kind(state), log=log)
+        history.update_run(state.get("run_id"), kind=run_kind(state),
+                           no_review=int(run_record.no_review(state)), log=log)
         if is_own and not orch:
             raise Refused(f"no session record names the writer of this PR; "
                           f"review of the seat's own PR needs its orchestrator")
@@ -2316,7 +2323,16 @@ def pr_writer(cfg, state, session_name, author):
     was kept has none),
     never the config's since: `ak models` counts the pull request under it."""
     if "own_pr" not in state:
-        is_own, orchestrator = own_pr_orchestrator(cfg, session_name, author)
+        if "launched_orchestrator" in state:
+            is_own = bool(session_name and by_viewer(author))
+            orchestrator = state.get("launched_orchestrator") if is_own else None
+            if orchestrator:
+                try:
+                    config.model(cfg, orchestrator)
+                except (config.Error, OSError, ValueError, KeyError, TypeError):
+                    orchestrator = None
+        else:
+            is_own, orchestrator = own_pr_orchestrator(cfg, session_name, author)
         return is_own, orchestrator, config.worker_effort(config.at_efforts(cfg, state),
                                                           orchestrator, "orchestrator")
     orchestrator = state.get("own_orchestrator") if state["own_pr"] else None
@@ -2435,8 +2451,9 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
                       f"too big for the seat, which builds at most {limit} added "
                       f"lines. {action}")
-    return read, replacement_refusal(repo, target_sha, head, number, read, numbers["review_rounds"],
-                                     exclude=run_dir)
+    return read, (None if run_record.review_off(state)
+                  else replacement_refusal(repo, target_sha, head, number, read,
+                                           numbers["review_rounds"], exclude=run_dir))
 
 
 def unanswered_head(repo, head):
@@ -2658,9 +2675,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         with run_record.record(run_dir) as current:
             current.pop("landing_fix", None)
     rnd, turn = own_pr_fix(prior if is_own else {})
-    off = run_record.review_off(receipt)
+    off = run_record.review_off({**receipt, "own_pr": is_own})
     n_rounds = 0 if off else 1
-    if is_own:
+    if is_own and not off:
         # the pull request's budget, less what earlier runs spent on it: this run's rounds
         # are what is left, and a fourth round is refused whichever run would spend it
         n_rounds = own_pr_budget(url, run_dir)[0]
@@ -2955,7 +2972,7 @@ def settle_pr_round(lp, url, info):
     if why:
         # a post-retry resume carrying `--rounds` never reopens a budget this round already cut
         lp.rounds = state["rounds"] = len(state["round_summaries"])
-    if is_own and (verdict == "FAIL" or not posted) and not why and (
+    if is_own and not off and (verdict == "FAIL" or not posted) and not why and (
             lp.rnd < lp.rounds or extra_round(state, lp.rnd + 1)):
         state.update(state="running", finished_at=None, own_pr_wait=head)
         state.pop("recovery_pending", None)
@@ -2980,6 +2997,8 @@ def own_pr_budget(url, run_dir, own=0):
     (`extra_round`) is left while the run goes on from the FAIL before it, waiting for its
     push (`own_pr_wait`) or reviewing it (`own_pr_round_pending`): a review that ended has none."""
     state = run_record.read_state(run_dir) or {}
+    if run_record.review_off(state):
+        return 0, None
     if (state.get("own_pr_wait") or state.get("own_pr_round_pending")) and extra_round(state, own + 1):
         return 1, None
     budget = run_record.policy_of(state)["review_rounds"]
