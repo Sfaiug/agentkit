@@ -72,16 +72,6 @@ def hours(name, until, count, *, home):
     Reads every day file in the readings folder and places each usable line by its own `at`,
     computing no calendar date.
     """
-    if not isinstance(name, str):
-        raise TypeError("name must be a string")
-    if not isinstance(home, bool):
-        raise TypeError("home must be a bool")
-    if isinstance(until, bool) or not isinstance(until, int):
-        raise TypeError("until must be whole seconds")
-    if isinstance(count, bool) or not isinstance(count, int):
-        raise TypeError("count must be an integer")
-    if count < 0:
-        raise ValueError("count must be 0 or more")
     start = until - count * HOUR
     if not count or until <= 0:
         return [Hour(start + i * HOUR, None, None) for i in range(count)]
