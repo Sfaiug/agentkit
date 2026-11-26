@@ -1124,12 +1124,19 @@ def git_housekeeping(log):
             log(f"WARN git gc could not run in {repo}: {exc}")
 
 
+def _one_pass():
+    """What one collection at a time locks, with no lock file of its own: the state directory.
+    Not ak's home, which every config write locks (`config._config_lock`): a pass runs for
+    minutes, and held there it stopped the models screen at the first mark made meanwhile."""
+    return retention.reading(config.STATE, directory=True)
+
+
 def schedule_gc(log):
     """Keep filesystem scans off the menu and health tick; concurrent workers share a lock."""
     # Do not repeatedly spawn a collector on platforms/filesystems where its read-only
     # primitives cannot work. This probe neither creates nor changes state.
     try:
-        with retention.reading(config.HOME, directory=True):
+        with _one_pass():
             pass
     except OSError:
         return
@@ -1309,7 +1316,7 @@ def gc(report, automatic=False):
     balked = set()     # a harness whose own way of ending a conversation failed this pass
     # Serialize automatic passes without creating a lock file (dry-run never takes this lock).
     try:
-        with retention.reading(config.HOME, directory=True) as lock:
+        with _one_pass() as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             if automatic:
                 stamp = config.STATE / "gc.json"
@@ -1596,7 +1603,7 @@ def sweep(report):
     """Apply `sweep_plan` under the collector's lock: the items removed, `bytes` on each."""
     removed = []
     try:
-        with retention.reading(config.HOME, directory=True) as lock:
+        with _one_pass() as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             for item in sweep_plan():
                 path = Path(item["path"])
