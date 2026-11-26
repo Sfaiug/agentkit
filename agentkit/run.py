@@ -3256,6 +3256,11 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
 def main(argv):
     if command_help.show("run", argv):
         return 0
+    if alias := config.server_alias():
+        # A client's runs are on its home, and a standby holds a copy of their records with no
+        # process of theirs here.
+        raise config.Error(f"this machine is a client of {alias} and has no runs: "
+                           f"they are on {alias}")
     if argv[:1] == ["--lander"]:
         if len(argv) != 2 or Path(argv[1]).name != argv[1] or not argv[1].startswith(".merge-"):
             raise config.Error("usage: ak run --lander LINE")
