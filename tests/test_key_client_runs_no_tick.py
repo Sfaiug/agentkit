@@ -64,7 +64,8 @@ class AClient(unittest.TestCase):
         # OWN keeps the server up, so a failed listing is a broken probe, never an empty server
         listed = cls.home.tmux("list-sessions", "-F", "#{session_name}")
         assert listed.code == 0, listed.err
-        return sorted(set(listed.out.splitlines()) - {OWN})
+        # tmux ends each name with "\n" alone; a name may hold any other line separator
+        return sorted(set(listed.out.removesuffix("\n").split("\n")) - {OWN})
 
     def test_a_client_s_firing_resumes_starts_and_lands_nothing(self):
         self.assertEqual(self.client.code, 0, self.client.err)
