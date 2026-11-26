@@ -234,14 +234,12 @@ def scratch(dry_run):
 
 
 @contextmanager
-def for_seat(name, new=None):
+def for_seat(name):
     """Which seat the adapters called inside are building a command line for.
 
     In $AGENTKIT_SESSION, the name every part of agentkit says a seat by, because the rulebook
     an adapter writes at launch is that seat's -- and a launch is often made from another seat,
-    whose name is the one this process inherited.  `new`, the record a new seat is saved as,
-    goes in $AGENTKIT_SEAT_RECORD, since it is saved once the seat has opened; without one the
-    rulebook reads the seat's record, whatever new seat this process inherited.
+    whose name is the one this process inherited.
     """
     def put(values):
         for key, value in values.items():
@@ -249,8 +247,7 @@ def for_seat(name, new=None):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-    told = {config.SESSION_ENV: name or "",
-            config.SEAT_RECORD_ENV: None if new is None else json.dumps(new)}
+    told = {config.SESSION_ENV: name or ""}
     before = {key: os.environ.get(key) for key in told}
     put(told)
     try:
@@ -380,7 +377,7 @@ def command_env(cmd):
 
 def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None, new=None):
     """(command, conversation) for a seat opening a conversation of its own, `new` the record a
-    new one is saved as once it opens (`for_seat`).
+    new one is saved as once it opens (`write_rulebook`).
 
     The id is generated here, before anything starts, and handed to the adapter as one its
     harness has not opened yet, so the seat owns it from the moment it is launched.  A TUI that
@@ -389,8 +386,8 @@ def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None, new=N
     hook and OpenCode through its seat plugin.
     """
     conversation = str(uuid.uuid4())
-    with for_seat(seat, new):
-        rulebook = write_rulebook(seat or "")
+    with for_seat(seat):
+        rulebook = write_rulebook(seat or "", new)
         cmd = command(cfg, name, conversation, fresh=True, account=account, rulebook=rulebook,
                       line=line, cwd=cwd)
         if cmd:
@@ -3061,10 +3058,10 @@ def hand_task_template():
         pass
 
 
-def write_rulebook(session):
-    """Write the rulebook `session` is launched with (`config.seat_rulebook`) under its name and
-    return its path: ~/.agentkit/state/rulebook-<session>.md, under $AGENTKIT_RULEBOOK_DIR
-    instead for a dry run.
+def write_rulebook(session, new=None):
+    """Write the rulebook `session` is launched with (`config.seat_rulebook`, `new` the record a
+    new seat is saved as once it opens) under its name and return its path:
+    ~/.agentkit/state/rulebook-<session>.md, under $AGENTKIT_RULEBOOK_DIR instead for a dry run.
 
     A launch fetches no project that has been fetched: it reads the rules as last fetched,
     which is what every open seat has, and the tick's fetch brings a later merge to both, carried
@@ -3072,8 +3069,6 @@ def write_rulebook(session):
     first seat opens with its rules.  A dry run fetches nothing.  A file that cannot be written
     refuses the launch: a session is opened with its rules or not at all.
     """
-    new = os.environ.get(config.SEAT_RECORD_ENV)
-    new = None if new is None else json.loads(new)      # a new seat's (`for_seat`)
     path = config.rulebook_path(session)
     with look.one_look():     # the project it fetches is the one its rulebook reads
         repo = (config.session_records().get(session, {}) if new is None else new).get("repo")

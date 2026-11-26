@@ -75,7 +75,6 @@ ADAPTER_DIR_ENV = "AGENTKIT_ADAPTER_DIR"   # adapters/ elsewhere: the offline sm
 SESSION_ENV = "AGENTKIT_SESSION"
 RULEBOOK_ENV = "AGENTKIT_RULEBOOK"          # the rulebook a launch has written, for its adapter to take
 RULEBOOK_DIR_ENV = "AGENTKIT_RULEBOOK_DIR"  # a dry run's: where rulebook.py writes instead of STATE
-SEAT_RECORD_ENV = "AGENTKIT_SEAT_RECORD"  # a new seat's record as JSON, for rulebook.py: none saved yet
 # where a seat's project rules are read: the full name, since a branch or tag called
 # origin/HEAD would win the short one
 RULES_REF = "refs/remotes/origin/HEAD"
@@ -2749,7 +2748,7 @@ def seat_rulebook(session, new=None):
     its launch or the tick last fetched it (`orch.fetch_project`); an unnamed seat's
     instruction to name itself; and, last, where the conversations it moved from are
     (`orch.handover`).  Each as its record says, or `new` -- a new seat's record, which it is
-    saved as once it opens (`orch.for_seat`): one under its name is then the seat's before it."""
+    saved as once it opens (`orch.create`): one under its name is then the seat's before it."""
     from . import gitcall     # here, not at the top: gitcall imports this module
     with look.one_look():     # its project and its builders as one read of its record found them
         record = session_records().get(session, {}) if new is None else new
