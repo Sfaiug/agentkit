@@ -1,12 +1,16 @@
-"""What a point of a model's own cap takes from its login's shared week: it hides how the share is
-read off the kept readings.
+"""What a model's own cap takes from its login's shared week (`of`) and the most it has been seen
+to rise in a span of time (`most`): it hides how both are read off the kept readings.
 
-A reading holds a login's shared week and its scoped cap at one moment, both in whole points, so
-each end of a stretch between two readings is off by up to half a point.  Across any two readings
-of one login on a plan with no reading between them where either meter fell, a cap rise `f` above
-1 beside a week rise `a` bounds the share from above by `(a + 1) / (f - 1)`: any other model that
-ran only added to `a`, and rounding can only raise the ceiling.  The least ceiling over every
-stretch of every login on the plan is the share.
+For `of`, a reading holds a login's shared week and its scoped cap at one moment, both in whole
+points, so each end of a stretch between two readings is off by up to half a point.  Across any
+two readings of one login on a plan with no reading between them where either meter fell, a cap
+rise `f` above 1 beside a week rise `a` bounds the share from above by `(a + 1) / (f - 1)`: any
+other model that ran only added to `a`, and rounding can only raise the ceiling.  The least
+ceiling over every stretch of every login on the plan is the share.
+
+For `most`, a reading is one login's kept row of the scoped cap on the plan.  Between two readings
+of one login no further apart than `seconds` with no reading between them where the cap fell, the
+cap never decreases, so walking each login's readings once finds the largest rise across the plan.
 """
 
 from contextlib import closing
@@ -91,3 +95,63 @@ def _share(logins):
                             best = ceiling
             run.append((week, cap))
     return best
+
+
+def most(provider, plan, scope, seconds):
+    """The largest rise of `scope`'s cap on `provider`'s `plan` between two readings of one login
+    no further apart than `seconds`, with no reading between them in which the cap fell, or None
+    where no login's kept readings of the cap reach `seconds` apart, no two readings lie within
+    `seconds` without a fall, or the history cannot answer.
+
+    Reads history.db once, read-only: no migration runs ahead of it.  A reading is one login's
+    row of `meter_readings` for `scope` on `plan` with valid numeric `used` and `at`, in order of
+    `at`, walked once.
+    """
+    if (not (usage._text(provider) and usage._text(plan) and usage._text(scope))
+            or isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+            or not math.isfinite(seconds) or seconds <= 0):
+        return None
+    try:
+        with closing(history._connect(readonly=True)) as db:
+            rows = db.execute(
+                "SELECT account, used, at FROM meter_readings "
+                "WHERE provider = ? AND plan = ? AND scope = ? "
+                "AND typeof(used) IN ('integer', 'real') AND used >= 0 AND used <= 100 "
+                "AND typeof(at) IN ('integer', 'real') "
+                "ORDER BY at, rowid",
+                (provider, plan, scope)).fetchall()
+    except (OSError, sqlite3.Error):
+        return None
+    by_login = {}       # {account: {at: cap_used}}
+    for account, used, at in rows:
+        if math.isfinite(at) and usage._text(account):
+            by_login.setdefault(account, {})[at] = used
+    return _most((list(moments.items()) for moments in by_login.values()), seconds)
+
+
+def _most(logins, seconds):
+    """The largest rise of a cap between two readings of one login no further apart than `seconds`,
+    with no reading between them where the cap fell, or None where no login's kept readings reach
+    `seconds` apart or no two readings lie within `seconds` without a fall.
+
+    Within a non-falling run the cap never decreases, so the smallest cap inside the `seconds`
+    window ending at reading `i` is always at its earliest kept reading `start`.
+    """
+    best = None
+    watched = False
+    for readings in logins:
+        if len(readings) < 2:
+            continue
+        if readings[-1][0] - readings[0][0] >= seconds:
+            watched = True
+        start = 0
+        for i, (at, cap) in enumerate(readings):
+            if i and cap < readings[i - 1][1]:
+                start = i
+            while at - readings[start][0] > seconds:
+                start += 1
+            if start < i:
+                rise = cap - readings[start][1]
+                if best is None or rise > best:
+                    best = rise
+    return best if watched else None
