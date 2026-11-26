@@ -47,13 +47,19 @@ def _unused():
     return {role: {"points": {}, "unrated": 0} for role in (*USAGE_ROLES, "orchestrator")}
 
 
-def _part(used, start, end, of):
-    """Of `used`, `(points, unrated)` as `_add_usage` takes it, the part of tasks `start` up to
-    `end` of `of`: its points exact, its unrated tokens rounded half to even where those tasks end
-    less where they start, so that parts ending where the next starts sum to the whole."""
+def _split(used, weights):
+    """`used`, `(points, unrated)` as `_add_usage` takes it, in parts by `weights`: points exact;
+    unrated tokens each part's exact share rounded down, then one more to each part losing most
+    by that, the earlier of those losing as much, until they sum to `unrated` (largest remainder):
+    whole, every part is under a token from its exact share, and a whole share kept."""
     points, unrated = used
-    return ({plan: value * Fraction(end - start, of) for plan, value in points.items()},
-            round(unrated * Fraction(end, of)) - round(unrated * Fraction(start, of)))
+    whole = sum(weights)
+    tokens = [unrated * weight // whole for weight in weights]
+    for at in sorted(range(len(weights)),
+                     key=lambda at: -(unrated * weights[at] % whole))[:unrated - sum(tokens)]:
+        tokens[at] += 1
+    return [({plan: value * Fraction(weight, whole) for plan, value in points.items()}, part)
+            for weight, part in zip(weights, tokens)]
 
 
 def sum_usage(by_run):
@@ -113,7 +119,7 @@ def counted(usage=None, seats=None, *, until=None):
     those of every team of that entry (`orchestrator`, `unrated` rounded half to even); per
     `SIZE` lines, smallest first, the same of the tasks whose size is at most `upto` and over
     `upto` less SIZE, `lines_live` the sizes of those live summed, `orchestrator` of each team's
-    its tasks there over the team's (`_part`, the team's sizes smallest first);
+    its tasks there over the team's (`_split`, its sizes smallest first, then those of none);
     `usage` over every run (`executor`, `reviewer`) and seat (`orchestrator`); and `seats`, per
     orchestrator and effort (`sum_seats`)."""
     until = time.time() if until is None else until
@@ -182,18 +188,21 @@ def counted(usage=None, seats=None, *, until=None):
                         _add_usage(count["usage"][role], used)
     seats = seats or {}
     # a seat's turn belongs to no task, so an orchestrator's divides evenly over the tasks it
-    # wrote, and a team's over its sizes, whose parts so sum to the team's where all are sized
+    # wrote, and a team's over its sizes
     wrote = {}
     for team in teams.values():
         wrote[_seat(team)] = wrote.get(_seat(team), 0) + team["tasks"]
     for key, team in teams.items():
-        used = _part(seats.get(_seat(team), ({}, 0)), 0, team["tasks"], wrote[_seat(team)])
+        points, unrated = seats.get(_seat(team), ({}, 0))
+        share = Fraction(team["tasks"], wrote[_seat(team)])
+        used = ({plan: value * share for plan, value in points.items()}, round(unrated * share))
         _add_usage(team["usage"]["orchestrator"], used)
-        done = 0
-        for upto, tasks in sorted(sized.get(key, {}).items()):
-            _add_usage(sizes[upto]["usage"]["orchestrator"],
-                       _part(used, done, done + tasks, team["tasks"]))
-            done += tasks
+        # its tasks of no size a part last, which no row takes
+        of_team = sorted(sized.get(key, {}).items())
+        for (upto, _), part in zip(of_team, _split(used, [
+                *(tasks for _, tasks in of_team),
+                team["tasks"] - sum(tasks for _, tasks in of_team)])):
+            _add_usage(sizes[upto]["usage"]["orchestrator"], part)
     seat_rows, orch_usage = sum_seats(seats)
     return {"since": since, "until": until,
             "teams": sorted(teams.values(), key=lambda team: -team["tasks"]),

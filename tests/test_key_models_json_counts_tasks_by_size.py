@@ -4,9 +4,10 @@ is the most lines a first review of one of its runs read, its row the least whol
 than that, 100 for 0; one no run of which kept a size is in no row.  Per row, smallest first, and
 none for a hundred with no task: its tasks, those any of whose runs merged, the sizes of those
 summed, the hours every run of them spent, and their usage as a team's, `orchestrator` taking of
-each team's share its tasks there over the team's, its unrated tokens rounded half to even where
-the team's tasks of that row and those smaller end, less where they start, so that the rows of a
-team's tasks, all sized, sum to its share.  A follow-up counts in no row.
+each team's share its tasks there over the team's, in whole unrated tokens: each its exact share
+rounded down, then one more to each losing most by that, the smaller size of those losing as
+much, and those of no size after every size, until the team's sum to its share.  A follow-up
+counts in no row.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
 runs written into the Home's history.db; judged by the output and exit code.  Fails against
@@ -124,14 +125,15 @@ class ModelsJsonSizeUsage(WeekMeters):
                          [took({"acme": {"Max": 10}}, 2_002)])
 
     def test_the_rows_of_a_team_s_tasks_all_sized_sum_to_its_orchestrator_share(self):
-        self.seat(35, 1_001, model="anvil-9", orchestrator="nova", effort="high")
-        history(self.home, [run("fix-api", 2, first_review_lines=50),
-                            run("fix-docs", 1, first_review_lines=150)], [])
+        self.seat(35, 999, model="anvil-9", orchestrator="nova", effort="high")
+        history(self.home, [run(f"fix-{lines}", 2, first_review_lines=lines)
+                            for lines in (50, 150, 160, 250, 260, 270)], [])
         found = self.answer(TABLES)["runs"]
-        # 500.5 rounded where fix-api ends, fix-docs the rest
-        self.assertEqual(found["sizes"], [size(100, 1, 1, 50, 1.0, took(unrated=500)),
-                                          size(200, 1, 1, 150, 1.0, took(unrated=501))])
-        self.assertEqual([team["usage"] for team in found["teams"]], [took(unrated=1_001)])
+        # 166.5, 333 and 499.5: the token over to the smaller size, 333 kept whole
+        self.assertEqual(found["sizes"], [size(100, 1, 1, 50, 1.0, took(unrated=167)),
+                                          size(200, 2, 2, 310, 2.0, took(unrated=333)),
+                                          size(300, 3, 3, 780, 3.0, took(unrated=499))])
+        self.assertEqual([team["usage"] for team in found["teams"]], [took(unrated=999)])
 
 
 if __name__ == "__main__":
