@@ -2401,6 +2401,17 @@ def inside(session):
     return Path(tmux.split(",")[0]).name == (seat_socket(session) or "default")
 
 
+def leave_message(text):
+    """`text` as a tmux message: on the status line of the client this process is under, the one
+    `attach` would switch, until a key is pressed there.  It outlives the process, and a popup
+    tmux takes down as its command ends; outside tmux there is no client to leave it with."""
+    if os.environ.get("TMUX"):
+        named = os.environ.get(CLIENT_ENV)
+        # tmux reads a message as a format and as a time: its `#` and its `%` double
+        tmux_out("display-message", *(("-c", named) if named else ()), "-d", "0",
+                 tmux_text(text).replace("%", "%%"), socket="", client=True)
+
+
 def seen_by_user(name, session=None):
     """An interactive open records a baseline; reading a question does not answer it.
     `session` is the seat as the opener has it, which spares listing every seat again."""

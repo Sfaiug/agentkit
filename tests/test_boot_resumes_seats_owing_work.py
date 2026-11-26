@@ -90,6 +90,15 @@ class BootResumesOwingSeats(Sandbox):
         watch.resume_after_boot(self.cfg, log=lambda _line: None)
         self.assertEqual(self.resume.call_count, len(back))
 
+    # A menu and a tick each ask whose client this machine is as they start, and the record that
+    # makes it one may be written after that: the pass asks too.
+    def test_on_a_client_none_comes_back_and_the_boot_stays_its_homes(self):
+        self.seat("midturn", "UserPromptSubmit")
+        (config.STATE / "server").write_text("acme-box\n")
+        watch.resume_after_boot(self.cfg, log=lambda _line: None)
+        self.resume.assert_not_called()
+        self.assertEqual(watch.load_state()["boot_id"], "before")
+
 
 if __name__ == "__main__":
     unittest.main()
