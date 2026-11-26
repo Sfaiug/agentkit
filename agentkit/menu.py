@@ -695,7 +695,8 @@ def moving(clock, wake=None, timeout=TICK, going=None, rest=True):
         key = wait_key("> ", left if due is None else max(0, min(due, left)), wake)
         if key is None and terminal.asked_again():
             clock.clear()
-            clock.forget()
+            if not terminal.unseen():     # resize or ^Z; unseen Space/Enter only restores the highlight
+                clock.forget()
             return None
         if rest and isinstance(key, terminal.Key) and key.name != "point":
             terminal.over(clock.rest())

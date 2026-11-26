@@ -414,6 +414,7 @@ class Clock:
         self.glows = {}     # ... and what of it, or of what it left, moves: since when, for how
                             # many seconds, from which colour to which, its cells
         self.held = False   # ... and whether the next draw moves it with what it is on (`hold`)
+        self.swept = None   # when the header's rule began sweeping (`sweep`), inf till first shown
 
     def look(self, values):
         """Which of `values` -- key -> what a draw shows for it -- are news, each key -> (since
@@ -444,8 +445,8 @@ class Clock:
 
     def sweep(self):
         """A light passes once along the header's rule from the first frame that shows it
-        (`sweeping`)."""
-        self.touch(("rule",))
+        (`sweeping`), kept across keys that stay on the page until SWEEP ends or `forget`."""
+        self.swept = math.inf
 
     def begin(self, key, start, row, since, before):
         """News at `key` (`look`) started on screen row `row` by `start(clock, row, since,
@@ -481,13 +482,17 @@ class Clock:
         for line, key, _, start in moves:
             if key in news and row(line) is not None:
                 self.begin(key, start, row(line), *news[key])
-        if (since := self.touched.get(("rule",))) is not None:
-            if since != math.inf and since + SWEEP <= moment():
-                del self.touched[("rule",)]
+        if self.swept is not None:
+            now = moment()
+            if self.swept == math.inf:
+                self.swept = now
+            if self.swept + SWEEP <= now:
+                self.swept = None
             else:
-                self.begin(("rule",), lambda clock, at, since, _: clock.span(
-                    at, 1, *sweeping([terminal.rule_line(1)] * terminal.layout_width(), since)),
-                    2, since, None)
+                still, size = terminal.rule_line(1), terminal.layout_width()
+                self.span(2, 1, *sweeping([still] * size, self.swept))
+                # the draw just wrote the plain rule, so this frame writes only its lit cells
+                self.shown.update(((2, 1 + n), still) for n in range(size))
         return self.frame(), rising
 
     def start(self, cells, animation, until=None, effect=None):
@@ -565,7 +570,7 @@ class Clock:
     def forget(self):
         """Nothing seen: the next draw's values are drawn as they are, no news in them, and a
         screen that has opened is up (`rise`)."""
-        self.seen, self.touched, self.up, self.glows = None, {}, None, {}
+        self.seen, self.touched, self.up, self.glows, self.swept = None, {}, None, {}, None
         self.opened = None if self.opened is None else -math.inf
 
     def wait(self):

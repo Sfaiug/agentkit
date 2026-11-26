@@ -91,15 +91,18 @@ class RuleIsSweptWhenApplyingEnds(unittest.TestCase):
     def rule(self, term):
         return term.screen(colours=True).splitlines()[1]
 
-    def wait_rule(self, term, test, why, bound=30):
+    def wait_coloured(self, term, test, why, bound=30):
         deadline = time.monotonic() + bound
         while True:
-            shown = self.rule(term)
+            shown = term.screen(colours=True)
             if test(shown):
                 return shown
             if time.monotonic() > deadline:
-                raise AssertionError(f"{why}; rule: {shown!r}")
+                raise AssertionError(f"{why}; screen:\n{shown!r}")
             time.sleep(0.05)
+
+    def wait_rule(self, term, test, why, bound=30):
+        return self.wait_coloured(term, lambda s: test(s.splitlines()[1]), why, bound).splitlines()[1]
 
     def apply_on(self, term):
         """Open `a` on `c`, pick `Apply`, and wait for `c` to draw back."""
@@ -138,9 +141,25 @@ class RuleIsSweptWhenApplyingEnds(unittest.TestCase):
         self.assertEqual(SGR.sub("", half), "─" * 100)
         self.assertTrue(0 < len(lit) < 100)
 
-        # Pointer move while passing: redraws the page, same cells stay lit.
+        # Pointer move and keys that stay on `c` while passing: same cells stay lit.
+        def stayed_lit(pred, why):
+            self.wait_coloured(
+                term,
+                lambda s: pred(SGR.sub("", s)) and lit_cells(s.splitlines()[1], border) == lit,
+                why)
+
         self.move_pointer_to(term, "Models")
-        self.assertEqual(lit_cells(self.rule(term), border), lit)
+        stayed_lit(lambda s: any(l.startswith("› Models") for l in lines(s)),
+                   "pointer move onto Models did not keep the same cells lit")
+        term.keys("Down")
+        stayed_lit(lambda s: any(l.startswith("› Subscriptions") for l in lines(s)),
+                   "Down on config did not keep the same cells lit")
+        term.type("\x1b[<35;5;1M")
+        stayed_lit(lambda s: "›" not in s and "a apply to all sessions" in key_line(s),
+                   "pointer onto header did not keep the same cells lit")
+        term.keys("Space")
+        stayed_lit(lambda s: any(l.startswith("› Subscriptions") for l in lines(s)),
+                   "Space from header did not keep the same cells lit")
 
         # Past SWEEP: every cell of the rule is back to the border's colour.
         self.at(began + SWEEP + 0.05)
