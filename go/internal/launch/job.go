@@ -50,9 +50,12 @@ func Job(paths []string, values map[string]string, flags map[string]bool, out io
 	j := &jobRun{seat: seated, values: one, flags: single, out: out}
 	var tasks []*launching
 	for _, path := range paths {
-		l, code, why, err := j.task(path)
+		l, code, why, err := j.task(path, nil)
 		if l == nil {
 			return code, why, err
+		}
+		if seated != "" && l.line == nil && l.reason == "" {
+			return 2, missingPlanLine(path), nil
 		}
 		if l.reason != "" || parks(l) {
 			return 0, "", ErrPython
@@ -122,7 +125,7 @@ func (j *jobRun) id() string { return filepath.Base(j.dir) }
 
 // task is the launch of the job's task file at path as preflight settles it, read as it reads now,
 // as judge says, an ordered job's started task on origin's tip fetched for what it read (tip).
-func (j *jobRun) task(path string) (*launching, int, string, error) {
+func (j *jobRun) task(path string, entry *run.Object) (*launching, int, string, error) {
 	l, text, err := typed(path)
 	if err == nil {
 		err = j.tip(path, text)
@@ -131,7 +134,7 @@ func (j *jobRun) task(path string) (*launching, int, string, error) {
 		return nil, 0, "", err
 	}
 	l.seat, l.job = j.seat, j
-	return l.judge(path, text, j.values, j.flags)
+	return l.judge(path, text, j.values, j.flags, entry)
 }
 
 // create writes the job's directory, log and receipt, every task queued, as Python's job_create
@@ -168,7 +171,7 @@ func (j *jobRun) create(tasks []*launching, parallel any) error {
 	var listed []any
 	for _, l := range tasks {
 		listed = append(listed, run.Fields("name", filepath.Base(l.path), "title", l.named, "state", "queued",
-			"run_id", nil, "executor", nil, "reviewer", nil, "started_at", nil, "finished_at", nil, "task_file", l.path))
+			"run_id", nil, "executor", nil, "reviewer", nil, "started_at", nil, "finished_at", nil, "task_file", l.path, "plan_line", l.line))
 	}
 	var seat any
 	if j.seat != "" {
@@ -278,7 +281,7 @@ func (j *jobRun) carry() (int, error) {
 // start it.  The job's own receipt that cannot be written ends this launcher.
 func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
 	name := task.Str("name")
-	l, _, why, err := j.task(task.Str("task_file"))
+	l, _, why, err := j.task(task.Str("task_file"), task)
 	refused := ""
 	switch {
 	case l != nil:
