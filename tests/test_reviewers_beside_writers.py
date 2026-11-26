@@ -228,11 +228,12 @@ class UnlistedModelLab(Sandbox):
         self.assertIsNone(config.family("claudette-1", ["Claude"]))
         self.assertEqual(config.spoken("claude-nova-7-1", ["Claude"]), "Nova 7.1")
         self.assertEqual(config.spoken("gpt-5-5", ["GPT"]), "GPT 5.5")
-        # With no lineup, the family word itself names the lab; no family word keeps the provider.
+        # With no lineup, the family word itself names the lab: the id's, else the harness's own
+        # (codex's for bolt); a harness with none (opencode) keeps the provider.
         self.assertEqual(staffing.lab(self.cfg, "nova", []), "Claude")
         self.assertEqual(staffing.lab(self.cfg, "dart", []), "Claude")
         self.assertEqual(staffing.lab(self.cfg, "near", []), "dune")
-        self.assertEqual(staffing.lab(self.cfg, "bolt", []), "openai")
+        self.assertEqual(staffing.lab(self.cfg, "bolt", []), "GPT")
         self.assertEqual(staffing.pair_tier(self.cfg, "nova", "dart", []), 1)
         self.assertEqual(staffing.pair_tier(self.cfg, "nova", "bolt", []), 0)
 
@@ -243,24 +244,28 @@ class UnlistedModelLab(Sandbox):
         self.assertEqual(staffing.lab(self.cfg, "nova", lineup), "acme")
         self.assertEqual(staffing.lab(self.cfg, "dart", lineup), "acme")
         self.assertEqual(staffing.lab(self.cfg, "near", lineup), "dune")
-        self.assertEqual(staffing.lab(self.cfg, "bolt", lineup), "openai")
+        self.assertEqual(staffing.lab(self.cfg, "bolt", lineup), "GPT")
         # A row holding dart itself wins over any family word.
         held = [*lineup, {"release": "dart-2", "name": "Dart 2", "board_name": "Dart 2",
                           "maker": "Dune", "effort": "high", "values": {},
                           "yours": [{"harness": "opencode", "model": "dune/CLAUDE-dart-2"}]}]
         self.assertEqual(staffing.lab(self.cfg, "dart", held), "dune")
 
-    def test_entries_without_a_model_id_fall_back_to_their_provider(self):
+    def test_entries_without_a_model_id_are_of_their_harnesss_family_else_their_provider(self):
         self.cfg["models"]["num"] = {"harness": "claude", "model": 7, "effort": "high",
                                      "provider": "dune"}
         self.cfg["models"]["def_a"] = {"harness": "claude", "model": "default", "effort": "high",
                                        "provider": "anthropic"}
         self.cfg["models"]["def_b"] = {"harness": "codex", "model": "default", "effort": "high",
                                        "provider": "openai"}
-        self.assertEqual(staffing.lab(self.cfg, "num", []), "dune")
+        self.cfg["models"]["def_c"] = {"harness": "opencode", "model": "default", "effort": "high",
+                                       "provider": "dune"}
+        self.assertEqual(staffing.lab(self.cfg, "num", []), "Claude")
+        self.assertEqual(staffing.lab(self.cfg, "def_c", []), "dune")
+        self.assertEqual(staffing.pair_tier(self.cfg, "nova", "def_a", []), 1)
         with patch.object(config, "families", return_value=["Default", "Claude"]):
-            self.assertEqual(staffing.lab(self.cfg, "def_a", []), "anthropic")
-            self.assertEqual(staffing.lab(self.cfg, "def_b", []), "openai")
+            self.assertEqual(staffing.lab(self.cfg, "def_a", []), "Claude")
+            self.assertEqual(staffing.lab(self.cfg, "def_b", []), "GPT")
             self.assertEqual(staffing.pair_tier(self.cfg, "def_a", "def_b", []), 0)
 
 

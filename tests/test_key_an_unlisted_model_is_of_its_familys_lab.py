@@ -8,7 +8,9 @@ bolt, on a third provider, opens with none.  Every window has usage left:
 - no lineup stored, dart and bolt marked to review: bolt reviews, and no reviewer turn runs on
   dart's harness, whichever of the two the draw puts first;
 - a lineup stored that holds nova and not dart, the same marks: the same;
-- no lineup stored, dart alone marked to review: dart reviews, as today.
+- no lineup stored, dart alone marked to review: dart reviews, as today;
+- no lineup stored, mist (claude's own default model), haze (on claude, its id opening with no
+  family word) and bolt marked to review: bolt reviews, and no reviewer turn runs on claude.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on the
 fixtures of tests/test_key_a_lab_is_a_models_maker.py.
@@ -28,9 +30,14 @@ from test_key_writer_reviews_only_without_room import OFFLINE, launched, record,
 
 MODELS = {"nova": {"harness": "claude", "model": "claude-nova-2"},
           "dart": {"harness": "opencode", "provider": "dune", "model": "dune/claude-dart-2"},
-          "bolt": {"harness": "codex", "model": "bolt-3"}}
+          "bolt": {"harness": "codex", "model": "bolt-3"},
+          # on nova's harness and provider: its own default, and an id opening with no family word
+          "mist": {"harness": "claude", "model": "default"},
+          "haze": {"harness": "claude", "model": "haze-1"}}
 # Draws that put dart first and bolt first in the reviewer draw (`usage.pick_order`).
 DRAWS = ("20261125-0900", "20261125-0901")
+# Draws that put mist first and haze first among mist, haze and bolt.
+SIBLING_DRAWS = ("20261126-0900", "20261126-0901")
 
 
 def lineup():
@@ -108,6 +115,21 @@ class DartAloneMarkedToReview(unittest.TestCase):
         self.assertEqual(roles(self.fakes["opencode"]), ["reviewer"])
         self.assertEqual(roles(self.fakes["codex"]), [])
         self.assertEqual(state["review"]["reviewer"], "dart")
+
+
+class SiblingsOnNovasHarnessNamedByNoWord(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        reviewed(cls, ["mist", "haze", "bolt"], draws=SIBLING_DRAWS)
+
+    def test_bolt_reviews_and_novas_harness_never_does_whichever_draw_puts_first(self):
+        for draw, done, state in self.runs:
+            with self.subTest(draw=draw):
+                self.assertEqual(done.code, 0, done.out + done.err)
+                self.assertEqual(launched(done), ("nova", "bolt"))
+                self.assertEqual(state["review"]["reviewer"], "bolt")
+        self.assertEqual(roles(self.fakes["claude"]), ["executor"] * len(SIBLING_DRAWS))
+        self.assertEqual(roles(self.fakes["codex"]), ["reviewer"] * len(SIBLING_DRAWS))
 
 
 if __name__ == "__main__":
