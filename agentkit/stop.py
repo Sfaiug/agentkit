@@ -88,11 +88,12 @@ UNTESTED_LINE = ("The suite of {checkout} reports no tests to ak: {runner}. Writ
 
 
 def untested(name):
-    """UNTESTED_LINE naming the checkout the seat is filed under, as its session's record holds
-    it (`repo`), where `suite_times.unreported` names it and the seat's plan holds done work and
-    no open line, else None.  Its callers send it back at every such turn's end, past nothing
-    that ends a turn first (`recorded_ending`), and keep nothing, so it stops by itself once
-    that no longer holds."""
+    """UNTESTED_LINE naming the first checkout `suite_times.unreported` names -- the one the
+    seat is filed under, as its session's record holds it (`repo`), and then each checkout a
+    done line of its plan names (`plan.place`), in the plan's order, each asked once -- where
+    the seat's plan holds done work and no open line, else None.  Its callers send it back at
+    every such turn's end, past nothing that ends a turn first (`recorded_ending`), and keep
+    nothing, so it stops by itself once that no longer holds."""
     from . import plan, suite_times
     try:
         repo = (config.session_record(config.resolve_session(name)) or {}).get("repo")
@@ -101,8 +102,21 @@ def untested(name):
         return None     # a seat or plan nothing can read shows nothing done
     if not any(plan.BOX.match(line) for line in text) or any(plan.is_open(line) for line in text):
         return None
-    return (UNTESTED_LINE.format(checkout=repo, runner=suite_times.RUNNER)
-            if suite_times.unreported(repo) else None)
+
+    def checkouts():
+        yield repo
+        seen = {Path(repo)}
+        for project in dict.fromkeys(found["project"] for line in text
+                                     if (found := plan.LINE.match(line.strip()))):
+            checkout = plan.place(name, project)
+            if checkout is not None and checkout not in seen:
+                seen.add(checkout)
+                yield str(checkout)
+
+    for checkout in checkouts():
+        if suite_times.unreported(checkout):
+            return UNTESTED_LINE.format(checkout=checkout, runner=suite_times.RUNNER)
+    return None
 
 
 DONE_ASKING = ("Your plan is done: every line is proven, and the owner has written nothing since, "
