@@ -75,7 +75,7 @@ class HeldForEachMergedProject(unittest.TestCase):
         run = self.home.write(f".agentkit/runs/{RUN}/run.json", {
             "run_id": RUN, "launched_session": "fix-api", "state": "pass", "verdict": "PASS",
             "merged": True, "repo": str(self.rigs[SILENT].path), "started_at": time.time(), **fields})
-        self.addCleanup(run.unlink)
+        self.addCleanup(run.unlink, missing_ok=True)
 
     def test_a_merged_run_in_a_silent_project_goes_back_naming_it(self):
         self.assertEqual(self.stop(), "")
@@ -88,8 +88,11 @@ class HeldForEachMergedProject(unittest.TestCase):
         self.assertEqual(self.stop(), "")
 
     def test_the_run_launched_before_the_seat_was_made_ends_it(self):
-        self.run_in_silent(started_at=self.created - 60)
-        self.assertEqual(self.stop(), "")
+        for launch in ({"started_at": self.created - 60},
+                       {"queued_at": self.created - 60, "started_at": self.created + 60}):
+            with self.subTest(**launch):
+                self.run_in_silent(**launch)
+                self.assertEqual(self.stop(), "")
 
     def test_a_time_on_record_for_the_silent_project_ends_it(self):
         self.run_in_silent()

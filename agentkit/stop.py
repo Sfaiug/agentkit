@@ -120,13 +120,16 @@ def untested(name, records=None):
             if checkout is not None:
                 yield str(checkout)
         # a run launched before this seat was made, or at no time on record, is a gone seat's
-        # whose name it took; a merge its record does not hold yet names nothing until it does
+        # whose name it took; a merge its record does not hold yet names nothing until it does.
+        # Its launch is its earliest stamp: the loop restamps a queued run's `started_at` as it
+        # starts, and a recovery its `queued_at`.
         created = watch._stamp(seat.get("created"))
         _, mine = _ending_work(name, records)
         for _, state in sorted(mine, key=lambda run: Path(run[0]).name):
-            launched = watch._stamp(state.get("started_at")) or watch._stamp(state.get("queued_at"))
+            launched = [stamp for key in ("started_at", "queued_at")
+                        if (stamp := watch._stamp(state.get(key))) is not None]
             if (state.get("merged") is True and isinstance(state.get("repo"), str)
-                    and launched is not None and created is not None and launched >= created):
+                    and launched and created is not None and min(launched) >= created):
                 yield state["repo"]
 
     seen = set()
