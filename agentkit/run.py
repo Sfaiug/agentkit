@@ -692,6 +692,10 @@ def seat_refusal(opts, flags):
 def served_line_refusal(task_path, cmds):
     if plan.served_line(config.current_session(), cmds):
         return None
+    return missing_plan_line(task_path)
+
+
+def missing_plan_line(task_path):
     return (f"{Path(task_path).name}: none of its ## Done when checks match an open plan line "
             "(your plan is what your bar counts): first run ak plan add \"<outcome>\" "
             "--check '<focused-check>' and put that same check in ## Done when")
@@ -1235,8 +1239,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
             groups.update(config.run_marks(cfg, selection))
     limit = config.max_runs()
     url = (opts or {}).get("--review-pr")
-    plan_line = None
-    if (task_file is not None and from_seat() and not bound and not url
+    plan_line = receipt.get("plan_line")
+    if (task_file is not None and "plan_line" not in receipt and from_seat() and not bound and not url
             and run_kind(receipt) == "task"):
         task_path = run_dir / "task.md"
         _, body, _ = taskfile.parse_task(task_path)
@@ -1501,7 +1505,7 @@ def preflight(run_dir, opts, log):
         refusal = (taskfile.checks_refusal(every)
                    or from_refusal(run_dir / "task.md", (meta.get("from") or "").strip(), repo,
                                    opts["--no-worktree"]))
-        if not refusal and from_seat() and run_kind(state) == "task":
+        if not refusal and not state.get("job_id") and from_seat() and run_kind(state) == "task":
             refusal = served_line_refusal(state.get("task_file") or run_dir / "task.md", cmds)
         if refusal:
             raise Refused(refusal)
@@ -3365,6 +3369,7 @@ def main(argv):
         raise config.Error(f"--rounds must be a positive integer (got {opts['--rounds']!r})")
     queued_child = os.environ.get(config.RUN_DIR_ENV)
     queued_child = queued_child if queued_child and queued(Path(queued_child)) else None
+    plan_lines = {}
     # a launch's own child holds what its launch read: nothing refuses it for a line landed since
     for task in positional if not queued_child else ():
         path = Path(task).expanduser()
@@ -3379,11 +3384,21 @@ def main(argv):
             refusal = users_refusal(checkout, config.RULES_REF,
                                     "Put the chosen line in the task, which adds it to AGENTS.md.")
         if not refusal and seat_launching and path.is_file():
-            _, body, _ = taskfile.parse_task(path)
+            meta, body, _ = taskfile.parse_task(path)
             cmds = taskfile.done_when(body, path)
-            # Let preflight settle the suite and ask oversized tasks to split first.
-            if len(taskfile.group_commands(cmds)[0]) <= taskfile.MAX_CHECKS:
-                refusal = served_line_refusal(path, cmds)
+            line = plan.served_line(config.current_session(), cmds)
+            if line:
+                plan_lines[path.resolve()] = line
+            elif len(taskfile.group_commands(cmds)[0]) <= taskfile.MAX_CHECKS:
+                refusal = missing_plan_line(path)
+            elif len(positional) > 1:
+                # A job must settle even a fourth check that turns out to be its landing suite
+                # here: its earlier tasks can finish this plan line before its later ones start.
+                target = meta.get("target") or meta.get("base") or (
+                    default_base(checkout, lambda _: None) if checkout else None)
+                every, _ = taskfile.group_commands(round_commands(
+                    cmds, checkout, target, scratch=checkout is None, landing=not flags["--no-merge"]))
+                refusal = taskfile.checks_refusal(every) or missing_plan_line(path)
         if refusal:
             raise config.Error(refusal)
     parallel = None
@@ -3412,7 +3427,7 @@ def main(argv):
                            f"[--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: {alone} "
                            "needs more than one task file")
     if not opts["--review-pr"] and len(positional) > 1:
-        job_dir, job = jobs.job_create(cfg, positional, opts, parallel)
+        job_dir, job = jobs.job_create(cfg, positional, opts, parallel, plan_lines=plan_lines)
         if opts["--bg"]:
             return jobs.spawn_job_bg(job_dir)
         log = jobs.job_logger(job_dir)

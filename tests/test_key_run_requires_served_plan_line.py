@@ -66,9 +66,29 @@ class RunRequiresServedPlanLine(unittest.TestCase):
                 self.assertEqual(taskfile.runs(self.home), [])
                 self.assertEqual(list((self.home.path / ".agentkit/jobs").glob("*")), [])
 
+    def test_an_ordered_job_keeps_its_line_after_the_first_merge_ticks_it(self):
+        GitHub(self.home).grant(self.rig.slug, "WRITE")
+        self.plan_web()
+        page = taskfile.write(self.home, self.rig.path, "Add page",
+                              done_when=(WEB, "test -f page.txt"))
+        self.fakes["claude"].behave(*({**fakeadapter.WORK, "write": {name: name}}
+                                      for name in ("web.txt", "page.txt")))
+        done = self.ak("run", self.web, page, "--in-order")
+        self.assertEqual(done.code, 0, done.out + done.err)
+        states = [json.loads((path / "run.json").read_text()) for path in taskfile.runs(self.home)]
+        self.assertEqual(len(states), 2)
+        for state in states:
+            self.assertTrue(state["merged"])
+            self.assertRegex(state["plan_line"], r"^Web is ready · written ")
+        plan = (self.home.path / ".agentkit/state/plan-fix-api.md").read_text()
+        self.assertIn("- [x] Web is ready", plan)
+
     def test_a_fourth_check_that_is_the_declared_suite_still_needs_a_match(self):
         task = taskfile.write(self.home, self.rig.path, "Add web", done_when=(
             WEB, "test -f page.txt", "test -f form.txt", "true"))
+        api = taskfile.write(self.home, self.rig.path, "Add api", done_when=(API,))
+        self.assertRefused(self.ak("run", api, task, "--in-order"), task)
+        self.assertEqual(list((self.home.path / ".agentkit/jobs").glob("*")), [])
         self.assertRefused(self.ak("run", task), task)
 
     def test_review_pr_can_launch_with_any_open_line(self):
