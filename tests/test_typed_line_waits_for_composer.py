@@ -129,6 +129,16 @@ class V5p(unittest.TestCase):
         self.assertIn("seat", warned[0])
         self.assertIn(text[:60], warned[0])
 
+    def test_v5p_the_unsent_warning_is_one_line_of_the_log(self):
+        held = f"{SENT} continue next"
+        with self.fake_tmux([SENT] + [held] * 30, held):
+            self.assertFalse(watch.type_checked(self.session, "continue next",
+                                               self.logs.append, "claude"))
+        self.assertEqual(len(self.sends("Enter")), 2)
+        warned = [line for line in self.logs if "unsent in its composer" in line]
+        self.assertEqual(len(warned), 1, self.logs)
+        self.assertEqual(warned[0].splitlines(), [warned[0]])
+
     def test_v5p_a_composer_not_read_as_the_line_gets_no_enter_and_a_log_line(self):
         other = f"{SENT} continue and what the owner typed"
         with self.fake_tmux([SENT] + [other] * 30, other):

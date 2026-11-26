@@ -4169,6 +4169,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     composer to read.
     """
     text = terminal_mod.keyed(text)    # a typed escape or newline is a key, not text
+    # how a warning names the line: a line separator is no key, so typed as it is, and would end
+    # the log's line, one warning read as two
+    shown = " ".join(text[:60].splitlines())
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
     except (config.Error, OSError):
@@ -4200,10 +4203,8 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             time.sleep(KEY_GAP)
         if not _wait_ready(alone, held if held is not None else name):
             # said, because a screen ak cannot read looks like this too: on 26 Nov 2026 a line sat
-            # four minutes over a row its adapter did not know, and the log held nothing.  On one
-            # line: a line separator is no key, so typed as it is, and would end the log's
-            log(f"WARN {name}: its composer does not read as the line typed, so no Enter: "
-                f"{' '.join(text[:60].splitlines())}")
+            # four minutes over a row its adapter did not know, and the log held nothing
+            log(f"WARN {name}: its composer does not read as the line typed, so no Enter: {shown}")
             return False
         if not _send_enter(seat, log):
             return False
@@ -4217,7 +4218,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             return False
     if _wait_sent(seat, harness, text):
         return True
-    log(f"WARN {name}: typed text sits unsent in its composer: {text[:60]}")
+    log(f"WARN {name}: typed text sits unsent in its composer: {shown}")
     return False
 
 
