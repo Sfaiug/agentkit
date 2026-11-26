@@ -135,19 +135,24 @@ def fetch_branches(repo):
     return fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
 
 
-def require_checkout(state):
+def require_checkout(state, *, blocking=True):
     """Ensure git knows a resumed run's checkout before waiting or working in it.
 
     A checkout git does not know (such as a worktree left behind without its clone) refuses
     every retry the same way: end exhausted as a stop does, so the tick stops retrying it and
-    hands the ending to its seat.
+    hands the ending to its seat.  With `blocking=False`, a repository held exclusively by
+    housekeeping (`BlockingIOError`) passes: git already resolved its common directory, and
+    blocking on housekeeping while queued would hold unrelated runs behind this one in line.
     """
     if not state.get("repo"):
         return
     wt = Path(state["worktree"])
     try:
-        with gitcall.repository_lock(wt):
+        with (gitcall.repository_lock(wt) if blocking
+              else gitcall.repository_lock(wt, blocking=False)):
             pass
+    except BlockingIOError:
+        return
     except Stopped:
         raise
     except config.Error as exc:
@@ -2131,12 +2136,14 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
             set_property(unit, "CPUWeight", host.CPU_WEIGHT_MAX, log)
         else:
             yield_cpu(unit, log)
+    already_admitted = bool(existing and existing.get("state") == "running"
+                            and existing.get("pid") == os.getpid())
     sampler = history.Sampler(run_dir.name, log=log)
     stop_after_finally = False
     sampler.start()
     try:
-        if prior and not job:
-            require_checkout(prior)
+        if prior and not job and not already_admitted:
+            require_checkout(prior, blocking=False)
         with run_slot(run_dir, prior):
             state = job() if job else loop(cfg, run_dir, run_dir / "task.md", opts, log, prior)
     except run_record.StopRequested:

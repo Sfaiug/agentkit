@@ -1108,14 +1108,16 @@ MAKING = "ak is making this checkout"
 
 
 @contextmanager
-def repository_lock(repo, *, exclusive=False):
+def repository_lock(repo, *, exclusive=False, blocking=True):
     # Lock the shared git directory itself: preparation waits for gc, and gc skips a
     # preparation in progress. No lock file or checkout-specific identity can drift apart.
     env = project_env(repo)
     common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir", env=env)
     directory = os.open(common, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB if exclusive else fcntl.LOCK_SH)
+        mode = (fcntl.LOCK_EX | fcntl.LOCK_NB if exclusive
+                else fcntl.LOCK_SH | (0 if blocking else fcntl.LOCK_NB))
+        fcntl.flock(directory, mode)
         yield env, Path(common)
     finally:
         os.close(directory)
