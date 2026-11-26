@@ -1059,17 +1059,25 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
                 (review_id, harness, model, blocking, followup, note, round, verdict, effort,
                  run_id)).rowcount:
             at = time.time()
-            counted, rows = set(), []
-            for row in records:
-                if row["kind"] in (*hand_in.CLOSING, "concede"):
-                    continue
-                if row["kind"] == "dispute" and row.get("outcome") is not None:
+            # One dispute row per finding in a review carries `outcome`: an uphold beats a
+            # concession/drop regardless of row order, so retry traversal order cannot flip
+            # whether an upheld finding counts as taken back.
+            kept = [row for row in records if row["kind"] not in (*hand_in.CLOSING, "concede")]
+            winner = {}
+            for index, row in enumerate(kept):
+                if row["kind"] == "dispute" and isinstance(row.get("outcome"), str):
                     site = _dispute_target(row)
-                    if site in counted:
-                        row = {**row, "outcome": None}
-                    else:
-                        counted.add(site)
-                rows.append((run_id, review_id, round, *_finding(row), at))
+                    if site not in winner or (
+                            kept[winner[site]]["outcome"] in ("conceded", "dropped")
+                            and row["outcome"] not in ("conceded", "dropped")):
+                        winner[site] = index
+            rows = [
+                (run_id, review_id, round,
+                 *_finding({**row, "outcome": None}
+                           if row["kind"] == "dispute" and isinstance(row.get("outcome"), str)
+                           and winner[_dispute_target(row)] != index else row),
+                 at)
+                for index, row in enumerate(kept)]
             connection.executemany(
                 "INSERT INTO findings (run_id, review_id, round, path, line, handed, kind, proof, "
                 "commit_exit, base_exit, replayed, reason, outcome, inside_fix, at) "

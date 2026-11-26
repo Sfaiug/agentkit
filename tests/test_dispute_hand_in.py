@@ -210,6 +210,19 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         team, = ledger.counted(until=now)["teams"]
         self.assertEqual({key: team[key] for key in ("issues", "disputed", "taken_back")},
                          {"issues": 1, "disputed": 1, "taken_back": 1})
+        # Mixed outcomes for the same finding in either row order still count as upheld, not taken back.
+        for run_id, pair in (("fix-api-a", ("conceded", "upheld")),
+                             ("fix-api-b", ("upheld", "conceded"))):
+            history._write(lambda db, rid=run_id: db.execute(
+                "INSERT INTO runs (run_id, repo, kind, final_state, finished_at, changed_lines) "
+                "VALUES (?, ?, ?, ?, ?, ?)", (rid, "acme", "task", "fail", now - 1, None)))
+            history.record_review(
+                run_id, "round-2", blocking=1, round=2, verdict="FAIL",
+                records=[dict(row, outcome=outcome) for row, outcome in zip(disputes, pair)],
+                **options)
+        counts = history._reviews_read()[2]
+        self.assertEqual(counts["fix-api-a"], (1, 0))
+        self.assertEqual(counts["fix-api-b"], (1, 0))
 
     def cli(self, file, *args):
         return subprocess.run([sys.executable, str(REPO / "bin/ak"), "hand-in", *args],
