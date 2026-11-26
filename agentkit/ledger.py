@@ -10,7 +10,6 @@ rewritten under a new title is a new one: ak keeps no link between the two.
 """
 
 from fractions import Fraction
-import math
 import time
 
 from . import history, record
@@ -115,7 +114,7 @@ def counted(usage=None, *, until=None):
         size = max((row["first_review_lines"] for row in task
                     if row.get("first_review_lines") is not None), default=None)
         if size is not None:
-            counts.append(sizes.setdefault(max(1, math.ceil(size / SIZE)) * SIZE, {
+            counts.append(sizes.setdefault(max(1, (size + SIZE - 1) // SIZE) * SIZE, {
                 "tasks": 0, "live": 0, "lines_live": 0, "hours": dict.fromkeys(HOURS, 0)}))
             counts[-1]["lines_live"] += size * live
         for count in counts:
