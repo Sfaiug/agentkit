@@ -124,7 +124,7 @@ class AnotherMachinesPageHoldsItsCap(unittest.TestCase):
         self.open_machine()
         self.term.keys("Down", "Down")
         self.term.wait("› runs at once")
-        for bad in ("two", "-1", "1.5"):
+        for bad in ("two", " ", "-1", "1.5"):
             with self.subTest(typed=bad):
                 self.term.keys("Enter")
                 self.term.wait("⏎ save")

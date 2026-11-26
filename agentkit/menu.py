@@ -6360,22 +6360,27 @@ def config_machines(cfg):
                                    around=lambda line: draw([line]))
             if typed is None or terminal.is_esc(typed):
                 return ""
-            typed = typed.strip()
-            if typed:
-                if not re.fullmatch(r"[0-9]+", typed):
-                    return "runs at once must be a whole number, or 0 for no limit"
-                try:
-                    number = int(typed.lstrip("0") or "0")
-                except ValueError:
-                    return "runs at once must be a whole number, or 0 for no limit"
-            else:
+            if not typed:
                 number = 0
+            elif not re.fullmatch(r"[0-9]+", typed.strip()):
+                return "runs at once must be a whole number, or 0 for no limit"
+            else:
+                # Parse in short chunks so numbers past sys.get_int_max_str_digits work, as
+                # tomllib and config.whole already handle them.
+                digits, number = typed.strip().lstrip("0"), 0
+                for start in range(0, len(digits), 9):
+                    chunk = digits[start:start + 9]
+                    number = number * 10 ** len(chunk) + int(chunk)
+            named = cfg.get("machines")
+            if named is not None and not isinstance(named, dict):
+                return "config: [machines] must be a table" if number else ""
+            table = named.get(name) if isinstance(named, dict) else None
+            if table is not None and not isinstance(table, dict):
+                return f"config: [machines.{name}] must be a table" if number else ""
             before = copy.deepcopy(cfg)
             if number:
                 cfg.setdefault("machines", {}).setdefault(name, {})["max_runs"] = number
             else:
-                named = cfg.get("machines")
-                table = named.get(name) if isinstance(named, dict) else None
                 if not isinstance(table, dict) or "max_runs" not in table:
                     return ""
                 del table["max_runs"]
