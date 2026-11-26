@@ -109,7 +109,7 @@ def most(provider, plan, scope, seconds):
     """
     if (not (usage._text(provider) and usage._text(plan) and usage._text(scope))
             or isinstance(seconds, bool) or not isinstance(seconds, (int, float))
-            or not math.isfinite(seconds) or seconds <= 0):
+            or (isinstance(seconds, float) and not math.isfinite(seconds)) or seconds <= 0):
         return None
     try:
         with closing(history._connect(readonly=True)) as db:
@@ -122,11 +122,11 @@ def most(provider, plan, scope, seconds):
                 (provider, plan, scope)).fetchall()
     except (OSError, sqlite3.Error):
         return None
-    by_login = {}       # {account: {at: cap_used}}
+    by_login = {}       # {account: [(at, cap_used)]}
     for account, used, at in rows:
         if math.isfinite(at) and usage._text(account):
-            by_login.setdefault(account, {})[at] = used
-    return _most((list(moments.items()) for moments in by_login.values()), seconds)
+            by_login.setdefault(account, []).append((at, used))
+    return _most(by_login.values(), seconds)
 
 
 def _most(logins, seconds):

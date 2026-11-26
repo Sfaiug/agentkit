@@ -24,7 +24,8 @@ SCHEMA = ("CREATE TABLE meter_readings (provider TEXT, account TEXT, meter TEXT,
           "resets_at REAL, window_secs REAL, at REAL, source TEXT, plan TEXT, scope TEXT, "
           "PRIMARY KEY (provider, account, meter, at))")
 ASK = ("import json, sys; sys.path.insert(0, sys.argv[1]); from agentkit import cap_share; "
-       "print(json.dumps(cap_share.most(sys.argv[2], sys.argv[3], sys.argv[4], float(sys.argv[5]))))")
+       "print(json.dumps(cap_share.most(sys.argv[2], sys.argv[3], sys.argv[4], "
+       "json.loads(sys.argv[5]))))")
 
 
 class TheMostACapRoseInASpan(unittest.TestCase):
@@ -50,7 +51,7 @@ class TheMostACapRoseInASpan(unittest.TestCase):
             db.executemany(f"INSERT INTO meter_readings VALUES ({', '.join('?' * 10)})", self.rows)
         path.chmod(0o444)
         done = self.home.run(sys.executable, "-c", ASK, str(REPO),
-                             "acme", plan, scope, str(seconds))
+                             "acme", plan, scope, json.dumps(seconds))
         self.assertEqual(done.code, 0, done.out + done.err)
         return json.loads(done.out)
 
@@ -70,8 +71,13 @@ class TheMostACapRoseInASpan(unittest.TestCase):
         # a reset from 80 to 5 at 2h
         for hour, used in ((0, 60), (1, 80), (2, 5), (3, 20)):
             self.reading(hour, used, plan="Pro", account="second")
+        # a second meter row at the same timestamp does not erase a recorded fall (60 -> 20)
+        for meter, hour, used in (("weekly_cap", 10, 0), ("weekly_cap", 11, 60),
+                                  ("weekly_cap", 12, 20), ("cap", 12, 70), ("cap", 13, 75)):
+            self.reading(hour, used, plan="Plus", meter=meter)
         self.assertEqual(self.most("Max", 3 * HOUR), 36)
         self.assertEqual(self.most("Pro", 3 * HOUR), 20)
+        self.assertEqual(self.most("Plus", 3 * HOUR), 60)
 
     def test_most_over_two_logins_of_one_plan_ignores_other_plans_and_scopes(self):
         for hour, used in ((0, 0), (2, 20), (4, 25)):
@@ -96,6 +102,7 @@ class TheMostACapRoseInASpan(unittest.TestCase):
         for hour, used in ((10, 0), (13, 50)):
             self.reading(hour, used, plan="Max", account="second")
         self.assertIsNone(self.most("Max", 4 * HOUR))
+        self.assertIsNone(self.most("Max", 10**309))
         self.assertEqual(self.most("Max", 3 * HOUR), 50)
         self.assertIsNone(self.most("Plus", 1 * HOUR))
 
