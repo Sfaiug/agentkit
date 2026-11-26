@@ -1039,6 +1039,11 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
                 # launch too: the rotation goes on as before it
                 skip = {}
             workers = [name for name in workers if name not in skip]
+        # These are the failed run's marks; the fresh run binds its own (`run.capture_launch`).
+        # With the reviewer marks changed in between, the name given here can be one the
+        # fresh marks leave out, and that one rerun is built and reviewed by one lab.  The
+        # owner left it so, 26 Nov 2026: four designs closing it failed review, each reaching
+        # into how a run recovers, for one rerun in a rare window.
         nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"), workers)
         if nxt:
             # The rerun keeps the job's reviewer unless it is the rerun executor's own
