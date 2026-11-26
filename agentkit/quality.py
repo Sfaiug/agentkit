@@ -241,6 +241,10 @@ def pick(rated, role):
     if not span:
         return best
     rise = best["quality"] - cheapest["quality"]
-    # Scale every distance by the same span: division can round equal gaps apart.
-    return max(front, key=lambda row: (row["quality"] - cheapest["quality"]) * span
-               - rise * (row["cost"] - cheapest["cost"]))
+    # Scale every distance by the same span: division can round equal gaps apart; divide when the
+    # product overflows so huge finite costs never turn into inf - inf.
+    if math.isfinite(rise * span):
+        return max(front, key=lambda row: (row["quality"] - cheapest["quality"]) * span
+                   - rise * (row["cost"] - cheapest["cost"]))
+    return max(front, key=lambda row: (row["quality"] - cheapest["quality"])
+               - rise * ((row["cost"] - cheapest["cost"]) / span))

@@ -244,6 +244,56 @@ class RoleCostFromRuns(unittest.TestCase):
             self.assertCost(answer, "execute", release, "measured",
                             share(model) / 100 * price * 12 / 52)
 
+    def test_oversized_prices_never_crash_or_emit_infinity(self):
+        def invalid_constant(value):
+            raise ValueError(value)
+
+        large_int = "0x1" + "0" * 256
+        config_path = self.home.path / ".agentkit/config.toml"
+        manifest_path = self.meter.dir / "echo.toml"
+        base_config, base_manifest = config_path.read_text(), manifest_path.read_text()
+        self.history.run(("anvil", "high"), built=[[("default", "anvil-1", (2_000_000, 0, 0, 0))]])
+        self.history.save()
+        for source in ("provider", "by_login", "manifest"):
+            for amount, unit in ((large_int, "share"), ("1e308", "money")):
+                with self.subTest(source=source, amount=amount):
+                    if source == "manifest":
+                        config_path.write_text(base_config)
+                        manifest_path.write_text(base_manifest + f"\n[plans]\nMax = {amount}\n")
+                    else:
+                        manifest_path.write_text(base_manifest)
+                        price = amount if source == "provider" else f"{{ default = {amount} }}"
+                        header = '[providers."acme"]'
+                        config_path.write_text(base_config.replace(header,
+                                                                   f"{header}\nprice = {price}"))
+                    usage_done = self.home.ak("usage", "--json", env=ENV)
+                    self.assertEqual(usage_done.code, 0, usage_done.out + usage_done.err)
+                    json.loads(usage_done.out, parse_constant=invalid_constant)
+                    done = self.home.ak("models", "--json", env=ENV)
+                    self.assertEqual(done.code, 0, done.out + done.err)
+                    parsed = json.loads(done.out, parse_constant=invalid_constant)
+                    self.assertEqual(parsed["execute"]["cost_unit"], unit)
+                    anvil = next(row for row in parsed["execute"]["front"]
+                                 if row["release"] == "anvil-1")
+                    self.assertEqual(anvil["cost_rule"], "measured")
+                    want = (10 if unit == "share" else 1e308 * (12 / 52) / 100 * 10)
+                    self.assertAlmostEqual(anvil["cost"], want, delta=want * 1e-6)
+        # a run whose weekly share times a huge price overflows a float leaves no Infinity in JSON
+        config_path.write_text(base_config.replace('[providers."acme"]',
+                                                   '[providers."acme"]\nprice = 1e308'))
+        manifest_path.write_text(base_manifest)
+        self.history.rows["runs"].clear()
+        self.history.rows["turn_usage"].clear()
+        self.history.run(("anvil", "high"),
+                         built=[[("default", "anvil-1", (2_000_000_000, 0, 0, 0))]])
+        self.history.save()
+        done = self.home.ak("models", "--json", env=ENV)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        parsed = json.loads(done.out, parse_constant=invalid_constant)
+        self.assertEqual(parsed["execute"]["cost_unit"], "money")
+        self.assertEqual(parsed["execute"]["front"], [])
+        self.assertTrue(all(row["cost"] is None for row in parsed["execute"]["others"]))
+
 
 if __name__ == "__main__":
     unittest.main()
