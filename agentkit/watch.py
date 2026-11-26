@@ -4200,9 +4200,10 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             time.sleep(KEY_GAP)
         if not _wait_ready(alone, held if held is not None else name):
             # said, because a screen ak cannot read looks like this too: on 26 Nov 2026 a line sat
-            # four minutes over a row its adapter did not know, and the log held nothing
+            # four minutes over a row its adapter did not know, and the log held nothing.  On one
+            # line: a line separator is no key, so typed as it is, and would end the log's
             log(f"WARN {name}: its composer does not read as the line typed, so no Enter: "
-                f"{text[:60]}")
+                f"{' '.join(text[:60].splitlines())}")
             return False
         if not _send_enter(seat, log):
             return False
