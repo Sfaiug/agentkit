@@ -1,9 +1,8 @@
 """A newcomer's install asks which subscription they have, by the name every screen gives it.
 
 On a machine with no model program, a terminal run of a server install asks "Which subscription
-do you have (Claude, ChatGPT, Muse, Grok, Gemini, MiMo, or all)? [all]": the names of
-config.NAMES, in its order, which this holds the installer's to.  An answer is one of those names
-in any case, or a program's name, and only the program that runs that subscription's models is
+do you have (Claude, ChatGPT, Muse, Grok, Gemini, MiMo, or all)? [all]", the names every screen
+gives these subscriptions.  An answer is one of those names in any case, or a program's name, and only the program that runs that subscription's models is
 installed and logged in: `chatgpt` and `codex` alike install codex and log it in, and no other.
 An answer that is neither, `gpt`, is refused with the same names, and nothing is installed.
 Black-box: install.sh of the checkout `AK_BIN` names runs from outside in a Home made the
@@ -20,13 +19,11 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agentkit import config
 from fixtures import installer
 from fixtures.akbin import LOG, Home
 
 PROGRAMS = ("claude", "codex", "muse", "grok", "opencode", "agy")
-NAMES = ", ".join(config.NAMES.values())
+NAMES = "Claude, ChatGPT, Muse, Grok, Gemini, MiMo"
 # a terminal on the install's input and output alike, what is sent to this typed into it
 TERMINAL = "import os, pty, sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))"
 

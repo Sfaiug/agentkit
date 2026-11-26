@@ -341,7 +341,7 @@ fi
 # machine that has one keeps what it has: only the harnesses installed are checked and logged
 # in, and none is added unasked.  A subscription is offered where its program's adapter is
 # present, under the name every screen gives it (config.NAMES, which
-# tests/test_key_install_asks_which_subscription.py holds these to), and is answered by that
+# tests/test_install_question.py holds these to), and is answered by that
 # name in any case or by its program's: grokbuild's binary is grok and antigravity's is agy.
 if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   offered="" names="" installed=""

@@ -20,10 +20,13 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import sys
 import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from agentkit import config
 
 # Program name -> adapter file stem: grokbuild's binary is grok, and an answer may
 # name the program.
@@ -163,20 +166,23 @@ class InstallQuestion(unittest.TestCase):
 
     def test_question_lists_the_adapters_present(self):
         # Over a pty: `read -p` shows its prompt only on a terminal, so a pipe
-        # run would match the adapters' own echoes instead of the question.
+        # run would match the adapters' own echoes instead of the question.  The
+        # names are the ones every screen gives the subscriptions, in their order.
         self.all_adapters()
         rc, question = self.run_harnesses_pty("all\n")
         self.assertEqual(rc, 0, question)
-        self.assertIn("Which subscription do you have "
-                      "(Claude, ChatGPT, Muse, Grok, Gemini, MiMo, or all)? [all] ", question)
+        names = list(config.NAMES.values())
+        self.assertIn(f"Which subscription do you have ({', '.join(names)}, or all)? [all] ",
+                      question)
         self.assertEqual(len(self.calls()), 12)
         # An adapter file that is not there is not offered.
         (self.adapters / "muse.sh").unlink()
         self.log.unlink()
         rc, question = self.run_harnesses_pty("all\n")
         self.assertEqual(rc, 0, question)
-        self.assertIn("Which subscription do you have "
-                      "(Claude, ChatGPT, Grok, Gemini, MiMo, or all)? [all] ", question)
+        names.remove(config.NAMES["meta"])
+        self.assertIn(f"Which subscription do you have ({', '.join(names)}, or all)? [all] ",
+                      question)
         self.assertNotIn("muse install", self.calls())
         self.assertNotIn("muse login", self.calls())
         self.assertEqual(len(self.calls()), 10)
