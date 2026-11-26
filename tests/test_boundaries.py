@@ -209,6 +209,13 @@ RULES = [
      "pattern": r"job\.json",
      "home": ("agentkit/job.py", "go/internal/job/"),
      "max": 0},
+    # Kept machine readings live in state/readings/*.jsonl and only readings.py reads or writes
+    # them, so every caller asks readings.py rather than parsing the day files itself.
+    {"name": "machine readings format",
+     "flags": (),
+     "pattern": r"""["']readings["']|readings/""",
+     "home": ("agentkit/readings.py",),
+     "max": 0},
     # A run's state words are grouped once, in record.py (ACTIVE, FAILED, ENDED, GOING): a
     # literal group elsewhere is a second copy that a new state word would miss. install.sh
     # reads run records before agentkit is installed, so it keeps its own.
