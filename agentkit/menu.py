@@ -141,7 +141,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, ledger, logins, look, machines, money, open_runs, parsed, record
+from . import done_check, logins, look, machines, money, open_runs, parsed, record
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -6587,12 +6587,13 @@ def config_limits(cfg):
     it.  The owner's design of 5 Nov 2026."""
     ended = history.round_endings()
     builds, own = history.first_review_sizes()
-    sizes = ledger.counted()["sizes"]
+    runs, _, paid = matrix.counted(cfg)
+    sizes = runs["sizes"]
     # each number's chart and what its runs would have done at `held`; one no run records how
     # it did yet has neither
     evidence = {"review_rounds": lambda held: (rounds_chart(ended), rounds_said(ended, held)),
                 "executor_lines": lambda held: (
-                    size_table.lines(sizes, held, terminal.layout_width()),
+                    size_table.lines(sizes, held, terminal.layout_width(), paid),
                     lines_said("executor_lines", builds, held)),
                 "orchestrator_lines": lambda held: (
                     size_chart(own, held), lines_said("orchestrator_lines", own, held))}
