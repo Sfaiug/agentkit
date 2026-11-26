@@ -264,23 +264,29 @@ def _rsync(cmd, given):
             feed.flush()
             feed.seek(0)
             proc = subprocess.Popen(cmd, stdin=feed)
+    def outcome(code):
+        # A file the home deleted while rsync read it is no failure, as in a move: all that is
+        # still there crossed, and what this machine held of the file goes with the next pass.
+        # A home at work deletes in its checkouts all the time: on 17 Nov a second and a third
+        # go each met more, and the passes failed for it.
+        return None if code in (0, move.VANISHED) else f"rsync exited {code}"
+
     last, idle = None, 0
     while True:
         try:
-            code = proc.wait(timeout=1)
+            return outcome(proc.wait(timeout=1))
         except subprocess.TimeoutExpired:
             pass
-        else:
-            # A file the home deleted while rsync read it is no failure, as in a move: all that
-            # is still there crossed, and what this machine held of the file goes with the next
-            # pass.  A home at work deletes in its checkouts all the time: on 17 Nov a second
-            # and a third go each met more, and the passes failed for it.
-            return None if code in (0, move.VANISHED) else f"rsync exited {code}"
         ticks = host.work_ticks(proc.pid)
+        if (code := proc.poll()) is not None:
+            return outcome(code)
         if ticks is None or ticks != last:
             last, idle = ticks, 0
         elif (idle := idle + 1) >= TIMEOUT:
             proc.terminate()
+            # `Popen.terminate` polls first and skips SIGTERM where rsync exited meanwhile.
+            if proc.returncode is not None:
+                return outcome(proc.returncode)
             try:
                 proc.wait(timeout=worker.KILL_GRACE)
             except subprocess.TimeoutExpired:
