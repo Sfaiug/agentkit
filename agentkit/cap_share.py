@@ -46,8 +46,8 @@ def held(provider, plan, account, week, meters, at):
     where the history cannot answer.
 
     Reads history.db once, in one snapshot, and not at all for a reading holding no cap.
-    `account`'s week is `week` whatever the snapshot of usage holds of it: these are that
-    login's newest meters, and the snapshot may hold no week of it yet.
+    `account`'s week is `week` whatever the snapshot of usage holds of it (`shared_weeks`'s
+    `newest`): these are that login's newest meters, and the snapshot may hold none of them yet.
     """
     if not usage._text(plan) or not any(usage._text(m.get("scope")) for m in meters):
         return meters
@@ -63,7 +63,7 @@ def held(provider, plan, account, week, meters, at):
         return {**cap, "held": part} if part > 0 else cap
 
     def reading(db):
-        weeks = {**_weeks(db, provider), account: week}
+        weeks = _weeks(db, provider, (provider, account, week))
         return [hold(db, weeks, m) if usage._text(m.get("scope")) else m for m in meters]
     return _read(reading) or meters
 
@@ -79,10 +79,10 @@ def _read(answer):
         return None
 
 
-def _weeks(db, provider):
+def _weeks(db, provider, newest=None):
     """{account: the name of its shared week} of `provider`'s logins (`shared_weeks`)."""
     return {account: meter for prov, account, meter in week_meters.shared_weeks(
-                config.load(), -math.inf, math.inf, db=db) if prov == provider}
+                config.load(), -math.inf, math.inf, db=db, newest=newest) if prov == provider}
 
 
 def _of(db, provider, plan, scope, weeks):
