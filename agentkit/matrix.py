@@ -716,9 +716,11 @@ def notes(row, said):
 
 def _printed(value):
     """Exact Fraction `value` rounded once to six significant digits as a Decimal, as a float holds
-    none below its own smallest, and one past a float's largest as that largest."""
+    none below its own smallest, and one past a float's largest in magnitude as that largest."""
     if value > sys.float_info.max:
         return sys.float_info.max
+    if value < -sys.float_info.max:
+        return -sys.float_info.max
     return decimal.Context(prec=6).divide(value.numerator, value.denominator)
 
 

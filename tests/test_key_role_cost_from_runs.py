@@ -316,6 +316,7 @@ class RoleCostFromRuns(unittest.TestCase):
         for name, monthly, tiny_model, tiny_price, fit_tokens, turn_cost in (
             ("above", 0.01, "Anvil 1", 1e-308, 4_000_000, 8.0),
             ("below", 1e308, "Crown 1", 1e-323, 4_000_000_000, 2e-323),
+            ("subnormal", 1e308, "Crown 1", 1e-323, 125_000_000, 2e-323),
         ):
             with self.subTest(name):
                 case = RoleCostFromRuns()
@@ -348,6 +349,27 @@ class RoleCostFromRuns(unittest.TestCase):
                 expected = monthly * (12 / 52) / week * turn_cost
                 self.assertEqual((execute["cost_unit"], crown["cost_rule"]), ("money", "measured"))
                 self.assertTrue(math.isclose(crown["cost"], expected), (crown["cost"], expected))
+        # a negative out-of-range share clamps to -sys.float_info.max instead of decoding to -inf
+        case = RoleCostFromRuns()
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        config_path = case.home.path / ".agentkit/config.toml"
+        header = '[providers."acme"]'
+        config_path.write_text(config_path.read_text().replace(header, f"{header}\nprice = 0.01"))
+        cached = board()
+        for row in cached["artificialanalysis.ai"]["rows"]:
+            if row["model"] in ("Anvil 1", "Crown 1"):
+                row["values"]["aa.price1mInputTokens"] = (
+                    1e-308 if row["model"] == "Anvil 1" else -4)
+        case.home.write(".agentkit/state/boards.json", cached)
+        case.history.run(("crown", "high"), built=[[("default", "crown-1", (2_000_000, 0, 0, 0))]])
+        case.history.save()
+        done = case.home.ak("usage", "--json", env=ENV)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        done = case.home.ak("models", "--json", env=ENV)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        parsed = json.loads(done.out, parse_constant=reject_constant)
+        self.assertEqual(parsed["task_usage"]["crown"]["high"]["executor"], -sys.float_info.max)
 
     def test_exact_pricing_avoids_intermediate_overflow_in_means(self):
         # three logins at sys.float_info.max average cleanly in money unit

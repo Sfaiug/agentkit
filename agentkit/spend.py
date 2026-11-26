@@ -16,6 +16,7 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+import sys
 import time
 
 from . import boards, catalog, config, history, matrix
@@ -142,14 +143,14 @@ def _sum(values):
 
 
 def _mean_value(total, runs):
-    """`total / runs` as a float when it preserves a finite nonzero value, else an exact Fraction
-    so `matrix._costs` can still scale shares above or below float range and `matrix.dumped` can
-    print them without emitting Infinity or losing them to underflow."""
+    """`total / runs` as a float when it is normal (or exact zero), else an exact Fraction so
+    `matrix._costs` scales subnormal or out-of-range values without losing precision and
+    `matrix.dumped` prints them without emitting Infinity."""
     exact = total / runs
     if isinstance(exact, fractions.Fraction):
         out = matrix._to_float(exact)
-        return out if out is not None and (out != 0 or exact == 0) else exact
-    if not math.isfinite(exact) or (total and not exact):
+        return out if out is not None and (exact == 0 or abs(out) >= sys.float_info.min) else exact
+    if not math.isfinite(exact) or (total and abs(exact) < sys.float_info.min):
         return fractions.Fraction(total) / runs
     return exact
 
@@ -214,7 +215,7 @@ def roles(cfg):
                 points = 0.0
             else:
                 points = 100 * dollars / week
-                if not math.isfinite(points) or (dollars and not points):
+                if not math.isfinite(points) or (dollars and abs(points) < sys.float_info.min):
                     points = (fractions.Fraction(100) * fractions.Fraction(dollars)
                               / fractions.Fraction(week))
             each.append((points, dollars))
