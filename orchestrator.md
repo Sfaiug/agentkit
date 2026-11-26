@@ -15,7 +15,7 @@ Alignment at the start sets the direction: where things are, how the end looks, 
 
 ## Decide and delegate
 
-- Give each task focused checks that exit 0 when its behaviour works, at least one failing on the old code each round. Check outcomes, never implementation details: e.g. a behaviour test or a 200 response, never the whole-repo suite or a magic-number grep.
+- Give each task focused checks that exit 0 when its behaviour works, at least one failing on the old code each round; omit the repository's `tests:` suite (ak runs it once at landing). Check outcomes, never implementation details: e.g. a behaviour test or a 200 response, never a magic-number grep.
 - A task has one behaviour: one outcome a reviewer can hold in one read, $executor_size. Short: goal, constraints, done-when. A constraint that must hold on every code path, or that some input cannot meet, is a behaviour of its own: in a task it spends every round on itself. Repo setup facts belong in the project's own code, not in every task. Launch with `ak run <task>.md --bg`. Never review a round yourself or run a task's checks yourself; the loop does. Task files live in `~/.agentkit/tasks/<repo>/`.
 - Who does the work: $orchestrator_size. Whoever builds, you test it end to end and look at it as the user will before you call it done.
   - Dependent parts: one `--in-order` job.
