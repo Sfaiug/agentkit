@@ -261,6 +261,48 @@ class HistoryTests(unittest.TestCase):
             history.start_run("r1", log=lambda _: None)
             history.update_run("r1", verdict="FAIL", log=lambda _: None)
 
+    def test_symlink_loop_history_db_fails_soft_on_reads_and_valid_symlink_reads(self):
+        db = history.path()
+        db.symlink_to(db.name)
+        self.assertEqual(history.test_audit("acme"), ({}, None, 0))
+        self.assertIsNone(history.get("r1"))
+        self.assertFalse(history.check_passed("r1", "chosen", "a" * 40))
+        self.assertEqual(history.landing_checks("acme"), [])
+        db.unlink()
+        for i in range(1024):
+            (self.home / f"link{i}").symlink_to(f"link{(i + 1) % 1024}")
+        db.symlink_to("link0")
+        self.assertEqual(history.test_audit("acme"), ({}, None, 0))
+        self.assertFalse(history.check_passed("r1", "chosen", "a" * 40))
+        db.unlink()
+        ledger = self.home / "ledger"
+        tree = "a" * 40
+        with patch.object(config, "HOME", ledger):
+            checked = (ledger / "r1", 1, "chosen", tree)
+            history.start_run("r1", repo="acme", started_at=10)
+            with history.check(checked, "suite", 10) as outcome:
+                outcome["exit"] = 0
+            history.test_reds(checked, {"1/1": ["tests/test_acme.py"]}, [])
+            real = history.path()
+        nested = self.home / ("a" * 230) / ("b" * 230) / ("c" * 80)
+        nested.mkdir(parents=True)
+        home_link = nested / "alias"
+        home_link.symlink_to(ledger, target_is_directory=True)
+        target_link = nested / "db"
+        target_link.symlink_to(real)
+        short_home = self.home / "short"
+        short_home.mkdir()
+        (short_home / "history.db").symlink_to(target_link)
+        chain = self.home / "chain"
+        chain.mkdir()
+        for i in range(300):
+            (chain / f"link{i}").symlink_to(real if i == 299 else f"link{i + 1}")
+        (chain / "history.db").symlink_to("link0")
+        for alias in (home_link, short_home, chain):
+            with patch.object(config, "HOME", alias):
+                self.assertTrue(history.check_passed("r1", "chosen", tree))
+                self.assertEqual(history.test_audit("acme")[0]["tests/test_acme.py"]["catches"], 1)
+
     def test_ended_runs_read_real_rows_in_an_inclusive_range_without_writing(self):
         self.assertEqual(history.ended_runs(10, 20), [])
         self.assertFalse(history.path().exists())

@@ -1,6 +1,7 @@
 """Best-effort SQLite history for completed and running agentkit runs."""
 
 import contextlib
+import errno
 import json
 import math
 import os
@@ -318,7 +319,14 @@ def path():
 
 def _connect(*, readonly=False):
     if readonly:
-        connection = sqlite3.connect(path().resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+        database = path()
+        try:
+            resolved = database.resolve()
+        except RuntimeError as exc:
+            # Python 3.11's `Path.resolve()` raises `RuntimeError` on a symlink loop and
+            # `RecursionError` (a `RuntimeError` subclass) on a deep symlink cycle.
+            raise OSError(errno.ELOOP, str(exc)) from exc
+        connection = sqlite3.connect(resolved.as_uri() + "?mode=ro", uri=True, timeout=2)
         connection.create_function("suite_run", 2, suite_run)     # what REAL_WORK reads by
         return connection
     connection = waiter.connect(path())
@@ -707,7 +715,7 @@ def check_passed(run_id, kind, tree):
                     (run, kind, tree)).fetchone()
             finally:
                 connection.close()
-    except Exception:   # noqa: BLE001 -- unreadable DB (incl. py3.11 symlink-loop RuntimeError)
+    except (OSError, sqlite3.Error, TypeError, ValueError):
         return False
     return bool(row and row[0] == 0 and row[1] is not None)
 
