@@ -8,12 +8,14 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, run, stop, transitions, turns, worker
+from agentkit import config, hand_in, history, ledger, prompts, run, stop, transitions, turns, worker
 from fixtures.hand_in import scripted, stateful
 
 FINDING = ["finding", "api.py:1", "feature disabled", "task requires the feature",
@@ -175,6 +177,52 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         for text in (WHY, why, "proof from loop", "Quote:\n  enabled = True"):
             self.assertIn(text, calls[3]["prompt"])
             self.assertIn(text, result)
+
+    def test_two_disputes_of_one_finding_keep_each_proof_and_count_once_in_the_ledger(self):
+        finding = hand_in.checked(
+            ["finding", "api.py:1", "wrong default", "the fixture requires it", "--run", "false"], self.wt)
+        listed = self.directory / "listed.json"
+        listed.write_text(json.dumps([finding]))
+        turn_dir = self.directory / "two-disputes"
+        turn_dir.mkdir()
+        turn = hand_in.start(turn_dir, self.wt, role="fixer", findings=listed)
+        cmd = "grep -qx 'enabled = False' api.py"
+        self.assertEqual(self.cli(turn, "dispute", "api.py:1", "first reason", "--run", cmd).returncode, 0)
+        api = self.wt / "api.py"
+        api.rename(self.wt / "implementation.py")
+        api.symlink_to("implementation.py")
+        self.assertEqual(
+            self.cli(turn, "dispute", "api.py:1", "second reason", "--quote", "enabled = False").returncode, 0)
+        disputes = prompts.dispute_rows(SimpleNamespace(state={"dispute_files": [turn]}))
+        now = time.time()
+        history._write(lambda db: db.execute(
+            "INSERT INTO runs (run_id, repo, kind, final_state, finished_at, changed_lines) "
+            "VALUES (?, ?, ?, ?, ?, ?)", ("fix-api", "acme", "task", "pass", now - 1, 1)))
+        options = dict(harness="codex", model="crux-2", effort="medium", followup=0, note=0)
+        history.record_review("fix-api", "round-1", blocking=1, round=1, verdict="FAIL",
+                              records=[finding], **options)
+        history.record_review("fix-api", "round-2", blocking=0, round=2, verdict="PASS",
+                              records=[dict(row, outcome="conceded", conceded="agreed") for row in disputes],
+                              **options)
+        saved = [row for row in history.run_findings("fix-api") if row["review_id"] == "round-2"]
+        self.assertEqual([(row["proof"], row["outcome"]) for row in saved],
+                         [(cmd, "conceded"), ("enabled = False", None)])
+        team, = ledger.counted(until=now)["teams"]
+        self.assertEqual({key: team[key] for key in ("issues", "disputed", "taken_back")},
+                         {"issues": 1, "disputed": 1, "taken_back": 1})
+        # Mixed outcomes for the same finding in either row order still count as upheld, not taken back.
+        for run_id, pair in (("fix-api-a", ("conceded", "upheld")),
+                             ("fix-api-b", ("upheld", "conceded"))):
+            history._write(lambda db, rid=run_id: db.execute(
+                "INSERT INTO runs (run_id, repo, kind, final_state, finished_at, changed_lines) "
+                "VALUES (?, ?, ?, ?, ?, ?)", (rid, "acme", "task", "fail", now - 1, None)))
+            history.record_review(
+                run_id, "round-2", blocking=1, round=2, verdict="FAIL",
+                records=[dict(row, outcome=outcome) for row, outcome in zip(disputes, pair)],
+                **options)
+        counts = history._reviews_read()[2]
+        self.assertEqual(counts["fix-api-a"], (1, 0))
+        self.assertEqual(counts["fix-api-b"], (1, 0))
 
     def cli(self, file, *args):
         return subprocess.run([sys.executable, str(REPO / "bin/ak"), "hand-in", *args],
