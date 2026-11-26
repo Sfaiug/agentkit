@@ -149,16 +149,26 @@ def _task_usage(cfg):
     return spend.roles(cfg)
 
 
-def _finite(value):
-    """`value` when it is a finite number, else None."""
-    return value if value is not None and math.isfinite(value) else None
+def _rat(value):
+    """Finite float, int or Fraction `value` as an exact Fraction, else None."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, fractions.Fraction):
+        return value
+    if isinstance(value, int):
+        return fractions.Fraction(value)
+    return fractions.Fraction(value) if isinstance(value, float) and math.isfinite(value) else None
 
 
-def _mean(values):
-    """The mean of non-empty finite `values`, scaling down when their sum overflows a float."""
-    total = sum(values)
-    return _finite(total / len(values) if math.isfinite(total)
-                   else sum(one / len(values) for one in values))
+def _to_float(value):
+    """Exact rational or numeric `value` as a finite float, else None."""
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except OverflowError:
+        return None
+    return out if math.isfinite(out) else None
 
 
 def _costs(rated, lineup, cfg, logins, shares):
@@ -217,46 +227,49 @@ def _costs(rated, lineup, cfg, logins, shares):
     # with a price and no week yet, on a plan no fitted login shares the name of, joins once it
     # has one.  The owner, 22 Nov 2026: "Leave it".
     def price(provider):
-        held = [one for one, _ in logins.get(provider, ()) if _finite(one) is not None]
-        return _mean(held) if held else _finite(usage.price(cfg, provider))
+        held = [rat for one, _ in logins.get(provider, ()) if (rat := _rat(one)) is not None]
+        return sum(held) / len(held) if held else _rat(usage.price(cfg, provider))
     # every provider your runs measured, though no row the boards rate is its measured model
     prices = {provider: price(provider) for provider in {
         cfg["models"][name]["provider"] for name in config.offered(cfg) if shares.get(name)}}
     known = [price for price in prices.values() if price is not None]
-    mean = _mean(known) if known else None
+    mean = sum(known) / len(known) if known else None
 
     def week(price):    # a plan's week in the unit, 12/52 of the month a price pays for
         if mean is None:
-            return 100
-        month = mean if _finite(price) is None else price
-        weekly = month * 12 / 52
-        return weekly if math.isfinite(weekly) else month * (12 / 52)
+            return fractions.Fraction(100)
+        month = mean if (rat := _rat(price)) is None else rat
+        return month * fractions.Fraction(12, 52)
 
     def cost(provider, points):
-        return _finite(week(prices[provider]) / 100 * points)
+        pts = _rat(points)
+        return None if pts is None else week(prices[provider]) / 100 * pts
 
     def rate(provider, week):   # what a listed dollar takes of its logins' plans, in `week`'s unit
-        each = [_finite(week(price) / listed) for price, listed in logins[provider]]
-        return None if any(one is None for one in each) else _mean(each)
-    rates = {provider: (rate(provider, week), rate(provider, lambda _: 100))
+        each = []
+        for price, listed in logins[provider]:
+            if isinstance(listed, float) and math.isinf(listed):
+                each.append(fractions.Fraction(0))
+            elif (rat := _rat(listed)) is not None and rat:
+                each.append(week(price) / rat)
+            else:
+                return None
+        return sum(each) / len(each)
+    rates = {provider: (rate(provider, week), rate(provider, lambda _: fractions.Fraction(100)))
              for provider in logins if logins[provider]}    # {provider: (in the unit, in points)}
     known_rates = [one for one, _ in rates.values() if one is not None]
-    either = _mean(known_rates) if known_rates else None
+    either = sum(known_rates) / len(known_rates) if known_rates else None
     # (role, provider, cost, board dollars, points, listed dollars)
-    samples = [(role, provider, cost(provider, points), board, points, listed)
+    samples = [(role, provider, cost(provider, points), board_rat, _rat(points), _rat(listed))
                for (role, release, effort), each in measured.items()
                for provider, points, _, listed in each
                for board in [rows[release, effort]["values"].get(quality.COSTS[role])]
-               if board is not None and board > 0]
+               if (board_rat := _rat(board)) is not None and board_rat > 0]
 
     def per_board_dollar(some, what):   # the cost, with `what` 4 the points, 5 the listed dollars
         if any(one[what] is None for one in some):
             return None
-        num, den = sum(one[what] for one in some), sum(one[3] for one in some)
-        if not math.isfinite(num) or not math.isfinite(den):
-            n = len(some)
-            num, den = sum(one[what] / n for one in some), sum(one[3] / n for one in some)
-        return _finite(num / den) if den else None
+        return sum(one[what] for one in some) / sum(one[3] for one in some)
     for role, each in rated.items():
         # its own once a row of it is measured, though no board prices that row: other roles'
         # runs say nothing of a role its own runs measure
@@ -266,8 +279,8 @@ def _costs(rated, lineup, cfg, logins, shares):
             mine = measured.get((role, row["release"], row["effort"]))
             if mine:
                 provider, points, runs, _ = mine[0]
-                row.update(cost=cost(provider, points), cost_rule="measured", runs=runs,
-                           points=points, provider=provider)
+                row.update(cost=_to_float(cost(provider, points)), cost_rule="measured", runs=runs,
+                           points=_to_float(_rat(points)), provider=provider)
                 continue
             provider = providers.get(row["release"]) or config.company(cfg, row.get("maker"))
             own = [one for one in pool if one[1] == provider]
@@ -275,13 +288,14 @@ def _costs(rated, lineup, cfg, logins, shares):
                 factors = per_board_dollar(own, 2), per_board_dollar(own, 4)
             elif pool:  # any other provider's listed dollars take what they take of its plans
                 listed_per = per_board_dollar(pool, 5)
-                factors = [None if one is None or listed_per is None else _finite(listed_per * one)
+                factors = [None if one is None or listed_per is None else listed_per * one
                            for one in rates.get(provider, (either, None))]
             else:
                 factors = None, None
             # Without board dollars or a measured conversion, no same-unit estimate exists.
-            priced, points = (None if one is None or row["board_cost"] is None
-                              else _finite(row["board_cost"] * one) for one in factors)
+            board = _rat(row["board_cost"])
+            priced, points = (None if one is None or board is None else _to_float(board * one)
+                              for one in factors)
             row.update(cost_rule="provider" if own else "global", cost=priced, points=points,
                        provider=provider)
     return "share" if mean is None else "money"

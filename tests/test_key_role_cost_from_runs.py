@@ -14,6 +14,7 @@ boards, plans, readings, seat spend and finished runs in its Home.  Fails agains
 
 from contextlib import closing
 import json
+import math
 from pathlib import Path
 import shutil
 import sqlite3
@@ -293,6 +294,68 @@ class RoleCostFromRuns(unittest.TestCase):
         self.assertEqual(parsed["execute"]["cost_unit"], "money")
         self.assertEqual(parsed["execute"]["front"], [])
         self.assertTrue(all(row["cost"] is None for row in parsed["execute"]["others"]))
+        # an out-of-range task share (tiny fitted week) drops from task_usage instead of failing
+        cached = board()
+        for row in cached["artificialanalysis.ai"]["rows"]:
+            if row["model"] == "Anvil 1":
+                row["values"]["aa.price1mInputTokens"] = 1e-308
+        self.home.write(".agentkit/state/boards.json", cached)
+        self.history.rows["runs"].clear()
+        self.history.rows["turn_usage"].clear()
+        self.history.run(("crown", "high"), built=[[("default", "crown-1", (2_000_000, 0, 0, 0))]])
+        self.history.save()
+        done = self.home.ak("models", "--json", env=ENV)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        parsed = json.loads(done.out, parse_constant=invalid_constant)
+        self.assertEqual(parsed["task_usage"], {})
+
+    def test_exact_pricing_avoids_intermediate_overflow_in_means(self):
+        # three logins at sys.float_info.max average cleanly in money unit
+        config_path = self.home.path / ".agentkit/config.toml"
+        header = '[providers."acme"]'
+        config_path.write_text(config_path.read_text()
+                               .replace(header, f"{header}\nprice = {sys.float_info.max!r}")
+                               .replace('["default", "second"]', '["default", "second", "third"]'))
+        logins = json.loads((self.home.path / ".agentkit/state/logins.json").read_text())
+        logins["acme"]["third"] = {**logins["acme"]["default"], "email": "third@acme.test"}
+        self.home.write(".agentkit/state/logins.json", logins)
+        self.meter.week("acme", "third", used=50)
+        self.history.week("acme", "third", "echo", "anvil-1", 4e6, 20, "Max")
+        self.history.run(("anvil", "high"), built=[[("default", "anvil-1", (2_000_000, 0, 0, 0))]])
+        _, parsed = self.answer()
+        execute = parsed["execute"]
+        self.assertEqual(execute["cost_unit"], "money")
+        anvil = next(row for row in execute["front"] if row["release"] == "anvil-1")
+        self.assertTrue(math.isclose(anvil["cost"], sys.float_info.max * (12 / 52) / 10))
+
+    def test_exact_pricing_avoids_intermediate_overflow_in_conversions(self):
+        # intermediate conversion overflow still produces finite cross-provider estimates
+        for suffix in (".sh", ".toml"):
+            shutil.copy2(self.meter.dir / f"echo{suffix}", self.meter.dir / f"chime{suffix}")
+        logins = json.loads((self.home.path / ".agentkit/state/logins.json").read_text())
+        logins["bolt"] = {"work": logins["acme"]["second"]}
+        self.home.write(".agentkit/state/logins.json", logins)
+        self.meter.week("bolt", "work", used=50)
+        self.history.week("bolt", "work", "chime", "crown-1", 500_000, 20, "Pro")
+        akconfig.write(self.home, {"anvil": {"harness": "echo", "model": "anvil-1"},
+                                   "crown": {"harness": "chime", "model": "crown-1",
+                                             "provider": "bolt"}},
+                       settings={"companies": ["Acme"]},
+                       providers={"acme": {"price": 1e308, "mode": "subscription",
+                                           "accounts": ["default", "second"]},
+                                  "bolt": {"price": 1e308, "mode": "subscription",
+                                           "accounts": ["work"]}})
+        cached = board()
+        for row in cached["artificialanalysis.ai"]["rows"]:
+            if row["model"] in ("Anvil 1", "Crown 1"):
+                for col in EVALUATIONS:
+                    row["values"][f"aa.intelligenceIndexEvaluations.{col}.costPerTask"] = 1e-310
+        self.home.write(".agentkit/state/boards.json", cached)
+        self.history.run(("anvil", "high"), built=[[("default", "anvil-1", (2_000_000, 0, 0, 0))]])
+        _, parsed = self.answer()
+        crown = next(row for row in parsed["execute"]["front"] + parsed["execute"]["others"]
+                     if row["release"] == "crown-1")
+        self.assertTrue(math.isclose(crown["cost"], 1e308 * (12 / 52) * 0.2))
 
 
 if __name__ == "__main__":
