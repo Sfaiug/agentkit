@@ -161,16 +161,16 @@ _PROCESSES = {}            # the last reading of the process table, when, and wh
 
 def seat_models(cfg):
     """(names, left out): the models a seat may run on, as a pick tries them -- the default
-    orchestrator, then every other offered model in list order -- and why each other is left
-    out, by name: off in the model list (matrix.off), or its harness not installed
+    orchestrator, then every other offered model in list order -- and, by name, why each of
+    the rest may not: off in the model list (matrix.off), or its harness not installed
     (`config.harness_present`) while a model not off has its own installed.  Where none has,
-    that leaves none out: every seat would end at once, and the install is what to see to."""
+    none is left out for that: no seat could run anyway, and a pick still has its default."""
     default, off = cfg["defaults"]["orchestrator"], matrix.off(cfg)
     names = [default, *(name for name in config.offered(cfg) if name != default)]
     out = {name: matrix.OFF for name in names if name in off}
-    missing = {name: f"{harness} is not installed" for name in names if name not in out
-               for harness in [cfg["models"][name]["harness"]]
-               if not config.harness_present(harness)}
+    harness = {name: cfg["models"][name]["harness"] for name in names}
+    missing = {name: f"{harness[name]} is not installed" for name in names
+               if name not in out and not config.harness_present(harness[name])}
     if len(out) + len(missing) < len(names):
         out.update(missing)
     return [name for name in names if name not in out], out
