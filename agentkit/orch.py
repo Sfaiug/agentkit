@@ -168,11 +168,11 @@ def seat_models(cfg):
     default, off = cfg["defaults"]["orchestrator"], matrix.off(cfg)
     names = [default, *(name for name in config.offered(cfg) if name != default)]
     out = {name: matrix.OFF for name in names if name in off}
-    harness = {name: cfg["models"][name]["harness"] for name in names}
+    harness = {name: cfg["models"][name]["harness"] for name in names if name not in out}
     # one look a harness, so its models agree however an install moves meanwhile
     installed = {each: config.harness_present(each) for each in set(harness.values())}
-    missing = {name: f"{harness[name]} is not installed" for name in names
-               if name not in out and not installed[harness[name]]}
+    missing = {name: f"{harness[name]} is not installed" for name in harness
+               if not installed[harness[name]]}
     if len(out) + len(missing) < len(names):
         out.update(missing)
     return [name for name in names if name not in out], out

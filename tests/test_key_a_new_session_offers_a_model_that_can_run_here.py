@@ -39,7 +39,7 @@ class OffersWhatRunsHere(unittest.TestCase):
         text = manifest.read_text()
         self.assertEqual(text.count(named), 1, "the shipped claude.toml's [update] changed")
         gone = self.home.root / "gone" / "claude"
-        manifest.write_text(text.replace(named, f"version = [{json.dumps(str(gone))}, "))
+        manifest.write_text(text.replace(named, f"version = [{fakeadapter.toml(str(gone))}, "))
 
     def picked(self):
         """The line `ak orch fix-api --dry-run` names the orchestrator on."""
