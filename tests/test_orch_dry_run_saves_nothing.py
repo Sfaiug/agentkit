@@ -62,6 +62,8 @@ class DryRun(unittest.TestCase):
         stack.enter_context(patch.object(orch, "CHARACTERS", ("new",)))   # unnamed: `new`
         config.ensure_dirs()
         stack.enter_context(patch.object(usage, "collect", return_value={}))
+        # every harness installed here, whatever PATH holds: a pick passes over one that is not
+        stack.enter_context(patch.object(config, "harness_present", return_value=True))
         stack.enter_context(patch.object(terminal.Keyboard, "take", return_value=False))
         stack.enter_context(patch.object(terminal, "readline", return_value=""))
         self.launch = stack.enter_context(patch.object(orch, "launch"))
