@@ -17,6 +17,7 @@ What the disk refuses is skipped on writes and reads alike: a check goes on, and
 file or unusable line is left out.
 """
 
+import bisect
 from collections import namedtuple
 from contextlib import suppress
 import datetime
@@ -33,7 +34,7 @@ HOUR = 3600
 
 
 class Hour(namedtuple("Hour", "start processors memory")):
-    """One hour's means, starting at `start` (whole seconds, inclusive) for 3600 seconds:
+    """One hour's means, starting at `start` (inclusive) for 3600 seconds:
     `processors` is the mean of `load / cores`, `memory` the mean share of `memory_mb` in use,
     or both None where the hour has no usable reading."""
 
@@ -66,17 +67,13 @@ def keep(at, said):
 
 
 def hours(name, until, count, *, home):
-    """The `count` hours ending at `until` (whole seconds), oldest first, for `name`: this
-    host's `home` lines when `home` is true, or a listed machine's `machine` lines when false.
+    """The `count` hours ending at `until`, oldest first, for `name`: this host's `home` lines
+    when `home` is true, or a listed machine's `machine` lines when false.
 
-    Each entry is an `Hour` covering `[start, start + 3600)` in whole seconds from `until`.
-    Reads every day file in the readings folder and places each usable line by its own `at`,
-    computing no calendar date.
+    Each entry is an `Hour` covering `[start, start + 3600)`.  Reads every day file in the
+    readings folder and places each usable line by its own `at`, computing no calendar date.
     """
-    start = until - count * HOUR
-    if not count or until <= 0:
-        return [Hour(start + i * HOUR, None, None) for i in range(count)]
-
+    edges = [until - (count - i) * HOUR for i in range(count + 1)]
     folder = config.STATE / "readings"
     try:
         files = sorted(entry for entry in os.listdir(folder) if _day(entry) is not None)
@@ -89,7 +86,9 @@ def hours(name, until, count, *, home):
     memory = [0.0] * count
     for entry in files:
         with suppress(OSError):
-            with open(os.open(folder / entry, os.O_RDONLY | os.O_NONBLOCK), "rb") as file:
+            # open closes an opener's descriptor it refuses (a directory); nonblocking skips a FIFO
+            with open(folder / entry, "rb",
+                      opener=lambda path, flags: os.open(path, flags | os.O_NONBLOCK)) as file:
                 if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
                     continue
                 for raw in file:
@@ -97,18 +96,17 @@ def hours(name, until, count, *, home):
                     if reading is None:
                         continue
                     at, proc, mem = reading
-                    # floor(at) is exact for any finite number against integer hour edges
-                    second = math.floor(at)
-                    if not (start <= second < until):
+                    # against the very edges the hours start at, so no rounding moves a line
+                    index = bisect.bisect_right(edges, at) - 1
+                    if not 0 <= index < count:
                         continue
-                    index = (second - start) // HOUR
                     seen[index] += 1
                     n = seen[index]
                     # running mean stays finite even when readings are near float max
                     processors[index] += (proc - processors[index]) / n
                     memory[index] += (mem - memory[index]) / n
-    return [Hour(start + i * HOUR, processors[i], memory[i]) if seen[i]
-            else Hour(start + i * HOUR, None, None) for i in range(count)]
+    return [Hour(edges[i], processors[i], memory[i]) if seen[i] else Hour(edges[i], None, None)
+            for i in range(count)]
 
 
 def _usable(raw, key, other, name):

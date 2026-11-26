@@ -68,14 +68,17 @@ class ReadingsByTheHour(unittest.TestCase):
                 if os.geteuid() != 0:
                     locked.write_bytes(raw(M + 20, "acme-bad", 99.0, 1))
                     locked.chmod(0)
+                descriptors = len(os.listdir("/dev/fd"))
                 for q, exp in (
                     (("acme-home", M + H, 2, True), [(M - H, 1.0, 0.6), (M, 1.0, 0.8)]), (("acme-home", M + H, 1, False), [(M, 0.25, 0.2)]),
                     (("acme-bad", M + H, 1, False), [(M, 0.5, 0.5)]), (("acme-edge", M + 2 * H, 2, False), [(M, 2.0, 0.75), (M + H, 6.0, 0.75)]),
+                    (("acme-edge", M + 2 * H - 0.5, 1, False), [(M + H - 0.5, 4.0, 0.75)]),
                     (("acme-big", M + 2 * H, 2, False), [(M, 1e308, 1.0), (M + H, 5e307, 0.0)]),
                     (("acme-time", -62135596800, 1, False), [(-62135596800 - H, None, None)]),
                     (("acme-time", H, 2, False), [(-H, None, None), (0, 1.0, 0.75)]), (("acme-time", Y9999 + 1, 1, False), [(Y9999 + 1 - H, 2.0, 0.5)]),
                 ):
                     self.check(q, exp)
+                self.assertEqual(len(os.listdir("/dev/fd")), descriptors)     # the directory's closed too
             finally:
                 if locked.exists():
                     locked.chmod(0o600)
