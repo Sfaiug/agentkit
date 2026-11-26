@@ -1797,8 +1797,11 @@ def _validate_session(cfg, name, data, prune=False):
                 except Error as exc:
                     raise Error(f"{session_path(name)}: {exc}") from None
     efforts = data.get("efforts", {})
-    if not isinstance(efforts, dict) or any(not isinstance(held, dict) or not isinstance(
-            held.get("effort"), str) for held in efforts.values()):
+    # every role's effort held is text, as role_effort hands it to the screens and the harness
+    if not isinstance(efforts, dict) or any(
+            not isinstance(held, dict) or "effort" not in held
+            or not all(isinstance(word, str) for word in efforts_of(held).values())
+            for held in efforts.values()):
         raise Error(f"{session_path(name)}: efforts must give each model its effort")
     # the orchestrator's own model may work for it too: nothing here excludes one from the other
     # Whatever else the record carries -- where the seat ran, when, and the conversation the
