@@ -2,15 +2,18 @@
 --json`'s `runs.sizes`, tests/test_key_models_json_counts_tasks_by_size.py): a row per hundred
 lines, smallest first -- its tasks, from 20 of them the share that went live, and with a line
 live each part's hours for every 100 lines live, rounded half to even to a tenth in plain digits
-whatever its size -- marked `over` wholly above the limit, off and `no limit` marking none,
-following → as it raises the limit; fixed columns where the table fits, folded rows with named
-numbers where it does not.
+whatever its size, and what its tasks took in all three roles together for every 100 lines live
+as money in the config's currency (`-` with no points or an unpriced plan) -- marked `over`
+wholly above the limit, off and `no limit` marking none, following → as it raises the limit;
+fixed columns where the table fits, folded rows with named numbers where it does not.
 
 The owner's ask of 24 Nov 2026.  Black-box: history.db rows in the Home, `AK_BIN` in a person's
 terminal (tests/fixtures/akterm.py), judged by the screen without colour; it fails against
 `/bin/false`.
 """
 
+from contextlib import closing
+import sqlite3
 import sys
 from pathlib import Path
 import unittest
@@ -20,6 +23,8 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from test_key_limits_size_charts import MODELS, opened
 from test_key_models_json_counts_tasks_by_team import FAILED, history, run
+from test_key_models_json_run_usage import TABLES
+from test_key_models_json_week_meters import DAY, HOUR, NOW, THEN
 
 # (first review's lines, tasks live, tasks) filling three sizes: each task spends 1 h build,
 # 0.5 h review, 0.25 h checks and 2 h waiting (360 + 720 + 1080 + 5040 = 7200 s)
@@ -30,8 +35,8 @@ TASKS = [run(f"fix-api-{lines}-{n}", 1 + n / 10, first_review_lines=lines,
 HEADING = "What your tasks of each size took, for every 100 lines that went live · last 30 days"
 # 1–100's hours over 400 lines live: 20 h build, 10 h review, 5 h checks, 40 h waiting; its
 # own tests, 1.25 h, round half to even
-TABLE = ["lines    tasks  went live  building  reviewing  own tests  waiting",
-         "1–100       20        80%     5.0 h      2.5 h      1.2 h   10.0 h",
+TABLE = ["lines    tasks  went live  building  reviewing  own tests  waiting  usage",
+         "1–100       20        80%     5.0 h      2.5 h      1.2 h   10.0 h      -",
          "101–200     19",
          "301–400     20         0%"]
 FOLDED_HEADING = ["What your tasks of each size took, for",
@@ -40,7 +45,7 @@ FOLDED_HEADING = ["What your tasks of each size took, for",
 FOLDED = ["1–100  20 tasks",
           "  went live 80%  building 5.0 h",
           "  reviewing 2.5 h  own tests 1.2 h",
-          "  waiting 10.0 h",
+          "  waiting 10.0 h  usage -",
           "101–200  19 tasks",
           "301–400  20 tasks  over",
           "  went live 0%"]
@@ -49,6 +54,11 @@ FOLDED = ["1–100  20 tasks",
 def over(table):
     """`table` with its last row marked `over`."""
     return [*table[:3], f"{table[3]:<{len(table[0]) + 2}}over"]
+
+
+def with_usage(table, text):
+    """`table` with 1–100's `usage` cell reading `text`."""
+    return [table[0], table[1][:-len(text)] + text, *table[2:]]
 
 
 def drawn(body, heading=(HEADING,)):
@@ -68,6 +78,42 @@ def open_at(case, limit, size=(100, 40), tasks=TASKS):
     fakeadapter.install(home, claude="pass", codex="pass")
     akconfig.write(home, MODELS, settings={"executor_lines": limit})
     history(home, tasks, [])
+    return opened(case, home, "Max lines per executor task", size=size)
+
+
+def open_used(case, limit, currency="USD", size=(100, 40)):
+    """A Home of its own holding TASKS with two roles' usage on 1–100: nova orchestrating 59
+    points of Claude Max 20x ($200, €180) split over the 59 tasks (20 points on 1–100), and
+    bolt building 12 points of ChatGPT Pro ($200, no euro price) on fix-api-25-0.  In USD,
+    (20 + 12) * $200 / 400 * 12 / 52 = $3.69 for every 100 lines live."""
+    home = Home()
+    case.addCleanup(home.close)
+    fakeadapter.install(home, claude="pass", codex="pass")
+    akconfig.write(home, MODELS, settings={"executor_lines": limit,
+                                           "money": {"currency": currency}},
+                   providers={"anthropic": {"mode": "subscription", "accounts": ["default"]},
+                              "openai": {"mode": "subscription", "accounts": ["default"]}})
+    history(home, TASKS, [])
+    week = {"name": "weekly", "used": 50, "window_secs": 7 * DAY, "resets_at": NOW + DAY}
+    home.write(".agentkit/state/usage.json", {"fetched_at": NOW, "providers": {
+        provider: {"accounts": {"default": {"meters": [week]}}}
+        for provider in ("anthropic", "openai")}})
+    turn = home.path / ".agentkit/runs/fix-api-25-0/round-1/executor-default"
+    turn.mkdir(parents=True)
+    (turn / "harness").write_text("codex")
+    rows = {"meter_readings": [
+        (provider, "default", "weekly", used, THEN + DAY, 7 * DAY, THEN - ago * HOUR, "probe",
+         plan, None)
+        for provider, plan, rose in (("anthropic", "max 20x", 59), ("openai", "pro", 12))
+        for ago, used in ((50, 0), (40, rose))],
+        "seat_usage": [("claude:event-0", THEN - 45 * HOUR, 100_000, "default", "nova-7", "nova",
+                        "high")],
+        "turn_usage": [("fix-api-25-0", "executor", str(turn), "default", "bolt-3",
+                        THEN - 45 * HOUR, 100_000, 0, 0, 0)]}
+    with closing(sqlite3.connect(home.path / ".agentkit/history.db")) as db, db:
+        for table, items in rows.items():
+            db.execute(f"CREATE TABLE {table} ({TABLES[table]})")
+            db.executemany(f"INSERT INTO {table} VALUES ({', '.join('?' * len(items[0]))})", items)
     return opened(case, home, "Max lines per executor task", size=size)
 
 
@@ -108,6 +154,19 @@ class SizeTable(unittest.TestCase):
         shown = term.wait("1 of your 21 builds")
         self.assertIn(f"building{2**202}.0h", "".join(shown.split()))
         self.assertIn("\n  1–100  20 tasks\n", shown)   # whole, though the wide size is cut
+        self.assertFalse(wider(term, 40))
+
+    def test_usage_of_two_roles_on_priced_plans_reads_money_for_every_100_lines_live(self):
+        open_used(self, 300).wait(drawn(over(with_usage(TABLE, "$3.69"))))
+
+    def test_a_plan_with_no_price_reads_a_dash(self):
+        # ChatGPT Pro has no euro price, so 1–100's usage reads a dash even beside priced Max 20x
+        open_used(self, 300, currency="EUR").wait(drawn(over(TABLE)))
+
+    def test_the_folded_layout_names_usage(self):
+        folded = [*FOLDED[:3], "  waiting 10.0 h  usage $3.69", *FOLDED[4:]]
+        term = open_used(self, 200, size=(40, 50))
+        term.wait(drawn(folded, FOLDED_HEADING))
         self.assertFalse(wider(term, 40))
 
 

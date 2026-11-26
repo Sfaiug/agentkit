@@ -7,19 +7,20 @@ with its numbers named, so no width loses or rewrites a number another width sho
 from fractions import Fraction
 import math
 
-from . import ledger, terminal
+from . import ledger, own, terminal
 
 HEADING = "What your tasks of each size took, for every 100 lines that went live"
 FEW = 20        # a row of fewer tasks shows its tasks alone: a few tasks say nothing yet
 PARTS = {"building": "build", "reviewing": "review", "own tests": "checks", "waiting": "waiting"}
-COLUMNS = ("lines", "tasks", "went live", *PARTS)
+COLUMNS = ("lines", "tasks", "went live", *PARTS, "usage")
 
 
-def lines(sizes, limit, width):
-    """The lines of `sizes` at `limit` held on `width` cells: the heading, ending `· none yet`
-    with no row, then a row of each size, smallest first, marked `over` wholly above a limit on,
-    as fixed columns with two-space gutters where every row fits, else each folded: its lines,
-    tasks and mark, then, indented, each number it shows after its column's name."""
+def lines(sizes, limit, width, paid):
+    """The lines of `sizes` at `limit` and `paid` (`money.month`'s) held on `width` cells: the
+    heading, ending `· none yet` with no row, then a row of each size, smallest first, marked
+    `over` wholly above a limit on, as fixed columns with two-space gutters where every row fits,
+    else each folded: its lines, tasks and mark, then, indented, each number it shows after its
+    column's name."""
     tail = "last 30 days" if sizes else "none yet"
     head = ["", *(f"  {part}" for part in terminal.wrap(f"{HEADING} · {tail}", width - 2))]
     if not sizes:
@@ -28,7 +29,7 @@ def lines(sizes, limit, width):
     rows = []
     for row in sorted(sizes, key=lambda row: row["upto"]):
         low = row["upto"] - ledger.SIZE + 1
-        rows.append((f"{low}{dash}{row['upto']}", row["tasks"], _shown(row),
+        rows.append((f"{low}{dash}{row['upto']}", row["tasks"], _shown(row, paid),
                      "over" if type(limit) is int and 0 < limit < low else ""))
     marked = any(mark for *_, mark in rows)
     grid = [[*COLUMNS, *[""] * marked],
@@ -48,11 +49,13 @@ def lines(sizes, limit, width):
     return [*head, "", *folded]
 
 
-def _shown(row):
+def _shown(row, paid):
     """The numbers `row` shows, by column, each written once: none for a few tasks or an hour no
     finite number of zero or more; else the share that went live, a whole percent, and with a line
     live each part's hours for every 100 lines live, the exact quotient rounded half to even to a
-    tenth and in plain digits whatever its size."""
+    tenth and in plain digits whatever its size, and what its tasks took in all three roles
+    together for every 100 lines live as money (`own.took`), `-` with no points or an unpriced
+    plan."""
     hours, live = row["hours"], row["lines_live"]
     if row["tasks"] < FEW or not all(math.isfinite(hour) and hour >= 0 for hour in hours.values()):
         return {}
@@ -61,6 +64,7 @@ def _shown(row):
         for name, part in PARTS.items():
             tenths = round(Fraction(hours[part]) * 1000 / Fraction(live))
             shown[name] = f"{tenths // 10}.{tenths % 10} h"
+        shown["usage"] = own.took(row, ledger.ROLES, paid, per=Fraction(live, 100), share=False)
     return shown
 
 

@@ -150,24 +150,29 @@ def per_live(counts, parts=HOURS):
     return f"{math.fsum(counts['hours'][part] for part in parts) / counts['live']:.1f} h"
 
 
-def took(row, role, paid):
-    """`$0.25 · 0.6% of a week`: what a row's model took of its plans in `role` per task that went
-    live, each plan's points (100 one login's week on it) at its price a month in `paid`
-    (`money.month`'s), a week 12/52 of a month, then the points summed; the share alone where a
-    plan has no price, `-` where it took no points: each from its exact value (`fixed`), the
+def took(row, role, paid, *, per=None, share=True):
+    """`$0.25 · 0.6% of a week` (or `$0.25` with `share=False`): what `row` took of its plans in
+    `role` (one role or several) per `per` (`row["live"]` when omitted), each plan's points (100
+    one login's week on it) at its price a month in `paid` (`money.month`'s), a week 12/52 of a
+    month; with `share`, the points summed beside it, and the share alone where a plan has no
+    price, else `-` there; `-` where it took no points: each from its exact value (`fixed`), the
     points' Fractions and the price as written."""
+    roles = (role,) if isinstance(role, str) else role
     priced = [(points, paid["month"].get(provider, {}).get(plan))
-              for provider, plans in row["usage"][role]["points"].items()
+              for one in roles
+              for provider, plans in row["usage"][one]["points"].items()
               for plan, points in plans.items()]
     if not priced:
         return "-"
-    share = sum(points for points, _ in priced) / row["live"]
-    said = f"{fixed(share, 1)}% of a week"
+    divisor = row["live"] if per is None else per
+    said = (f"{fixed(sum(points for points, _ in priced) / divisor, 1)}% of a week"
+            if share else None)
     if any(price is None for _, price in priced):
-        return said
+        return said or "-"
     cost = (sum(points * Fraction(str(price)) for points, price in priced)
-            / row["live"] / 100 * 12 / 52)
-    return f"{usage.SIGNS[paid['currency']]}{fixed(cost, 2)} · {said}"
+            / divisor / 100 * 12 / 52)
+    text = f"{usage.SIGNS[paid['currency']]}{fixed(cost, 2)}"
+    return f"{text} · {said}" if share else text
 
 
 def fixed(value, places):
