@@ -1880,8 +1880,9 @@ def remember_defaults(record):
         with _config_lock():
             current = (_read_toml(HOME / CONFIG_NAME) or {}).get("defaults")
             if defaults.get("reviewers") == []:
-                # [defaults] cannot hold an empty list yet: leave [defaults].reviewers as it stands
-                defaults = ({**defaults, "reviewers": current["reviewers"]} if isinstance(current, dict) and "reviewers" in current else {key: value for key, value in defaults.items() if key != "reviewers"})
+                # [defaults] cannot hold an empty list yet: keep the reviewers it means as read,
+                # written or its workers
+                defaults["reviewers"] = meant(load()["defaults"])["reviewers"]
             if meant(current) == meant(defaults):
                 return ""
             save(load(), defaults)

@@ -6649,11 +6649,14 @@ def for_selected(cfg, scope):
 def defaults_mark(cfg, selected, model, column):
     """Act on one of new seats' marks, `selected` being [defaults]: saved at once
     (defaults_saved) and into `cfg` and `selected`, no open seat changing.  What to
-    say under the rows, or ""."""
+    say under the rows, or "".  New seats keep one reviewer: config.load refuses an empty
+    [defaults].reviewers."""
     # a new seat's crew is read as it is made (orch.default_crew), so no meter refuses one now
     changed, note = orch.role_mark(cfg, selected, model, column, {})
     if note or changed == selected:
         return note
+    if not changed["reviewers"]:
+        return "at least one model reviews"
     return defaults_saved(cfg, selected, changed, copy.deepcopy(cfg))
 
 
@@ -6805,8 +6808,8 @@ def session_mark(cfg, name, selected, model, column, providers, ask=None):
     question with the seat as it was, and so is a record naming a model removed on this
     screen; a spent model is not (orch._switch_plan). An executor or reviewer mark flips
     on the record as it stands (roles_saved): the role gains the model `selected` shows
-    unmarked, or loses it. Reviewers keep one model, executors may be empty, and a flip
-    leaving no allowed pair is refused. A run launched afterwards reads the record as left
+    unmarked, or loses it. Either role may be left empty, and a flip leaving no
+    allowed pair is refused. A run launched afterwards reads the record as left
     here; one already going keeps the groups its receipt saved. A refusal or a save that
     fails leaves the record, and `selected`, alone. What to say under the rows, or "".
     """
