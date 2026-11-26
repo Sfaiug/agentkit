@@ -31,19 +31,19 @@ import test_key_still_home_becomes_client as stepping
 from test_key_still_home_becomes_client import KILL, SERVER, TABLE
 
 TAG = b"# agentkit standby"     # what the standby's row ends in
-BOOT = 30   # the minute acme-mini's second boot begins
 
 
-@unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
-class HomeGoesThereAndBack(Firings, unittest.TestCase):
+class Walk(Firings):
+    """A walk's pair, acme-mini and acme-vm, and the steps it is driven by, for a TestCase."""
     records = stepping.AStillHomeBecomesAClient.records
     table = stepping.AStillHomeBecomesAClient.table
+    boot = 30   # the minute acme-mini's second boot begins
 
     def clock(self, machine, minute):
-        """Both machines' clocks set to `minute`, acme-mini's on its second boot from BOOT on:
+        """Both machines' clocks set to `minute`, acme-mini's on its second boot from `boot` on:
         `machine`'s AK_NOW."""
-        self.mini.env["AK_NOW"] = (now(minute) if minute < BOOT else
-                                   at(minute, minute - BOOT, "acme-boot-2"))
+        self.mini.env["AK_NOW"] = (now(minute) if minute < self.boot else
+                                   at(minute, minute - self.boot, "acme-boot-2"))
         self.vm.env["AK_NOW"] = now(minute)
         return machine.env["AK_NOW"]
 
@@ -84,7 +84,9 @@ class HomeGoesThereAndBack(Firings, unittest.TestCase):
         """The origin's lease is still the one it held last."""
         self.assertEqual(self.mini.install.refs(), {REF: self.held[-1]})
 
-    def test_home_goes_to_the_stand_in_when_the_home_stops_and_back_once_it_is_steady(self):
+    def stands_in(self):
+        """The pair, built and walked through its first two legs: acme-vm the home in acme-mini's
+        place, acme-mini off, and each value the origin's lease has held in `held`."""
         machines = self.machines("acme-mini", "acme-vm",
                                  now={"acme-mini": now(0), "acme-vm": now(0)})
         self.mini, self.vm = mini, vm = machines
@@ -119,6 +121,13 @@ class HomeGoesThereAndBack(Firings, unittest.TestCase):
         for minute in (27, 30):
             self.runs(vm, self.clock(vm, minute))
             self.swapped()
+        return mini, vm
+
+
+@unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
+class HomeGoesThereAndBack(Walk, unittest.TestCase):
+    def test_home_goes_to_the_stand_in_when_the_home_stops_and_back_once_it_is_steady(self):
+        mini, vm = self.stands_in()
 
         # 3. acme-mini is back, on a new boot, and its firing leaves it acme-vm's client, its
         # crontab's rows kept and the standby's added, which copies acme-vm; acme-vm's record of
