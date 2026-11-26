@@ -775,18 +775,17 @@ def main(argv):
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     # here, not at the top: the boards and the screen need no database
     from . import ledger, money, own, week_meters
+    until = time.time()
+    since = until - ledger.WINDOW
+    meters = week_meters.shared_weeks(cfg, since, until)
+    days = week_meters.days(cfg, since, until, meters=meters)
+    fits = rates.fitted(days)
+    plans = by_plan(days, fits)
+    by_run = week_meters.run_usage(cfg, since, until, fits, meters=meters)
+    by_seat = week_meters.seat_usage(cfg, since, until, fits, meters=meters)
+    runs = ledger.counted(by_run, by_seat, until=until)
+    mine, paid = own.by_role(runs["teams"], team_now(cfg, seat)), money.month(cfg, plans)
     if "--json" in flags:
-        until = time.time()
-        since = until - ledger.WINDOW
-        meters = week_meters.shared_weeks(cfg, since, until)
-        days = week_meters.days(cfg, since, until, meters=meters)
-        fits = rates.fitted(days)
-        plans = by_plan(days, fits)
-        by_run = week_meters.run_usage(cfg, since, until, fits, meters=meters)
-        by_seat = week_meters.seat_usage(cfg, since, until, fits, meters=meters)
-        runs = ledger.counted(by_run, by_seat, until=until)
-        mine = own.by_role(runs["teams"], team_now(cfg, seat))
-
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
                                                  "cost", "board_cost", "cost_rule")},
@@ -805,15 +804,14 @@ def main(argv):
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()},
-            "runs": runs, "own": mine, "week_meters": plans, "money": money.month(cfg, plans)}))
+            "runs": runs, "own": mine, "week_meters": plans, "money": paid}))
         print()
         return 0
-    mine = own.by_role(ledger.counted()["teams"], team_now(cfg, seat))
     used, unit = uses(cfg, seat, found), menu.models_unit()     # the screen's, as it was left
     body, _ = menu.models_body(menu.models_said(cfg, found, used, unit), unit)
     bars = [line for role in found
             for line in menu.models_bars(found[role], role, used[role][2], used[role][2], unit)]
     print("\n".join([*body, *bars, "", *menu.models_read(marked, len(ours(cfg)),
                                                    stored().get("fetched_at")),
-                      "", *own.lines(mine, cfg, terminal.layout_width())]))
+                      "", *own.lines(mine, cfg, terminal.layout_width(), paid)]))
     return 0
