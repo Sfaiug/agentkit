@@ -173,7 +173,7 @@ class SeatOwnPrQuickSet(unittest.TestCase):
                                                           "review_posted")},
                          {"state": "pass", "verdict": "PASS", "own_pr": False,
                           "review_posted": True})
-        self.assertEqual(self.notes["other"], ["suite whole", "review"])
+        self.assertEqual(self.notes["other"], ["review", "suite whole"])
 
     def no_worktree_notes(self, name, target):
         done, (_, state) = self.done[name], self.states[name]
