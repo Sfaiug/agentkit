@@ -22,6 +22,8 @@ RUN = "20260101-0000-fix-api"
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AClientHasNoRuns(unittest.TestCase):
+    # a collection that runs sweeps /tmp: the box gives it one holding only this Home
+    @unittest.skipUnless(boxable(), "no bwrap able to give the collection a /tmp of its own")
     def test_each_command_names_the_home_and_touches_nothing(self):
         with Home() as home:
             akconfig.write(home, ["opus"])
@@ -34,10 +36,9 @@ class AClientHasNoRuns(unittest.TestCase):
             task = home.write("fix-api.md", "# Fix the api\n")
             home.write(".agentkit/state/server", "acme-box\n")
             before = record.read_bytes()
-            boxed = boxable()     # a collection that runs sweeps only this Home's /tmp
             for args in (["status"], ["resume", RUN], ["merge", RUN], ["stop", RUN], [str(task)],
                          ["gc"]):
-                done = home.ak("run", *args, input="", boxed=boxed)
+                done = home.ak("run", *args, input="", boxed=True)
                 self.assertEqual(done.code, 2, (args, done.out, done.err))
                 self.assertIn("acme-box", done.err, args)
             self.assertEqual(record.read_bytes(), before)
