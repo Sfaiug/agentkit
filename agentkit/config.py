@@ -1431,7 +1431,8 @@ def as_launched(cfg, record):
     opts = record.get("launch_opts") or {}
     marks = {*(record.get("workers") or ()), *(record.get("reviewers") or ()),
              *(record.get(key) for key in ("executor", "reviewer", "launch_executor",
-                                           "launch_reviewer", "own_orchestrator")),
+                                           "launch_reviewer", "own_orchestrator",
+                                           "launched_orchestrator")),
              opts.get("--exec"), opts.get("--review")}
     gone = {name: entry for name, entry in (record.get("models") or {}).items()
             if name in marks and name not in cfg["models"]}

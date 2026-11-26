@@ -261,8 +261,16 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
     order = ready_order(cfg, providers, exec_list, None if want_exec and want_review else log,
                         quiet=quiet, repo=repo, reviewers=reviewers, reviewed_by=reviewed_by,
                         draw=draw)
-    session = config.active_session(cfg)
+    session = config.active_session(cfg) if workers is None else None
     allowed = workers if workers is not None else (session["workers"] if session else None)
+
+    def _where():
+        try:
+            active = session if workers is None else config.active_session(cfg)
+        except config.Error:
+            active = None
+        return f"session {active['name']!r}" if active else "this run"
+
     if want_exec:
         config.model(cfg, want_exec)
         # Legacy callers without a bound list retain the default orchestrator on resume.
@@ -270,8 +278,7 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
                     and session["orchestrator"] == want_exec == cfg["defaults"]["orchestrator"]
                     and (resuming or want_exec in order))
         if allowed is not None and want_exec not in allowed and not admitted:
-            where = f"session {session['name']!r}" if session else "this run"
-            raise config.Error(f"{want_exec!r} is not a worker of {where}")
+            raise config.Error(f"{want_exec!r} is not a worker of {_where()}")
         refuse_unready(cfg, providers, want_exec)
     elif not order:
         # a full meter and a provider's refusal leave a worker out alike; the pick says which
@@ -282,8 +289,7 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
     if want_review:
         config.model(cfg, want_review)
         if reviewers is None and allowed is not None and want_review not in allowed:
-            where = f"session {session['name']!r}" if session else "this run"
-            raise config.Error(f"{want_review!r} is not a worker of {where}")
+            raise config.Error(f"{want_review!r} is not a worker of {_where()}")
         refuse_unready(cfg, providers, want_review, "reviewer")
         reviewer = want_review
         if want_exec is None:
@@ -646,7 +652,7 @@ def run_workers(cfg, state):
     selection was ever recorded anywhere, and the pick falls back as it always did.
     """
     workers = state.get("workers")
-    if isinstance(workers, list) and workers:
+    if isinstance(workers, list) and (workers or "reviewers" in state):
         return list(workers)
     try:
         name = transitions.launched_session(state)
@@ -697,8 +703,10 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
         if executor in skip or (executor and (usage.unready(cfg, executor, providers)
                                                or usage.model_exhausted(cfg, executor, providers)[0])):
             executor = None
+        group = ([*workers, executor] if workers is not None and state.get("own_pr")
+                 and executor == state.get("own_orchestrator") else workers)
         return pick_models(cfg, providers, executor, False, log, resuming=True,
-                           quiet=True, repo=repo, workers=workers, draw=draw)
+                           quiet=True, repo=repo, workers=group, draw=draw)
     # a resume that needs no executor keeps it, so the reviewer is picked beside its writers
     needs = resume_needs_executor(state)
     # the pick anew weighs the very reviewers the reviewer's pick reads
