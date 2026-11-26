@@ -1129,7 +1129,7 @@ def schedule_gc(log):
     # Do not repeatedly spawn a collector on platforms/filesystems where its read-only
     # primitives cannot work. This probe neither creates nor changes state.
     try:
-        with retention.reading(config.HOME, directory=True):
+        with retention.reading(config.STATE, directory=True):
             pass
     except OSError:
         return
@@ -1145,7 +1145,7 @@ def schedule_gc(log):
 
 
 def record_gc(message):
-    """Bounded local audit trail, called only while collection holds the home lock."""
+    """Bounded local audit trail, called only while collection holds the state lock."""
     path, previous = config.STATE / "gc.log", config.STATE / "gc.log.1"
     if any(retention.present(p) and not retention.safe(p) for p in (path, previous)):
         raise OSError("unsafe collection log")
@@ -1307,9 +1307,10 @@ def gc(report, automatic=False):
     """Apply the planner conservatively; changed, busy or unverifiable candidates stay put."""
     removed = []
     balked = set()     # a harness whose own way of ending a conversation failed this pass
-    # Serialize automatic passes without creating a lock file (dry-run never takes this lock).
+    # Serialize passes on STATE without creating a lock file (dry-run never takes this lock),
+    # leaving HOME's directory lock free for config writes (`config._config_lock`).
     try:
-        with retention.reading(config.HOME, directory=True) as lock:
+        with retention.reading(config.STATE, directory=True) as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             if automatic:
                 stamp = config.STATE / "gc.json"
@@ -1596,7 +1597,7 @@ def sweep(report):
     """Apply `sweep_plan` under the collector's lock: the items removed, `bytes` on each."""
     removed = []
     try:
-        with retention.reading(config.HOME, directory=True) as lock:
+        with retention.reading(config.STATE, directory=True) as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             for item in sweep_plan():
                 path = Path(item["path"])
