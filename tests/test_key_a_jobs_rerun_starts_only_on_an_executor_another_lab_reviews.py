@@ -12,6 +12,9 @@ runs on opus's harness: the task fails to the seat as it does with one worker.  
 nova, on astra's provider, build and astra alone reviews, the rerun starts on nova.  Black-box,
 on the fixtures of tests/test_key_an_executor_has_another_labs_reviewer.py, the job's receipt
 written by hand where ak keeps it.
+
+The marks read are the failed run's.  Reviewer marks changed before the rerun launches are
+not: the owner left that so on 26 Nov 2026 (the comment at `job_ladder`'s rotation).
 """
 
 import json
