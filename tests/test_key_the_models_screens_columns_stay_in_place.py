@@ -1,7 +1,7 @@
 """The `c` screen's three role columns stand in the same place whatever is marked, at whatever
-effort (the owner, 26 Nov 2026), wherever every model's name is whole beside them; a narrower
-terminal keeps the names.  Black-box: `AK_BIN` as the popup over akseat.py seats in an akterm.py
-terminal."""
+effort (the owner, 26 Nov 2026), wherever every model's name is whole beside them; narrower than
+that each is as wide as the words it shows, before any name is cut.  Black-box: `AK_BIN` as the
+popup over akseat.py seats in an akterm.py terminal."""
 
 import sys
 from pathlib import Path
@@ -48,7 +48,7 @@ class ColumnsStayInPlace(unittest.TestCase):
                                  heads(self.open_c(f"acme-full-{columns}", FULL, columns)))
 
     def test_on_40_cells_no_name_is_cut_for_a_word_no_mark_shows(self):
-        self.open_c("acme-bare", BARE, 40)      # it waits for Haiku's whole name
+        self.assertIn("Haiku 4.5", self.open_c("acme-bare", BARE, 40))
 
 
 if __name__ == "__main__":

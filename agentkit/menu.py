@@ -4407,11 +4407,11 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 effort) + 1 if effort in taken else 0)
     shows = {name: config_columns(selected, name) for name in names}
     label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
-    # each role's words: every one a listed model, marked or not, may say there, and those shown
+    # each role's words: every one a listed model, marked or not, may say there, and those it says
     may = {number: [word for name in names for word in (efforts[name, number], *levels[name])]
            for number in (3, 4, 5)}
-    shown = {number: [efforts[name, number] for name in names if number in shows[name]]
-             for number in (3, 4, 5)}
+    says = {number: [efforts[name, number] for name in names if number in shows[name]]
+            for number in (3, 4, 5)}
 
     def widths(tall, words):
         """Each role's mark (` ● `, a space before cells), then its efforts under its head: the
@@ -4423,10 +4423,10 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         return {**{number - 3: mark for number in wide if mark}, **wide}
     bars = max(map(len, levelled.values()))                 # the cells, before every word
     # A role keeps room for every word it may say, so neither a mark nor a step moves a column
-    # (the owner, 26 Nov 2026), wherever every name is whole beside it: the bars give way, then
-    # that room, a column before a name is cut (docs/cli-design.md) -- on 40 cells it would
-    # leave the shipped models' names two.
-    for tall, words in ((bars, may), (0, may), (0, shown)):
+    # (the owner, 26 Nov 2026), wherever every name is whole beside it.  The bars give way, then
+    # that room: a column goes before a word is cut (docs/cli-design.md), and kept on 40 cells
+    # it leaves the shipped models' names two.
+    for tall, words in ((bars, may), (0, may), (0, says)):
         width = widths(tall, words)
         if 2 + label + 6 + sum(width.values()) <= room:
             break
