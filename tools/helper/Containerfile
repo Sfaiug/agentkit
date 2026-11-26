@@ -1,13 +1,19 @@
 # The suite helper's one image (agentkit/helper.py): a server's packages, as install.sh's.
+# A project's own recipe may declare ARG AK_UID and ARG AK_GID to match the Linux machine's user.
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash python3 python3-pytest git gh tmux bubblewrap jq curl rsync cron systemd libvncserver1 \
       util-linux iproute2 procps psmisc file sqlite3 ca-certificates openssh-client nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd -m -u 1000 -s /bin/bash ak
+    && rm -rf /var/lib/apt/lists/*
 # Go is the release go.mod's toolchain line names, the one tests/test_go.py judges go/ with:
 # Debian's golang-go is another, whose gofmt lays some files out another way.
 COPY tools/helper/go.sh go/go.mod go/toolchain.sha256 /tmp/go/
 RUN sh /tmp/go/go.sh https://go.dev/dl /tmp/go /usr/local && rm -r /tmp/go \
     && ln -s /usr/local/go/bin/go /usr/local/go/bin/gofmt /usr/local/bin/
+ARG AK_UID=1000
+ARG AK_GID=1000
+RUN uid=${AK_UID:-1000}; gid=${AK_GID:-1000}; \
+    if getent passwd "$uid" >/dev/null; then uid=1000; fi; \
+    if getent group "$gid" >/dev/null; then gid=1000; fi; \
+    groupadd -g "$gid" ak && useradd -m -u "$uid" -g "$gid" -s /bin/bash ak
 USER ak
