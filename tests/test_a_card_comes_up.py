@@ -104,10 +104,10 @@ class ComingUp(test_breathing.MainScreen):
         up = [n for n, (_, _, written) in enumerate(waits) if "✓ Keep" in written]
         self.assertEqual(up, list(range(asked, up[-1] + 1)))         # a write each frame
         keep, stop = ([ink(waits[n][2], word) for n in up] for word in ("✓ Keep", "× Stop"))
-        # out of the background to its colours 0.15 s on, never darker frame to frame
-        back = light("background")
+        # out of what it is on, `Keep` the highlight and `Stop` the background, to its colours
+        # 0.15 s on, never darker frame to frame
         self.assertEqual((keep[0], stop[0], keep[-1], stop[-1]),
-                         (back, back, light("text"), light("amber")))
+                         (light("selection"), light("background"), light("text"), light("amber")))
         self.assertEqual((keep, stop), (sorted(keep), sorted(stop)))
         self.assertAlmostEqual(waits[up[-1]][1] - waits[asked][1], motion.FADE)
         # the count lands a frame after it opens, taking a line off the card: the answers a line
@@ -118,7 +118,7 @@ class ComingUp(test_breathing.MainScreen):
                           for n in (asked, landed)], [True, False])      # "Its runs stop"
         under = [row(waits[n][2], "✓ Keep") - row(waits[n][2], QUESTION) for n in (asked, landed)]
         self.assertEqual(under[1], under[0] - 1)
-        self.assertTrue(back < keep[1] < keep[-1] and back < stop[1] < stop[-1])
+        self.assertTrue(keep[0] < keep[1] < keep[-1] and stop[0] < stop[1] < stop[-1])
         self.assertEqual({row(waits[n][2], "✓ Keep") for n in up[1:]},
                          {row(waits[landed][2], "✓ Keep")})
         # the seat's dot breathes through it, in one phase, and alone once it is up
