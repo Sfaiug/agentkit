@@ -12,6 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from fixtures.left import pipe
 from fixtures.sandbox import REPO, Sandbox
 from test_answer_closes_question import PYTHON   # records how the hook's look ended, unbounded
 from agentkit import config, notify, watch
@@ -58,6 +59,7 @@ class QuestionToolAnswers(Sandbox):
         for name, script in (("tmux", FAKE_TMUX), ("python3", PYTHON)):
             (self.bin / name).write_text(script)
             (self.bin / name).chmod(0o755)
+        self.left = pipe(self.addCleanup)
 
     def hook(self, wait=True, **payload):
         self.finished = finished = self.root / "look-finished"
@@ -70,7 +72,7 @@ class QuestionToolAnswers(Sandbox):
                "TEST_PYTHON": sys.executable, "LOOK_FINISHED": str(finished)}
         done = subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")], text=True,
                               input=json.dumps({"hook_event_name": "PostToolUse", **payload}),
-                              capture_output=True, env=env)
+                              capture_output=True, env=env, pass_fds=(self.left,))
         self.assertEqual((done.returncode, done.stderr, done.stdout), (0, "", ""))
         if wait:
             self.wait_look()

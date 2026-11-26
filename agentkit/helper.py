@@ -198,9 +198,10 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one
     work = "turns" if turn else "tests"
     try:
         aliases = _takers(work)
+        caps = {alias: machines.max_runs(alias) for alias in aliases} if turn else {}
         renting = google_cloud.renting() and work in machines.work(None)
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
-        aliases, renting = [], False
+        aliases, caps, renting = [], {}, False
     if not aliases and not renting:
         return None, "no suite helper set up"
     ends = google_cloud.serving()
@@ -255,10 +256,10 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one
                     _parcel(cwd, away.default, known, {**recipe, **handed}, parcel, turn)
                     parcel.seek(0)
                     # a new recipe's build fetches packages, a first suite sends the whole history
-                    sent = _remote(alias, "prepare", away.key, image, repo,
-                                   *([piece_cpus] if turn else [fit[1]] if one else []),
-                                   stdin=parcel,
-                                   timeout=1800).returncode
+                    holds = ([piece_cpus, *([caps[alias]] if caps.get(alias) else [])] if turn
+                             else [fit[1]] if one else [])
+                    sent = _remote(alias, "prepare", away.key, image, repo, *holds,
+                                   stdin=parcel, timeout=1800).returncode
                 # The copy went since `known` answered: the whole history, once.
                 known = [] if known and sent == LACKS else None
         except (OSError, subprocess.SubprocessError):

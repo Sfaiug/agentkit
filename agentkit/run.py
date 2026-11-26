@@ -2421,10 +2421,12 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     seat builds at most `config.policy`'s `orchestrator_lines` added lines, as `seat_lines`
     counts them against the target's tip the change will land on, and a PR
     that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
-    rounds (`replacement_refusal`)."""
+    rounds (`replacement_refusal`).  The numbers are the run's, as the seat that launched it
+    holds them (`config.seat_numbers`)."""
     if change_reviewed(pr=url):
         return None
-    numbers = run_record.policy_of(run_record.read_state(run_dir) or {})
+    state = run_record.read_state(run_dir) or {}
+    numbers = config.seat_numbers(launched_session(state), run_record.policy_of(state))
     limit = numbers["orchestrator_lines"]
     read, over = seat_lines(repo, target_sha, head, limit)
     if over:

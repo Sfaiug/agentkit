@@ -384,9 +384,10 @@ def project_env(repo):
             "GIT_DIR": os.path.join(os.path.abspath(repo), ".git")}
 
 
-def agents_body(repo, ref):
-    """The body of the AGENTS.md committed at `ref` in `repo`, front matter removed: what each
-    worker's prompt carries of its repository, and each seat's rulebook of its project.
+def agents_text(repo, ref):
+    """The AGENTS.md committed at `ref` in `repo`, whole: its body (`agents_body`) is what each
+    worker's prompt carries of its repository, and a seat's rulebook takes its project's numbers
+    and text from one read of it, so no fetch between two reads can pair two revisions.
 
     Read from git, never a checkout's file: the rules are what was merged, not what one checkout
     holds or one piece of work is changing.  "" where there is none, where it is a link -- its
@@ -396,26 +397,34 @@ def agents_body(repo, ref):
         return ""
     env = project_env(repo)
     try:
-        listed = git(repo, "ls-tree", ref, "--", "AGENTS.md", check=False, env=env).split()
+        # the top tree listed whole, never through a pathspec: ls-tree refuses every one under
+        # an inherited GIT_GLOB_PATHSPECS or GIT_ICASE_PATHSPECS, `--literal-pathspecs` too
+        entries = (entry.partition("\t") for entry in
+                   git(repo, "ls-tree", "-z", "--full-tree", ref, check=False, env=env).split("\0"))
+        listed = next((meta.split() for meta, _, name in entries if name == "AGENTS.md"), [])
         # the blob the listing names, never `ref` read twice: a fetch between the two reads
         # could put a link where the listing saw a file
-        text = (git(repo, "cat-file", "blob", listed[2], check=False, env=env)
+        return (git(repo, "cat-file", "blob", listed[2], check=False, env=env)
                 if listed and listed[0].startswith("100") else "")
     except Exception:
         return ""
+
+
+def agents_body(text):
+    """An AGENTS.md's `text` with its front matter removed."""
     match = FRONT.match(text)
     return (text[match.end():] if match else text).strip()
 
 
 def repo_rules(wt, ref):
-    """The body of the repository's AGENTS.md at `ref` (`agents_body`), for every worker prompt.
+    """The body of the repository's AGENTS.md at `ref` (`agents_text`), for every worker prompt.
 
     ak reads only its front matter itself, and a harness loads the body on its own terms
     (some never, some only beside no file of their own), so without this each brand
     worked to different rules.  Read at the base commit, never the checkout: the work
     under review cannot rewrite the rules it is judged by.
     """
-    text = agents_body(wt, ref)
+    text = agents_body(agents_text(wt, ref))
     if not text:
         return ""
     return ("\n\n## Repository AGENTS.md\n"

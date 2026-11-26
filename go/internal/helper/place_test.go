@@ -94,4 +94,24 @@ func TestATurnGoesToTheLeastRoomThatTakesIt(t *testing.T) {
 	if left, _ := os.ReadFile(filepath.Join(bin, "left")); bytes.Contains(left, []byte("ak-parcel-")) {
 		t.Errorf("a parcel stays here as `prepare` runs: %s", left)
 	}
+	// a turn carries a listed machine's max_runs cap on prepare and moves on to the next machine
+	// when that machine answers full (252)
+	if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"),
+		[]byte("[machines.mid]\nwork = ['turns', 'tests']\n[machines.small]\nmax_runs = 1\nwork = ['turns', 'tests']\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"said": "", "small.probe": "cpus 2\nload 0\nroom_mb 65536\nturns 1\n",
+		"small.prepare": "252\n"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	away, why, err := Start(repo, 2, 2048, "make test", "", turn, func(string) {})
+	said, _ := os.ReadFile(filepath.Join(bin, "said"))
+	if err != nil || away == nil || away.Alias != "mid" {
+		t.Fatalf("capped small full: not placed on mid (%q, %v); asked\n%s", why, err, said)
+	}
+	if !strings.Contains(string(said), " 2 1\n") {
+		t.Errorf("small's prepare did not carry max_runs cap:\n%s", said)
+	}
 }

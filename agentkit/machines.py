@@ -105,6 +105,17 @@ def work(name, cfg=None):
     return [word for word in marked if word != "turns" or said.get("system") != "macOS"]
 
 
+def max_runs(name, cfg=None):
+    """The most model turns `name` runs at once (`[machines."NAME"] max_runs`), or None: no cap."""
+    cfg = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}) if cfg is None else cfg
+    config._work_in(cfg)
+    if name == HERE:
+        return None
+    named = cfg.get("machines")
+    table = named.get(name) if isinstance(named, dict) else None
+    return table.get("max_runs") if isinstance(table, dict) else None
+
+
 def known():
     """Every machine ak may use, this one first, as the ticks found it: each listed, so the
     tick asks each what it is."""

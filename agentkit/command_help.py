@@ -239,7 +239,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                 "then copy from that home to the same paths here each harness's logins, every account's,\n"
                 "and the folders its conversations are in, then ~/code file by file, its .git folders and\n"
                 "links too, then ak's folder with every run, each folder in ak's runs on either machine,\n"
-                "but its .git folders and each run's tmp* and .box-* folders; the rest of ak's runs is\n"
+                "but its .git and .box-* folders and each run's tmp* folders; the rest of ak's runs is\n"
                 "each machine's own.  It sends what changed, compressed, and what the home deleted in\n"
                 "those folders goes here too; a login or folder the home lacks stays here.  Nor does it\n"
                 "copy a folder in ~/code or ak's wt or work the home's account cannot list or enter, with\n"
