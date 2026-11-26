@@ -85,6 +85,13 @@ def main():
             return 2
         if sub in SUBS and command_help.show(sub if argv and argv[0] == sub else "", rest):
             return 0
+        if sub == "run" and rest[:1] != ["gc"] and (alias := config.server_alias()):
+            # A client's runs are on its home, and a standby holds a copy of their records with no
+            # process of theirs here: refused before `versions.dispatch` reads one and enters the
+            # version it names, which may be older than this refusal.  `ak run gc` is the
+            # collector's, below.
+            raise config.Error(f"this machine is a client of {alias} and has no runs: "
+                               f"they are on {alias}")
         if sub in ("run", "hand-in"):
             from agentkit import versions
             versions.dispatch(argv)
