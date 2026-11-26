@@ -4386,9 +4386,10 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on.  `cells` are a model row's (first, last, column), for a
     click, counted from 1 as the terminal counts: its marks and efforts, never its label, which
-    a click acts on nothing of. On a phone the cells give way,
-    then the label, and where one cell of label still leaves the roles too little room each role
-    folds onto a line of its own under the label, its head before it instead of over it.
+    a click acts on nothing of. On a phone the cells give way, then the room a role keeps for
+    words it does not show, then the label, and where one cell of label still leaves the roles
+    too little room each role folds onto a line of its own under the label, its head before it
+    instead of over it.
     `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is the For line over the
     headings, and a seat's efforts are its record's (config.at_efforts).
     """
@@ -4405,23 +4406,30 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             levelled[name, number] = terminal.effort_cells(len(taken), taken.index(
                 effort) + 1 if effort in taken else 0)
     shows = {name: config_columns(selected, name) for name in names}
-    # every listed model's, marked or not: nothing moves a column (the owner, 26 Nov 2026)
-    beside = [(name, number) for name in names for number in (3, 4, 5)]
     label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
+    # each role's words: every one a listed model, marked or not, may say there, and those shown
+    may = {number: [word for name in names for word in (efforts[name, number], *levels[name])]
+           for number in (3, 4, 5)}
+    shown = {number: [efforts[name, number] for name in names if number in shows[name]]
+             for number in (3, 4, 5)}
 
-    def widths(tall):
-        """Each role's mark (` ● `, a space before cells), then its efforts under its head; with
-        cells a word as wide as any listed model's widest, so nothing moves a column."""
+    def widths(tall, words):
+        """Each role's mark (` ● `, a space before cells), then its efforts under its head: the
+        cells, then the widest of its `words`."""
         mark = (4 if tall else 3) if selected else 0
-        wide = {number: max([terminal.cells(head) - mark, *(
-            tall + 2 + max(map(terminal.cells, (efforts[key], *levels[key[0]]))) if tall
-            else terminal.cells(efforts[key]) for key in beside if key[1] == number)])
+        wide = {number: max(terminal.cells(head) - mark, (tall + 2 if tall else 0) + max(
+            map(terminal.cells, words[number]), default=0))
             for number, head in enumerate(orch.ROLE_HEADS, 3)}
         return {**{number - 3: mark for number in wide if mark}, **wide}
-    tall = max((len(levelled[key]) for key in beside), default=0)   # the cells, before every word
-    width = widths(tall)
-    if 2 + label + 6 + sum(width.values()) > room:       # the bars give way, the words stay
-        tall, width = 0, widths(0)
+    bars = max(map(len, levelled.values()))                 # the cells, before every word
+    # A role keeps room for every word it may say, so neither a mark nor a step moves a column
+    # (the owner, 26 Nov 2026), wherever every name is whole beside it: the bars give way, then
+    # that room, a column before a name is cut (docs/cli-design.md) -- on 40 cells it would
+    # leave the shipped models' names two.
+    for tall, words in ((bars, may), (0, may), (0, shown)):
+        width = widths(tall, words)
+        if 2 + label + 6 + sum(width.values()) <= room:
+            break
     # a barred model's word after the most cells any model has; one with no cells beside its mark
     leads = {key: "".join(cells) + " " * (tall + 2 - len(cells)) if tall and cells else ""
              for key, cells in levelled.items()}
