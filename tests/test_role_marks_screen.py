@@ -249,7 +249,8 @@ class RoleMarksScreen(unittest.TestCase):
         screen.models()
         screen.picker()
         screen.send(DOWN * 20)
-        lines = screen.picker(lambda lines: "MiMo" in highlighted(lines))
+        lines = screen.picker(lambda lines: "OpenCode" in lines
+                              and highlighted(lines).startswith("› M"))
         self.assertLessEqual(len(lines), 12)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         row = lines.index(highlighted(lines)) + 1
@@ -259,7 +260,7 @@ class RoleMarksScreen(unittest.TestCase):
         back = next((number, line.index("esc back") + 1) for number, line in enumerate(lines, 1)
                     if "esc back" in line)
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
-        screen.picker(lambda lines: "MiMo" in highlighted(lines)
+        screen.picker(lambda lines: "OpenCode" in lines and highlighted(lines).startswith("› M")
                       and marks(highlighted(lines)) == "○□■")
         row, col = back
         mark = len(screen.text())

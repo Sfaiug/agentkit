@@ -93,7 +93,7 @@ class WordWithNoBar(unittest.TestCase):
         self.assertEqual(
             [word.start() for word in re.finditer(r"none|xhigh", haiku_line2)],
             [bars[0], *bars2], f"\n{opus_line2}\n{haiku_line2}")
-        self.assertLessEqual(bars2[0], bars[1])         # role columns are no wider than today
+        self.assertEqual(bars2[0], bars[1])             # role columns stay in place
         self.assertEqual(bars2[1] - bars2[0], bars[2] - bars[1])
         term2.keys("Down", "Right", "Right", "Right", "Right", "Right", "Space")
         term2.wait(lambda screen: "xhigh" not in model_row(screen, "Haiku 4.5")[0])

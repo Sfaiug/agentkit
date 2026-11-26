@@ -4409,17 +4409,20 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     shows = {name: config_columns(selected, name) for name in names}
     beside = [(name, number) for name in names for number in shows[name] if number >= 3]
     label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
+    word = max((terminal.cells(level) for taken in levels.values() for level in taken), default=0)
 
     def widths(tall):
-        """Each role's mark (` ● `, a space before cells), then its efforts under its head; with
-        cells a word as wide as its model's widest, so a step moves no column after it."""
+        """Each role's mark (` ● `, a space before cells), then its effort column sized from the
+        listed models' bars and widest effort, widened only for a shown retired word."""
         mark = (4 if tall else 3) if selected else 0
-        wide = {number: max([terminal.cells(head) - mark, *(
-            tall + 2 + max(map(terminal.cells, (efforts[key], *levels[key[0]]))) if tall
-            else terminal.cells(efforts[key]) for key in beside if key[1] == number)])
+        lead = tall + 2 if tall else 0
+        wide = {number: max([
+            terminal.cells(head) - mark, lead + word,
+            *((lead if levelled[key] else 0) + terminal.cells(efforts[key])
+              for key in beside if key[1] == number)])
             for number, head in enumerate(orch.ROLE_HEADS, 3)}
         return {**{number - 3: mark for number in wide if mark}, **wide}
-    tall = max((len(levelled[key]) for key in beside), default=0)   # the cells, before every word
+    tall = max((len(cells) for cells in levelled.values()), default=0)   # the cells, before every word
     width = widths(tall)
     if 2 + label + 6 + sum(width.values()) > room:       # the bars give way, the words stay
         tall, width = 0, widths(0)
