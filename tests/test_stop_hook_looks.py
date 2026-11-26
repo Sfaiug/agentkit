@@ -34,7 +34,7 @@ class StopHookLooks(live.LiveStatus):
         env = {key: value for key, value in os.environ.items()
                if key not in ("AK_RUN_ROLE", "NO_COLOR")}
         env.update({"PATH": f"{fake.parent}:{os.environ['PATH']}", "AGENTKIT_SESSION": "herdr",
-                    "FAKE_TMUX_LOG": str(log), "FAKE_TMUX_SLOW": "0"})
+                    "FAKE_TMUX_LOG": str(log)})
 
         def run(script, payload):
             subprocess.run(["bash", str(REPO / "hooks" / script)], input=json.dumps(payload),
