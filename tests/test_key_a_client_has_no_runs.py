@@ -22,9 +22,9 @@ RUN = "20260101-0000-fix-api"
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AClientHasNoRuns(unittest.TestCase):
-    # a collection that runs sweeps /tmp: the box gives it one holding only this Home
-    @unittest.skipUnless(boxable(), "no bwrap able to give the collection a /tmp of its own")
-    def test_each_command_names_the_home_and_touches_nothing(self):
+    def refused(self, *commands, boxed=False):
+        """Each of `commands` after `ak run` exits 2 naming the home, leaves the record byte for
+        byte as it was and opens no session."""
         with Home() as home:
             akconfig.write(home, ["opus"])
             # the version the run was launched on, older than this refusal: its bin/ak exits 0
@@ -33,16 +33,23 @@ class AClientHasNoRuns(unittest.TestCase):
                                 {"run_id": RUN, "state": "interrupted", "pid": 2147483647,
                                  "started_at": 1, "interrupted_at": 1,
                                  "ak_checkout": str(home.path / "old-ak")})
-            task = home.write("fix-api.md", "# Fix the api\n")
+            home.write("fix-api.md", "# Fix the api\n")
             home.write(".agentkit/state/server", "acme-box\n")
             before = record.read_bytes()
-            for args in (["status"], ["resume", RUN], ["merge", RUN], ["stop", RUN], [str(task)],
-                         ["gc"]):
-                done = home.ak("run", *args, input="", boxed=True)
+            for args in commands:
+                done = home.ak("run", *args, input="", boxed=boxed)
                 self.assertEqual(done.code, 2, (args, done.out, done.err))
                 self.assertIn("acme-box", done.err, args)
             self.assertEqual(record.read_bytes(), before)
             self.assertEqual(home.tmux("list-sessions", "-F", "#{session_name}").out.split(), [])
+
+    def test_each_command_names_the_home_and_touches_nothing(self):
+        self.refused(["status"], ["resume", RUN], ["merge", RUN], ["stop", RUN], ["fix-api.md"])
+
+    # a collection that runs sweeps /tmp: the box gives it one holding only this Home
+    @unittest.skipUnless(boxable(), "no bwrap able to give the collection a /tmp of its own")
+    def test_collection_takes_nothing(self):
+        self.refused(["gc"], boxed=True)
 
     def test_without_the_record_status_answers(self):
         with Home() as home:
