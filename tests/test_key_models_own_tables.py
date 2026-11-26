@@ -118,7 +118,7 @@ def used_home():
     """A Home of MODELS whose team now's 20 tasks all went live, having taken, on plans priced as
     tests/test_key_models_json_money.py prices them and recorded as
     tests/test_key_models_json_run_usage.py records them: nova orchestrating 10 points of Max 20x
-    ($200, 180 euros), bolt building 12 of ChatGPT's Pro ($200, no euro price) and 4 of its $500
+    ($200, 180 euros), bolt building 3 of ChatGPT's Pro ($200, no euro price) and 4 of its $500
     plan, crux reviewing none."""
     home = home_of([("now", 20, 20, {})])
     logins = {"anthropic": ["default"], "openai": ["default", "second"]}
@@ -130,7 +130,7 @@ def used_home():
         (provider, account, "weekly", used, THEN + DAY, 7 * DAY, THEN - ago * HOUR, "probe",
          plan, None)
         for provider, account, plan, rose in (("anthropic", "default", "max 20x", 10),
-                                              ("openai", "default", "pro", 12),
+                                              ("openai", "default", "pro", 3),
                                               ("openai", "second", "promax", 4))
         for ago, used in ((50, 0), (40, rose))],
         "seat_usage": [("claude:event-0", THEN - 45 * HOUR, 100_000, "default", "nova-7", "nova",
@@ -223,12 +223,13 @@ class ModelsOwnTables(unittest.TestCase):
                 OWN[10], f"■ Crux 2[ medium{' ' * 13}0"])
 
     def test_a_builder_s_two_priced_plans_read_their_money_and_shares_summed(self):
-        # bolt: (12 points * $200 + 4 * $500) / 20 tasks / 100 * 12 / 52, and 16 / 20 points
+        # bolt: (3 points * $200 + 4 * $500) / 20 tasks / 100 * 12 / 52, and 7 / 20 points,
+        # exactly 0.35, which no float holds
         self.assertEqual(self.took(), {"Acme": "$0.23 · 0.5% of a week",
-                                       "Bolt": "$0.51 · 0.8% of a week", "Crux": "-"})
+                                       "Bolt": "$0.30 · 0.4% of a week", "Crux": "-"})
 
     def test_a_plan_with_no_price_leaves_the_share_alone(self):
-        self.assertEqual(self.took("EUR")["Bolt"], "0.8% of a week")
+        self.assertEqual(self.took("EUR")["Bolt"], "0.4% of a week")
 
     def test_euros_read_with_the_euro_sign(self):
         self.assertEqual(self.took("EUR")["Acme"], "€0.21 · 0.5% of a week")
