@@ -1,7 +1,6 @@
 package machines
 
 import (
-	"errors"
 	"slices"
 
 	"agentkit/internal/config"
@@ -9,13 +8,13 @@ import (
 )
 
 // Work is the work m's marks allow, as Python's machines.work: this one every kind, another as
-// Takes takes config.MachineWork's; false where those cannot be read.
-func (m Machine) Work() ([]string, bool) {
+// Takes takes config.MachineWork's; refused where those cannot be read.
+func (m Machine) Work() ([]string, error) {
 	if m.Name == Here {
-		return []string{"turns", "tests"}, true
+		return []string{"turns", "tests"}, nil
 	}
-	work, known := config.MachineWork(m.Name)
-	return m.Takes(work), known
+	work, err := config.MachineWork(m.Name)
+	return m.Takes(work), err
 }
 
 // MaxRuns is the most model turns m runs at once (`[machines."NAME"] max_runs`) as decimal digits,
@@ -52,9 +51,9 @@ func implied() ([]config.Marks, error) {
 		if each.Name == Here {
 			continue
 		}
-		work, known := each.Work()
-		if !known {
-			return nil, errors.New("config.toml's marks cannot be read")
+		work, err := each.Work()
+		if err != nil {
+			return nil, err
 		}
 		implied = append(implied, config.Marks{Machine: each.Name, Work: work})
 	}

@@ -17,8 +17,9 @@ import (
 // for every machine ak may use, this one first, Enter opening its work but on this one's.  Last,
 // `+ add a machine` takes an ssh address, with the line that makes a new machine ready under its
 // field, and adds the machine once it answers, else says why not (machines.Ask, machines.Add);
-// Esc while it is asked goes back, nothing written.  A config.toml that will not load closes it,
-// what it returns saying why for `c` to show under its rows; false hands it to Python.
+// Esc while it is asked goes back, nothing written.  A read of config.toml that fails closes it,
+// what it returns saying why for `c` to show under its rows, as Python's config.Error brings the
+// owner back; false hands it to Python.
 func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) (string, bool) {
 	join := sync.OnceValues(machines.JoinLine) // made as the field first opens: it makes ak's key
 	add := menu.PageRow{Label: "+ add a machine", Field: func(typed string) string {
@@ -49,15 +50,15 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) (strin
 			}
 			return append(lines, s.Unbroken("    "+line)...)
 		}}
-	var why error // what the last read of the file said
+	var why error // the read of config.toml that failed
 	if configPage("machines", "", func() ([]menu.PageRow, bool) {
 		if why = config.Check(); why != nil {
 			return nil, false
 		}
 		var rows []menu.PageRow
 		for _, machine := range machines.Known() {
-			work, known := workWords(machine)
-			if !known {
+			var work string
+			if work, why = workWords(machine); why != nil {
 				return nil, false
 			}
 			row := menu.PageRow{Label: machine.Name, Value: machine.Overview() + " · " + work}
@@ -81,8 +82,8 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) (strin
 // the machine afresh, as a probe may land while the page is open.
 func menuMachineWork(name string, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	return configPage("machines · "+name, "", func() ([]menu.PageRow, bool) {
-		work, known := machines.Named(name).Work()
-		if !known {
+		work, err := machines.Named(name).Work()
+		if err != nil {
 			return nil, false
 		}
 		var rows []menu.PageRow
@@ -112,8 +113,8 @@ func flipWork(name, word string) string {
 }
 
 // workWords is the work a machine's marks allow as the page names it (menu.work_words).
-func workWords(machine machines.Machine) (string, bool) {
-	work, known := machine.Work()
+func workWords(machine machines.Machine) (string, error) {
+	work, err := machine.Work()
 	var words []string
 	if machine.Name == machines.Here {
 		words = append(words, "sessions")
@@ -125,9 +126,9 @@ func workWords(machine machines.Machine) (string, bool) {
 		words = append(words, "tests")
 	}
 	if len(words) == 0 {
-		return "no work", known
+		return "no work", err
 	}
-	return strings.Join(words, ", "), known
+	return strings.Join(words, ", "), err
 }
 
 // saved is what a page says of a save, Python's menu._saved: nothing where it held.

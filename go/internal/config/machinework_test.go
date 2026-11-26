@@ -33,8 +33,8 @@ func TestAMachineTakesSuitesAsPythonReadsItsMarks(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte(each.toml), 0o666); err != nil {
 			t.Fatal(err)
 		}
-		if work, known := MachineWork("acme"); (known && slices.Contains(work, "tests")) != each.want {
-			t.Errorf("%q: work %v (known %v), want suites %v", each.toml, work, known, each.want)
+		if work, err := MachineWork("acme"); (err == nil && slices.Contains(work, "tests")) != each.want {
+			t.Errorf("%q: work %v (%v), want suites %v", each.toml, work, err, each.want)
 		}
 	}
 	home := t.TempDir()

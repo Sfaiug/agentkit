@@ -53,7 +53,7 @@ work = ["tests"]
 			t.Errorf("%s: %#v, want %#v", key, got[key], value)
 		}
 	}
-	if work, known := MachineWork("acme-linux"); !known || !reflect.DeepEqual(work, []string{"turns", "tests"}) {
-		t.Errorf("read back: %v %v", work, known)
+	if work, err := MachineWork("acme-linux"); err != nil || !reflect.DeepEqual(work, []string{"turns", "tests"}) {
+		t.Errorf("read back: %v %v", work, err)
 	}
 }
