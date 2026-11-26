@@ -710,17 +710,19 @@ def moving(clock, wake=None, timeout=TICK, going=None, rest=True):
         left = until - time.monotonic()
 
 
-def asking(clock, around, going=lambda: None):
-    """How a screen drawn on `clock` asks yes or no: `ask(question, meaning, answer)`, the answer
-    on the card terminal.confirm draws by `around(card, keys)`, which comes up on that clock as
-    a page's rows do, as touched news, `asked`, from the first frame that shows it (`framed`,
-    and `draw` on the ak screen).  Its frames are drawn while the answer is waited for
+def asking(clock, around, going=lambda: None, title=""):
+    """How a screen drawn on `clock` asks yes or no: `ask(question, meaning, answer, doing="")`,
+    the answer on the card terminal.confirm draws by `around(card, keys)`, which comes up on that
+    clock as a page's rows do, as touched news, `asked`, from the first frame that shows it
+    (`framed`, and `draw` on the ak screen).  Its frames are drawn while the answer is waited for
     (`moving`), `going()`'s fetch looked at, and a key, not the pointer, ends them, answered as
     it is read on the card as it was drawn: one that keeps it draws it at rest, as a resize
     does, and no more of it is drawn after one that answers.  With nothing to draw, a key, a
     resize or the fetch landing alone is waited for, as on a page that draws nothing more.  Its
     highlight comes up with it, and news that moves the card, a count landing, moves the
-    highlight with it (`motion.Clock.hold`): only a key or the pointer moves it on the card."""
+    highlight with it (`motion.Clock.hold`): only a key or the pointer moves it on the card.
+    When `doing` is given and `answer` is picked on a taken terminal, `terminal.doing` puts the
+    screen up again with `title` then `doing` in the header before the caller's work runs."""
     def wait():
         fetching, moves = going(), clock.wait() is not None
         if fetching or moves:     # no TICK's redraw where nothing moves: it scrolls eight rows
@@ -733,10 +735,14 @@ def asking(clock, around, going=lambda: None):
             clock.settle()
         return key
 
-    def ask(question, meaning, answer):
+    def ask(question, meaning, answer, doing=""):
         clock.touch(("asked",))
         clock.hold()
-        return terminal.confirm(question, meaning, answer, around, wait)
+        if not terminal.confirm(question, meaning, answer, around, wait):
+            return False
+        if doing and terminal.taken():
+            terminal.doing(" · ".join(filter(None, (title, doing))))
+        return True
     return ask
 
 
@@ -4152,7 +4158,7 @@ def models_screen(cfg, session, selected, providers):
             shown = [*over, *lines[first:first + room]]
             return framed(clock, title, [*shown, *card], len(shown), card, keys,
                           page_places(places, first, room, len(over)))
-        ask = asking(clock, around)
+        ask = asking(clock, around, title=title)
         if act == "back":
             return
         if act in ("left", "right"):
@@ -4622,6 +4628,15 @@ def apply_held(cfg, seat, held, ask, providers=None):
     return "\n".join(filter(None, said))
 
 
+def restart_asked(cfg, name, model, ask, effort=None):
+    """What a seat's orchestrator move asks before restarting it: `ask` on the card, naming
+    `restarting` in the header once `Restart` is picked."""
+    return ask and (lambda kept: ask(
+        (RESTART_ASK if effort else MOVE_ASK).format(
+            name, config.model_name(cfg, model), effort),
+        MOVE_MEANS[kept], "Restart", "restarting"))
+
+
 def seat_effort(cfg, name, selected, model, effort, ask, providers=None):
     """Seat `name` moved to `model` with its orchestrator at `effort`, or at the one it runs
     `model` at for None, a restart once `Restart` is picked on the card `ask` asks on
@@ -4630,9 +4645,7 @@ def seat_effort(cfg, name, selected, model, effort, ask, providers=None):
     (orch.switch_orchestrator), and `selected` then holds it as it is.  What to say under the
     rows, or ""; None where Restart was not picked."""
     note = orch.switch_orchestrator(cfg, name, model, providers=providers, effort=effort,
-                                    asked=lambda kept: (
-        ask((RESTART_ASK if effort else MOVE_ASK).format(
-            name, config.model_name(cfg, model), effort), MOVE_MEANS[kept], "Restart")))
+                                    asked=restart_asked(cfg, name, model, ask, effort))
     try:
         selected.update(config.load_session(cfg, name, required=False) or {})
     except (config.Error, OSError) as exc:
@@ -4950,7 +4963,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             shown = [*over, *body[first:first + room]]
             return framed(clock, title, [*shown, *card], len(shown), card, keys,
                           {**meters, **page_places(places, first, room, len(over))})
-        ask = asking(clock, around)
+        ask = asking(clock, around, title=title)
         if act == "back" or born and act == "enter" and here[0] == "model":   # a meter opens
             # closing applies what the page holds; what that could not do keeps it open, said
             if not (note := seat and apply_held(cfg, seat, held, ask, providers)):
@@ -6767,9 +6780,7 @@ def session_mark(cfg, name, selected, model, column, providers, ask=None):
     """
     if column == 0:
         note = orch.switch_orchestrator(cfg, name, model, providers,
-                                        asked=ask and (lambda kept: ask(
-                                            MOVE_ASK.format(name, config.model_name(cfg, model)),
-                                            MOVE_MEANS[kept], "Restart")))
+                                        asked=restart_asked(cfg, name, model, ask))
         if note == "":
             selected["orchestrator"] = model
         return note or ""
