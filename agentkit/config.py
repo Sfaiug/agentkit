@@ -926,16 +926,18 @@ def company(cfg, maker):
 
 
 def _fall_back(defaults, left, written=True):
-    """Keep defaults to models `left`; executors written empty beside reviewers stay empty,
-    and a `[defaults]` that never named its executors falls back to the first model."""
+    """Keep defaults to models `left`; empty builders or reviewers written on a record with
+    `reviewers` stay empty, and a `[defaults]` that never named its executors falls back to
+    the first model."""
     if defaults.get("orchestrator") not in left:
         defaults["orchestrator"] = left[0]
     named = defaults.get("workers") or []
     defaults["workers"] = [model for model in named if model in left] or (
         [] if not named and written and "reviewers" in defaults else [left[0]])
     if "reviewers" in defaults:
-        defaults["reviewers"] = [model for model in defaults["reviewers"]
-                                if model in left] or [left[0]]
+        reviewers = defaults["reviewers"]
+        defaults["reviewers"] = [model for model in reviewers if model in left] or (
+            [] if not reviewers else [left[0]])
 
 
 _ASKED = {}       # (harness, account): when that login was last asked here, and the process asking
@@ -1762,8 +1764,8 @@ def _validate_session(cfg, name, data, prune=False):
         if role == "reviewers" and role not in data:
             continue
         listed = data.get(role)
-        # no executor is a choice once reviewers are named: the orchestrator builds everything
-        empty_ok = role == "workers" and "reviewers" in data
+        # empty builders or reviewers are a choice once reviewers is present; legacy records stay non-empty
+        empty_ok = "reviewers" in data
         if (not isinstance(listed, list) or not (listed or empty_ok)
                 or any(not isinstance(worker, str) for worker in listed)):
             raise Error(f"{session_path(name)}: {role} must be a non-empty list of model names")
@@ -1873,7 +1875,11 @@ def remember_defaults(record):
         return {"reviewers": table.get("workers"), **table} if isinstance(table, dict) else None
     try:
         with _config_lock():
-            if meant((_read_toml(HOME / CONFIG_NAME) or {}).get("defaults")) == meant(defaults):
+            current = (_read_toml(HOME / CONFIG_NAME) or {}).get("defaults")
+            if defaults.get("reviewers") == []:
+                # [defaults] cannot hold an empty list yet: leave [defaults].reviewers as it stands
+                defaults = ({**defaults, "reviewers": current["reviewers"]} if isinstance(current, dict) and "reviewers" in current else {key: value for key, value in defaults.items() if key != "reviewers"})
+            if meant(current) == meant(defaults):
                 return ""
             save(load(), defaults)
     except (Error, OSError) as exc:

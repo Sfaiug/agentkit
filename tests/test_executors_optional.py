@@ -49,12 +49,22 @@ class ExecutorsOptional(Sandbox):
         return {"orchestrator": found["orchestrator"], "workers": list(found["workers"]),
                 "reviewers": list(found["reviewers"])}
 
-    def test_record_without_executor_loads_and_one_without_reviewers_still_needs_one(self):
+    def test_record_without_executor_or_reviewers_loads_and_legacy_still_needs_one(self):
         self.assertEqual(config.load_session(self.cfg, "fix-api")["workers"], [])
         with self.assertRaisesRegex(config.Error, "workers must be a non-empty list"):
             config.save_session(self.cfg, "legacy", "opus", [])
-        with self.assertRaisesRegex(config.Error, "reviewers must be a non-empty list"):
-            config.save_session(self.cfg, "empty", "opus", [], {"reviewers": []})
+        config.save_session(self.cfg, "empty", "opus", [], {"reviewers": []})
+        loaded = config.load_session(self.cfg, "empty")
+        self.assertEqual((loaded["workers"], loaded["reviewers"]), ([], []))
+        config.save_session(self.cfg, "no-rev", "opus", ["opus"], {"reviewers": []})
+        self.assertEqual(config.load_session(self.cfg, "no-rev")["reviewers"], [])
+        # [defaults] cannot hold an empty reviewer list yet: remember_defaults leaves it as it stands
+        before = config.load()["defaults"].get("reviewers")
+        self.assertEqual(config.remember_defaults(loaded), "")
+        self.assertEqual(config.load()["defaults"].get("reviewers"), before)
+        self.assertTrue(record.review_off({"reviewers": []}))
+        self.assertFalse(record.review_off({"workers": ["opus"]}))
+        self.assertFalse(record.review_off({"reviewers": ["astra"]}))
 
     def test_task_launch_is_refused_before_any_run_or_job_exists(self):
         config.remember_defaults(config.load_session(self.cfg, "fix-api"))

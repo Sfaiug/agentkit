@@ -111,8 +111,9 @@ def policy_of(state):
 
 
 def review_off(state):
-    """Whether the launch captured zero review rounds: it picks no reviewer and has one round."""
-    return kept_policy(state).get("review_rounds") == 0
+    """Whether the run reviews nothing: zero review rounds, or a launch bound to no reviewers.
+    It picks no reviewer and has one round."""
+    return kept_policy(state).get("review_rounds") == 0 or state.get("reviewers") == []
 
 
 def no_review(state):

@@ -259,11 +259,12 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 # the change continues on that branch: the run the branch belongs to names it,
                 # and the rounds earlier runs spent on it are spent
                 change = change_on(from_branch, repo, exclude=run_dir)
-                n_rounds, why = round_budget(n_rounds, run_record.policy_of(receipt)["review_rounds"],
-                                             change=change, exclude=run_dir,
-                                             what=f"branch {from_branch}")
-                if why:
-                    raise config.Error(f"{task_path}: {why}")
+                if not run_record.review_off(receipt):
+                    n_rounds, why = round_budget(n_rounds, run_record.policy_of(receipt)["review_rounds"],
+                                                 change=change, exclude=run_dir,
+                                                 what=f"branch {from_branch}")
+                    if why:
+                        raise config.Error(f"{task_path}: {why}")
             if opts["--no-worktree"]:
                 wt, branch = repo, git(repo, "rev-parse", "--abbrev-ref", "HEAD")
                 log(f"no worktree: working directly in {wt} on {branch}")
@@ -2435,8 +2436,9 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
                       f"too big for the seat, which builds at most {limit} added "
                       f"lines. {action}")
-    return read, replacement_refusal(repo, target_sha, head, number, read, numbers["review_rounds"],
-                                     exclude=run_dir)
+    return read, (None if run_record.review_off(state)
+                  else replacement_refusal(repo, target_sha, head, number, read,
+                                           numbers["review_rounds"], exclude=run_dir))
 
 
 def unanswered_head(repo, head):
@@ -2631,9 +2633,10 @@ def review_pr(cfg, run_dir, url, opts, log):
 def review_pr_round(cfg, run_dir, url, opts, log):
     """Check out the PR head, have the reviewer judge it, post the verdict, land or offer."""
     receipt = run_record.read_state(run_dir) or {}
+    off = run_record.review_off(receipt)
     workers, reviewers = config.role_groups(cfg, run_workers(cfg, receipt),
                                             receipt.get("reviewers"))
-    if reviewers is not None:
+    if reviewers is not None and not off:
         refuse_outside_group(cfg, opts.get("--review"), reviewers, "reviewer")
     reviewers = reviewers if reviewers is not None else workers
     session_at_launch = launch_session(run_dir)
@@ -2658,7 +2661,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         with run_record.record(run_dir) as current:
             current.pop("landing_fix", None)
     rnd, turn = own_pr_fix(prior if is_own else {})
-    off = run_record.review_off(receipt)
     n_rounds = 0 if off else 1
     if is_own:
         # the pull request's budget, less what earlier runs spent on it: this run's rounds
@@ -2955,7 +2957,7 @@ def settle_pr_round(lp, url, info):
     if why:
         # a post-retry resume carrying `--rounds` never reopens a budget this round already cut
         lp.rounds = state["rounds"] = len(state["round_summaries"])
-    if is_own and (verdict == "FAIL" or not posted) and not why and (
+    if is_own and not off and (verdict == "FAIL" or not posted) and not why and (
             lp.rnd < lp.rounds or extra_round(state, lp.rnd + 1)):
         state.update(state="running", finished_at=None, own_pr_wait=head)
         state.pop("recovery_pending", None)
@@ -2980,6 +2982,8 @@ def own_pr_budget(url, run_dir, own=0):
     (`extra_round`) is left while the run goes on from the FAIL before it, waiting for its
     push (`own_pr_wait`) or reviewing it (`own_pr_round_pending`): a review that ended has none."""
     state = run_record.read_state(run_dir) or {}
+    if run_record.review_off(state):
+        return 0, None
     if (state.get("own_pr_wait") or state.get("own_pr_round_pending")) and extra_round(state, own + 1):
         return 1, None
     budget = run_record.policy_of(state)["review_rounds"]
