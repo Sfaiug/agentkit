@@ -22,19 +22,10 @@ import (
 // job's directory, and once every task delivered the job's line is typed at the seat's quiet prompt
 // once, its receipt saying so with nothing left pending.
 func TestASeatsBackgroundJobHandsItsLineBackOnce(t *testing.T) {
-	home := queuedHome(t)
-	t.Setenv("AK_MAX_RUNS", "0") // a job a gate decides is Python's
+	home := seatJobHome(t)
 	t.Setenv("AK_TEST_DONE", "1")
-	t.Setenv("AGENTKIT_SESSION", "acme")
-	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), `{"orchestrator": "opus", "workers": ["opus"], `+
-		`"cwd": "`+home+`", "created": 1799000000, "conversation": "conv-acme", "id_source": "launcher", "resumable": true}`)
 	quiet(t, home)
-	var paths []string
-	for _, name := range []string{"api", "db"} {
-		path := filepath.Join(home, "tasks", "fix-"+name+".md")
-		write(t, path, "---\nrepo: none\n---\n# Fix the "+name+"\n\n## Done when\n```bash\ntrue\n```\n")
-		paths = append(paths, path)
-	}
+	paths := jobTasks(t, home)
 
 	var out bytes.Buffer
 	code, why, err := Job(paths, map[string]string{}, map[string]bool{"--bg": true}, &out)

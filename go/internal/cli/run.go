@@ -132,7 +132,7 @@ func validateRun(args []string) string {
 			budget, err := launch.Budget(path)
 			problem := launch.RoundsRefusal(parsed.values["--rounds"], budget, err)
 			if problem == "" {
-				problem = launch.UsersRefusal(path)
+				problem = launch.SeatTaskRefusal(path, parsed.flags, len(parsed.words) > 1)
 			}
 			if problem != "" {
 				return problem

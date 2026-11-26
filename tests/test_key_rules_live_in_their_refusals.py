@@ -63,6 +63,9 @@ class RulesLiveInTheirRefusals(unittest.TestCase):
     def test_a_seat_with_no_open_plan_line_is_told_to_add_one(self):
         self.assertIn("ak plan add", self.refused(planned=False))
 
+    def test_a_task_matching_no_open_plan_line_is_told_to_add_one(self):
+        self.assertIn("ak plan add", self.refused(done_when=("test -f api.txt",)))
+
     def test_rounds_past_the_budget_are_refused_to_split_or_re_scope(self):
         self.assertIn("split or re-scope", self.refused(front={"rounds": 4}))
 

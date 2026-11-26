@@ -41,7 +41,7 @@ def launch(case, health, executor, reviewer, front=(), repo=None, then=lambda ta
     case.rig = rig = Rig(home, "widget",
                          files={"AGENTS.md": f"---\ntests: true\nhealth: {health}\nusers: none\n---\n"})
     case.gh = GitHub(home)
-    case.seat = Seat(home, "acme", cwd=rig.path, planned=True,
+    case.seat = Seat(home, "acme", cwd=rig.path, planned=(f"test -f {name}.txt" for name in "abc"),
                      record={"workers": ["opus"], "reviewers": ["astra"]})
     shared = home.root / "adapters"
     case.fakes = fakeadapter.install(home, codex=reviewer, claude=executor(shared)

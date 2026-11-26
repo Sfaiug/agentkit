@@ -89,6 +89,10 @@ class AntigravitySeatStates(unittest.TestCase):
                          "draftwhiletaskruns")
         self.assertEqual(watch._composer_rows("antigravity", pane("background-draft"),
                                               exact=True), ["draft while task runs"])
+        # agy 1.5.18 lists four of five and `↓ 1 more`: with that row ak read nothing (26 Nov 2026)
+        self.assertEqual(watch.composer_draft("antigravity", pane("more-background-draft")),
+                         "Runacme-fixendedPASSandmerged;itsresultisin~/fix-api/result.md,andthenext"
+                         "taskoftheplanwaitsforyourwordbeforeitstarts.")
 
     def test_a_draft_says_its_own_words_never_the_footer_or_key_hint(self):
         # the owner reads it under the seat's row; the model footer and the chooser's key hint
