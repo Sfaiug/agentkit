@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, boards
-from test_key_models_json_counts_tasks_by_team import FAILED, STOPPED, history, run
+from test_key_models_json_counts_tasks_by_team import FAILED, STOPPED, counted, history, run
 
 # Each run as RUN in the key of the tasks by team: merged, an hour of build, half of review, a
 # quarter of checks and an hour waiting
@@ -56,6 +56,15 @@ class ModelsJsonCountsTasksBySize(unittest.TestCase):
         self.assertEqual([team["tasks"] for team in runs["teams"]], [6])
         self.assertEqual(runs["sizes"], [size(100, 2, 2, 100, 2.0), size(200, 1, 1, 101, 1.0),
                                          size(300, 1, 1, 250, 3.0), size(500, 1, 0, 0, 1.0)])
+
+    def test_a_size_past_float_precision_lands_in_its_own_hundred(self):
+        large = 2 * 10**18
+        done = counted([run("fix-at", 2, first_review_lines=large),
+                        run("fix-over", 1, first_review_lines=large + 1)], [])
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(json.loads(done.out)["runs"]["sizes"], [
+            size(large, 1, 1, large, 1.0),
+            size(large + 100, 1, 1, large + 1, 1.0)])
 
 
 if __name__ == "__main__":
