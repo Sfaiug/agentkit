@@ -1,12 +1,13 @@
 """Every page comes up as a page `c` opens does (motion.Clock.rise): the company list, its
 `add a company`, `why`, the list a harness adds a model from, a card, a new seat's row, its caret,
 and the line under it, a working seat's plan line beside them, are each written, as they open,
-a frame whose text is part way from the background to its colour before the one at rest; a key
-that changes nothing read half way is answered at rest, and one read at rest, a resize or a way
-back from the screen it opened draws it only at rest.  A mark turned on or off on the company
-list is written half way before it is on or off: a dim `■` in the open one's ink, the owner's
-font rule's for the task's `▣` (tests/test_key_motion_every_font_carries.py).  The owner (10
-Nov 2026): "make it animation consistent. [...] We want ak to feel like one app."
+a frame whose text is part way from the background, or the highlight it is on, to its colour
+before the one at rest; a key that changes nothing read half way is answered at rest, and one
+read at rest, a resize or a way back from the screen it opened draws it only at rest.  A mark
+turned on or off on the company list is written half way before it is on or off: a dim `■` in
+the open one's ink, the owner's font rule's for the task's `▣`
+(tests/test_key_motion_every_font_carries.py).  The owner (10 Nov 2026): "make it animation
+consistent. [...] We want ak to feel like one app."
 
 Black-box: `AK_BIN`'s menu in a person's terminal (tests/fixtures/akterm.py) in every colour,
 over tests/test_key_models_company_list.py's boards and harnesses and the OpenCode of
@@ -26,6 +27,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
+from test_key_a_screen_is_painted import BLACK
 from test_key_lists_name_what_enter_does import OPENCODE
 from test_key_models_answer import ENV
 from test_key_models_company_list import boards
@@ -33,6 +35,7 @@ from test_key_models_on import MODELS
 
 HALF = 0.075    # seconds: half the 0.15 a screen takes to come up (motion.FADE)
 UPDATE = "\x1b[?2026l"      # a synchronized update's end: what it wrote shows at once
+HIGHLIGHT = tuple(bytes.fromhex(BLACK[2]))      # the theme's selection, (r, g, b)
 SIZES = (100, 40), (100, 41)    # the terminal's, a resize from one to the other
 ENV = {**{name: value for name, value in ENV.items() if name != "NO_COLOR"},
        "COLORTERM": "truecolor"}      # every colour as it is, and no network but a dead proxy
@@ -103,11 +106,12 @@ class EveryScreenComesUp(unittest.TestCase):
             time.sleep(0.05)
         return found
 
-    def comes_up(self, keys, text, still="x"):
-        """`keys` pressed, the clock standing: `text` written in the background first, half way
-        through the motion part way to its colour, and, once `still`, a key that changes
-        nothing, is pressed there, in its colour, which it returns; `still` pressed again, and
-        the screen then written whole on a resize, it is written only in that colour."""
+    def comes_up(self, keys, text, still="x", lit=False):
+        """`keys` pressed, the clock standing: `text` written in the background first, or the
+        highlight's where it is `lit` on it, half way through the motion part way to its colour,
+        and, once `still`, a key that changes nothing, is pressed there, in its colour, which it
+        returns; `still` pressed again, and the screen then written whole on a resize, it is
+        written only in that colour."""
         self.at(self.now + 100)
         since = self.raw.stat().st_size
         self.term.keys(*keys)
@@ -116,7 +120,8 @@ class EveryScreenComesUp(unittest.TestCase):
         half = self.inks(text, since, lambda found: found[-1] != background)[-1]
         self.term.keys(still)         # the clock still half way: the key ends the motion
         found = self.inks(text, since, lambda found: found[-1] != half)
-        self.assertEqual(background, tuple(map(int, re.search(     # every write's first colour
+        # the screen's background, every write's first colour, or the highlight it is lit on
+        self.assertEqual(background, HIGHLIGHT if lit else tuple(map(int, re.search(
             rb"\x1b\[48;2;(\d+);(\d+);(\d+)", self.raw.read_bytes()).groups())), found)
         self.assertNotIn(found[-1], found[:found.index(half)])     # never at rest before
         self.assertTrue(all(min(b, r) <= h <= max(b, r)
@@ -183,9 +188,10 @@ class EveryScreenComesUp(unittest.TestCase):
     def test_a_new_seats_row_comes_up(self):
         Seat(self.home, "acme", model="mid", screen="claude-working-pane.txt", planned=True)
         self.term.wait("0 of 1")      # its plan's line on screen, set up again on every draw
-        for text in ("▏", "build and review"):     # the row `n` makes, and the line it opens
+        # the row `n` makes, and the line it opens, on the highlight
+        for text in ("▏", "build and review"):
             with self.subTest(text=text):
-                self.comes_up(["n"], text, "Down")
+                self.comes_up(["n"], text, "Down", lit=True)
                 self.term.keys("Escape")    # the row dropped, for `n` to make it again
 
 
