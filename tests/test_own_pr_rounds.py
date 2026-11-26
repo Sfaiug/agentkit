@@ -376,6 +376,39 @@ class OwnPrRounds(OwnPr):
         self.assertEqual((state["state"], state["merged"]), ("pass", True))
         self.assertIsNone(history.get(self.run_dir.name)["first_review_lines"])
 
+    def test_a_checks_only_landing_fix_may_grow_past_the_seat_size_cap(self):
+        with record.record(self.run_dir) as saved:
+            saved["policy"] = {"review_rounds": 0, "orchestrator_lines": 1}
+        run.preflight(self.run_dir, {"--review-pr": URL}, lambda _: None)
+        attempts = []
+
+        def verify(lp):
+            lp.validation = gitcall.commit_identity(lp.wt)
+            return True, ""
+
+        def landing_step(lp, _upstream, _deliver):
+            attempts.append(lp.state["head_sha"])
+            if len(attempts) == 1:
+                failure = self.run_dir / "red.log"
+                failure.write_text("required checks failed: fixture\n")
+                return deliver.fail_pr_landing(lp, {"line": failure.read_text().strip(),
+                                                    "log": str(failure)})
+            lp.state["merged"] = True
+            return True
+
+        def repair(lp):
+            with (lp.wt / "fence.txt").open("a") as path:
+                path.write("ready\n")
+            gitcall.git(lp.wt, "commit", "-qam", "Repair the landing check")
+
+        with patch.object(self, "fix", side_effect=repair), \
+                patch.object(run, "verify_work", side_effect=verify), \
+                patch.object(deliver, "join_line", side_effect=landing_step):
+            state = self.review([])
+        self.assertEqual(len(self.fixes), 1)
+        self.assertEqual((state["state"], state["merged"], len(attempts)), ("pass", True, 2),
+                         state.get("error"))
+
     def test_a_later_review_of_the_pr_in_a_new_run_reviews_what_the_fix_left(self):
         earlier = config.RUNS / "own-pr-earlier"        # an earlier run spent round 1 on this PR
         earlier.mkdir()

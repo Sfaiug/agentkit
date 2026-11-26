@@ -2809,9 +2809,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
 
     # preflight refuses these before the run waits for a slot; here again on the head checked
     # out, which may have moved since, as on a resume or a restart — checks-only runs too,
-    # where `own_pr_first_review` still enforces the seat's size cap
-    first = is_own and own_pr_first_review(repo, url, number, base_sha, target_sha,
-                                           head, run_dir)
+    # where `own_pr_first_review` still enforces the seat's size cap, except on ak's own
+    # landing repair (`landing_fix`), which has no prior review summary to exempt it
+    first = is_own and not landing_fix and own_pr_first_review(
+        repo, url, number, base_sha, target_sha, head, run_dir)
     why = is_own and (unanswered_head(repo, head) or (first or (0, None))[1])
     if why:
         lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
