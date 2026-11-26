@@ -19,9 +19,8 @@ then `────────────────────────�
 
 ## Width and rhythm
 
-The layout is at most 120 columns, seat content at most 100, and drawn for 40 columns,
-"40 cells and wider" (owner, 18 Nov 2026): a line that wraps or misplaces a click below 40 is
-no defect and gets no fix. A project's, harness's or company's name is bold, flush left over
+The layout is at most 120 columns, seat content 100, and drawn for 40 and wider (owner, 18 Nov
+2026): below 40 gets no fix. A project's, harness's or company's name is bold, flush left over
 its seats, models or subscriptions (`+ add a subscription`'s too), two spaces in; a blank
 line parts projects.
 
@@ -49,17 +48,16 @@ Words are plain and explain themselves.
 - **Progress:** every bar is a seat's progress line; every row ends in its tasks going:
   `━━━━╸──── 3 of 8 · 2 tasks` (owner, 11 Nov 2026; `terminal.plan_bar`,
   `terminal.share_line`).
-- **Over time:** a row of hourly marks runs oldest first in eighths of a cell (`▁` to `█`, full at
-  1 or more), `·` for an hour with no reading, or `no readings yet` when none has one.
+- **Over time:** hourly marks run oldest first in eighths (`▁`–`█`, full at 1 or more), `·` with
+  no reading, else `no readings yet`.
 
 Nothing explains itself on hover. A highlighted row opens its models alone (owner, 9, 17 Nov
 2026).
 
 ## Characters
 
-A screen draws only characters every terminal draws alike: Windows-1252, which every font
-carries, `−≈≤≥`, `●○■□✓▸◂←↑→↓⏎␣`, and Box Drawing and Block Elements, which a terminal draws
-itself (`tests/test_boundaries.py`).
+A screen draws only Windows-1252, `−≈≤≥`, `●○■□✓▸◂←↑→↓⏎␣`, and Box Drawing and Block Elements
+(`tests/test_boundaries.py`).
 
 ## States
 
