@@ -141,6 +141,19 @@ def _sum(values):
     return total if math.isfinite(total) else sum(fractions.Fraction(one) for one in values)
 
 
+def _mean_value(total, runs):
+    """`total / runs` as a float when it preserves a finite nonzero value, else an exact Fraction
+    so `matrix._costs` can still scale shares above or below float range and `matrix.dumped` can
+    print them without emitting Infinity or losing them to underflow."""
+    exact = total / runs
+    if isinstance(exact, fractions.Fraction):
+        out = matrix._to_float(exact)
+        return out if out is not None and (out != 0 or exact == 0) else exact
+    if not math.isfinite(exact) or (total and not exact):
+        return fractions.Fraction(total) / runs
+    return exact
+
+
 def roles(cfg):
     """(logins, shares) for `matrix._costs`.  `logins`: {provider: [(price, week)] of each login
     it still lists (`config.lists`) whose week holds some listed dollars, named or usual: what
@@ -201,7 +214,7 @@ def roles(cfg):
                 points = 0.0
             else:
                 points = 100 * dollars / week
-                if not math.isfinite(points):
+                if not math.isfinite(points) or (dollars and not points):
                     points = (fractions.Fraction(100) * fractions.Fraction(dollars)
                               / fractions.Fraction(week))
             each.append((points, dollars))
@@ -242,9 +255,8 @@ def roles(cfg):
             totals[name, effort, "orchestrator"] = one, runs
     found = {}
     for (name, effort, role), ((points, listed), runs) in totals.items():
-        share, dollars = matrix._to_float(points / runs), matrix._to_float(listed / runs)
-        if share is not None and dollars is not None:
-            found.setdefault(name, {}).setdefault(effort, {})[role] = share, runs, dollars
+        found.setdefault(name, {}).setdefault(effort, {})[role] = (
+            _mean_value(points, runs), runs, _mean_value(listed, runs))
     return {provider: [(usage.price(cfg, provider, account), fit[1])
                        for account, fit in logins.items()
                        if fit[1] and config.lists(cfg, provider, account)]

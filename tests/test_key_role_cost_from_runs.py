@@ -294,7 +294,7 @@ class RoleCostFromRuns(unittest.TestCase):
         self.assertEqual(parsed["execute"]["cost_unit"], "money")
         self.assertEqual(parsed["execute"]["front"], [])
         self.assertTrue(all(row["cost"] is None for row in parsed["execute"]["others"]))
-        # an out-of-range task share (tiny fitted week) drops from task_usage instead of failing
+        # an out-of-range task share (tiny fitted week) still produces valid JSON without Infinity
         cached = board()
         for row in cached["artificialanalysis.ai"]["rows"]:
             if row["model"] == "Anvil 1":
@@ -307,7 +307,47 @@ class RoleCostFromRuns(unittest.TestCase):
         done = self.home.ak("models", "--json", env=ENV)
         self.assertEqual(done.code, 0, done.out + done.err)
         parsed = json.loads(done.out, parse_constant=invalid_constant)
-        self.assertEqual(parsed["task_usage"], {})
+        self.assertEqual(parsed["task_usage"]["crown"]["high"]["executor"], sys.float_info.max)
+
+    def test_exact_share_preserves_finite_dollar_cost_outside_float_range(self):
+        def reject_constant(token):
+            raise ValueError(token)
+
+        for name, monthly, tiny_model, tiny_price, fit_tokens, turn_cost in (
+            ("above", 0.01, "Anvil 1", 1e-308, 4_000_000, 8.0),
+            ("below", 1e308, "Crown 1", 1e-323, 4_000_000_000, 2e-323),
+        ):
+            with self.subTest(name):
+                case = RoleCostFromRuns()
+                case.setUp()
+                self.addCleanup(case.doCleanups)
+                config_path = case.home.path / ".agentkit/config.toml"
+                header = '[providers."acme"]'
+                config_path.write_text(config_path.read_text().replace(
+                    header, f"{header}\nprice = {monthly}"))
+                cached = board()
+                for row in cached["artificialanalysis.ai"]["rows"]:
+                    if row["model"] == tiny_model:
+                        row["values"]["aa.price1mInputTokens"] = tiny_price
+                case.home.write(".agentkit/state/boards.json", cached)
+                case.history.rows["meter_readings"].clear()
+                case.history.rows["seat_usage"].clear()
+                case.history.week("acme", "default", "echo", "anvil-1", fit_tokens, 20, "Max")
+                case.history.run(("crown", "high"),
+                                 built=[[("default", "crown-1", (2_000_000, 0, 0, 0))]])
+                case.history.save()
+                usage = case.home.ak("usage", "--json", env=ENV)
+                self.assertEqual(usage.code, 0, usage.out + usage.err)
+                week = json.loads(usage.out, parse_constant=reject_constant)[
+                    "providers"]["acme"]["accounts"]["default"]["week_listed_usd"]
+                done = case.home.ak("models", "--json", env=ENV)
+                self.assertEqual(done.code, 0, done.out + done.err)
+                execute = json.loads(done.out, parse_constant=reject_constant)["execute"]
+                crown = next(row for row in execute["front"] + execute["others"]
+                             if row["release"] == "crown-1")
+                expected = monthly * (12 / 52) / week * turn_cost
+                self.assertEqual((execute["cost_unit"], crown["cost_rule"]), ("money", "measured"))
+                self.assertTrue(math.isclose(crown["cost"], expected), (crown["cost"], expected))
 
     def test_exact_pricing_avoids_intermediate_overflow_in_means(self):
         # three logins at sys.float_info.max average cleanly in money unit
