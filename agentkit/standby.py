@@ -99,6 +99,8 @@ LINKED = {3: config.RUNS, 4: config.CODE}
 # it: rsync's sender exits 23 for one and deletes nothing.  The walk opens no file, of the
 # million in them; it follows no link, which rsync copies as one, and enters no `.git` folder:
 # none crosses from ak's folder, and under ~/code what the home cannot read in one fails the pass.
+# Under `wt` and `work`, it also enters no box's scratch: rsync leaves it out of ak's folder, and
+# a live box makes folders of mode 000 inside it during a pass; under ~/code it still does.
 # By whatever python3 the home's ssh finds, which may be older than ak's: so it imports nothing of
 # ak's, comes on its input and is given the folders, LINKED's first.
 ASK = f"""import os, sys
@@ -114,16 +116,22 @@ for run in found:
     if run.is_dir():
         sys.stdout.buffer.write(run.name + b"\\0")
 sys.stdout.buffer.write(b"\\0")
-folders = [os.fsencode(top) for top in (code, wt, work) if not os.path.islink(top)]
+folders = [(os.fsencode(top), skip_box)
+           for top, skip_box in ((code, False), (wt, True), (work, True))
+           if not os.path.islink(top)]
 while folders:
+    folder, skip_box = folders.pop()
     try:
-        found = list(os.scandir(folders.pop()))
+        found = list(os.scandir(folder))
     except FileNotFoundError:
         found = []
     for entry in found:
-        if entry.is_dir(follow_symlinks=False) and entry.name != b".git":
+        if entry.is_dir(follow_symlinks=False):
+            if entry.name == b".git" or (
+                    skip_box and entry.name.startswith({os.fsencode(box.SCRATCH)!r})):
+                continue
             if os.access(entry.path, os.R_OK | os.X_OK):
-                folders.append(entry.path)
+                folders.append((entry.path, skip_box))
             else:
                 sys.stdout.buffer.write(entry.path + b"\\0")
         elif entry.is_file(follow_symlinks=False) and not os.access(entry.path, os.R_OK):
