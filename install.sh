@@ -40,6 +40,10 @@ OS=$(uname -s)
 . "$REPO/tools/linux-machine.sh"
 TTY=0; if [ -t 0 ] && [ -t 1 ]; then TTY=1; fi
 have() { command -v "$1" >/dev/null 2>&1; }
+# A program's file, as another process finds it: type -P looks past a wrapper function, which
+# serves this shell alone, and -x refuses the file bash names when none on PATH can run.  sudo
+# runs apt-get's file, and an adapter its model program's.
+program() { [ -x "$(type -P "$1")" ]; }
 note() { echo "note: $*" >&2; }
 # gh's bare login asks host, protocol, git and browser-or-token before its one-time code;
 # these answer all four (`--web` takes github.com, and setup-git follows the login)
@@ -99,11 +103,10 @@ MACHINE=0
 if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   ARCH=$(uname -m)
   # Under Rosetta `uname -m` reads x86_64 and hw.optional.arm64 still says Apple silicon.
-  # type -P names apt-get's file behind a wrapper function, and -x refuses one it cannot run.
   if [ "$OS" = Darwin ] && { [ "$ARCH" = arm64 ] ||
        [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; }; then
     MACHINE=1 ROLE=client ALIAS=$LINUX_MACHINE
-  elif [ "$OS" != Linux ] || [ ! -x "$(type -P apt-get)" ]; then
+  elif [ "$OS" != Linux ] || ! program apt-get; then
     echo "install.sh: ak installs on Debian, Ubuntu and a Mac with Apple silicon;" \
       "this machine is $OS $ARCH" >&2
     exit 1
@@ -345,7 +348,7 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
     name=${pair%%:*} h=${pair##*:}
     [ -f "$REPO/adapters/$h.sh" ] || continue
     present="$present${present:+ }$name"
-    if have "$name"; then installed="$installed${installed:+ }$name"; fi
+    if program "$name"; then installed="$installed${installed:+ }$name"; fi
   done
   chosen=${installed:-$present}
   if [ "$TTY" = 1 ] && [ -z "$installed" ] && [ -n "$present" ]; then
@@ -1445,17 +1448,22 @@ pending=""
 add_pending() { pending="$pending  $1"$'\n'; }
 [ -z "${CLIENT_PRUNE_PENDING:-}" ] || add_pending "$CLIENT_PRUNE_PENDING"
 if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
+  # One model program is enough (step 3), so the ones not chosen are not named: only a
+  # machine with none at all is told, once, how to get one.
+  found=""
   for h in claude codex muse grokbuild opencode antigravity; do
     # the harness is grokbuild; the binary it installs is grok, and antigravity's is agy
     bin=$h; [ "$h" = grokbuild ] && bin=grok; [ "$h" = antigravity ] && bin=agy
-    if ! have "$bin"; then
-      add_pending "$bin is not installed -- re-run ./install.sh with a network connection"
-    elif ! "$REPO/adapters/$h.sh" login </dev/null >/dev/null 2>&1; then
+    program "$bin" || continue
+    found=1
+    if ! "$REPO/adapters/$h.sh" login </dev/null >/dev/null 2>&1; then
       # </dev/null on purpose: the adapter only reports when there is no terminal to log in from
       case $h in opencode) how="paste the provider key";; antigravity) how="(open the URL, paste the code)";; *) how="(device code)";; esac
       add_pending "$bin login -- run \`$REPO/adapters/$h.sh login\` in a terminal $how"
     fi
   done
+  [ -n "$found" ] ||
+    add_pending "no model program is installed -- re-run ./install.sh in a terminal; it asks which to install"
   if have gh && ! gh auth status >/dev/null 2>&1; then
     add_pending "gh login -- \`$GH_LOGIN\`, so runs can push, open and merge PRs"
   fi
