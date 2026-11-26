@@ -25,7 +25,11 @@ rsync writes straight into the copy, sending what changed within each file, comp
 owner's line; each file lands whole, the old one or the new one.  A pass cut short leaves some
 files newer than others, as any pass over a live home does within its own minutes: a repository
 the home writes meanwhile is here as it held it at no one moment, a lock file of git's among it.
-The next that ends well evens it out.
+The next that ends well evens it out.  While a transfer runs, the pass reads the clock ticks
+rsync and its children have used (`host.work_ticks`) once a second; a transfer whose reading
+stays the same for `TIMEOUT` seconds is sent SIGTERM, then SIGKILL `worker.KILL_GRACE` seconds
+later, and fails the pass, while one that keeps working, or runs where there is no /proc, is
+never ended for how long it takes.
 
 Under its lock, first of all, it reads the record of a server again, as a pass that held the lock
 meanwhile may have made this machine a home, has ak's tmux server here end each session marked as
@@ -79,8 +83,8 @@ import sys
 import tempfile
 import time
 
-from . import (box, command_help, config, lease, machine_turn, move, notify, orch,
-               pair_clock, record, terminal, update, versions)
+from . import (box, command_help, config, host, lease, machine_turn, move, notify, orch,
+               pair_clock, record, terminal, update, versions, worker)
 
 # This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
 # a client of, its ak install and whether its install.sh is owed, the pages it sent and owes
@@ -137,10 +141,11 @@ while folders:
         elif entry.is_file(follow_symlinks=False) and not os.access(entry.path, os.R_OK):
             sys.stdout.buffer.write(entry.path + b"\\0")
 """.encode()
-# Seconds of silence from the home that fail a pass: fewer where a key sets AK_STANDBY_TIMEOUT
-# to 1 to 99, so one can wait out a machine that stalls.  Any other value leaves 300, as only
-# shortening is of use, and none fails this module's import, which the tick makes before it reads
-# ak's lease, nor a wait too long for a selector.
+# Seconds of silence from the home, or of a transfer whose `host.work_ticks` reading stays the
+# same, that fail a pass: fewer where a key sets AK_STANDBY_TIMEOUT to 1 to 99, so one can wait
+# out a machine or transfer that stalls.  Any other value leaves 300, as only shortening is of
+# use, and none fails this module's import, which the tick makes before it reads ak's lease, nor a
+# wait too long for a selector.
 TIMEOUT = int((re.fullmatch(r"[1-9][0-9]?", os.environ.get("AK_STANDBY_TIMEOUT", ""))
                or ["300"])[0])
 # How long every pass has failed, from the first to fail after the stamp, when a failed pass pages
@@ -242,6 +247,49 @@ def _keep_job(alias):
     return True
 
 
+def _rsync(cmd, given):
+    """Run rsync as `cmd`, with `given` on its input from a file where given, in this pass's own
+    process group and on its terminal where it has one.  Read `host.work_ticks` of it once a
+    second: a transfer whose reading stays the same for `TIMEOUT` seconds is sent SIGTERM, then
+    SIGKILL where it has not exited `worker.KILL_GRACE` seconds later, and fails the pass.  Why
+    it failed, or None."""
+    # The runs' names are thousands, more than a pipe holds, so they come from a file before
+    # rsync starts rather than a pipe ak feeds while it watches.  No `with Popen`: its exit
+    # waits without end on a process that ignored SIGKILL.
+    if given is None:
+        proc = subprocess.Popen(cmd)
+    else:
+        with tempfile.TemporaryFile() as feed:
+            feed.write(given)
+            feed.flush()
+            feed.seek(0)
+            proc = subprocess.Popen(cmd, stdin=feed)
+    last, idle = None, 0
+    while True:
+        try:
+            code = proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            # A file the home deleted while rsync read it is no failure, as in a move: all that
+            # is still there crossed, and what this machine held of the file goes with the next
+            # pass.  A home at work deletes in its checkouts all the time: on 17 Nov a second
+            # and a third go each met more, and the passes failed for it.
+            return None if code in (0, move.VANISHED) else f"rsync exited {code}"
+        ticks = host.work_ticks(proc.pid)
+        if ticks is None or ticks != last:
+            last, idle = ticks, 0
+        elif (idle := idle + 1) >= TIMEOUT:
+            proc.terminate()
+            try:
+                proc.wait(timeout=worker.KILL_GRACE)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    proc.wait(timeout=worker.KILL_GRACE)
+            return f"rsync did nothing for {TIMEOUT} seconds"
+
+
 def _copy(alias, home, copied):
     """One pass from `alias`: `copied` under `home`, then each run of the home's or this
     machine's, then the rest of ak's folder.  Why it failed, or None."""
@@ -299,16 +347,10 @@ def _copy(alias, home, copied):
                           f"{alias}:{config.HOME}/", f"{config.HOME}/"], names),
                         ([f"--exclude=/{at}", *rules, f"{alias}:{config.HOME}/",
                           f"{config.HOME}/"], None)):
-        code = subprocess.run([
+        if why := _rsync([
             "rsync", "-aHz", "--no-D", "--delete", "--modify-window=-1", f"--timeout={TIMEOUT}",
-            *(["--info=progress2"] if sys.stdout.isatty() else []), *args],
-            input=given).returncode
-        # A file the home deleted while rsync read it is no failure, as in a move: all that is
-        # still there crossed, and what this machine held of the file goes with the next pass.
-        # A home at work deletes in its checkouts all the time: on 17 Nov a second and a third
-        # go each met more, and the passes failed for it.
-        if code not in (0, move.VANISHED):
-            return f"rsync exited {code}"
+            *(["--info=progress2"] if sys.stdout.isatty() else []), *args], given):
+            return why
     return None
 
 
