@@ -63,6 +63,39 @@ def proc_stat(pid, proc_root=PROC):
         return None
 
 
+def work_ticks(pid, proc_root=PROC):
+    """The clock ticks `pid` and each process whose parent it is have used, themselves and in
+    the children they have waited for; None where /proc cannot be listed or `pid`'s stat cannot
+    be read.  `proc_root` as in `proc_stat`.
+
+    No total, only a reading to compare: two that differ say work was done.  Each child is
+    read before `pid`, so a child `pid` waits for between the two reads counts twice rather
+    than not at all, and a child gone before its read adds nothing.  What a child has waited
+    for is in its own stat, so its children are not read: each read is another chance of a
+    process gone or a pid reused, and a parent that starts its workers itself, as rsync its
+    receiver and its ssh, needs none.
+    """
+    root = Path(proc_root)
+    try:
+        read = [_ticks(root / entry) for entry in os.listdir(root) if entry.isdigit()]
+    except OSError:
+        return None
+    children = sum(ticks for parent, ticks in filter(None, read) if parent == pid)
+    own = _ticks(root / str(pid))
+    return None if own is None else own[1] + children
+
+
+def _ticks(process):
+    """(parent, ticks used itself and by the children it has waited for) of a process, or None
+    where its stat cannot be read."""
+    try:
+        fields = _stat_fields(process)
+        utime, stime, cutime, cstime = map(int, fields[11:15])
+        return int(fields[1]), utime + stime + cutime + cstime
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def environ_span(pid):
     """(first, past last) address of that process's start environment in its memory, the bytes
     its /proc environ shows; None where its stat cannot say."""
