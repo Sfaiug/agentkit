@@ -1,8 +1,9 @@
-"""Under each line limit on `config · limits`, how changes of each size did: builds by 100 lines
-of first review, passed in round 1, own pull requests once per change by 25, merged in round 1;
-bars below the limit, then one from it up marked `over`, following a limit changed on the page,
-paged with ↓ on a short terminal, read from a history from before runs had a kind.  Black-box,
-the owner's design of 5 Nov 2026: history.db rows in the Home, `AK_BIN` in a person's terminal
+"""Under `orchestrator_lines` on `config · limits`, how own pull requests of each size did: once
+per change by 25 lines of first review, merged in round 1; bars below the limit, then one from it
+up marked `over`, following a limit changed on the page, paged with ↓ on a short terminal, read
+from a history from before runs had a kind.  Builds, which `executor_lines` shows by what they
+took (tests/test_key_limits_size_table.py), are in no bar.  Black-box, the owner's design of
+5 Nov 2026: history.db rows in the Home, `AK_BIN` in a person's terminal
 (tests/fixtures/akterm.py), judged by the screen without colour; it fails against `/bin/false`.
 """
 
@@ -63,14 +64,9 @@ LEFT_OUT = [("20260920-1200-fix-api-11", "acme/api#9", "PR", None, "pass", 1, 50
             ("20260927-1200-review-pr-api-11", "acme/api#11", "seat PR", "fable", "running", 1, None,
              15, FIRST - 9 * DAY, None)]
 
-EXECUTOR = "how often a build passed its first review, by size · 10 builds since 1 Oct"
 ORCHESTRATOR = ("how often an orchestrator's own pull request merged in its first round, "
                 "by size · 6 since 4 Oct")
 # (bar, passed, count, over) in the order drawn, at each limit
-EXECUTOR_300 = [("0–99", 2, 4, False), ("100–199", 2, 3, False), ("200–299", 0, 1, False),
-                ("300+", 2, 2, True)]
-EXECUTOR_500 = [*EXECUTOR_300[:3], ("300–399", 1, 1, False), ("400–499", 1, 1, False),
-                ("500+", 0, 0, True)]
 ORCHESTRATOR_50 = [("0–24", 2, 3, False), ("25–49", 1, 2, False), ("50+", 1, 1, True)]
 ORCHESTRATOR_100 = [*ORCHESTRATOR_50[:2], ("50–74", 1, 1, False), ("75–99", 0, 0, False),
                     ("100+", 0, 0, True)]
@@ -129,9 +125,9 @@ def made_home(cleanup, columns=COLUMNS):
     return home
 
 
-def opened(case, home, row):
+def opened(case, home, row, size=(100, 40)):
     """`config · limits` from `c`, in a window of its own, the pointer on `row`."""
-    term = Terminal(home, size=(100, 40), env={"NO_COLOR": "1"})
+    term = Terminal(home, size=size, env={"NO_COLOR": "1"})
     case.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                     server=SERVER)
     term.wait("esc leave")
@@ -152,25 +148,21 @@ class SizeCharts(unittest.TestCase):
     def setUpClass(cls):
         cls.home = made_home(cls.addClassCleanup)
 
-    def test_executor_bars_each_hundred_up_to_the_limit_then_over_it(self):
-        # a pull request's review counted would add a build to 0–99 and move the day
-        shown = opened(self, self.home, "Max lines per executor task").wait(drawn(EXECUTOR_300))
-        self.assertIn(f"\n  {EXECUTOR}\n", shown)
-
     def test_orchestrator_bars_own_pull_requests_once_each_by_their_largest_first_review(self):
-        # counted per run, or sized by its first run, #1 would add to 0–24
+        # counted per run, or sized by its first run, #1 would add to 0–24; a build counted would
+        # add to the count and move the day
         shown = opened(self, self.home, "Max lines per orchestrator task").wait(
             drawn(ORCHESTRATOR_50))
         self.assertIn(f"\n  {ORCHESTRATOR}\n", shown)
 
     def test_on_a_short_terminal_down_and_up_turn_the_chart_pages_before_leaving_the_row(self):
-        term = opened(self, self.home, "Max lines per executor task")
+        term = opened(self, self.home, "Max lines per orchestrator task")
         term.resize(100, 15)          # the rows and the heading, the bars a page on
-        first = lambda screen: ("› Max lines per executor task" in screen and EXECUTOR in screen
-                                and not bars(screen))
+        first = lambda screen: ("› Max lines per orchestrator task" in screen
+                                and ORCHESTRATOR in screen and not bars(screen))
         term.wait(first)
         term.keys("j")
-        term.wait(drawn(EXECUTOR_300))
+        term.wait(drawn(ORCHESTRATOR_50))
         term.keys("k")
         term.wait(first)
 
@@ -179,12 +171,10 @@ class SizeCharts(unittest.TestCase):
 class ChangedLimit(unittest.TestCase):
     def test_the_bars_follow_a_new_limit_on_a_history_from_before_runs_had_a_kind(self):
         home = made_home(self.addCleanup, [column for column in COLUMNS if column != "kind"])
-        term = opened(self, home, "Max lines per executor task")
-        for before, after in ((EXECUTOR_300, EXECUTOR_500), (ORCHESTRATOR_50, ORCHESTRATOR_100)):
-            term.wait(drawn(before))
-            term.keys("Right", "Right")   # two steps up: 300 to 500, 50 to 100
-            term.wait(drawn(after))
-            term.keys("j")            # on to the orchestrator's limit
+        term = opened(self, home, "Max lines per orchestrator task")
+        term.wait(drawn(ORCHESTRATOR_50))
+        term.keys("Right", "Right")   # two steps up: 50 to 100
+        term.wait(drawn(ORCHESTRATOR_100))
 
 
 if __name__ == "__main__":

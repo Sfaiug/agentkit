@@ -490,20 +490,26 @@ def policy(checkout=None):
     not answer at launch, gives the host's numbers, and preflight reports the repository as it
     does today: nothing is cloned or resolved to read a number, so a clone with no origin/HEAD
     yet gives the host's too, never what the branch it stands on says."""
-    numbers = host_policy()
     if checkout is None:
-        return numbers
+        return host_policy()
     from . import gitcall     # here, not at the top: gitcall imports this module
     try:
         # one read for every number: each prompt of every seat asks (`orch.rulebook_due`), and
         # no fetch can land between reads to mix two commits' numbers
         text = gitcall.git(checkout, "show", f"{RULES_REF}:AGENTS.md", check=False)
     except Exception:
-        return numbers
+        text = ""
+    return declared_policy(checkout, text)
+
+
+def declared_policy(checkout, text):
+    """The POLICY numbers the front matter of `text`, `checkout`'s AGENTS.md, declares, the
+    host's for the rest."""
+    from . import gitcall     # here, not at the top: gitcall imports this module
     declared = {key: gitcall.front_value(text, key) for key in (*POLICY, *POLICY_RENAMES)}
     return _policy_in(Path(checkout) / "AGENTS.md", {
-        **numbers, **{key: int(value) if re.fullmatch("[0-9]+", value) else value
-                      for key, value in declared.items() if value is not None}})
+        **host_policy(), **{key: int(value) if re.fullmatch("[0-9]+", value) else value
+                            for key, value in declared.items() if value is not None}})
 
 
 def _policy_in(path, data):
@@ -672,7 +678,8 @@ def load():
 
 
 def _work_in(cfg):
-    """Refuse work marks no machine knows, even on a table not used for placement."""
+    """Refuse work marks no machine knows, and bad machine caps, even on a table not used for
+    placement."""
     named = cfg.get("machines")
     for label, table in [("google_cloud", cfg.get("google_cloud", {})),
                          *((f"machines.{name}", table) for name, table in
@@ -682,6 +689,11 @@ def _work_in(cfg):
             if not isinstance(value, list) or any(word not in ("turns", "tests") for word in value):
                 raise Error(f"{HOME / CONFIG_NAME}: [{label}].work must list only turns and tests "
                             f"(got {value!r})")
+        if label != "google_cloud" and isinstance(table, dict) and "max_runs" in table:
+            value = table["max_runs"]
+            if type(value) is not int or value < 1:
+                raise Error(f"{HOME / CONFIG_NAME}: [{label}].max_runs must be a whole number of "
+                            f"1 or more (got {value!r})")
 
 
 def offered(cfg):
@@ -2695,8 +2707,11 @@ def seat_rulebook(session, repo=None):
         # `repo` is a new seat's, which no record says until it opens (`orch.for_seat`): a record
         # under its name is then the seat's before it, whose builders are not this one's
         seat, repo = (session, record.get("repo")) if repo is None else (None, repo)
-        numbers = seat_numbers(seat, policy(repo) if repo else said_policy())
-    project = gitcall.agents_body(repo, RULES_REF)
+        # its numbers and its text from one read: a fetch between two would hand it one
+        # revision's numbers beside another's rules
+        text = gitcall.agents_text(repo, RULES_REF)
+        numbers = seat_numbers(seat, declared_policy(repo, text) if repo else said_policy())
+    project = gitcall.agents_body(text)
     body = rulebook_text(numbers=numbers)
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "

@@ -141,8 +141,8 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, google_cloud, logins, look, machines, open_runs, parsed, record
-from . import standby, takers, warm
+from . import done_check, google_cloud, ledger, logins, look, machines, open_runs, parsed, record
+from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
 KEYS = "n new   c config   esc leave"
@@ -6414,20 +6414,22 @@ def rounds_chart(runs):
                       for (name, _, word), each in zip(endings, hours)])
 
 
-def size_chart(runs, limit, step, heading, noun=""):
-    """How changes of each size did (`runs`, history.first_review_sizes) under a line limit, the
-    evidence it is set from (the owner's design of 5 Nov 2026): under `heading`, a bar of each
-    `step` lines below `limit`, then one from it up marked `over`, of what ran under a higher one;
-    with none, up to the largest.  Each: its share passed, as a whole percent, and its count."""
+def size_chart(runs, limit):
+    """How orchestrators' own pull requests of each size did (`runs`,
+    history.first_review_sizes) under `orchestrator_lines`, the evidence it is set from (the
+    owner's design of 5 Nov 2026): a bar of each 25 lines below `limit`, then one from it up
+    marked `over`, of what ran under a higher one; with none, up to the largest.  Each: its share
+    merged in round 1, as a whole percent, and its count."""
+    heading = "how often an orchestrator's own pull request merged in its first round, by size"
     if not runs:
         return bar_chart(f"{heading} · none yet", [])
+    step = 25
     dash, limited = "–" if terminal.utf8() else "-", type(limit) is int
-    counted = f"{len(runs)} {noun}{'s' * (len(runs) != 1)}" if noun else str(len(runs))
     top = limit if limited else (max(size for _, size, _ in runs) // step + 1) * step
     sizes = [*((f"{low}{dash}{min(low + step, top) - 1}", low, min(low + step, top), "")
                for low in range(0, top, step)), *[(f"{top}+", top, float("inf"), "over")] * limited]
     held = [[passed for _, size, passed in runs if low <= size < high] for _, low, high, _ in sizes]
-    return bar_chart(f"{heading} · {counted} since "
+    return bar_chart(f"{heading} · {len(runs)} since "
                      + time.strftime("%-d %b", time.localtime(runs[0][0])),
                      [(name, sum(each) / max(1, len(each)), "done",
                        f"{round(100 * sum(each) / len(each))}%" if each else "", str(len(each)),
@@ -6481,8 +6483,8 @@ def rounds_said(runs, held):
 
 
 def lines_said(key, runs, held):
-    """What `key`'s changes would have done at `held` lines, `runs` the ones its size_chart
-    draws (history.first_review_sizes): those of `held` lines or more -- where the owner's design
+    """What `key`'s changes would have done at `held` lines, `runs` its kind's of
+    history.first_review_sizes: those of `held` lines or more -- where the owner's design
     of 5 Nov 2026 splits them -- split, for builds under `executor_lines`, or made tasks, for
     orchestrators' own pull requests under `orchestrator_lines`, and how often their first review
     passed, or round 1 merged them, beside the rest; off, or past the largest, what they can't
@@ -6519,22 +6521,22 @@ def lines_said(key, runs, held):
 def config_limits(cfg):
     """`Limits`: each of LIMIT_NAMES' numbers a row (config_page) under its name there,
     its value and `default N` where that is not ak's default, then under each
-    what it means and, where it has them, how its runs did (rounds_chart, size_chart) and what
-    they would have done at its value (rounds_said, lines_said), read as the page opens and
-    said again as the value moves: each explanation before its evidence.  ← and → move the
+    what it means and, where it has them, how its runs did (rounds_chart, size_table, size_chart)
+    and what they would have done at its value (rounds_said, lines_said), read as the page opens
+    and said again as the value moves: each explanation before its evidence.  ← and → move the
     pointed one a step (limit_step), saved to config.toml at once where config.host_policy takes
     it.  The owner's design of 5 Nov 2026."""
     ended = history.round_endings()
     builds, own = history.first_review_sizes()
+    sizes = ledger.counted()["sizes"]
     # each number's chart and what its runs would have done at `held`; one no run records how
     # it did yet has neither
     evidence = {"review_rounds": lambda held: (rounds_chart(ended), rounds_said(ended, held)),
-                "executor_lines": lambda held: (size_chart(
-                    builds, held, 100, "how often a build passed its first review, by size",
-                    "build"), lines_said("executor_lines", builds, held)),
-                "orchestrator_lines": lambda held: (size_chart(
-                    own, held, 25, "how often an orchestrator's own pull request merged in its "
-                    "first round, by size"), lines_said("orchestrator_lines", own, held))}
+                "executor_lines": lambda held: (
+                    size_table.lines(sizes, held, terminal.layout_width()),
+                    lines_said("executor_lines", builds, held)),
+                "orchestrator_lines": lambda held: (
+                    size_chart(own, held), lines_said("orchestrator_lines", own, held))}
 
     def under(key, held):      # what the row means, its chart, what its runs would have done
         meaning = config.POLICY[key][2]
