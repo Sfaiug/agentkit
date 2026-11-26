@@ -12,7 +12,8 @@ model's highest effort sends a light through its word, a mark set fills and one 
 one whose change was refused shakes;
 a popup's content fades in once, as it opens, a card as it is asked, and a page's under its
 header as it opens, its name writing itself out in the header; the rule under a screen's
-header glides while its content is fetched, a spinner turning beside what ak waits on;
+header glides while its content is fetched and a light passes once along it when a count ends
+(`Clock.sweep`), a spinner turning beside what ak waits on;
 the highlight comes from toward the accent and fades where it left (`Clock.light`) -- and
 every motion runs on this same clock, every light that travels in the theme's rainbow (`lit`)
 (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
@@ -36,7 +37,7 @@ FRAME = 1 / 20      # at most twenty frames a second
 # Each kind of motion takes one time wherever it is drawn (docs/cli-design.md, Motion).
 FADE = 0.15         # seconds what comes up out of the background takes: a row's line, page, popup
 FILL = 0.1          # ... a cell takes to fill or empty: a mark, an effort's cell
-SWEEP = 0.45        # ... a light takes to pass once: across a done seat's line, an effort's word
+SWEEP = 0.45        # ... a light takes to pass once: across a done seat's line, an effort's word, a rule
 BREATH = 2.0        # ... a breathing cell out to its dimmer tone and back, and a light's round
 DIMMER = 0.5        # ... that tone: half way from its colour to the background
 PULSE = 0.3         # seconds each of the two pulses of a `!` that turned `needs you` takes
@@ -441,6 +442,11 @@ class Clock:
         takes, it moves from there, as a page's rows do."""
         self.touched[key] = math.inf
 
+    def sweep(self):
+        """A light passes once along the header's rule from the first frame that shows it
+        (`sweeping`)."""
+        self.touch(("rule",))
+
     def begin(self, key, start, row, since, before):
         """News at `key` (`look`) started on screen row `row` by `start(clock, row, since,
         before)`, touched news not yet shown by the frame that first shows it."""
@@ -466,15 +472,22 @@ class Clock:
     def drawn(self, moves, row):
         """A draw's frame: every cell it wrote over still, then each of its `moves` -- (line,
         key, value, start) -- that is news (`look`) started on the screen row `row(line)` puts
-        it on, by `start(clock, row, since, before)`, None where it is not shown; the first
-        frame, at the clock's phase so nothing jumps, and whether the screen up comes up in it
-        as it opens (`rise`)."""
+        it on, by `start(clock, row, since, before)`, None where it is not shown, and the
+        header's rule swept once if asked (`sweep`); the first frame, at the clock's phase so
+        nothing jumps, and whether the screen up comes up in it as it opens (`rise`)."""
         self.clear()
         rising = self.rise(terminal.on_screen())
         news = self.look({key: value for _, key, value, _ in moves})
         for line, key, _, start in moves:
             if key in news and row(line) is not None:
                 self.begin(key, start, row(line), *news[key])
+        if (since := self.touched.get(("rule",))) is not None:
+            if since != math.inf and since + SWEEP <= moment():
+                del self.touched[("rule",)]
+            else:
+                self.begin(("rule",), lambda clock, at, since, _: clock.span(
+                    at, 1, *sweeping([terminal.rule_line(1)] * terminal.layout_width(), since)),
+                    2, since, None)
         return self.frame(), rising
 
     def start(self, cells, animation, until=None, effect=None):

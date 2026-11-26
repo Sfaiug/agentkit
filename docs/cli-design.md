@@ -107,7 +107,7 @@ one time (`motion.py`):
 
 - **Coming up:** a row's line, page, card, screens opening.
 - **Filling:** a mark, an effort's cell.
-- **A light passing:** a done line, an effort's top word.
+- **A light passing:** a done line, an effort's top word, a rule whose count ended.
 - **A light going round,** a breath: a line with no plan, a waiting rule.
 
 `motion.Clock` runs them where colour can move; a key ends each on its last frame.
