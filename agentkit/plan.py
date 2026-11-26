@@ -214,10 +214,12 @@ def place(name, project):
     path moved or reused, a name another checkout shares, proves nothing, and a branch
     checked out there changes nothing."""
     shown, _, written = project.rpartition("#") if "#" in project else (project, "", "")
-    path = Path(shown).expanduser()
-    if not path.is_absolute() or not (path / ".git").exists():
+    try:
+        path = Path(shown).expanduser()
+        exists = path.is_absolute() and (path / ".git").exists()
+    except (OSError, RuntimeError, ValueError):
         return None
-    return path if written and holds(path, written) else None
+    return path if exists and written and holds(path, written) else None
 
 
 def holds(repo, commit, history=None):
