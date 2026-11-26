@@ -4,14 +4,12 @@ On a machine with none of the harnesses installed, a terminal run asks once whic
 to install and log in -- one of the adapters present, or all -- and only those go
 in.  With no terminal there is nobody to ask, so nothing is installed and each
 adapter only says whether it is logged in and the command that logs it in.  A run
-on a machine that has one keeps what it has and adds none unasked.  The closing
-summary stays the pending list, one line per missing thing.
+on a machine that has one keeps what it has and adds none unasked.
 
-Offline: section (3) and the pending section of the real install.sh, run against
-fixture adapters and a fixture PATH, with the answer on stdin.  The runs that
-look at the question itself hold a pty, because `read -p` shows its prompt only
-on a terminal.  No package, no network, no real harness, no HOME outside the
-fixture.
+Offline: section (3) of the real install.sh, run against fixture adapters and a
+fixture PATH, with the answer on stdin.  The runs that look at the question
+itself hold a pty, because `read -p` shows its prompt only on a terminal.  No
+package, no network, no real harness, no HOME outside the fixture.
 """
 
 import os
@@ -57,11 +55,10 @@ class InstallQuestion(unittest.TestCase):
         self.home = self.root / "home"
         self.home.mkdir()
         self.log = self.root / "adapter.log"
-        # The harness slice needs tr for the answer's case and whitespace; the
-        # pending slice needs stat, date and grep for its expiry arithmetic and its
-        # count.  Nothing else is on PATH, so no real harness, gh or tailscale -- all
-        # present on a developer box -- is in reach of the slice.
-        for tool in ("tr", "stat", "date", "grep"):
+        # The slice needs tr for the answer's case and whitespace.  Nothing else is
+        # on PATH, so no real harness, gh or tailscale -- all present on a developer
+        # box -- is in reach of the slice.
+        for tool in ("tr",):
             target = shutil.which(tool)
             self.assertIsNotNone(target, f"no {tool} on this box")
             (self.bindir / tool).symlink_to(target)
@@ -84,19 +81,19 @@ class InstallQuestion(unittest.TestCase):
                 "FAKE_ADAPTER_LOG": str(self.log)}
 
     def slice_script(self, start, end, tty):
-        """Section (3), or the pending section, of the real install.sh."""
+        """Section (3) of the real install.sh."""
         source = (REPO / "install.sh").read_text()
         begin = source.index(start)
-        block = source[begin:] if end is None else source[begin:source.index(end, begin + 1)]
-        ak = self.home / ".agentkit"
-        (ak / "secrets").mkdir(parents=True, exist_ok=True)
+        block = source[begin:source.index(end, begin + 1)]
+        helpers = "".join(f"{line}\n" for line in source.splitlines()
+                          if line.startswith(("have() ", "program() ")))
         return (
             "set -euo pipefail\n"
             f"REPO={shlex.quote(str(self.root / 'repo'))}\n"
-            f"AK={shlex.quote(str(ak))}\n"
-            "ROLE=server\nSANDBOX=0\nALIAS=\nOS=Linux\n"
+            f"AK={shlex.quote(str(self.home / '.agentkit'))}\n"
+            "ROLE=server\nSANDBOX=0\nOS=Linux\n"
             f"TTY={tty}\n"
-            "have() { command -v \"$1\" >/dev/null 2>&1; }\n"
+            f"{helpers}"
             "note() { echo \"note: $*\" >&2; }\n"
             f"{block}"
         )
@@ -243,6 +240,16 @@ class InstallQuestion(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(self.calls(), ["claude login", "grokbuild login"])
 
+    def test_a_file_it_cannot_run_is_no_harness(self):
+        # The adapter runs the harness's file, so one of its name that cannot run is none.
+        self.all_adapters()
+        self.binary("claude")
+        (self.bindir / "claude").chmod(0o644)
+        rc, out = self.run_harnesses_pty("codex\n")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("Which harness", out)
+        self.assertEqual(self.calls(), ["codex install", "codex login"])
+
     # --- no terminal -------------------------------------------------------
 
     def test_non_interactive_asks_nothing_and_lists_the_commands(self):
@@ -256,26 +263,6 @@ class InstallQuestion(unittest.TestCase):
         for _, stem in ADAPTERS:
             self.assertIn(f"{stem} login", self.calls())
             self.assertIn(f"run `{stem} login` in a terminal", out)
-
-    # --- the closing summary -----------------------------------------------
-
-    def test_pending_lists_one_line_per_missing_harness(self):
-        self.all_adapters()
-        proc = self.run_slice("# --- (i) what this run could not do", None, 0, "")
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        items = [line for line in proc.stdout.splitlines() if line.startswith("  ")]
-        for name, _ in ADAPTERS:
-            self.assertEqual(len([line for line in items
-                                  if f"{name} is not installed" in line]), 1)
-        # Installed but not logged in is the same shape: one login line, no install line.
-        for name, _ in ADAPTERS:
-            self.binary(name)
-        proc = self.run_slice("# --- (i) what this run could not do", None, 0, "")
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        items = [line for line in proc.stdout.splitlines() if line.startswith("  ")]
-        self.assertEqual([line for line in items if "is not installed" in line], [])
-        for name, _ in ADAPTERS:
-            self.assertEqual(len([line for line in items if f"{name} login --" in line]), 1)
 
 
 if __name__ == "__main__":

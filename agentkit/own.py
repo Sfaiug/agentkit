@@ -12,7 +12,7 @@ combination of models, and I would like to see why, in numbers".
 import math
 
 from . import config, menu, terminal
-from .ledger import HOURS, ROLES
+from .ledger import HOURS, ROLES, recorded
 
 FEW = 20        # a row of fewer tasks says only how many: a few tasks say nothing yet
 WORDS = {"orchestrator": "ORCHESTRATOR", "executor": "BUILDER", "reviewer": "REVIEWER"}
@@ -74,11 +74,6 @@ def by_role(teams, now):
         own[role] = [*(rows.pop(one) for one in in_use), *sorted(rows.values(), key=lambda row: (
             -row["tasks"], row["name"], row["effort"] is None, row["effort"] or ""))]
     return own
-
-
-def recorded(effort):
-    """A ledger team's effort, None where it names none or a blank one."""
-    return effort if isinstance(effort, str) and effort.strip() else None
 
 
 def lines(own, cfg, room):

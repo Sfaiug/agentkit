@@ -125,6 +125,12 @@ FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
          'set-option -pu -t "$p" @ak_was_$s; else tmux set-option -pu -t "$p" $s; fi; done; '
          'tmux set-option -pu -t "$p" @ak_floats; fi; l -U; true')
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
+# The size a seat opens at, nobody attached, where tmux's own is 80x24.  A harness's input box
+# can scroll a draft taller than it: one that shows half the pane's rows less five shows 7 of the
+# 11 rows ak's longest line (`watch.longest()`) takes on 80x24, and ak then has to know its line
+# from its last rows before it presses Enter; here the line takes 4 of 20 (measured 25 Nov 2026).
+# A client attached sizes the window to itself, and it keeps that size when the client has gone.
+SEAT_SIZE = "240x50"
 UPDATE_JOB = "update"      # the tmux session an update runs in, on the jobs server
 UPDATE_RESULT = "update-result"   # where it leaves the one line the menu shows when it is done
 NOTICES = "notices"        # the lines other jobs leave the menu (`leave_notice`), a stop's refusal
@@ -2111,7 +2117,7 @@ def server_conf():
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
     exits in the moment it opens has to survive that too, and the file is read before it runs;
-    so is what then brings it back (`hook_options`).
+    so is what then brings it back (`hook_options`).  A session opens SEAT_SIZE.
 
     The popup is sized for the client that opens it, read when the key is pressed: on a
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
@@ -2152,6 +2158,7 @@ def server_conf():
     return ("set -g mouse on\n"
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
+            f"set -g default-size {SEAT_SIZE}\n"
             + "".join(f"set -gq {option} {tmux_word(value)}\n"
                       for option, value in {**hook_options(), **look_options()}.items()) +
             "set -g allow-passthrough on\n"

@@ -149,6 +149,28 @@ def _task_usage(cfg):
     return spend.roles(cfg)
 
 
+def _rat(value):
+    """Finite float, int or Fraction `value` as an exact Fraction, else None."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, fractions.Fraction):
+        return value
+    if isinstance(value, int):
+        return fractions.Fraction(value)
+    return fractions.Fraction(value) if isinstance(value, float) and math.isfinite(value) else None
+
+
+def _to_float(value):
+    """Exact rational or numeric `value` as a finite float, else None."""
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except OverflowError:
+        return None
+    return out if math.isfinite(out) else None
+
+
 def _costs(rated, lineup, cfg, logins, shares):
     """Prices the rows of each role of `rated` ({role: `quality.rated`'s rows}) and returns the
     one unit every role is in: `board_dollars`, the boards' price of their own task, before any
@@ -205,8 +227,8 @@ def _costs(rated, lineup, cfg, logins, shares):
     # with a price and no week yet, on a plan no fitted login shares the name of, joins once it
     # has one.  The owner, 22 Nov 2026: "Leave it".
     def price(provider):
-        held = [one for one, _ in logins.get(provider, ()) if one is not None]
-        return sum(held) / len(held) if held else usage.price(cfg, provider)
+        held = [rat for one, _ in logins.get(provider, ()) if (rat := _rat(one)) is not None]
+        return sum(held) / len(held) if held else _rat(usage.price(cfg, provider))
     # every provider your runs measured, though no row the boards rate is its measured model
     prices = {provider: price(provider) for provider in {
         cfg["models"][name]["provider"] for name in config.offered(cfg) if shares.get(name)}}
@@ -214,25 +236,39 @@ def _costs(rated, lineup, cfg, logins, shares):
     mean = sum(known) / len(known) if known else None
 
     def week(price):    # a plan's week in the unit, 12/52 of the month a price pays for
-        return 100 if mean is None else (mean if price is None else price) * 12 / 52
+        if mean is None:
+            return fractions.Fraction(100)
+        month = mean if (rat := _rat(price)) is None else rat
+        return month * fractions.Fraction(12, 52)
 
     def cost(provider, points):
-        return week(prices[provider]) / 100 * points
+        pts = _rat(points)
+        return None if pts is None else week(prices[provider]) / 100 * pts
 
     def rate(provider, week):   # what a listed dollar takes of its logins' plans, in `week`'s unit
-        each = [week(price) / listed for price, listed in logins[provider]]
+        each = []
+        for price, listed in logins[provider]:
+            if isinstance(listed, float) and math.isinf(listed):
+                each.append(fractions.Fraction(0))
+            elif (rat := _rat(listed)) is not None and rat:
+                each.append(week(price) / rat)
+            else:
+                return None
         return sum(each) / len(each)
-    rates = {provider: (rate(provider, week), rate(provider, lambda _: 100))
+    rates = {provider: (rate(provider, week), rate(provider, lambda _: fractions.Fraction(100)))
              for provider in logins if logins[provider]}    # {provider: (in the unit, in points)}
-    either = sum(one for one, _ in rates.values()) / len(rates) if rates else None
+    known_rates = [one for one, _ in rates.values() if one is not None]
+    either = sum(known_rates) / len(known_rates) if known_rates else None
     # (role, provider, cost, board dollars, points, listed dollars)
-    samples = [(role, provider, cost(provider, points), board, points, listed)
+    samples = [(role, provider, cost(provider, points), board_rat, _rat(points), _rat(listed))
                for (role, release, effort), each in measured.items()
                for provider, points, _, listed in each
                for board in [rows[release, effort]["values"].get(quality.COSTS[role])]
-               if board is not None and board > 0]
+               if (board_rat := _rat(board)) is not None and board_rat > 0]
 
     def per_board_dollar(some, what):   # the cost, with `what` 4 the points, 5 the listed dollars
+        if any(one[what] is None for one in some):
+            return None
         return sum(one[what] for one in some) / sum(one[3] for one in some)
     for role, each in rated.items():
         # its own once a row of it is measured, though no board prices that row: other roles'
@@ -243,21 +279,23 @@ def _costs(rated, lineup, cfg, logins, shares):
             mine = measured.get((role, row["release"], row["effort"]))
             if mine:
                 provider, points, runs, _ = mine[0]
-                row.update(cost=cost(provider, points), cost_rule="measured", runs=runs,
-                           points=points, provider=provider)
+                row.update(cost=_to_float(cost(provider, points)), cost_rule="measured", runs=runs,
+                           points=_to_float(_rat(points)), provider=provider)
                 continue
             provider = providers.get(row["release"]) or config.company(cfg, row.get("maker"))
             own = [one for one in pool if one[1] == provider]
             if own:     # its provider's runs paid a board dollar at what its own plans take
                 factors = per_board_dollar(own, 2), per_board_dollar(own, 4)
             elif pool:  # any other provider's listed dollars take what they take of its plans
-                factors = [None if one is None else per_board_dollar(pool, 5) * one
+                listed_per = per_board_dollar(pool, 5)
+                factors = [None if one is None or listed_per is None else listed_per * one
                            for one in rates.get(provider, (either, None))]
             else:
                 factors = None, None
             # Without board dollars or a measured conversion, no same-unit estimate exists.
-            priced, points = (None if one is None or row["board_cost"] is None
-                              else row["board_cost"] * one for one in factors)
+            board = _rat(row["board_cost"])
+            priced, points = (None if one is None or board is None else _to_float(board * one)
+                              for one in factors)
             row.update(cost_rule="provider" if own else "global", cost=priced, points=points,
                        provider=provider)
     return "share" if mean is None else "money"
@@ -318,6 +356,8 @@ def round_price(cost, dearer):
     from `cost` up to, not including, `dearer`: 0.12 and 0.80 keep 0.3, 1 and 3 keep 2, 4.2 and
     5 keep 4.6."""
     middle = math.sqrt(cost * dearer)
+    if not math.isfinite(middle) and cost >= 0 and dearer >= 0:
+        middle = math.sqrt(cost) * math.sqrt(dearer)
     return next((one for figures in range(1, 18)
                  if cost <= (one := float(f"{middle:.{figures}g}")) < dearer), cost)
 
@@ -676,9 +716,11 @@ def notes(row, said):
 
 def _printed(value):
     """Exact Fraction `value` rounded once to six significant digits as a Decimal, as a float holds
-    none below its own smallest, and one past a float's largest as that largest."""
+    none below its own smallest, and one past a float's largest in magnitude as that largest."""
     if value > sys.float_info.max:
         return sys.float_info.max
+    if value < -sys.float_info.max:
+        return -sys.float_info.max
     return decimal.Context(prec=6).divide(value.numerator, value.denominator)
 
 
@@ -701,9 +743,9 @@ def by_plan(days, fits=None):
 
 
 def dumped(value, at="\n"):
-    """`value` as JSON, as `json.dumps(value, indent=2)` writes it but each Decimal as its
-    digits and each Fraction rounded once to six significant digits (`_printed`), which json
-    writes of neither; `at` begins each of its lines but the first."""
+    """`value` as JSON, as `json.dumps(value, indent=2, allow_nan=False)` writes it but each
+    Decimal as its digits and each Fraction rounded once to six significant digits (`_printed`),
+    which json writes of neither; `at` begins each of its lines but the first."""
     inner = at + "  "
     if isinstance(value, fractions.Fraction):
         value = _printed(value)
@@ -715,7 +757,7 @@ def dumped(value, at="\n"):
             f"{dumped(item, inner)}" for key, item in value.items()) + at + "}"
     if isinstance(value, (list, tuple)) and value:
         return "[" + ",".join(inner + dumped(item, inner) for item in value) + at + "]"
-    return json.dumps(value)
+    return json.dumps(value, allow_nan=False)
 
 
 def main(argv):

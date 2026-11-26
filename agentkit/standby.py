@@ -633,7 +633,8 @@ def _refused(reasons):
 
 
 def _close():
-    """Have ak's own tmux server here list its sessions and, at each one's turn, by its id, end it
+    """Have ak's own tmux server here, then the user's default one, where seats older than ak's
+    own server are (`orch.sessions`), list its sessions and, at each one's turn, by its id, end it
     where tmux's format reads a seat's mark (`orch.MARK`) as `1` for it then and it has an option
     of its own under that mark, without which its turn fails there: a seat `orch.start` opened,
     which on a client carries on a conversation its home carries on too.  A session's name
@@ -642,14 +643,16 @@ def _close():
     tmux did: a session made since the listing, and one tmux did not end, failing or not running,
     is the next pass's.  A pass run inside a session it ends ends with it, as any command does
     whose terminal closes."""
-    # One call, so the server that lists is the one that ends: one started at the socket between
-    # two calls numbers its sessions from $0 again, under the pid of one gone.  `run-shell -C`
-    # reads what its loop (`#{S:}`) lists as one command list, so each session's turn is a `{}`
-    # of its own, which one failing stops alone; `#{l:}` keeps the mark's reading for that turn.
+    # One call a server, so the server that lists is the one that ends: one started at the socket
+    # between two calls numbers its sessions from $0 again, under the pid of one gone.
+    # `run-shell -C` reads what its loop (`#{S:}`) lists as one command list, so each session's
+    # turn is a `{}` of its own, which one failing stops alone; `#{l:}` keeps the mark's reading
+    # for that turn.
     session = "'#{session_id}'"
     turn = (f"if-shell -F -t {session} '#{{l:#{{==:#{{{orch.MARK}}},1}}}}' "
             f"{{ show-options -t {session} {orch.MARK} ; kill-session -t {session} #}}\n")
-    orch.tmux_out("run-shell", "-C", f"#{{S:{turn}}}")
+    for socket in (None, ""):
+        orch.tmux_out("run-shell", "-C", f"#{{S:{turn}}}", socket=socket)
 
 
 def main(argv):

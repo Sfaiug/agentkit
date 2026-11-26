@@ -1182,7 +1182,7 @@ def read_key(timeout=None, wake=None):
                 if _HELD is not None and time.monotonic() >= _MOVED + motion.FRAME:
                     break
                 if again is not None and again in ready:
-                    _ASKED, _UP = True, _UP and []
+                    _ASKED, _UP, _UNSEEN = True, _UP and [], False
                     try:
                         os.read(again, 4096)
                     except OSError:

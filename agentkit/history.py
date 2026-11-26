@@ -1,6 +1,7 @@
 """Best-effort SQLite history for completed and running agentkit runs."""
 
 import contextlib
+import errno
 import json
 import math
 import os
@@ -318,7 +319,14 @@ def path():
 
 def _connect(*, readonly=False):
     if readonly:
-        connection = sqlite3.connect(path().resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+        database = path()
+        try:
+            resolved = database.resolve()
+        except RuntimeError as exc:
+            # Python 3.11's `Path.resolve()` raises `RuntimeError` on a symlink loop and
+            # `RecursionError` (a `RuntimeError` subclass) on a deep symlink cycle.
+            raise OSError(errno.ELOOP, str(exc)) from exc
+        connection = sqlite3.connect(resolved.as_uri() + "?mode=ro", uri=True, timeout=2)
         connection.create_function("suite_run", 2, suite_run)     # what REAL_WORK reads by
         return connection
     connection = waiter.connect(path())
@@ -707,7 +715,7 @@ def check_passed(run_id, kind, tree):
                     (run, kind, tree)).fetchone()
             finally:
                 connection.close()
-    except Exception:   # noqa: BLE001 -- unreadable DB (incl. py3.11 symlink-loop RuntimeError)
+    except (OSError, sqlite3.Error, TypeError, ValueError):
         return False
     return bool(row and row[0] == 0 and row[1] is not None)
 
@@ -1034,6 +1042,12 @@ def _moment(path):
         return None
 
 
+def _dispute_target(row):
+    """The finding a dispute answers: its handed snapshot's site where kept, else its own."""
+    target = row.get("finding") if isinstance(row.get("finding"), dict) else row
+    return target["path"], target["line"]
+
+
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
                   effort=None, records=(), log=None):
     """Keep one finished review's weighed counts, its round, the round's verdict (the review's,
@@ -1041,7 +1055,9 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
     and a `findings` row for each of `records` but its closing (`FINDINGS_SCHEMA`).
 
     Its output directory identifies it, so recording it again cannot count it twice; only
-    runs already recorded in history can contribute.
+    runs already recorded in history can contribute.  At most one dispute row per finding in a
+    review carries `outcome`, so additional accepted proofs for the same finding keep their own
+    rows without double-counting the issue.
     """
     def insert(connection):
         if connection.execute(
@@ -1051,12 +1067,29 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
                 (review_id, harness, model, blocking, followup, note, round, verdict, effort,
                  run_id)).rowcount:
             at = time.time()
+            # One dispute row per finding in a review carries `outcome`: an uphold beats a
+            # concession/drop regardless of row order, so retry traversal order cannot flip
+            # whether an upheld finding counts as taken back.
+            kept = [row for row in records if row["kind"] not in (*hand_in.CLOSING, "concede")]
+            winner = {}
+            for index, row in enumerate(kept):
+                if row["kind"] == "dispute" and isinstance(row.get("outcome"), str):
+                    site = _dispute_target(row)
+                    if site not in winner or (
+                            kept[winner[site]]["outcome"] in ("conceded", "dropped")
+                            and row["outcome"] not in ("conceded", "dropped")):
+                        winner[site] = index
+            rows = [
+                (run_id, review_id, round,
+                 *_finding({**row, "outcome": None}
+                           if row["kind"] == "dispute" and isinstance(row.get("outcome"), str)
+                           and winner[_dispute_target(row)] != index else row),
+                 at)
+                for index, row in enumerate(kept)]
             connection.executemany(
                 "INSERT INTO findings (run_id, review_id, round, path, line, handed, kind, proof, "
                 "commit_exit, base_exit, replayed, reason, outcome, inside_fix, at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                [(run_id, review_id, round, *_finding(row), at)
-                 for row in records if row["kind"] not in (*hand_in.CLOSING, "concede")])
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
 
     _write(insert, log)
 

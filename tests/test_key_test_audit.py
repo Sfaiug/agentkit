@@ -115,6 +115,8 @@ class TestAudit(unittest.TestCase):
         self.assertEqual(self.rows()["tests/test_slow.py"][-1], "split")
         self.db.unlink()
         self.assertEqual(self.rows()["tests/test_slow.py"], ["224.0s", "0", "0", "0"])
+        self.db.symlink_to(self.db.name)
+        self.assertEqual(self.rows()["tests/test_slow.py"], ["224.0s", "0", "0", "0"])
         self.times.unlink()
         self.assertIn("0 files", self.report().splitlines()[0])
 

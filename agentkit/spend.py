@@ -10,11 +10,13 @@ fits each plan's points of a week a listed dollar takes from every login's readi
 """
 
 import contextlib
+import fractions
 import functools
 import json
 import math
 from pathlib import Path
 import sqlite3
+import sys
 import time
 
 from . import boards, catalog, config, history, matrix
@@ -132,6 +134,27 @@ def weeks(cfg, meters, windows):
             for provider in meters}
 
 
+def _sum(values):
+    """`sum(values)`, falling back to exact Fractions if float addition overflows."""
+    if any(isinstance(one, fractions.Fraction) for one in values):
+        return sum(fractions.Fraction(one) for one in values)
+    total = sum(values)
+    return total if math.isfinite(total) else sum(fractions.Fraction(one) for one in values)
+
+
+def _mean_value(total, runs):
+    """`total / runs` as a float when it is normal (or exact zero), else an exact Fraction so
+    `matrix._costs` scales subnormal or out-of-range values without losing precision and
+    `matrix.dumped` prints them without emitting Infinity."""
+    exact = total / runs
+    if isinstance(exact, fractions.Fraction):
+        out = matrix._to_float(exact)
+        return out if out is not None and (exact == 0 or abs(out) >= sys.float_info.min) else exact
+    if not math.isfinite(exact) or (total and abs(exact) < sys.float_info.min):
+        return fractions.Fraction(total) / runs
+    return exact
+
+
 def roles(cfg):
     """(logins, shares) for `matrix._costs`.  `logins`: {provider: [(price, week)] of each login
     it still lists (`config.lists`) whose week holds some listed dollars, named or usual: what
@@ -182,10 +205,21 @@ def roles(cfg):
     def spent(name, rows):
         """[points, dollars] `rows`, (account, model, counts, listed_usd) each, took on model
         `name`'s provider; None where one has no listed price or its login no week."""
-        each = [(100 * dollars / week, dollars) for account, model, counts, listed_usd in rows
-                if (dollars := _cost(prices, model, counts, listed_usd)) is not None
-                and (week := weeks.get((providers[name], account))) is not None]
-        return [sum(one) for one in zip(*each)] if len(each) == len(rows) else None
+        each = []
+        for account, model, counts, listed_usd in rows:
+            dollars = _cost(prices, model, counts, listed_usd)
+            week = weeks.get((providers[name], account))
+            if dollars is None or week is None or week <= 0 or not math.isfinite(dollars):
+                return None
+            if math.isinf(week):
+                points = 0.0
+            else:
+                points = 100 * dollars / week
+                if not math.isfinite(points) or (dollars and abs(points) < sys.float_info.min):
+                    points = (fractions.Fraction(100) * fractions.Fraction(dollars)
+                              / fractions.Fraction(week))
+            each.append((points, dollars))
+        return [_sum(one) for one in zip(*each)] if each else None
     samples = {}
     for (run, role), (name, effort, turns) in did.items():
         rows = kept.get((run, role), [])
@@ -200,7 +234,7 @@ def roles(cfg):
                 and (one := spent(name, [row[1:] for row in rows]))):
             samples.setdefault((name, effort, role), []).append(one)
     # (model, effort, role): ([points, dollars] summed over its runs, how many)
-    totals = {key: ([sum(one) for one in zip(*runs)], len(runs)) for key, runs in samples.items()}
+    totals = {key: ([_sum(one) for one in zip(*runs)], len(runs)) for key, runs in samples.items()}
     seats = {}      # (model, effort, the runs counted): its seats' rows
     # The runs counted in the read of the rows, as one launched between two reads would be set
     # against usage read before it, and in SQL: a seat keeps a row of each message it takes.
@@ -222,7 +256,8 @@ def roles(cfg):
             totals[name, effort, "orchestrator"] = one, runs
     found = {}
     for (name, effort, role), ((points, listed), runs) in totals.items():
-        found.setdefault(name, {}).setdefault(effort, {})[role] = points / runs, runs, listed / runs
+        found.setdefault(name, {}).setdefault(effort, {})[role] = (
+            _mean_value(points, runs), runs, _mean_value(listed, runs))
     return {provider: [(usage.price(cfg, provider, account), fit[1])
                        for account, fit in logins.items()
                        if fit[1] and config.lists(cfg, provider, account)]
