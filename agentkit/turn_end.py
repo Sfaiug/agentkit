@@ -298,14 +298,18 @@ def unpark(launched, payload):
         if config.account_env(record.get("account"))[config.ACCOUNT_ENV] != told:
             return
         plugin = harness.load(entry["harness"])
-        cwd = record.get("cwd")
-        conversation = plugin.conversation(record, cwd)
-        if not plugin.keeps_errors or (
-                plugin.error(record, cwd, conversation) == ""
-                and plugin.wrapped_up(record, cwd, conversation) is None):
+        sent = None
+        if plugin.keeps_errors or getattr(plugin.module, "last_request", None):
+            # only look up the conversation when a reader needs it: antigravity's claims under a lock
+            cwd = record.get("cwd")
+            conversation = plugin.conversation(record, cwd)
+            if plugin.keeps_errors and (
+                    plugin.error(record, cwd, conversation) != ""
+                    or plugin.wrapped_up(record, cwd, conversation) is not None):
+                return
             sent = plugin.last_request(record, cwd, conversation)
-            usage.answered(cfg, entry["provider"], told or None, record["orchestrator"],
-                           turn if sent is None else max(turn, sent))
+        usage.answered(cfg, entry["provider"], told or None, record["orchestrator"],
+                       turn if sent is None else max(turn, sent))
     except Exception:
         pass        # the login stays parked as it was; the Stop is no less judged
 
