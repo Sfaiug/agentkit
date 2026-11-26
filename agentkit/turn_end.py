@@ -271,18 +271,19 @@ def unpark(launched, payload):
     (`last_request`, its plugin's), asked last of the same record: no answer shows one made
     after it wrong.
 
-    On 26 Nov 2026, tried on a real seat on a parked login answering a real turn, Codex
-    0.172.0 unparked its provider at the turn's Stop, while Grok Build 1.0.92 and Antigravity
-    1.5.18 each answered, their Stop was judged, and the login stayed parked: neither plugin
-    keeps a record of errors (`keeps_errors`).  The owner, 26 Nov 2026, of what was built for
-    Claude Code: "I want you to also apply to every other harness. All should work the same
-    way with ak."  What `keeps_errors` guards is a Stop heard for a refused turn: Antigravity
-    names an error ending in `terminationReason` (its hooks documentation, 1.5.18), already
-    returned on above, and Grok Build runs StopFailure and no Stop for a refused turn
-    (observed 6 Nov 2026, 1.0.46, its `updates.jsonl`: `hook_execution` `stop_failure`, then
-    nothing until the session ended).  So `error` and `wrapped_up` are asked only where the
-    harness keeps errors; where it keeps none, a Stop past that first check unparks as well,
-    dated by `last_request` where the plugin has one else the turn's start.
+    On 26 Nov 2026, tried on a real seat on a parked login answering a real turn, an error-
+    recording harness (0.172.0) unparked its provider at the turn's Stop, while two harnesses
+    whose plugins keep no error record (`keeps_errors`: 1.0.92 and agy 1.5.18) each answered,
+    their Stop was judged, and the login stayed parked.  The owner, 26 Nov 2026: "I want you
+    to also apply to every other harness. All should work the same way with ak."  What
+    `keeps_errors` guards is a Stop heard for a refused turn: agy names an error ending in
+    `terminationReason` (its hooks documentation, 1.5.18), already returned on above, and the
+    other runs StopFailure and no Stop for a refused turn (observed 6 Nov 2026, 1.0.46, its
+    `updates.jsonl`: `hook_execution` `stop_failure`, then nothing until the session ended).
+    So `error` and `wrapped_up` are asked only where the harness keeps errors; where it keeps
+    none, a Stop past that first check unparks as well, dated by `last_request` where the
+    plugin has one else the turn's start, without looking up the conversation when neither
+    reader needs it (one plugin learns its conversation under a lock).
     """
     try:
         if (payload.get("terminationReason") not in (None, "", "NO_TOOL_CALL")
@@ -300,7 +301,7 @@ def unpark(launched, payload):
         plugin = harness.load(entry["harness"])
         sent = None
         if plugin.keeps_errors or getattr(plugin.module, "last_request", None):
-            # only look up the conversation when a reader needs it: antigravity's claims under a lock
+            # only look up the conversation when a reader needs it: a plugin may claim under a lock
             cwd = record.get("cwd")
             conversation = plugin.conversation(record, cwd)
             if plugin.keeps_errors and (
