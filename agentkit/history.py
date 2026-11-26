@@ -1072,14 +1072,18 @@ def reviewed_runs(harness, model):
 
 
 def _reviews_read():
-    """({run_id: [dict(row), ...]}, {run_id: effort}) from one read of `reviews`: each run's
-    rows in the order written, and the effort of the first row SQLite's `ORDER BY round, rowid`
-    picks; ({}, {}) where the database cannot answer."""
+    """({run_id: [dict(row), ...]}, {run_id: effort}, {run_id: (disputed, taken_back)}) from one
+    transaction of `reviews` and `findings`: each run's review rows in the order written, the
+    effort of the first row SQLite's `ORDER BY round, rowid` picks, and its answered disputes
+    (`findings` rows whose `outcome` is a text, and of them those `conceded` or `dropped`);
+    ({}, {}, {}) where the database cannot answer, and no disputes where `findings` cannot be
+    read."""
     _ensure_migrated()      # a reviews table from before rounds and efforts has neither column
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
+                connection.execute("BEGIN")     # one snapshot for reviews and findings
                 cursor = connection.execute(
                     "SELECT ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY round, rowid), "
                     "reviews.* FROM reviews ORDER BY rowid")
@@ -1090,11 +1094,20 @@ def _reviews_read():
                     if rank == 1:
                         first[row["run_id"]] = row.get("effort")
                     by_run.setdefault(row["run_id"], []).append(row)
-                return by_run, first
+                try:
+                    disputes = {run_id: (disputed, taken_back)
+                                for run_id, disputed, taken_back in connection.execute(
+                                    "SELECT run_id, COUNT(*), "
+                                    "SUM(outcome IN ('conceded', 'dropped')) "
+                                    "FROM findings WHERE typeof(outcome) = 'text' "
+                                    "GROUP BY run_id")}
+                except (OSError, sqlite3.Error, TypeError, ValueError):
+                    disputes = {}
+                return by_run, first, disputes
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
-        return {}, {}
+        return {}, {}, {}
 
 
 def reviews():
