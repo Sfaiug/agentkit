@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.own_pr import OwnPr
-from agentkit import gitcall, run
+from agentkit import config, gitcall, record, run
 
 
 class OwnPrOnDefaultBranch(OwnPr):
@@ -59,6 +59,18 @@ class OwnPrOnDefaultBranch(OwnPr):
         self.stack_on_earlier()
         self.pr.update(author="stranger")
         self.assertEqual(self.launch()[:2], (None, 1))
+
+    def test_a_pr_retargeted_off_the_default_branch_is_refused_in_the_round(self):
+        self.stack_on_earlier()
+        for label, extra in (("reviewed", {}), ("checks-only", {"policy": {"review_rounds": 0}})):
+            with self.subTest(mode=label):
+                with record.record(self.run_dir) as saved:
+                    saved.update(extra)
+                with patch.object(run, "verify_work", side_effect=AssertionError("verified")):
+                    with self.assertRaises(config.Error) as caught:
+                        self.review([])
+                self.assertIn("PR #7 is based on earlier, not main", str(caught.exception))
+                self.assertEqual((self.prompts, self.merges), ([], []))
 
 
 if __name__ == "__main__":

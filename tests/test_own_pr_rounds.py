@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import BRANCH, OwnPr, URL
-from agentkit import config, deliver, gitcall, round_tests, roundloop, run, worker, worktrees
+from agentkit import config, deliver, gitcall, history, round_tests, roundloop, run, worker, worktrees
 from agentkit import record
 
 
@@ -350,6 +350,64 @@ class OwnPrRounds(OwnPr):
         self.assertIn("PR #7 adds 5000 lines", state["error"])
         self.assertIn("Write it as a task", state["blocked"])
         self.assertEqual((self.prompts, self.merges), ([], []))
+
+    def test_a_checks_only_own_pr_is_still_held_to_the_seat_size_cap(self):
+        for label, extra in (("review_rounds_zero", {"policy": {"review_rounds": 0}}),
+                             ("no_reviewers", {"reviewers": []})):
+            with self.subTest(mode=label):
+                self.hand_push(1)                       # 5000 added lines of fence.txt
+                run_dir = config.RUNS / f"checks-only-over-{label}"
+                run_dir.mkdir()
+                (run_dir / "log.txt").touch()
+                run.capture_launch(run_dir, {"--review-pr": URL})
+                with record.record(run_dir) as saved:
+                    saved.update(extra)
+                with patch.object(run, "verify_work", side_effect=AssertionError("verified")):
+                    state = run.review_pr(self.cfg, run_dir, URL,
+                                          {"--review": None, "--review-pr": URL}, lambda _: None)
+                self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
+                self.assertIn("PR #7 adds 5000 lines", state["error"])
+                self.assertEqual((self.prompts, self.merges), ([], []))
+        # within the seat cap a checks-only run lands without recording a first-review size
+        self.hand_push(0)
+        with record.record(self.run_dir) as saved:
+            saved["policy"] = {"review_rounds": 0}
+        state = self.review([])
+        self.assertEqual((state["state"], state["merged"]), ("pass", True))
+        self.assertIsNone(history.get(self.run_dir.name)["first_review_lines"])
+
+    def test_a_checks_only_landing_fix_may_grow_past_the_seat_size_cap(self):
+        with record.record(self.run_dir) as saved:
+            saved["policy"] = {"review_rounds": 0, "orchestrator_lines": 1}
+        run.preflight(self.run_dir, {"--review-pr": URL}, lambda _: None)
+        attempts = []
+
+        def verify(lp):
+            lp.validation = gitcall.commit_identity(lp.wt)
+            return True, ""
+
+        def landing_step(lp, _upstream, _deliver):
+            attempts.append(lp.state["head_sha"])
+            if len(attempts) == 1:
+                failure = self.run_dir / "red.log"
+                failure.write_text("required checks failed: fixture\n")
+                return deliver.fail_pr_landing(lp, {"line": failure.read_text().strip(),
+                                                    "log": str(failure)})
+            lp.state["merged"] = True
+            return True
+
+        def repair(lp):
+            with (lp.wt / "fence.txt").open("a") as path:
+                path.write("ready\n")
+            gitcall.git(lp.wt, "commit", "-qam", "Repair the landing check")
+
+        with patch.object(self, "fix", side_effect=repair), \
+                patch.object(run, "verify_work", side_effect=verify), \
+                patch.object(deliver, "join_line", side_effect=landing_step):
+            state = self.review([])
+        self.assertEqual(len(self.fixes), 1)
+        self.assertEqual((state["state"], state["merged"], len(attempts)), ("pass", True, 2),
+                         state.get("error"))
 
     def test_a_later_review_of_the_pr_in_a_new_run_reviews_what_the_fix_left(self):
         earlier = config.RUNS / "own-pr-earlier"        # an earlier run spent round 1 on this PR

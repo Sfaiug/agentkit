@@ -301,7 +301,7 @@ class MergeTrailer(unittest.TestCase):
         with ExitStack() as mocks:
             for name, value in (("pr_view", info), ("launch_session", "fix-api"),
                                 ("own_pr_orchestrator", (own, "opus" if own else None)),
-                                ("checkout_for", self.repo),
+                                ("checkout_for", self.repo), ("origin_default", "main"),
                                 ("fetch", (0, "")), ("make_worktree", (self.repo, "ak/fix-api")),
                                 ("collect_usage", {}), ("post_review", True),
                                 ("join_session_project", None), ("unanswered_head", None)):
