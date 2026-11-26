@@ -154,21 +154,28 @@ def took(row, role, paid):
     """`$0.25 · 0.6% of a week`: what a row's model took of its plans in `role` per task that went
     live, each plan's points (100 one login's week on it) at its price a month in `paid`
     (`money.month`'s), a week 12/52 of a month, then the points summed; the share alone where a
-    plan has no price, `-` where it took no points.  Each is rounded once from its exact value, the
-    points' Fractions and the price as written: a float's nearest binary value can lie across the
-    decimal boundary, 0.35 below it."""
+    plan has no price, `-` where it took no points: each from its exact value (`fixed`), the
+    points' Fractions and the price as written."""
     priced = [(points, paid["month"].get(provider, {}).get(plan))
               for provider, plans in row["usage"][role]["points"].items()
               for plan, points in plans.items()]
     if not priced:
         return "-"
     share = sum(points for points, _ in priced) / row["live"]
-    said = f"{float(round(share, 1)):.1f}% of a week"
+    said = f"{fixed(share, 1)}% of a week"
     if any(price is None for _, price in priced):
         return said
     cost = (sum(points * Fraction(str(price)) for points, price in priced)
             / row["live"] / 100 * 12 / 52)
-    return f"{usage.SIGNS[paid['currency']]}{float(round(cost, 2)):.2f} · {said}"
+    return f"{usage.SIGNS[paid['currency']]}{fixed(cost, 2)} · {said}"
+
+
+def fixed(value, places):
+    """Exact `value`, never below zero, rounded once to `places` decimals as its digits: no float
+    between, as a float's binary value can lie across a decimal boundary (0.35 below it), or a
+    large one's neighbours farther apart than a cent."""
+    whole, part = divmod(round(value * 10 ** places), 10 ** places)
+    return f"{whole}.{part:0{places}d}"
 
 
 def numbers(row, columns, paid):
