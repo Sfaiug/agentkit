@@ -172,6 +172,10 @@ ak reads (`watch.pane_tail`) of `capture-pane -p -e -J` captures from a live swe
 0.160.1 seat on 2026-10-14, with its workspace renamed `/home/acme/fix-api` and its sub-agent's
 id invented; `tests/test_codex_seat_states.py` replays them beside the hook events it fired.
 
+`codex-limit-chooser-pane.txt` and `codex-limit-refusal-pane.txt` are Codex 0.172.0 120-column
+captures against a loopback server (2026-11-26): the rate-limit chooser after a 92%-used answer
+and a 429 `usage_limit_reached` refusal.
+
 `v4z-40.txt` and `v4z-100.txt` come from the real renderer with fixed fake state in
 `tests/test_project_menus.py`: ATOLL, agentkit, newsletter-tool and scratch; running, asking,
 waiting, recovery and PASS states. Refresh with `python3 tests/test_project_menus.py --fixtures`.
@@ -696,17 +700,10 @@ Two servers under the same `ak-probe-acme` hostname obtained distinct enrollment
 the first stayed connected while the second was still connecting at 30 seconds.
 Both were stopped and their enrollments deleted (204).
 
-One early probe's DELETE returned 409 before it went offline; its temporary id
-receipt had already been removed. Subsequent account listings were empty, so that
-one deletion is unconfirmed. Later probes retained ids until DELETE succeeded.
-An `ak-probe-delete` probe then exercised deletion through the production helper
-after an unpaired enrollment connected, but stopped before its own cleanup. A
-follow-up DELETE removed that enrollment (204) and a GET confirmed it gone (404).
-No phone was paired and no owner notification was sent.
-
-All probe processes, enrollments, credential copies and scratch homes were
-removed afterwards; no probe home or server remains. Paths, UUIDs, enrollment
-ids and pairing codes are replaced whole with invented values.
+One early probe's DELETE returned 409 before it went offline, after its temporary id receipt was
+removed; subsequent listings were empty, and later probes retained ids until DELETE succeeded.
+An `ak-probe-delete` probe then confirmed deletion (204, then GET 404). All probe state was
+cleaned up and identifiers replaced.
 
 `codex-remote-http-fake.py` is a synthetic `sitecustomize` used only by the isolated
 test subprocesses. It records enrollment names and deletions and rejects deletion

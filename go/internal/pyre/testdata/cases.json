@@ -80,6 +80,8 @@
   "codex-effort-picker-pane.txt",
   "codex-hooks-review-0160-pane.txt",
   "codex-hooks-review-pane.txt",
+  "codex-limit-chooser-pane.txt",
+  "codex-limit-refusal-pane.txt",
   "codex-model-picker-pane.txt",
   "codex-prompt-pane.txt",
   "codex-question-up-narrow-pane.txt",
@@ -3331,6 +3333,13 @@
   },
   {
    "harness": "codex",
+   "key": "rule asking.limit rows",
+   "pattern": "^  Approaching rate limits\\n(?:(?:  |› \\d+\\. ).+\\n)*?(?:› |  )\\d+\\. Keep current model\\n(?:(?:  |› \\d+\\. ).+\\n)*  (?:enter select · esc back|Press enter to confirm or esc to go back)\\Z",
+   "flags": "m",
+   "matches": []
+  },
+  {
+   "harness": "codex",
    "key": "rule asking.chooser newest",
    "pattern": "(?i)press enter to|^enter confirm · ",
    "flags": "",
@@ -6499,6 +6508,87 @@
     {
      "fixture": "codex-hooks-review-pane.txt",
      "row": 8,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-chooser-pane.txt",
+     "row": 4,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-chooser-pane.txt",
+     "row": 7,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-chooser-pane.txt",
+     "row": 8,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-chooser-pane.txt",
+     "row": 12,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-chooser-pane.txt",
+     "row": 13,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-refusal-pane.txt",
+     "row": 5,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-refusal-pane.txt",
+     "row": 6,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-refusal-pane.txt",
+     "row": 9,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-refusal-pane.txt",
+     "row": 10,
      "span": [
       0,
       3
@@ -16556,6 +16646,24 @@
      "span": [
       18,
       48
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-chooser-pane.txt",
+     "row": 15,
+     "span": [
+      8,
+      25
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-limit-refusal-pane.txt",
+     "row": 12,
+     "span": [
+      8,
+      25
      ],
      "groups": {}
     },
