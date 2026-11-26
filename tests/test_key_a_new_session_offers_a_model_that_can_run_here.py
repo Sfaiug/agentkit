@@ -22,6 +22,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import Terminal
 
 ROW_KEYS = "  ⏎ start   tab models   esc back"
+NAMED = 'version = ["claude", '     # the program claude.toml's [update] runs
 
 
 class OffersWhatRunsHere(unittest.TestCase):
@@ -32,14 +33,16 @@ class OffersWhatRunsHere(unittest.TestCase):
         self.addCleanup(self.home.close)
         self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
         akconfig.write(self.home, ["opus", "astra"])
+        self.shipped = self.fakes["claude"].manifest.read_text()
+        self.assertEqual(self.shipped.count(NAMED), 1, "the shipped claude.toml's [update] changed")
+
+    def name_claude(self, program):
+        """Claude's manifest names `program` as the program its harness runs."""
+        self.fakes["claude"].manifest.write_text(
+            self.shipped.replace(NAMED, f"version = [{fakeadapter.toml(str(program))}, "))
 
     def uninstall_claude(self):
-        manifest = self.fakes["claude"].manifest
-        named = 'version = ["claude", '
-        text = manifest.read_text()
-        self.assertEqual(text.count(named), 1, "the shipped claude.toml's [update] changed")
-        gone = self.home.root / "gone" / "claude"
-        manifest.write_text(text.replace(named, f"version = [{fakeadapter.toml(str(gone))}, "))
+        self.name_claude(self.home.root / "gone" / "claude")
 
     def picked(self):
         """The line `ak orch fix-api --dry-run` names the orchestrator on."""
@@ -53,6 +56,17 @@ class OffersWhatRunsHere(unittest.TestCase):
         self.assertTrue(line.startswith("orch: astra ("), line)
         self.assertIn("skipped opus: claude is not installed", line)
         self.assertNotIn("off in the model list", line)
+
+    def test_a_program_it_may_not_reach_or_name_is_not_installed(self):
+        hidden = self.home.root / "hidden"
+        hidden.mkdir(mode=0)        # a directory this user may not search
+        self.addCleanup(hidden.chmod, 0o700)
+        for program in (hidden / "claude", f"{self.home.bin / 'claude'}\0", "claude\0"):
+            with self.subTest(program=program):
+                self.name_claude(program)
+                line = self.picked()
+                self.assertTrue(line.startswith("orch: astra ("), line)
+                self.assertIn("skipped opus: claude is not installed", line)
 
     def test_with_every_program_installed_the_default_is_offered(self):
         line = self.picked()

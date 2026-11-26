@@ -301,12 +301,16 @@ def harness_binary(name):
     keeps its precedence and is never shadowed by the installer's own dir.  Every
     adapter does the same check in shell; this is the same answer in Python.  An
     absolute path answers itself when it is executable, and anything unanswered is "",
-    the way shutil.which says it with None.  Whether it may be run is asked first: that
-    answers no for a file past a directory nobody may search, where its stat would raise.
+    the way shutil.which says it with None.
     """
+    def runnable(path):
+        try:
+            return path.is_file() and os.access(path, os.X_OK)
+        except OSError:     # past a directory this user may not search: nothing it can run
+            return False
+
     if "/" in name:
-        path = Path(name)
-        return name if os.access(path, os.X_OK) and path.is_file() else ""
+        return name if runnable(Path(name)) else ""
     found = shutil.which(name)
     if found:
         return found
@@ -315,7 +319,7 @@ def harness_binary(name):
     for directory in (home / ".opencode/bin", grok_bin,
                       home / ".local/bin", home / ".npm-global/bin"):
         candidate = directory / name
-        if os.access(candidate, os.X_OK) and candidate.is_file():
+        if runnable(candidate):
             return str(candidate)
     return ""
 
