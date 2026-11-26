@@ -1584,9 +1584,9 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         failed_log = None
         if lp.state.get("review_pr") and not lp.state.get("own_pr") and getattr(lp, "cmds", None):
             # Another author's PR has no landing line; its whole suite runs only behind a PASS.
-            # The owner, 26 Nov 2026, asked whether it should be the chosen tests and a landing
-            # line instead, as approved on 22 Nov: "Keep as built" (about 10 such pull requests
-            # in two weeks, and the owner's yes merges at once).
+            # The owner kept it so, 26 Nov 2026, asked whether it should be the chosen tests and
+            # a landing line instead, as approved on 22 Nov: "Keep as built" (about 10 such pull
+            # requests in two weeks, and the owner's yes merges at once).
             ok, dw_log = verify_work(lp)
             lp.log(f"tests ({', '.join(lp.cmds)}): {'passed' if ok else 'FAILED'}")
             restore_review_checkout(lp, "tests")

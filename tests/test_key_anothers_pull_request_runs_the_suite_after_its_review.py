@@ -5,7 +5,8 @@ the review was asked for, with no test named, and records it as passed; one whos
 runs nothing; and one that breaks a test while its reviewer answers PASS ends FAIL with the
 first failing line and is not offered for merge.
 
-Owner, 20 and 22 Nov 2026: "Once, after review passes" / "Yes, change it".
+Owner, 20 and 22 Nov 2026: "Once, after review passes" / "Yes, change it"; 26 Nov:
+"Keep as built" (the comment at `roundloop._review`).
 
 Black-box, on the fixtures of tests/test_key_a_seats_own_pull_request_runs_the_quick_set.py:
 the program `AK_BIN` names runs three reviews of another author's pull requests in one Home,
