@@ -129,6 +129,17 @@ class V5p(unittest.TestCase):
         self.assertIn("seat", warned[0])
         self.assertIn(text[:60], warned[0])
 
+    def test_v5p_a_composer_not_read_as_the_line_gets_no_enter_and_a_log_line(self):
+        other = f"{SENT} continue and what the owner typed"
+        with self.fake_tmux([SENT] + [other] * 30, other):
+            self.assertFalse(watch.type_checked(self.session, "continue", self.logs.append,
+                                               "claude"))
+        self.assertEqual(self.sends("Enter"), [])
+        said = [line for line in self.logs if "no Enter" in line]
+        self.assertEqual(len(said), 1, self.logs)
+        self.assertIn("seat", said[0])
+        self.assertIn("continue", said[0])
+
     def test_v5p_inbox_and_type_into_share_helper(self):
         seen = []
         with patch.object(watch, "type_checked",

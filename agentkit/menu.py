@@ -4388,9 +4388,10 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on.  `cells` are a model row's (first, last, column), for a
     click, counted from 1 as the terminal counts: its marks and efforts, never its label, which
-    a click acts on nothing of. On a phone the cells give way,
-    then the label, and where one cell of label still leaves the roles too little room each role
-    folds onto a line of its own under the label, its head before it instead of over it.
+    a click acts on nothing of. Where the bars and fixed columns do not fit beside every whole
+    name the bars give way, then the fixed columns, then the label, and where one cell of label
+    still leaves the roles too little room each role folds onto a line of its own under the
+    label, its head before it instead of over it.
     `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is the For line over the
     headings, and a seat's efforts are its record's (config.at_efforts).
     """
@@ -4409,20 +4410,28 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     shows = {name: config_columns(selected, name) for name in names}
     beside = [(name, number) for name in names for number in shows[name] if number >= 3]
     label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
+    word = max((terminal.cells(level) for taken in levels.values() for level in taken), default=0)
 
-    def widths(tall):
-        """Each role's mark (` ● `, a space before cells), then its efforts under its head; with
-        cells a word as wide as its model's widest, so a step moves no column after it."""
+    def widths(tall, fixed):
+        """Each role's mark (` ● `, a space before cells), then its effort column: `fixed`, as
+        wide as the listed models' most cells and widest effort, so no mark or step moves it,
+        else as wide as the efforts marked in it now; a shown one its model no longer takes
+        widens it either way."""
         mark = (4 if tall else 3) if selected else 0
-        wide = {number: max([terminal.cells(head) - mark, *(
-            tall + 2 + max(map(terminal.cells, (efforts[key], *levels[key[0]]))) if tall
-            else terminal.cells(efforts[key]) for key in beside if key[1] == number)])
+        lead = tall + 2 if tall else 0
+        wide = {number: max([
+            terminal.cells(head) - mark, lead + word if fixed else 0,
+            *((lead if levelled[key] else 0) + terminal.cells(efforts[key])
+              for key in beside if key[1] == number)])
             for number, head in enumerate(orch.ROLE_HEADS, 3)}
         return {**{number - 3: mark for number in wide if mark}, **wide}
-    tall = max((len(levelled[key]) for key in beside), default=0)   # the cells, before every word
-    width = widths(tall)
-    if 2 + label + 6 + sum(width.values()) > room:       # the bars give way, the words stay
-        tall, width = 0, widths(0)
+    tall = max(map(len, levelled.values()), default=0)   # the cells, before every word
+    # names win over places: the bars and fixed columns, else the fixed columns alone, else each
+    # column only as wide as what is marked in it, the label cut to what is left
+    for tall, fixed in ((tall, True), (0, True), (0, False)):
+        width = widths(tall, fixed)
+        if 2 + label + 6 + sum(width.values()) <= room:
+            break
     # a barred model's word after the most cells any model has; one with no cells beside its mark
     leads = {key: "".join(cells) + " " * (tall + 2 - len(cells)) if tall and cells else ""
              for key, cells in levelled.items()}
