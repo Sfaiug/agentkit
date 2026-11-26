@@ -1194,6 +1194,27 @@ def launch_session(run_dir):
             config.current_session())
 
 
+def launch_lists(cfg):
+    """The lists a launch binds (`capture_launch`), but for one the tick makes for a seat
+    (`seat_launch`): the seat's this runs in, else [defaults]'s, a `reviewers` of `[]` too, which
+    turns review off (`run_record.review_off`), with what each model is and runs at.  A job's loop
+    asks its pair of them before its task's run exists, so the two read the same lists alike.
+    None without a config."""
+    if cfg is None:
+        return {}
+    active = config.active_session(cfg)
+    selection = active or cfg["defaults"]
+    workers = config.workers(cfg) if config.current_session() else None
+    groups = {"workers": workers} if workers else {}
+    if "reviewers" in selection:
+        groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
+    if active and active.get("orchestrator"):
+        # Captured at launch so an incomplete preflight never reads a later seat edit.
+        groups["launched_orchestrator"] = active["orchestrator"]
+    # what each of them is and runs at, as bound as whom (Loop)
+    return {**groups, **config.run_marks(cfg, selection)}
+
+
 def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, receipt=None):
     """The owner, and whether anybody owns this launch at all.
 
@@ -1219,24 +1240,13 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
     # is reserved before the launch
     bound = seat_launch(receipt)
     session_at_launch = receipt["launched_session"] if bound else config.current_session()
-    workers = (receipt.get("workers") if bound else
-               config.workers(cfg) if cfg is not None and session_at_launch else None)
     if bound:
         # It keeps the lists launch_for_seat bound when it wrote the receipt.
         groups = _bound_lists(receipt)
         receipt = {key: value for key, value in receipt.items()
                    if key not in ("workers", "reviewers")}
     else:
-        active = config.active_session(cfg) if cfg is not None else None
-        selection = (active or cfg["defaults"]) if cfg is not None else {}
-        groups = {"workers": workers} if workers else {}
-        if "reviewers" in selection and (selection["reviewers"] or job_id is None):
-            groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
-        if active and active.get("orchestrator"):
-            # Captured at launch so an incomplete preflight never reads a later seat edit.
-            groups["launched_orchestrator"] = active["orchestrator"]
-        if cfg is not None:     # what each of them is and runs at, as bound as whom (Loop)
-            groups.update(config.run_marks(cfg, selection))
+        groups = launch_lists(cfg)
     limit = config.max_runs()
     url = (opts or {}).get("--review-pr")
     plan_line = receipt.get("plan_line")
