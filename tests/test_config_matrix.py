@@ -1,5 +1,5 @@
 """`c` is a matrix of models moved through with the keys: a session's mark flipped is saved to
-its record at once, there is always one orchestrator, new seats keep a reviewer, an effort steps only within
+its record at once, there is always one orchestrator, an effort steps only within
 its model's own list, a click flips a mark, and the rows under the models run their steps.
 Without a session the matrix is the efforts alone.
 
@@ -62,6 +62,12 @@ with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
 print("<left>", flush=True)
 """
+
+
+def down(model, child=CHILD):
+    """`child` with `model` logged out: a crew left only it to build, or to review, cannot run."""
+    return child.replace("with closing(", "usage.unready = lambda cfg, name, providers: "
+                         f"'not logged in' if name == {model!r} else None\nwith closing(", 1)
 # A terminal's answer, to the child: no key (terminal.read_key), read only once the child is done
 # with every key before it.
 PROBE = b"\x1b]\x07"
@@ -555,7 +561,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.text().count("<discord step>"), 1)
 
     def test_a_phone_draws_it_in_forty_columns(self):
-        screen = Screen(self, rows=24, cols=40, session=None)
+        screen = Screen(self, rows=24, cols=40, session=None, child=down("astra"))
         lines = screen.frame()
         self.assertLessEqual(len(lines), 23)
         self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # on the first page
@@ -563,19 +569,21 @@ class Matrix(unittest.TestCase):
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews"])
         # what a key could not do has lines of its own, however little room the rows leave:
-        # Astra's review off, Opus's, the last one new seats keep, refused
+        # Astra's review off, then Opus's build, leaving Astra, which cannot run, refused
         screen.press(DOWN * 3 + RIGHT * 3 + SPACE,
                      lambda lines: row(lines, "astra")[1].split()[-1] == "□")
         self.assertEqual(screen.saved()["defaults"]["reviewers"], ["opus"])
-        lines = screen.press(UP * 2 + SPACE,
-                             lambda lines: "at least one model reviews" in "\n".join(lines))
+        before = screen.path.read_bytes()
+        lines = screen.press(UP * 2 + LEFT * 2 + SPACE, lambda lines:
+                             "no allowed executor/reviewer pair" in "\n".join(lines))
+        self.assertEqual(screen.path.read_bytes(), before)
         self.assertLessEqual(len(lines), 23)
         self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
         lines = screen.press(DOWN * 15,
                              lambda lines: highlighted(lines).startswith("› Money"))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # and on the last
-        self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
+        self.assertNotIn("no allowed executor/reviewer pair", "\n".join(lines))  # till a key
         # Wait for selection: the row is already visible on the first Up redraw.
         lines = screen.press(UP * 6, lambda lines: highlighted(lines) == "› Models")
         self.assertEqual(highlighted(lines), "› Models")

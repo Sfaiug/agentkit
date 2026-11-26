@@ -1,14 +1,14 @@
 """A seat's last reviewer unmarks on its `c`, and a new seat's on `n`'s models screen, so a seat
-with no builder and no reviewer, its orchestrator's alone, is picked there; new seats' own
-marks, [defaults], keep a reviewer: the last one refused under the rows, config.toml as it was,
-and the reviewers they mean left as they were by a seat made with none.
+with no builder and no reviewer, its orchestrator's alone, is picked there, and [defaults]
+remember it so for the next new seat.
 
 A seat with no reviewer lands on its checks
-(tests/test_key_a_seat_with_no_reviewer_lands_on_its_checks.py).  Black-box: the program `AK_BIN`
-names, as the popup over a seat of tests/fixtures/akseat.py and as the menu in a person's
-terminal (tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py,
-judged by the terminal, the seats' records and config.toml; fails against `/bin/false`.  The
-terminal has no colour (NO_COLOR).
+(tests/test_key_a_seat_with_no_reviewer_lands_on_its_checks.py), and new seats' own marks may
+leave none (tests/test_key_new_seats_may_start_with_no_reviewer.py).  Black-box: the program
+`AK_BIN` names, as the popup over a seat of tests/fixtures/akseat.py and as the menu in a
+person's terminal (tests/fixtures/akterm.py), its harnesses the fakes of
+tests/fixtures/fakeadapter.py, judged by the terminal, the seats' records and config.toml; fails
+against `/bin/false`.  The terminal has no colour (NO_COLOR).
 """
 
 import json
@@ -95,22 +95,7 @@ class ASeatMayLeaveNoReviewerMarked(unittest.TestCase):
         self.assertEqual((made["orchestrator"], made["workers"], made["reviewers"]),
                          ("opus", [], []))
         until(lambda: akconfig.read(self.home)["defaults"]["workers"] == [])
-        defaults = akconfig.read(self.home)["defaults"]
-        self.assertEqual(defaults.get("reviewers", defaults["workers"]), ["astra"])
-
-    def test_new_seats_keep_a_reviewer(self):
-        config = akconfig.write(self.home, MODELS, reviewers=["astra"])
-        before = config.read_bytes()
-        term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
-        term.wait("esc leave")
-        term.keys("c")
-        term.wait(lambda screen: "For  new seats" in screen and "␣ mark" in screen)
-        term.keys("Down", "Right", "Right", "Right")  # past Astra's build mark and effort
-        term.wait(lambda screen: cells(screen, "6 Astra")[4:5] == ["[■]"])
-        term.keys("Space")
-        term.wait("at least one model reviews")
-        self.assertEqual(cells(term.screen(), "6 Astra")[4:5], ["[■]"])
-        self.assertEqual(config.read_bytes(), before)
+        self.assertEqual(akconfig.read(self.home)["defaults"]["reviewers"], [])
 
 
 if __name__ == "__main__":
