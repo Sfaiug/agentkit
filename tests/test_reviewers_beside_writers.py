@@ -263,10 +263,29 @@ class UnlistedModelLab(Sandbox):
         self.assertEqual(staffing.lab(self.cfg, "num", []), "Claude")
         self.assertEqual(staffing.lab(self.cfg, "def_c", []), "dune")
         self.assertEqual(staffing.pair_tier(self.cfg, "nova", "def_a", []), 1)
-        with patch.object(config, "families", return_value=["Default", "Claude"]):
+        with patch.object(config, "families", return_value=["Default", *config.families()]):
             self.assertEqual(staffing.lab(self.cfg, "def_a", []), "Claude")
             self.assertEqual(staffing.lab(self.cfg, "def_b", []), "GPT")
             self.assertEqual(staffing.pair_tier(self.cfg, "def_a", "def_b", []), 0)
+
+    def test_a_makerless_row_a_wordless_row_id_and_a_second_spelling_part_no_family(self):
+        self.cfg["models"]["mist"] = {**self.cfg["models"]["nova"], "model": "default"}
+        self.cfg["models"]["haze"] = {**self.cfg["models"]["nova"], "model": "haze-1"}
+        family = ("nova", "mist", "haze", "dart")
+
+        def labs(*rows):
+            lineup = [{"maker": maker, "yours": [{"harness": "claude", "model": model}]}
+                      for maker, model in rows]
+            return {staffing.lab(self.cfg, name, lineup) for name in family}
+
+        # A row naming no maker leaves its model to its family word, as if no row held it.
+        self.assertEqual(labs(("", "claude-nova-2")), {"Claude"})
+        # A row holding an id that opens with no family word is of its harness's family too.
+        self.assertEqual(labs(("Acme", "haze-1")), {"acme"})
+        # Another manifest spelling claude's word its own way names the same family.
+        with patch.object(config, "families", return_value=["CLAUDE", *config.families()]):
+            self.assertEqual(labs(), {"CLAUDE"})
+            self.assertEqual(labs(("Acme", "claude-nova-2")), {"acme"})
 
 
 if __name__ == "__main__":

@@ -426,32 +426,32 @@ def review_writers(state):
 
 
 def lab(cfg, name, lineup=None):
-    """Who makes the configured model `name`: the maker of the row of `lineup`, else of the
-    lineup last stored (`matrix.listed`), whose `yours` holds its harness and model, as the
-    provider `config.company` names for it.  Where no row holds it, the family word its id opens
-    with after any `provider/` prefix (`config.family`, `config.model_id`): the maker of a row
-    holding a model whose id opens with the same word, as `config.company` names it, else the
-    word itself.  One whose id opens with none, or with no id of its own, takes its harness's
-    family word: it and a sibling named by that word are one lab, never two.  With no family word
-    either way, its provider.  A provider running several makers' models is then as many labs,
-    and one maker's models under two providers one lab."""
+    """Who makes the configured model `name`, as the provider `config.company` names that maker:
+    the first one named by a row of `lineup`, else of the lineup last stored (`matrix.listed`),
+    whose `yours` holds its harness and model, else by a row holding a model of its family word,
+    a row that names no maker deciding neither.  Where no row names one, the family word itself;
+    with no family word, its provider.  The family word of a model, this one or one a row holds,
+    is the word its id opens with after any `provider/` prefix (`config.family`,
+    `config.model_id`), else its harness's own (`config.manifest`), matched as an id is: one
+    family is then one word, whichever names it and however a manifest spells it.  A provider
+    running several makers' models is then as many labs, and one maker's models under two
+    providers one lab."""
     entry = config.model(cfg, name)
     mine = {"harness": entry["harness"], "model": entry["model"]}
     rows = matrix.listed()[0] if lineup is None else lineup
-    row = next((row for row in rows if mine in row["yours"]), None)
-    if row is not None:
-        return config.company(cfg, row.get("maker")) or entry["provider"]
-    model = config.model_id(entry)
     words = config.families()
-    own = config.manifest(entry["harness"]).get("family")
-    word = (config.family(model.rsplit("/", 1)[-1], words) if model else None) or own
-    if isinstance(word, str) and word:
-        maker = next((row["maker"] for row in rows if row.get("maker")
-                      and any((held := config.model_id(one))
-                              and config.family(held.rsplit("/", 1)[-1], words) == word
-                              for one in row["yours"])), None)
-        return config.company(cfg, maker) or word
-    return entry["provider"]
+
+    def family(one):
+        model, own = config.model_id(one) or "", config.manifest(one["harness"]).get("family")
+        return (config.family(model.rsplit("/", 1)[-1], words)
+                or config.family(own if isinstance(own, str) else "", words))
+
+    word = family(mine)
+    holds = (lambda row: mine in row["yours"],
+             lambda row: word and any(family(one) == word for one in row["yours"]))
+    maker = next((row["maker"] for held in holds for row in rows
+                  if row.get("maker") and held(row)), None)
+    return config.company(cfg, maker) or word or entry["provider"]
 
 
 def pair_tier(cfg, executor, reviewer, lineup=None):
