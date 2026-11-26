@@ -1123,7 +1123,7 @@ def settle_delivered_line(state, log):
     the seat hears of it, and a plan it finished reads done (`plan.finished`) with nobody
     declaring it -- unless another process verifies: that one runs again for this delivery
     once it lets go, the lines ticking then, and this ending goes on to its follow-ups."""
-    session = transitions.launched_session(state)
+    session = transitions.run_session(state)
     if not (session and transitions.delivered(state)):
         return
     try:

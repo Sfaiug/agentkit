@@ -1511,15 +1511,20 @@ def _login(cfg, provider, model, prov):
     order = sorted(readings, key=lambda a: _worker_rank(a, readings[a], cfg, model))
     best = order[0]
     state = getattr(gitcall._RUN_CONTEXT, "state", {})
-    if "launched_session" in state or "session" in state:
-        # An explicit no-seat launch survives a resume inside another seat.
-        name = state.get("launched_session", state.get("session"))
-        seat = config.load_session(cfg, name, required=False) if name else None
-    else:
-        seat = config.active_session(cfg)
-    if seat and cfg["models"].get(seat["orchestrator"], {}).get("provider") == provider:
+    try:
+        if "launched_session" in state or "session" in state:
+            # An explicit no-seat launch survives a resume inside another seat; read only the
+            # raw record so a post-launch edit to unrelated seat fields never aborts the run.
+            name = state.get("launched_session", state.get("session"))
+            seat = config.resolved_record(name) if name else None
+        else:
+            seat = config.active_session(cfg)
+    except config.Error:
+        seat = None
+    orch = seat.get("orchestrator") if isinstance(seat, dict) else None
+    if isinstance(orch, str) and (cfg["models"].get(orch) or {}).get("provider") == provider:
         own = seat.get("account") or config.DEFAULT_ACCOUNT
-        if own in readings:
+        if isinstance(own, str) and own in readings:
             harness = config.model(cfg, model)["harness"]
             best = next((a for a in order if a != own and not spent(a)
                          and worker.auth_ok(harness, account=a, provider=provider)[0]
