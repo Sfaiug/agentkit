@@ -66,7 +66,7 @@ class AMachineIsAdded(unittest.TestCase):
         self.term.wait("› Machines")
         self.term.keys("Enter")
         self.term.wait(lambda screen: "config · machines" in screen and ADD in screen)
-        self.term.keys("Down", "Down")        # past this one and Google Cloud
+        self.term.keys("Down")                # past this one
         self.term.wait(f"› {ADD}")
 
     def add(self, address, shown):

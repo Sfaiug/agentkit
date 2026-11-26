@@ -323,13 +323,13 @@ class Home:
 
     def tick(self, env=None, box=(), cron=False, raw=False):
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
-        loopback, so it gets its own, where only a sink or Google on the host's is relayed
+        loopback, so it gets its own, where only a sink on the host's is relayed
         (tests/fixtures/sink.py), and its collection sweeps /tmp, so it gets one holding only
         this Home and the program.  `box` adds bwrap's words to that box: a file of the test's
         bound over one of the machine's, say.  `cron` runs it by cron's line, `CRON`.  `raw`
         keeps the bytes it printed, undecoded."""
         named = self._env(env)
-        sink = urlsplit(named.get("AK_GOOGLE_URL") or named.get("AK_NOTIFY_SINK", ""))
+        sink = urlsplit(named.get("AK_NOTIFY_SINK", ""))
         port = sink.port if sink.hostname == "127.0.0.1" else None
         way = self.tmux_dir / "sink.sock"     # a socket's path must fit in 104 bytes
         listener = socket.create_server(str(way), family=socket.AF_UNIX)

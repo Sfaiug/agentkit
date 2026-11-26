@@ -1,5 +1,5 @@
-"""A `c` page that reads config.toml itself, `Machines` and its Google Cloud page, brings the
-owner back to `c` saying why once the file will not load, open as it broke or opened after:
+"""A `c` page that reads config.toml itself, `Machines`, brings the owner back to `c` saying why
+once the file will not load, open as it broke or opened after:
 the menu stays up, one Esc on `c` leaves it, and nothing is written over the file.
 
 Black-box: the program `AK_BIN` names, in a terminal of its own (tests/fixtures/akterm.py), its
@@ -51,15 +51,6 @@ class CPageOverAConfigThatWillNotLoad(unittest.TestCase):
     def test_machines_open_as_the_file_breaks(self):
         self.term.keys("Enter")
         self.term.wait("+ add a machine")
-        self.breaks()
-        self.term.keys("j")
-        self.back_on_c()
-
-    def test_its_google_cloud_page_open_as_the_file_breaks(self):
-        self.term.keys("Enter")
-        self.term.wait("+ add a machine")
-        self.term.keys("j", "Enter")
-        self.term.wait("builds and reviews")
         self.breaks()
         self.term.keys("j")
         self.back_on_c()

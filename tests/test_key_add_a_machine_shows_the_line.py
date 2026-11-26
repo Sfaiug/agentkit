@@ -98,7 +98,7 @@ class AddAMachineShowsTheLine(unittest.TestCase):
         self.term.wait("› Machines")
         self.term.keys("Enter")
         self.term.wait(lambda screen: "config · machines" in screen and ADD in screen)
-        self.term.keys("Down", "Down", "Down")  # past this one, acme-box and Google Cloud
+        self.term.keys("Down", "Down")        # past this one and acme-box
         self.term.wait(f"› {ADD}")
 
     def opened(self):

@@ -681,19 +681,17 @@ def _work_in(cfg):
     """Refuse work marks no machine knows, and bad machine caps, even on a table not used for
     placement."""
     named = cfg.get("machines")
-    for label, table in [("google_cloud", cfg.get("google_cloud", {})),
-                         *((f"machines.{name}", table) for name, table in
-                           (named.items() if isinstance(named, dict) else ()))]:
+    for name, table in named.items() if isinstance(named, dict) else ():
         if isinstance(table, dict) and "work" in table:
             value = table["work"]
             if not isinstance(value, list) or any(word not in ("turns", "tests") for word in value):
-                raise Error(f"{HOME / CONFIG_NAME}: [{label}].work must list only turns and tests "
-                            f"(got {value!r})")
-        if label != "google_cloud" and isinstance(table, dict) and "max_runs" in table:
+                raise Error(f"{HOME / CONFIG_NAME}: [machines.{name}].work must list only turns "
+                            f"and tests (got {value!r})")
+        if isinstance(table, dict) and "max_runs" in table:
             value = table["max_runs"]
             if type(value) is not int or value < 1:
-                raise Error(f"{HOME / CONFIG_NAME}: [{label}].max_runs must be a whole number of "
-                            f"1 or more (got {value!r})")
+                raise Error(f"{HOME / CONFIG_NAME}: [machines.{name}].max_runs must be a whole "
+                            f"number of 1 or more (got {value!r})")
 
 
 def offered(cfg):
@@ -1301,15 +1299,13 @@ def save(cfg, defaults=None):
     the file read and the file written, nor on the same temp file.
     """
     if "turns_on_machines" in cfg:
-        from . import google_cloud, machines
+        from . import machines
         # the machines `cfg` names, not the file's: one added on `c` is in `cfg` alone
         named = cfg.get("machines")
         marks = {name: machines.work(name, cfg)
-                 for name in [*(named if isinstance(named, dict) else ()), suite_helper()]
-                 if name and not google_cloud.ssh_config(name)}
+                 for name in [*(named if isinstance(named, dict) else ()), suite_helper()] if name}
         for name, work in marks.items():
             cfg.setdefault("machines", {}).setdefault(name, {}).setdefault("work", work)
-        cfg.setdefault("google_cloud", {}).setdefault("work", machines.work(None, cfg))
         del cfg["turns_on_machines"]
     _work_in(cfg)
     path = HOME / CONFIG_NAME

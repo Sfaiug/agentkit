@@ -2,8 +2,8 @@
 bare one.
 
 The owner's `~/.agentkit/state` holds far more than seats: on 7 Nov 2026, 825 entries of 42
-kinds, among them the suite's timings, the helper's memory, the warm menu's socket, Google Cloud's
-records, the update's checks, the browser's tabs, the usage's pairs, a seat's done-check pictures,
+kinds, among them the suite's timings, the helper's memory, the warm menu's socket, what renting
+machines left, the update's checks, the browser's tabs, the usage's pairs, a seat's done-check pictures,
 the owner's notes and kinds nothing writes any more.  No seat's word, row or card reads them.  So
 a home with two seats at their claude prompts, made an hour back, is read bare, a first look's
 writes let through before the answers kept, then again beside one entry of each kind, named and
@@ -74,7 +74,7 @@ ENTRIES = {
     # the warm menu's log and lock beside its socket (`bind`, warm.serve)
     f"{MENU}.log": "",
     f"{MENU}.lock": "",
-    # Google Cloud's records (google_cloud)
+    # what renting machines left, which nothing writes any more
     "google-cloud-late.json": json.dumps(["ak-3c5e7a9b1d2f listed idle, given back"], indent=2) + "\n",
     "google-cloud-ledger.json": json.dumps({"answered": AT, "spent": 1.25, "machines": {}},
                                            indent=2) + "\n",

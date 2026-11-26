@@ -3,7 +3,7 @@
 Such a turn's `turn_usage` rows in history.db hold, for each model, each type summed over the
 messages its session's transcripts hold from its start to its last event, its subagent's too,
 each message once however many lines repeat it.  Where no transcript came home, as from a turn
-killed on a rented machine, each message counts as its stream reported it, and the run's
+killed on another machine, each message counts as its stream reported it, and the run's
 executor tokens count each message once too.  Those of a turn killed before its stream showed
 a message count what its rows count.  A turn with its `result` keeps what the result gives.  A
 later turn resuming the session keeps what its result's total exceeds the rows kept for the

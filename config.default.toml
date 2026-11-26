@@ -113,7 +113,3 @@ mode = "subscription"
 # who makes a provider's models, where that is not the provider's own (config.company).
 [providers.mimo]
 maker = "Xiaomi"
-
-[google_cloud]       # machines ak rents, with the key at ~/.agentkit/secrets/google-cloud.json
-active = false       # whether ak may rent at all
-max_month = 0        # the most it may cost in a calendar month, in euros

@@ -37,8 +37,7 @@ class AMachineJoinsWithTheWorkItCanTake(unittest.TestCase):
 
     def write_config(self, box=""):
         return akconfig.write(self.home, ["fable"], extra="".join(
-            f"[machines.{name}]\n{box if name == 'acme-box' else ''}" for name in MACHINES)
-            + "[google_cloud]\nactive = false\n")
+            f"[machines.{name}]\n{box if name == 'acme-box' else ''}" for name in MACHINES))
 
     def page(self, *rows):
         self.term = Terminal(self.home, "attach", "--overlay", size=(120, 40),
@@ -75,12 +74,11 @@ class AMachineJoinsWithTheWorkItCanTake(unittest.TestCase):
         self.leave()
 
     def test_a_machine_added_while_the_old_switch_is_off_is_marked_by_it(self):
-        akconfig.write(self.home, ["fable"], settings={"turns_on_machines": False},
-                       extra="[google_cloud]\nactive = false\n")
+        akconfig.write(self.home, ["fable"], settings={"turns_on_machines": False})
         self.home.fake("ssh", "#!/bin/sh\ncat <<'EOF'\n"
                        + "".join(f"{key} {value}\n" for key, value in SAID.items()) + "EOF\n")
         self.page("+ add a machine")
-        self.term.keys("Down", "Down")        # past this one and Google Cloud
+        self.term.keys("Down")                # past this one
         self.term.wait("› + add a machine")
         self.term.keys("Enter")
         self.term.wait("its ssh address")
