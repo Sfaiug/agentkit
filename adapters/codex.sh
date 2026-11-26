@@ -33,7 +33,9 @@
 # $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then uses that
 # subscription's own login, and no other
 set -uo pipefail
-command -v codex >/dev/null || PATH="$HOME/.npm-global/bin${PATH:+:$PATH}"   # install.sh's npm prefix puts it here: the fallback when PATH has no answer
+# bash's `command -v` and `type -P` fall back to a non-executable file on PATH when none can run
+program() { [ -x "$(type -P "$1")" ]; }
+program codex || PATH="$HOME/.npm-global/bin${PATH:+:$PATH}"   # install.sh's npm prefix puts it here: the fallback when PATH has no answer
 TMPD="$HOME/.agentkit/tmp"
 # The repository's AGENTS.md is kept out of a worker's turn and a seat (`codex debug
 # prompt-input` shows it gone): their rules are the ones ak hands them, a seat's its rulebook
@@ -285,11 +287,11 @@ reset)
          + {error: null}" <<<"$body" 2>/dev/null \
     || spent "the reset was applied, but the meters came back unparsable" ;;
 install)
-  if command -v codex >/dev/null; then echo "codex: already installed ($(codex --version 2>/dev/null | head -1))"; exit 0; fi
+  if program codex; then echo "codex: already installed ($(codex --version 2>/dev/null | head -1))"; exit 0; fi
   command -v npm >/dev/null || { echo "codex.sh install: npm is required" >&2; exit 2; }
   npm i -g @openai/codex ;;
 login)
-  command -v codex >/dev/null || { echo "codex.sh login: codex is not installed" >&2; exit 2; }
+  program codex || { echo "codex.sh login: codex is not installed" >&2; exit 2; }
   if [ "${1:-}" != again ] && [ -s "$AUTH" ]; then echo "codex: already logged in"; exit 0; fi
   [ -t 0 ] || { echo "codex: not logged in; run \`codex login --device-auth\` in a terminal" >&2; exit 1; }
   # codex 0.163 deletes the login it signs in over as its sign-in starts, and exits 0 when that
@@ -375,7 +377,7 @@ hooks)
   echo "codex: hooks are installed per launch by tools/codex-seat.py (SessionStart," \
        "UserPromptSubmit, Stop, Interrupt, PermissionRequest, PreToolUse, PostToolUse);" \
        "nothing to write here"
-  if command -v codex >/dev/null && ! codex --help 2>/dev/null | grep -q -- '--dangerously-bypass-hook-trust'; then
+  if program codex && ! codex --help 2>/dev/null | grep -q -- '--dangerously-bypass-hook-trust'; then
     echo "codex: this build reports no hook support; its seats fall back to screen rules" >&2
   fi ;;
 models)

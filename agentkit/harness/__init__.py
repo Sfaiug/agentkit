@@ -973,11 +973,11 @@ class Harness:
         hook = self._hook("same_model")
         return bool(hook(entry, model, effort)) if hook else False
 
-    def last_result(self, record, cwd, conversation):
-        """When that conversation's last tool's result was written, where none of the owner's
-        words came after it, in seconds since the epoch (moment), or None where its harness's
-        plugin does not say."""
-        hook = self._hook("last_result")
+    def last_request(self, record, cwd, conversation):
+        """When that conversation's last request to its model went out (or the last tool's result
+        before it where the record names no request), with none of the owner's words after it, in
+        seconds since the epoch (moment), or None where its harness's plugin does not say."""
+        hook = self._hook("last_request")
         return hook(record, cwd, conversation) if hook else None
 
     def holds(self, record):

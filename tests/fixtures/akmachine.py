@@ -31,7 +31,7 @@ SSH = '#!/bin/bash\nexec env -i HOME={home} PATH={bin}:/usr/bin:/bin bash -c "${
 # missing there, makes it as docker does, as root: here, read-only. `top` runs ps on this host,
 # keeping its lines of the processes under the command.
 DOCKER = r"""
-import itertools, os, re, shutil, subprocess, sys, threading
+import itertools, json, os, re, shutil, subprocess, sys, threading
 from pathlib import Path
 state = Path(__file__).resolve().parent.parent / "docker"
 images, containers = state / "images", state / "containers"
@@ -44,9 +44,18 @@ elif words[:2] == ["image", "ls"]:
 elif words[:2] == ["image", "rm"]:
     for ref in words[2:]:
         (images / ref).unlink()
-elif words[0] == "build":    # build -q -t IMAGE -f RECIPE CONTEXT
-    assert Path(words[5]).is_file() and Path(words[6]).is_dir()
-    (images / words[3]).touch()
+elif words[0] == "build":    # build -q -t IMAGE [--build-arg K=V ...] -f RECIPE CONTEXT
+    flags, args = {}, {}
+    words.pop(0)
+    while words[0].startswith("-"):
+        flag = words.pop(0)
+        if flag == "--build-arg":
+            key, _, value = words.pop(0).partition("=")
+            args[key] = value
+        elif flag != "-q":
+            flags[flag] = words.pop(0)
+    assert Path(flags["-f"]).is_file() and Path(words[0]).is_dir()
+    (images / flags["-t"]).write_text(json.dumps(args) + "\n")
 elif words[0] == "ps":
     print("".join(f"{name}\n" for name in held), end="")
 elif words[0] == "inspect":    # an unknown container fails it, as docker's does

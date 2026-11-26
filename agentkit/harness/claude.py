@@ -487,16 +487,22 @@ def running(record, cwd, conversation):
     return report if report and (not latest or report[2] > (latest[2] or 0)) else latest
 
 
-def last_result(record, cwd, conversation):
-    """When the last tool's result outside a sidechain on that conversation's record was
-    written, where none of the owner's words stand after it, or None."""
+def last_request(record, cwd, conversation):
+    """When the last request of the seat's own turn went out on that conversation's record
+    (`api-request` of `repl_main_thread`, 2.1.332), else when the last tool's result outside a
+    sidechain was written, where none of the owner's words stand after it, or None."""
     from . import last_entry, moment
     path = transcript(record, cwd, conversation)
-    # The owner's words end the read only to keep it short, as `wrapped_up`'s: a result
-    # before them is older than the turn their hook began.
+
+    # The owner's words end the read only to keep it short, as `wrapped_up`'s: a request or
+    # result before them is older than the turn their hook began.
+    def sent(entry):
+        return ((entry.get("type"), entry.get("querySource")) == ("api-request", "repl_main_thread")
+                or holds_result(entry))
+
     entry = path and last_entry(path, lambda entry: not entry.get("isSidechain")
-                                and (holds_result(entry) or prompt(entry) is not None))
-    return moment(entry.get("timestamp")) if entry and holds_result(entry) else None
+                                and (sent(entry) or prompt(entry) is not None))
+    return moment(entry.get("timestamp")) if entry and sent(entry) else None
 
 
 def resumable(record, cwd, conversation):

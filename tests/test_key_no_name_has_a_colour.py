@@ -253,7 +253,7 @@ class NoNameHasAColour(unittest.TestCase):
         self.assert_lit_alone(before, self.point(before, "Gemini"))
         # its usage pages with the rest: gone once the highlight is on the last row
         term.keys(*["Down"] * 30)
-        end = self.rest(lambda text: "› Limits" in text)
+        end = self.rest(lambda text: "› Money" in text)
         self.assertFalse(any("% left" in plain(line) for line in end))
 
 

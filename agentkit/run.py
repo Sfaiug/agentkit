@@ -58,6 +58,7 @@ from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity,
     slugify, stopped, tool_env, tool_run, with_suite)
 
 _PICKUP_START = None    # the version this queued launch was judged on
+_CHECKOUT_CHECKED_ENV = "AK_CHECKOUT_CHECKED"   # run_dir whose pre-slot checkout check already ran
 
 
 def ignore_time_keys(run_dir, meta, log):
@@ -135,6 +136,32 @@ def fetch_branches(repo):
     return fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
 
 
+def require_checkout(state, *, blocking=True):
+    """Ensure git knows a resumed run's checkout before waiting or working in it.
+
+    A checkout git does not know (such as a worktree left behind without its clone) refuses
+    every retry the same way: end exhausted as a stop does, so the tick stops retrying it and
+    hands the ending to its seat.  With `blocking=False`, a repository held exclusively by
+    housekeeping (`gitcall.RepositoryBusy`) passes: git already resolved its common directory,
+    and blocking on housekeeping while queued would hold unrelated runs behind this one in line.
+    A fork failure (`BlockingIOError`) from starting git is never caught here.
+    """
+    if not state.get("repo"):
+        return
+    wt = Path(state["worktree"])
+    try:
+        with (gitcall.repository_lock(wt) if blocking
+              else gitcall.repository_lock(wt, blocking=False)):
+            pass
+    except gitcall.RepositoryBusy:
+        return
+    except Stopped:
+        raise
+    except config.Error as exc:
+        msg = str(exc)
+        raise Exhausted(msg if str(wt) in msg else f"{wt}: {msg}") from None
+
+
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
     fetched = False
@@ -163,17 +190,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         repo = Path(state["repo"]) if state.get("repo") else None
         wt = Path(state["worktree"])
         if repo:
-            try:
-                with gitcall.repository_lock(wt):
-                    pass
-            except Stopped:
-                raise
-            except config.Error as exc:
-                # A checkout git does not know (such as a worktree left behind without its
-                # clone) refuses every retry the same way: end exhausted as a stop does, so
-                # the tick stops retrying it and hands the ending to its seat.
-                msg = str(exc)
-                raise Exhausted(msg if str(wt) in msg else f"{wt}: {msg}") from None
+            require_checkout(state)
             gitcall.no_auto_gc(wt)
         log(f"resuming at round {len(state['round_summaries']) + 1}/{state['rounds']}: {wt}"
             + (f" on {state['branch']}" if state.get("branch") else ""))
@@ -568,6 +585,8 @@ def mark_state(run_dir, name, error=None, log=None):
             pass
     state["state"], state["finished_at"] = name, time.time()
     state.pop("resume_from", None)
+    if state.get("slot_waiting"):
+        state["slot_waiting"] = False
     if name != "waiting_login":
         # the harness a login parked it on, and the stamps that paced and released the
         # retry: none means anything to a run that is no longer parked on one
@@ -959,6 +978,13 @@ def seat_launch(state):
     return bool(state.get("followup") or state.get("night"))
 
 
+def _bound_lists(source):
+    """Role lists kept on a seat launch's receipt: non-empty builders, and any reviewer list
+    including `[]` so review stays off."""
+    return {role: list(source[role]) for role in ("workers", "reviewers")
+            if isinstance(source.get(role), list) and (source[role] or role == "reviewers")}
+
+
 def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None,
                     pick_first=False):
     """Launch the task.md in that new run directory, or the pull request's review `opts` name,
@@ -976,8 +1002,7 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
     except config.Error:
         now, lists = None, state
     receipt = {**origin, "launched_session": session,
-               **{role: list(lists[role]) for role in ("workers", "reviewers")
-                  if isinstance(lists.get(role), list) and lists[role]},
+               **_bound_lists(lists),
                **(config.run_marks(now, lists) if now else {}),
                **({"notify_sink": state["notify_sink"]} if state.get("notify_sink") else {})}
     opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
@@ -1186,8 +1211,9 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
                config.workers(cfg) if cfg is not None and session_at_launch else None)
     if bound:
         # It keeps the lists launch_for_seat bound when it wrote the receipt.
-        groups = {role: list(receipt[role]) for role in ("workers", "reviewers")
-                  if isinstance(receipt.get(role), list) and receipt[role]}
+        groups = _bound_lists(receipt)
+        receipt = {key: value for key, value in receipt.items()
+                   if key not in ("workers", "reviewers")}
     else:
         active = config.active_session(cfg) if cfg is not None else None
         selection = (active or cfg["defaults"]) if cfg is not None else {}
@@ -2112,11 +2138,20 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
             set_property(unit, "CPUWeight", host.CPU_WEIGHT_MAX, log)
         else:
             yield_cpu(unit, log)
+    already_checked = (
+        bool(existing and existing.get("state") == "running"
+             and existing.get("pid") == os.getpid())
+        or os.environ.get(_CHECKOUT_CHECKED_ENV) == str(run_dir)
+    )
     sampler = history.Sampler(run_dir.name, log=log)
     stop_after_finally = False
     sampler.start()
     try:
+        if prior and not job and not already_checked:
+            require_checkout(prior, blocking=False)
+            os.environ[_CHECKOUT_CHECKED_ENV] = str(run_dir)
         with run_slot(run_dir, prior):
+            os.environ.pop(_CHECKOUT_CHECKED_ENV, None)
             state = job() if job else loop(cfg, run_dir, run_dir / "task.md", opts, log, prior)
     except run_record.StopRequested:
         # A stop landed mid-attempt: the disk already says `stopped`, so there is
@@ -2183,6 +2218,7 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
         stop_after_finally = True
         return 2
     finally:
+        os.environ.pop(_CHECKOUT_CHECKED_ENV, None)
         sampler.stop()
         sampler.join(timeout=2)
         # the loop's work ends here however it ended, parked or killed with no receipt of it

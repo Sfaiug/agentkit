@@ -127,7 +127,7 @@ class LimitsPage(unittest.TestCase):
 
     def limits(self, term):
         """`config · limits` opened from `c`."""
-        term.keys(*["j"] * 30)     # Limits is the last config row.
+        term.keys(*["j"] * 7)     # Limits is the eighth row, the two models first.
         term.wait("› Limits")
         term.keys("Enter")
         # the page's own key line, drawn after its rows: the header can read `config · limits`
