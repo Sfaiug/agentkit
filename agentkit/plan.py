@@ -636,7 +636,7 @@ def add(name, what, check, repo=None):
         raise config.Error("an outcome is plain words without `·`")
     repo = Path(repo) if repo else project_of(name)
     check = one_command(check)
-    holds_checkout(check, repo)
+    repo = checked_checkout(check, repo)
     from . import retire
     retire.vet_check(repo, check)
     passed = None
@@ -685,8 +685,8 @@ def one_command(check):
     return check
 
 
-def holds_checkout(check, repo):
-    """Refuse a check whose text holds the path of the project's checkout `repo`: a check runs
+def checked_checkout(check, repo):
+    """Return the resolved checkout after guarding both its given and resolved paths. A check runs
     in a clean checkout of the default branch, and one that goes to `repo` tests what that
     checkout holds instead (uncommitted work, or ak's install behind main).  It reads text, not
     the shell: the path is looked for as written from `/`, `~`, `$HOME` or `${HOME}`, with every
@@ -694,7 +694,8 @@ def holds_checkout(check, repo):
     starts with it (`acme-old`) is refused too.  A path the check builds as it runs (a variable,
     `..`, a link) is not seen."""
     home, paths = Path.home(), set()
-    for path in {Path(repo), Path(repo).resolve()}:
+    resolved = repo.resolve()
+    for path in {repo, resolved}:
         paths.add(str(path))
         for top in {home, home.resolve()}:
             if path.is_relative_to(top):
@@ -705,6 +706,7 @@ def holds_checkout(check, repo):
         raise config.Error(f"this check holds {shown}, the path of the project's checkout, but a "
                            "check runs in a clean checkout of its default branch: name paths "
                            "relative to the repository, as in `python3 tests/test_x.py`")
+    return resolved
 
 
 def numbered(text, number):
@@ -730,7 +732,7 @@ def recheck(name, number, check):
         raise config.Error("only a check line takes another check")
     repo = place(name, found["project"])
     if repo:
-        holds_checkout(check, repo)
+        repo = checked_checkout(check, repo)
         with focused_check(repo, check) as (_, env, checkout):
             if found["base"]:
                 with checkout(found["base"]) as tree:
@@ -777,8 +779,26 @@ def main(argv):
                   "each screen your work changed with `ak orch look FILE`, an image or a text "
                   "capture of a terminal screen.")
         return 0
-    if argv[0] == "add" and len(argv) == 4 and argv[2] == "--check":
-        print(add(name, argv[1], argv[3]))
+    if argv[0] == "add" and len(argv) in (4, 6):
+        usage = command_help.COMMANDS["plan"][0]
+        options = {}
+        for flag, value in zip(argv[2::2], argv[3::2]):
+            if (flag not in ("--check", "--repo") or flag in options
+                    or not value or value.startswith("--")):
+                raise config.Error(usage)
+            options[flag] = value
+        if "--check" not in options:
+            raise config.Error(usage)
+        repo = None
+        if "--repo" in options:
+            raw = options["--repo"]
+            try:
+                repo = Path(raw).expanduser().absolute()
+                if not (repo / ".git").exists():
+                    raise config.Error(f"{repo} is not a git checkout")
+            except (OSError, RuntimeError) as exc:
+                raise config.Error(f"{raw}: {exc}") from None
+        print(add(name, argv[1], options["--check"], repo=repo))
         return 0
     if argv[0] == "check" and len(argv) == 3 and argv[1].isdigit():
         print(recheck(name, int(argv[1]), argv[2]))

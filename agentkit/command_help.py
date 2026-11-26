@@ -175,9 +175,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
              "Waiting on someone outside ak: ak wait until DATE \"WHAT\", DATE as YYYY-MM-DD\n"
              "or \"YYYY-MM-DD HH:MM\" in this host's time; ak wakes you when it comes.",
              "ak wait https://github.com/acme/api/pull/12"),
-    "plan": ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
+    "plan": ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' [--repo PATH] | "
              "ak plan check N 'COMMAND'",
              "This session's plan: each line an outcome with the check that proves it.\n"
+             "Use --repo PATH to check this outcome in another git checkout.\n"
              "add runs the check on the project's default branch and refuses one that passes,\n"
              "does not finish or holds the project's checkout path (it runs in a clean one);\n"
              "check N puts your own test in place of line N's check, such as a review\n"
