@@ -959,6 +959,13 @@ def seat_launch(state):
     return bool(state.get("followup") or state.get("night"))
 
 
+def _bound_lists(source):
+    """Role lists kept on a seat launch's receipt: non-empty builders, and any reviewer list
+    including `[]` so review stays off."""
+    return {role: list(source[role]) for role in ("workers", "reviewers")
+            if isinstance(source.get(role), list) and (source[role] or role == "reviewers")}
+
+
 def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None,
                     pick_first=False):
     """Launch the task.md in that new run directory, or the pull request's review `opts` name,
@@ -976,8 +983,7 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
     except config.Error:
         now, lists = None, state
     receipt = {**origin, "launched_session": session,
-               **{role: list(lists[role]) for role in ("workers", "reviewers")
-                  if isinstance(lists.get(role), list) and lists[role]},
+               **_bound_lists(lists),
                **(config.run_marks(now, lists) if now else {}),
                **({"notify_sink": state["notify_sink"]} if state.get("notify_sink") else {})}
     opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
@@ -1186,8 +1192,9 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
                config.workers(cfg) if cfg is not None and session_at_launch else None)
     if bound:
         # It keeps the lists launch_for_seat bound when it wrote the receipt.
-        groups = {role: list(receipt[role]) for role in ("workers", "reviewers")
-                  if isinstance(receipt.get(role), list) and receipt[role]}
+        groups = _bound_lists(receipt)
+        receipt = {key: value for key, value in receipt.items()
+                   if key not in ("workers", "reviewers")}
     else:
         active = config.active_session(cfg) if cfg is not None else None
         selection = (active or cfg["defaults"]) if cfg is not None else {}
