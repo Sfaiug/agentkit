@@ -695,7 +695,7 @@ def moving(clock, wake=None, timeout=TICK, going=None, rest=True):
         key = wait_key("> ", left if due is None else max(0, min(due, left)), wake)
         if key is None and terminal.asked_again():
             clock.clear()
-            clock.forget()
+            (clock.settle if terminal.unseen() else clock.forget)()
             return None
         if rest and isinstance(key, terminal.Key) and key.name != "point":
             terminal.over(clock.rest())
@@ -736,6 +736,7 @@ def asking(clock, around, going=lambda: None, title=""):
         return key
 
     def ask(question, meaning, answer, doing=""):
+        clock.swept = None
         clock.touch(("asked",))
         clock.hold()
         if not terminal.confirm(question, meaning, answer, around, wait):
@@ -4971,7 +4972,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             continue
         try:
             if act == "a" and fresh:
-                refused = apply_defaults(cfg, ask)
+                refused = apply_defaults(cfg, ask, clock)
                 continue
             if act == "r" and advice:     # a record that will not read has nobody to take it
                 clock.forget()            # another screen: the matrix back from it replays nothing
@@ -6641,7 +6642,7 @@ def defaults_saved(cfg, selected, changed, before):
     return note
 
 
-def apply_defaults(cfg, ask):
+def apply_defaults(cfg, ask, clock=None):
     """`a` on a fresh window's `c`: every listed seat with a record but the weekly audit's takes
     [defaults]'s executors and reviewers and the entries' efforts for the models it then runs,
     once `Apply` is picked on the card `ask` asks on (asking), which names each seat
@@ -6650,11 +6651,14 @@ def apply_defaults(cfg, ask):
     changes, so a move refused or failed leaves its record on the one its harness runs, its
     other changes kept.  Listed: it has a row on the main screen, gone from tmux
     too.  Each one's bar names what it took at once (handback.redress_seat).  Before each is
-    changed, the header counts it and the rule fills by those done (terminal.counting).
-    config.toml is not written.  What to say under the rows (said_once): {each reason a seat was
-    refused for: the seats it held}, in the order the seats are listed, a reason no seat
-    holds said alone."""
+    changed, the header counts it and the rule fills by those done (terminal.counting), and once
+    the count has gone through the last session, `clock` sweeps the header's rule once
+    (motion.Clock.sweep).  config.toml is not written.  What to say under the rows (said_once):
+    {each reason a seat was refused for: the seats it held}, in the order the seats are listed,
+    a reason no seat holds said alone."""
     from . import audit     # here, not at the top: audit imports this module
+    if clock is not None:
+        clock.swept = None
     defaults, records = cfg["defaults"], config.session_records()
     skip = config.resolve_session(audit.NAME)
     seats = {s["name"]: records[s["name"]] for s in orch.listing(reconcile=False)
@@ -6706,6 +6710,8 @@ def apply_defaults(cfg, ask):
             handback.redress_seat(name)
         if note:
             held.setdefault(terminal.plain(note), []).append(name)
+    if clock is not None:
+        clock.sweep()
     return held
 
 
