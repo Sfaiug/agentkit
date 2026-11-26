@@ -2187,13 +2187,14 @@ def hook_options():
     because tmux keeps the last client's size after it goes; when another client is still on a
     different session, `client-detached` does not even name the session left behind.  So both
     hooks synchronously walk every detached seat (`MARK`, `session_attached == 0`) inside the
-    server via `run-shell -C`, skipping windows set to `manual` or still sized by any client
-    (`window_active_clients` under `aggressive-resize`, otherwise any attached session holding
-    the window), resize each remaining window not at `SEAT_SIZE` back to it, and restore its
-    prior `window-size` option (which `resize-window` flips to `manual`) -- unsetting it where
-    it was inherited (`set-option -woq` with a distinct non-manual probe takes only when no
-    window option is set, without applying cached manual dimensions), or setting its explicit
-    value back so policies like `smallest` are preserved.
+    server via `run-shell -C`, skipping windows set to `manual` or still sized by any unsuspended
+    client (an attached session whose active window is this one under `aggressive-resize`, else
+    any attached session holding it -- never `window_active_clients`, which counts suspended
+    clients tmux excludes from sizing), resize each remaining window not at `SEAT_SIZE` back to
+    it, and restore its prior `window-size` option (which `resize-window` flips to `manual`) --
+    unsetting it where it was inherited (`set-option -woq` with a distinct non-manual probe takes
+    only when no window option is set, without applying cached manual dimensions), or setting its
+    explicit value back so policies like `smallest` are preserved.
     """
     from . import watch   # here, not at the top: watch imports this module
     ak = shlex.join([sys.executable, str(versions.live() / "bin" / "ak"), "orch"])
@@ -2205,11 +2206,14 @@ def hook_options():
     front = job("front")
     # inside `run-shell -C`, tmux expands `#{S:...}` / `#{W:...}` into one guarded restore per
     # detached seat window not already SEAT_SIZE (empty expands to a silent no-op).  The inner
-    # guard matches tmux's own sizing rule (active viewers under `aggressive-resize`, else any
-    # attached session holding the window); `set-option -woq` with a distinct non-manual probe
-    # takes only when `window-size` was inherited, without applying cached manual dimensions.
-    attached = "#{S:#{?#{session_attached},#{W:#{?#{==:#{window_id},__WID__},1,}},}}"
-    unheld = f"#{{?#{{?#{{aggressive-resize}},#{{window_active_clients}},{attached}}},0,1}}"
+    # guard matches tmux's own sizing rule using `session_attached` (which excludes suspended
+    # clients, unlike `window_active_clients`): active window of an attached session under
+    # `aggressive-resize`, else any window of an attached session.  `set-option -woq` with a
+    # distinct non-manual probe takes only when `window-size` was inherited, without applying
+    # cached manual dimensions.
+    active = "#{S:#{?#{&&:#{session_attached},#{==:#{window_id},__WID__}},1,}}"
+    linked = "#{S:#{?#{session_attached},#{W:#{?#{==:#{window_id},__WID__},1,}},}}"
+    unheld = f"#{{==:#{{?#{{aggressive-resize}},{active},{linked}}},}}"
     diff = f"#{{||:#{{!=:#{{window_width}},{width}}},#{{!=:#{{window_height}},{height}}}}}"
     resize = f"resize-window -t __WID__ -x {width} -y {height}"
     per_win = (

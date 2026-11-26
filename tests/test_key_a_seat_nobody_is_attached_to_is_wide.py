@@ -8,6 +8,8 @@ Black-box: the program `AK_BIN` names opens the seats from outside (tests/fixtur
 judged by the size tmux gives their windows.
 """
 
+import os
+import signal
 import sys
 import unittest
 from pathlib import Path
@@ -192,6 +194,46 @@ class ASeatNobodyIsAttachedToIsWide(unittest.TestCase):
         self.assertEqual(size(self.home, "acme"), "240x50")
         self.assertEqual(self.home.tmux("detach-client", "-t", shell_tty).code, 0)
         self.assertEqual(shell.exit_code(), 0)
+
+    def test_a_suspended_client_does_not_keep_an_aggressive_resize_seat_narrow(self):
+        for linked in (False, True):
+            with self.subTest(linked=linked), Home() as home:
+                home.fake("claude", "#!/bin/sh\nexec sleep 60\n")
+                open_seat(home, "acme")
+                holder = "acme"
+                if linked:
+                    holder = "shell"
+                    self.assertEqual(home.tmux("new-session", "-d", "-s", holder, "sleep 60").code, 0)
+                    self.assertEqual(home.tmux("link-window", "-d", "-s", "=acme:", "-t", "=shell:1").code, 0)
+                    self.assertEqual(home.tmux("select-window", "-t", "=shell:1").code, 0)
+                self.assertEqual(home.tmux("set-option", "-w", "-t", "=acme:",
+                                           "aggressive-resize", "on").code, 0)
+                first = Terminal(home, "-L", SOCKET, "attach-session", "-t", f"={holder}:",
+                                 size=(102, 34), program=REAL_TMUX)
+                first_tty = home.tmux("display-message", "-p", "-t", first.pane, "#{pane_tty}",
+                                      server=SERVER).out.strip()
+                until(lambda: f"{first_tty}\t{holder}" in home.tmux(
+                    "list-clients", "-F", "#{client_tty}\t#{session_name}").out.splitlines(),
+                    "attach first client")
+                first_pid = int(home.tmux("display-message", "-p", "-c", first_tty,
+                                          "#{client_pid}").out.strip())
+                self.assertEqual(home.tmux("suspend-client", "-t", first_tty).code, 0)
+                try:
+                    second = Terminal(home, "-L", SOCKET, "attach-session", "-t", "=acme:",
+                                      size=(78, 26), program=REAL_TMUX)
+                    second_tty = home.tmux("display-message", "-p", "-t", second.pane, "#{pane_tty}",
+                                           server=SERVER).out.strip()
+                    until(lambda: size(home, "acme") == "78x24", "size acme to unsuspended client")
+                    self.assertEqual(home.tmux("detach-client", "-t", second_tty).code, 0)
+                    self.assertEqual(second.exit_code(), 0)
+                    self.assertEqual(size(home, "acme"), "240x50")
+                finally:
+                    os.kill(first_pid, signal.SIGCONT)
+                    until(lambda: home.tmux("display-message", "-p", "-t", f"={holder}:",
+                                            "#{session_attached}").out.strip() == "1",
+                          "resume suspended client")
+                    self.assertEqual(home.tmux("detach-client", "-t", first_tty).code, 0)
+                    self.assertEqual(first.exit_code(), 0)
 
 
 if __name__ == "__main__":
