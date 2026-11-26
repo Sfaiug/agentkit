@@ -238,12 +238,17 @@ def look(argv):
 
 def checker(cfg, name):
     """`[done_check] model` (setting), else the first of that seat's reviewers, as marked, that
-    can run now: the check is no run, so it has no draw (`usage.pick_order`)."""
+    can run now, or its orchestrator when its record leaves reviewers empty: the check is no
+    run, so it has no draw (`usage.pick_order`)."""
     named = setting(cfg)["model"]
     if named:
         return named
+    marks = config.selection(cfg, name)
+    reviewers = marks.get("reviewers", marks["workers"])
+    if not reviewers:
+        return marks["orchestrator"]
     order = staffing.ready_order(cfg, staffing.collect_usage(cfg),
-                                 config.reviewers(cfg, name), role="reviewer", quiet=True)
+                                 reviewers, role="reviewer", quiet=True)
     if not order:
         raise config.Error(f"none of {name}'s reviewers can run now")
     return order[0]
