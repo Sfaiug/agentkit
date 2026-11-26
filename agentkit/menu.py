@@ -7615,7 +7615,8 @@ def update_first(live=None, updates=None):
 
 
 def main(argv):
-    """The menu.  `--overlay` is the popup inside a seat, and never leaves this machine.
+    """The menu.  `--overlay` is the popup inside a seat, and never leaves this machine: on a
+    client, which has no seat, the command prints whose client this is and exits 1.
 
     A popup is opened over tmux sessions that are here, so it neither hops to the server the
     way a client's menu does nor runs the maintenance that a menu opening a seat runs: reaping
@@ -7637,7 +7638,13 @@ def main(argv):
             config.migrate_policy()     # as bin/ak renames before any other command's refusal
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] += 1
-    home = None if flags["--overlay"] else config.server_alias()
+    home = config.server_alias()
+    if home and flags["--overlay"]:
+        # The popup is the menu over a seat here, and a client's seats are on its home: a
+        # standby's records of them are a copy of that home's, and a row picked in this menu
+        # would open one a second time, as its boot resume did on 22 Nov 2026.
+        print(f"this machine is a client of {home} and opens no seat: its seats are on {home}")
+        return 1
     if home and flags["--client"] > 1:
         print(f"this machine is a client of {home} and opens no menu for another client")
         return 1
