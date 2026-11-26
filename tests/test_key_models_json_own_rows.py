@@ -46,19 +46,20 @@ REVIEWS = [(row["run_id"], 1, "" if row["run_id"] == "fix-cache" else "medium")
            for row in RUNS if row["run_id"] != "fix-menu"]
 
 
-def summed(tasks, live, first_pass=None, reviews=None, issues=0):
+def summed(tasks, live, first_pass=None, reviews=None, issues=0, disputed=0, taken_back=0):
     return {"tasks": tasks, "live": live,
             "first_pass": tasks if first_pass is None else first_pass,
             "reviews": tasks if reviews is None else reviews, "issues": issues,
+            "disputed": disputed, "taken_back": taken_back,
             "hours": {"build": tasks, "review": tasks / 2, "checks": tasks / 4, "waiting": tasks}}
 
 
-def row(name, effort, in_use, tasks, live, first_pass=None, reviews=None, issues=0):
+def row(name, effort, in_use, tasks, live, first_pass=None, reviews=None, issues=0, **disputes):
     return {"name": name, "effort": effort, "in_use": in_use,
-            **summed(tasks, live, first_pass, reviews, issues)}
+            **summed(tasks, live, first_pass, reviews, issues, **disputes)}
 
 
-def own_of(runs, reviews):
+def own_of(runs, reviews, findings=None):
     with Home() as home:
         fakeadapter.install(home, claude="pass", codex="pass")
         akconfig.write(home, {"nova": "claude", "bolt": {"harness": "codex", "effort": "max",
@@ -68,7 +69,7 @@ def own_of(runs, reviews):
                        orchestrator="nova", workers=["dune", "bolt"],
                        reviewers=["crux", "bolt"])
         home.write(".agentkit/state/boards.json", boards())
-        history(home, runs, reviews)
+        history(home, runs, reviews, findings)
         return home.ak("models", "--json", env=ENV)
 
 
@@ -119,6 +120,28 @@ class ModelsJsonOwnRows(unittest.TestCase):
         self.assertEqual(own["reviewer"], [
             row("crux", "medium", True, 2, 2, 1, 3, 2), row("bolt", "high", True, 0, 0),
             row("crux", None, False, 1, 0, 0, 2, 4), row("echo", "medium", False, 1, 1, 1, 1, 5)])
+
+    def test_a_role_s_row_sums_disputed_and_taken_back_over_its_teams(self):
+        runs = [run("fix-api", 1), run("fix-docs", 1, orchestrator_effort=None),
+                run("fix-mail", 1, reviewer="echo")]       # another reviewer: outside bolt's row
+        reviews = [(run_id, 1, "medium") for run_id in ("fix-api", "fix-docs", "fix-mail")]
+        # each finding answered, `conceded` and `dropped` taken back
+        findings = [("fix-api", "upheld"), ("fix-api", "conceded"), ("fix-docs", "dropped"),
+                    ("fix-mail", "conceded"), ("fix-mail", "upheld")]
+        done = own_of(runs, reviews, findings)
+        self.assertEqual(done.code, 0, done.err)
+        own = json.loads(done.out)["own"]
+        self.assertEqual(own["team"], summed(2, 2, disputed=3, taken_back=2))
+        self.assertEqual(own["orchestrator"], [
+            row("nova", "high", True, 1, 1, disputed=2, taken_back=1),
+            row("nova", None, False, 1, 1, disputed=1, taken_back=1)])
+        self.assertEqual(own["executor"], [
+            row("dune", "low", True, 0, 0), row("bolt", "max", True, 2, 2, disputed=3,
+                                                taken_back=2)])
+        self.assertEqual(own["reviewer"], [
+            row("crux", "medium", True, 2, 2, disputed=3, taken_back=2),
+            row("bolt", "high", True, 0, 0),
+            row("echo", "medium", False, 1, 1, disputed=2, taken_back=1)])
 
 
 if __name__ == "__main__":

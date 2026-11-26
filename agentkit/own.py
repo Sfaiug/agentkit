@@ -16,18 +16,39 @@ from .ledger import HOURS, ROLES
 
 FEW = 20        # a row of fewer tasks says only how many: a few tasks say nothing yet
 WORDS = {"orchestrator": "ORCHESTRATOR", "executor": "BUILDER", "reviewer": "REVIEWER"}
-HEADS = ("tasks", "went live", "passed 1st review", "reviews per task", "issues per task",
-         "per task live")
+
+
+def share(part, whole):
+    """A row's `part` of its `whole` as a whole percent, `-` where it counts none."""
+    return lambda row: f"{round(100 * row[part] / row[whole])}%" if row[whole] else "-"
+
+
+def per_task(part):
+    """A row's `part` per task, to a tenth."""
+    return lambda row: f"{row[part] / row['tasks']:.1f}"
+
+
+# Each role's table: each column its heading and its text of a row of FEW tasks or more, "" where
+# it says nothing; each role serves its own purpose (the owner, 24 Nov 2026: "for exec how fast
+# and it goes through without any extra findings and rounds, and for reviwer the more issues it
+# finds the better, I guess also issues which we act on").
+LEAD = {"tasks": lambda row: str(row["tasks"]), "went live": share("live", "tasks")}
+LAST = {"per task live": lambda row: per_live(row) if row["live"] else ""}
+COLUMNS = {"orchestrator": {**LEAD, **LAST},
+           "executor": {**LEAD, "passed 1st review": share("first_pass", "tasks"),
+                        "reviews per task": per_task("reviews"), **LAST},
+           "reviewer": {**LEAD, "issues per task": per_task("issues"),
+                        "false alarms": share("taken_back", "issues"), **LAST}}
 
 
 def by_role(teams, now):
     """{"team", "orchestrator", "executor", "reviewer"} off the ledger's `teams` and the team now
     `now`, {role: [(name, effort or None)]} in the order held.  `team` sums the teams all three of
     whose roles are the team now's; a role's rows {"name", "effort", "in_use", "tasks", "live",
-    "first_pass", "reviews", "issues", "hours"} sum the teams their model at their effort (None
-    where not recorded) did that role in, each held model with its row at its effort now, in use
-    where that effort is recorded: those in use first, in the order held, then most tasks, name
-    and effort, None last."""
+    "first_pass", "reviews", "issues", "disputed", "taken_back", "hours"} sum the teams their
+    model at their effort (None where not recorded) did that role in, each held model with its
+    row at its effort now, in use where that effort is recorded: those in use first, in the order
+    held, then most tasks, name and effort, None last."""
     def ours(team, role):
         did = team[role]
         return any(did["name"] == name and recorded(did["effort"]) in (None, effort)
@@ -35,7 +56,8 @@ def by_role(teams, now):
 
     def summed(found):
         return {**{key: sum(team[key] for team in found)
-                   for key in ("tasks", "live", "first_pass", "reviews", "issues")},
+                   for key in ("tasks", "live", "first_pass", "reviews", "issues",
+                               "disputed", "taken_back")},
                 "hours": {part: math.fsum(team["hours"][part] for team in found)
                           for part in HOURS}}
     own = {"team": summed([team for team in teams if all(ours(team, role) for role in ROLES)])}
@@ -61,11 +83,12 @@ def recorded(effort):
 
 def lines(own, cfg, room):
     """`own` (`by_role`) as `ak models` draws it on `room` cells: a line on the team now, then a
-    table a role of its rows in `own`'s order, each in use marked as docs/cli-design.md marks
-    one (menu.config_audit's `●` for the one orchestrator, `■` for any of several), named as
-    every screen names it (`named`).  Columns are sized once for the three tables; where they
-    pass the edge every row folds, no column headed: its model's line, then its numbers indented,
-    each after its column's name, wrapped between two of them."""
+    table a role of its rows in `own`'s order under its role's COLUMNS, each in use marked as
+    docs/cli-design.md marks one (menu.config_audit's `●` for the one orchestrator, `■` for any
+    of several), named as every screen names it (`named`).  The name and LEAD's columns are sized
+    once for the three tables, to stand under each other, each other column for its own; where a
+    table passes the edge every row folds, no column headed: its model's line, then its numbers
+    indented, each after its column's name, wrapped between two of them."""
     team, tasks = own["team"], own["team"]["tasks"]
     said = [f"{team['live']} of {tasks} tasks went live", *(
         [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting"]
@@ -75,28 +98,31 @@ def lines(own, cfg, room):
                         if tasks else ["Your team now has no task yet"], " ", room)
     marks = ("●○", "■□") if terminal.utf8() else ("*.", "#-")
     tables = {role: [((marks[role != "orchestrator"][0], "accent") if row["in_use"] else
-                      (marks[role != "orchestrator"][1], "dim"), named(cfg, row), numbers(row))
-                     for row in own[role]] for role in ROLES}
-    name = max(terminal.cells(text) for text in [
-        *WORDS.values(), *(f"{mark} {model}" for rows in tables.values()
-                           for (mark, _), model, _ in rows)])
-    widths = [max(map(terminal.cells, column)) for column in zip(
-        HEADS, *(texts for rows in tables.values() for *_, texts in rows))]
-    folded = name + sum(2 + column for column in widths) > room
+                      (marks[role != "orchestrator"][1], "dim"), named(cfg, row),
+                      numbers(row, COLUMNS[role])) for row in own[role]] for role in ROLES}
+    # each table's widths, its names' first; the names' and LEAD's then the widest of the three
+    widths = {role: [max(map(terminal.cells, column)) for column in zip(
+        (WORDS[role], *COLUMNS[role]), *((f"{mark} {model}", *texts)
+                                         for (mark, _), model, texts in rows))]
+        for role, rows in tables.items()}
+    lead = [max(column) for column in zip(*widths.values())][:1 + len(LEAD)]
+    widths = {role: [*lead, *sized[len(lead):]] for role, sized in widths.items()}
+    folded = any(sum(sized) + 2 * (len(sized) - 1) > room for sized in widths.values())
 
-    def columns(texts):
+    def columns(texts, sized):
         return "  ".join(terminal.pad(text, column, right=True)
-                         for text, column in zip(texts, widths)).rstrip()
+                         for text, column in zip(texts, sized)).rstrip()
     for role, rows in tables.items():
-        word = terminal.styled(WORDS[role], "bold")
+        word, (name, *sized) = terminal.styled(WORDS[role], "bold"), widths[role]
         shown += ["", word] if folded else ["", word + " " * (
-            name + 2 - terminal.cells(WORDS[role])) + terminal.styled(columns(HEADS), "muted")]
+            name + 2 - terminal.cells(WORDS[role])) + terminal.styled(
+                columns(COLUMNS[role], sized), "muted")]
         for (mark, kind), model, texts in rows:
             if folded:
                 first, *rest = hung(f"{mark} {model}", room)
-                rest += told(texts, room)
+                rest += told(zip(COLUMNS[role], texts), room)
             else:
-                first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts)}", []
+                first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts, sized)}", []
             shown += [terminal.styled(mark, kind) + first[len(mark):], *rest]
     return shown
 
@@ -106,16 +132,11 @@ def per_live(counts, parts=HOURS):
     return f"{math.fsum(counts['hours'][part] for part in parts) / counts['live']:.1f} h"
 
 
-def numbers(row):
-    """A row's texts under HEADS: its tasks, then, of FEW or more, the share that went live and
-    that passed its first review, its reviews and issues per task and, with one live, every hour
-    they spent per task live; "" where it says nothing."""
-    tasks = row["tasks"]
-    if tasks < FEW:
-        return (str(tasks), *[""] * (len(HEADS) - 1))
-    return (str(tasks), f"{round(100 * row['live'] / tasks)}%",
-            f"{round(100 * row['first_pass'] / tasks)}%", f"{row['reviews'] / tasks:.1f}",
-            f"{row['issues'] / tasks:.1f}", per_live(row) if row["live"] else "")
+def numbers(row, columns):
+    """A row's texts under `columns`, a table of COLUMNS: below FEW tasks, its tasks alone."""
+    if row["tasks"] < FEW:
+        return (str(row["tasks"]), *[""] * (len(columns) - 1))
+    return tuple(text(row) for text in columns.values())
 
 
 def named(cfg, row):
@@ -127,12 +148,12 @@ def named(cfg, row):
                        "effort": None if row["effort"] == "none" else row["effort"]})
 
 
-def told(texts, room):
-    """A folded row's `texts` (`numbers`), each after its column's name, two cells in and as many
-    to a line as fit: the indent gives way before a number is parted from its name, and one too
-    wide for the screen wraps at its words, never past `room`."""
+def told(said, room):
+    """A folded row's (column's name, its text) pairs, each text after its name, two cells in and
+    as many to a line as fit: the indent gives way before a number is parted from its name, and
+    one too wide for the screen wraps at its words, never past `room`."""
     lines = []
-    for head, text in zip(HEADS, texts):
+    for head, text in said:
         part = f"{terminal.styled(head, 'muted')} {text}"
         if not text:
             continue
