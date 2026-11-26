@@ -351,7 +351,7 @@ usage)
   printf '%s\n' '{"provider":"xai","meters":[],"error":null,"none":"no meter: cli-chat-proxy.grok.com/v1/billing?format=credits reports no usage percent, and the settings cache carries no subscription_usage entries"}' ;;
 install)
   if program grok; then echo "grok: already installed ($(grok --version 2>/dev/null))"; exit 0; fi
-  program curl || { echo "grokbuild.sh install: curl is required" >&2; exit 2; }
+  command -v curl >/dev/null || { echo "grokbuild.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://x.ai/cli/install.sh | bash ;;
 login)
   program grok || { echo "grokbuild.sh login: grok is not installed" >&2; exit 2; }

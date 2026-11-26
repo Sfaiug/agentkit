@@ -288,7 +288,7 @@ reset)
     || spent "the reset was applied, but the meters came back unparsable" ;;
 install)
   if program codex; then echo "codex: already installed ($(codex --version 2>/dev/null | head -1))"; exit 0; fi
-  program npm || { echo "codex.sh install: npm is required" >&2; exit 2; }
+  command -v npm >/dev/null || { echo "codex.sh install: npm is required" >&2; exit 2; }
   npm i -g @openai/codex ;;
 login)
   program codex || { echo "codex.sh login: codex is not installed" >&2; exit 2; }

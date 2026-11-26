@@ -549,7 +549,7 @@ usage)
     '{"provider":$p,"meters":[],"error":null,"none":$n}' ;;
 install)
   if program opencode; then echo "opencode: already installed ($(opencode --version 2>/dev/null | head -1))"; exit 0; fi
-  program curl || { echo "opencode.sh install: curl is required" >&2; exit 2; }
+  command -v curl >/dev/null || { echo "opencode.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://opencode.ai/v2/install | bash ;;   # v2: the v1 channel's latest rejects --standalone
 login)
   # The provider named, through OpenCode's own login for it, its sign-in where it has one; none

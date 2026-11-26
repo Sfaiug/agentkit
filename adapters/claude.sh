@@ -399,7 +399,7 @@ reset)
       meters}' <<<"$body" 2>/dev/null; } || printf '{"code":"reset","available":%s}\n' "${left:-null}" ;;
 install)
   if program claude; then echo "claude: already installed ($(claude --version 2>/dev/null | head -1))"; exit 0; fi
-  program curl || { echo "claude.sh install: curl is required" >&2; exit 2; }
+  command -v curl >/dev/null || { echo "claude.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://claude.ai/install.sh | bash ;;
 login)
   program claude || { echo "claude.sh login: claude is not installed" >&2; exit 2; }

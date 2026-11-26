@@ -304,7 +304,7 @@ usage)
     2>/dev/null || err "unparsable response from ${API#https://}" ;;
 install)
   if program agy; then echo "agy: already installed ($(agy --version 2>/dev/null | head -1))"; exit 0; fi
-  program curl || { echo "antigravity.sh install: curl is required" >&2; exit 2; }
+  command -v curl >/dev/null || { echo "antigravity.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://antigravity.google/cli/install.sh | bash ;;
 login)
   program agy || { echo "antigravity.sh login: agy is not installed" >&2; exit 2; }

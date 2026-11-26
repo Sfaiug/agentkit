@@ -379,7 +379,7 @@ usage)
   exec "$here/muse-usage.sh" ;;
 install)
   if program muse; then echo "muse: already installed ($(muse --version 2>/dev/null))"; exit 0; fi
-  program curl || { echo "muse.sh install: curl is required" >&2; exit 2; }
+  command -v curl >/dev/null || { echo "muse.sh install: curl is required" >&2; exit 2; }
   # bash, not sh: the installer uses [[ ]] throughout and dies under dash
   curl -fsSL https://dev.meta.ai/install.sh | bash ;;
 login)
