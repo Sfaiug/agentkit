@@ -17,8 +17,9 @@ import (
 // for every machine ak may use, this one first, Enter opening its work but on this one's.  Last,
 // `+ add a machine` takes an ssh address, with the line that makes a new machine ready under its
 // field, and adds the machine once it answers, else says why not (machines.Ask, machines.Add);
-// Esc while it is asked goes back, nothing written.
-func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+// Esc while it is asked goes back, nothing written.  A config.toml that will not load closes it,
+// what it returns saying why for `c` to show under its rows; false hands it to Python.
+func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) (string, bool) {
 	join := sync.OnceValues(machines.JoinLine) // made as the field first opens: it makes ak's key
 	add := menu.PageRow{Label: "+ add a machine", Field: func(typed string) string {
 		name := strings.TrimFunc(typed, config.Space)
@@ -48,8 +49,9 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			}
 			return append(lines, s.Unbroken("    "+line)...)
 		}}
-	return configPage("machines", "", func() ([]menu.PageRow, bool) {
-		if config.Check() != nil { // a file that will not load closes the page, saying why on `c`
+	var why error // what the last read of the file said
+	if configPage("machines", "", func() ([]menu.PageRow, bool) {
+		if why = config.Check(); why != nil {
 			return nil, false
 		}
 		var rows []menu.PageRow
@@ -65,7 +67,13 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			rows = append(rows, row)
 		}
 		return append(rows, add), true
-	}, keyboard, painter)
+	}, keyboard, painter) {
+		return "", true
+	}
+	if why != nil {
+		return why.Error(), true
+	}
+	return "", false
 }
 
 // menuMachineWork is `config · machines · <name>`: a mark for each work a machine may take,

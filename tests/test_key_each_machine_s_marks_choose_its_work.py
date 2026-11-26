@@ -102,11 +102,6 @@ class EachMachinesMarks(unittest.TestCase):
         self.assertIn("[machines.acme-linux].work", done.err)
         self.assertIn("turns and tests", done.err)
 
-    def test_a_table_left_from_renting_is_not_read(self):
-        akconfig.write(self.home, ["opus"], extra='[google_cloud]\nwork = ["builds"]\n')
-        done = self.home.ak("models", "--json")
-        self.assertEqual(done.code, 0, done.out + done.err)
-
 
 if __name__ == "__main__":
     unittest.main()

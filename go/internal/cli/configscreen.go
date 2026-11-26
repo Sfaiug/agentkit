@@ -69,7 +69,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 	nextKey := followSeat(session, keyboard)
 	for {
 		var known bool
-		if view.Options, known = configOptions(c); !known {
+		if view.Options, known = configOptions(c, view.Options); !known {
 			return false
 		}
 		if view.Row >= 0 && view.Row < len(c.Names) {
@@ -167,7 +167,12 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			continue
 		}
 		if key.Name == "enter" && view.Row >= len(c.Names)+2 {
-			if !configPages[view.Options[view.Row-len(c.Names)].Name](keyboard, painter) {
+			if name := view.Options[view.Row-len(c.Names)].Name; name == "Machines" {
+				// a file that will not load closes it, and it says why here
+				if view.Note, known = menuMachines(keyboard, painter); !known {
+					return false
+				}
+			} else if !configPages[name](keyboard, painter) {
 				return false
 			}
 			continue
@@ -255,16 +260,24 @@ func configNames(selected *run.Object, key string) []string {
 	return names
 }
 
-// configPages are the pages Enter opens on the rows under Subscriptions, by the row's name.
+// configPages are the pages Enter opens on the rows under Subscriptions, by the row's name, but
+// `Machines`' (menuMachines).
 var configPages = map[string]func(*terminal.Keyboard, *terminal.Painter) bool{
-	"Discord": menuDiscord, "Weekly audit": menuAudit, "Done check": menuDoneCheck,
-	"Machines": menuMachines, "Limits": menuLimits,
+	"Discord": menuDiscord, "Weekly audit": menuAudit, "Done check": menuDoneCheck, "Limits": menuLimits,
 }
 
 // configOptions are the rows under the models, as menu.CONFIG_ROWS. Owner, 10 Nov 2026: "Remove
 // the weekly audit feature for now. Dont delete it, but remove it." `Weekly audit`, its value
-// menu.audit_value's, stood between Discord and Done check.
-func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
+// menu.audit_value's, stood between Discord and Done check.  A config.toml that will not load is
+// shown as why on `Machines`, which reads it itself (menu.machines_value); the other rows keep
+// what `last` read, as Python's `c` goes on with the config it read last (menu.holding).
+func configOptions(c *matrix.Configuration, last []menu.ConfigOption) ([]menu.ConfigOption, bool) {
+	broken := config.Check()
+	if broken != nil && last != nil {
+		options := slices.Clone(last)
+		options[4].Value = broken.Error()
+		return options, true
+	}
 	checker, on, err := config.DoneCheck()
 	check := ""
 	if err != nil {
@@ -282,8 +295,8 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 		noun = "machine"
 	}
 	machined := fmt.Sprintf("%d %s", known, noun)
-	if err := config.Check(); err != nil { // one that will not load is shown as why
-		machined = err.Error()
+	if broken != nil {
+		machined = broken.Error()
 	}
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: menu.DiscordValue()},
 		{Name: "Done check", Value: check},
