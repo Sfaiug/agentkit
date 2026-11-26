@@ -65,7 +65,7 @@ class AClient(unittest.TestCase):
         listed = cls.home.tmux("list-sessions", "-F", "#{session_name}")
         assert listed.code == 0, listed.err
         # tmux ends each name with "\n" alone; a name may hold any other line separator
-        return sorted(set(listed.out.removesuffix("\n").split("\n")) - {OWN})
+        return sorted(set(listed.out.split("\n")[:-1]) - {OWN})
 
     def test_a_client_s_firing_resumes_starts_and_lands_nothing(self):
         self.assertEqual(self.client.code, 0, self.client.err)
