@@ -5743,9 +5743,9 @@ def opened_line(told, texts, on, room):
 
 def page_body(rows, at=None, moves=None):
     """The lines of a page `c` opens and the row each is, {line: (row, cells)}: of `rows`,
-    (row, label, value) each, its label on one line (terminal.plain) and then its value, lined
-    up past the widest label beside a value as `c`'s own rows are, or with no label a choice of
-    a list opened under the row above it, indented as `add a subscription`'s are.  A value is
+    (row, label, value) each, its label and then its value, lined up past the widest label
+    beside a value as `c`'s own rows are, or with no label a choice of a list opened under the
+    row above it, indented as `add a subscription`'s are.  A value is
     text, or parts, (text, kind) each -- or (text, kind, cell), its columns one of the line's
     cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
@@ -5753,8 +5753,9 @@ def page_body(rows, at=None, moves=None):
     the row lit, on the selection unless its cell is what is lit, and `moves` is handed each
     mark leading a value (`■`, `□`, `●`, `○`) as config_body hands its own."""
     room = terminal.layout_width()
-    # a label may be a name read from a file, a provider's or a plan kept, holding a line break
-    rows = [(row, label if label is None else terminal.plain(label), value)
+    # a label may be a name read from a file, a provider's or a plan kept, holding a line break;
+    # its spacing kept, as two names may differ only in it
+    rows = [(row, label if label is None else terminal.plain(label, spaced=True), value)
             for row, label, value in rows]
     wide = max((terminal.cells(label) for _, label, value in rows if label is not None and value),
                default=0)
