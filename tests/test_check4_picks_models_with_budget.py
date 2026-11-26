@@ -76,6 +76,13 @@ class Check4PicksModelsWithBudget(unittest.TestCase):
         self.assertEqual(self.pair({"anthropic": reading(70), "openai": reading(10)}),
                          "opus astra\n")
 
+    def test_the_part_of_a_week_held_for_another_models_cap_is_no_budget_for_it(self):
+        held = reading(60)
+        week = {**held["meters"][0], "name": "weekly_all"}
+        held["meters"] = [week, {**week, "name": "weekly_scoped", "used": 20, "scope": "Fable",
+                                 "held": 40}]
+        self.assertEqual(self.pair({"anthropic": held, "openai": reading(10)}), "astra astra\n")
+
     def test_everything_spent_prints_nothing(self):
         self.assertEqual(self.pair({"anthropic": reading(100), "openai": reading(100)}), "")
 

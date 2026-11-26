@@ -5639,7 +5639,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
     try:
-        prov = (staffing._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
+        prov = usage.unheld(staffing._cached_providers() if dry_run
+                            else usage.collect(cfg)).get(provider) or {}
     except (config.Error, OSError) as exc:
         log(f"WARN {name}: could not read {provider} usage: {exc}")
         return True

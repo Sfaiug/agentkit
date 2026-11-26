@@ -4633,14 +4633,15 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
 
 def listed_login(cfg, model, providers):
     """(account, (ok, why)): the first login `model`'s provider lists whose seat login passes
-    (`seat_auth`), in the seat's order (`account_order` of the readings `providers` holds), else
-    the first of them, with what its harness said of it; None, and what it says of its one login,
-    for a provider listing none."""
+    (`seat_auth`), in the seat's order (`account_order` of the readings `providers` holds, as a
+    seat reads them: `usage.unheld`), else the first of them, with what its harness said of it;
+    None, and what it says of its one login, for a provider listing none.  A seat it serves is
+    one already open, switched or reopened, and the part of a week held for a cap moves none."""
     entry = config.model(cfg, model)
     plugin = harness_plugin(entry["harness"])
     accounts = config.accounts(cfg, entry["provider"])
-    order = account_order(cfg, model, providers.get(entry["provider"], {}).get("accounts")
-                          or {}) if accounts else []
+    order = account_order(cfg, model, usage.unheld(providers).get(entry["provider"], {})
+                          .get("accounts") or {}) if accounts else []
     first = None
     for account in [*order, *(a for a in accounts if a not in order)]:
         said = plugin.seat_auth(account)

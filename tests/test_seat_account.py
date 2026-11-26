@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -639,6 +640,23 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.scoped_meters()
         self.tick()
         self.assertEqual(config.session_records()[NAME]["account"], "second")
+
+    def test_a_part_of_its_week_held_for_another_models_cap_neither_parks_nor_moves_a_seat(self):
+        # 60% used and 40 held for Fable: spent for an Opus turn, never for the Opus seat on it
+        self.meters(60, 0)
+        self.cached(lambda p: p["anthropic"]["accounts"]["default"]["meters"].append({
+            **usage._normalized({"name": "weekly_scoped", "used": 20, "window_secs": 604800,
+                                 "resets_at": self.now + 86400}, self.now),
+            "scope": "Fable", "held": 40}))
+        self.tick()
+        self.assertEqual(self.commands, [])
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+        self.assertEqual(config.session_records()[NAME]["account"], "default")
+        # nor the login a switch onto Opus, or a reopen, takes
+        signed_in = SimpleNamespace(seat_auth=lambda _: (True, "signed in"))
+        with patch.object(orch, "harness_plugin", return_value=signed_in):
+            self.assertEqual(orch.listed_login(self.cfg, "opus", usage.collect(self.cfg))[0],
+                             "default")
 
     def test_reset_deadline_ignores_other_models_scoped_meter(self):
         self.meters(100, 100)
