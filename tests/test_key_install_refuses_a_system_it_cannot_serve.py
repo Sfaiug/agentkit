@@ -17,7 +17,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import installer
-from fixtures.akbin import SYSTEM, Home
+from fixtures.akbin import Home
 
 LINUX = ("Linux", os.uname().machine)
 INTEL_MAC = ("Darwin", "x86_64")
@@ -31,19 +31,10 @@ class Refused(unittest.TestCase):
         self.addCleanup(home.close)
         installer.prepare(home)
         installer.own_home(home)
-        (home.bin / "apt-get").unlink()
+        installer.without(home, "apt-get")      # a Debian host's too
         home.refuse("sysctl")                   # an Intel Mac's knows no hw.optional.arm64
         shutil.rmtree(home.path)
         home.path.mkdir()
-        # the Home's PATH, whose host tools a server install may run all of, but a Debian
-        # host's apt-get, which is among them
-        tools = home.root / "tools"
-        tools.mkdir()
-        for folder in filter(os.path.isdir, (Path(sys.executable).parent, *SYSTEM)):
-            for tool in Path(folder).iterdir():
-                if tool.name != "apt-get" and not os.path.lexists(tools / tool.name):
-                    (tools / tool.name).symlink_to(tool)
-        home.env["PATH"] = os.pathsep.join([str(home.bin), str(tools)])
 
     def install(self, system, machine):
         self.home.fake("uname",

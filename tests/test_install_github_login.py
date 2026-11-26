@@ -46,7 +46,8 @@ class InstallGithubLogin(unittest.TestCase):
 
     def run_slice(self, start, end, tty):
         source = (REPO / "install.sh").read_text()
-        definition = next(line for line in source.splitlines() if line.startswith("GH_LOGIN="))
+        definitions = "".join(f"{line}\n" for line in source.splitlines()
+                              if line.startswith(("GH_LOGIN=", "have() ", "program() ")))
         begin = source.index(start)
         block = source[begin:] if end is None else source[begin:source.index(end, begin + 1)]
         script = (
@@ -54,9 +55,8 @@ class InstallGithubLogin(unittest.TestCase):
             f"REPO={shlex.quote(str(self.root / 'repo'))}\n"
             f"AK={shlex.quote(str(self.home / '.agentkit'))}\n"
             f"ROLE=server\nSANDBOX=0\nALIAS=\nOS=Linux\nTTY={tty}\n"
-            "have() { command -v \"$1\" >/dev/null 2>&1; }\n"
             "note() { echo \"note: $*\" >&2; }\n"
-            f"{definition}\n{block}")
+            f"{definitions}{block}")
         proc = subprocess.run(
             [shutil.which("bash"), "-c", script], stdin=subprocess.DEVNULL,
             capture_output=True, text=True, cwd=str(self.root),

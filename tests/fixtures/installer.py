@@ -9,7 +9,8 @@ that names no server, so no install reaches the machine's packages, tailnet or l
 To install.sh a HOME that is not the account's own is a sandbox, where nothing outside it is
 touched.  `own_home` makes the Home the account's own as `id` names it, with an `npm` that
 takes its settings and a `crontab` keeping its table in `<root>/crontab`, so a server install
-does all it does on a real host, every tool it calls a fake.
+does all it does on a real host, every tool it calls a fake.  `without` takes programs off the
+Home's PATH, the host's copies too.
 
     from fixtures.akbin import Home
     from fixtures import installer
@@ -19,6 +20,7 @@ does all it does on a real host, every tool it calls a fake.
         assert (home.path / ".agentkit/state/server").read_text() == "acme-box\n"
 """
 
+import os
 from pathlib import Path
 import re
 import shlex
@@ -54,6 +56,24 @@ def own_home(home):
     # where its commands find it: a machine's of tests/fixtures/twohomes.py too
     home.fake("crontab", CRONTAB.format(table=shlex.quote(str(home.at / "crontab"))))
     home.env.update(USER="", LOGNAME="")
+
+
+def without(home, *names):
+    """No program `names` is on the Home's PATH from now on, whatever the host has: its own `bin`
+    loses them, and the host directories after it are one of links to every other program on
+    them, the first that runs, as a PATH lookup finds it, so an install still runs every host
+    tool but these."""
+    tools = home.root / "tools"
+    tools.mkdir()
+    for name in names:
+        (home.bin / name).unlink(missing_ok=True)
+    for folder in home.env["PATH"].split(os.pathsep):
+        if folder != str(home.at / "bin") and os.path.isdir(folder):
+            for tool in Path(folder).iterdir():
+                if (tool.name not in names and not os.path.lexists(tools / tool.name)
+                        and tool.is_file() and os.access(tool, os.X_OK)):
+                    (tools / tool.name).symlink_to(tool)
+    home.env["PATH"] = os.pathsep.join([str(home.at / "bin"), str(tools)])
 
 
 def copy(to):
