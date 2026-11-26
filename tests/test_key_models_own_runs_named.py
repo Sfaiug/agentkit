@@ -19,6 +19,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, boards
 from test_key_models_json_counts_tasks_by_team import history, run
+from test_key_models_own_tables import HEADS
 
 HAIKU = {"harness": "claude", "model": "claude-haiku-4-5", "effort": "none"}
 # a run haiku executed at effort none, merged in round 1
@@ -36,8 +37,8 @@ def ran(home, *runs):
     connection.close()
 
 
-HEAD = ("tasks went live passed 1st review reviews per task issues per task "
-        "per task live").split()
+# each table's heading line, at its words
+HEAD = {word: [word, *heads.split()] for word, heads in HEADS.items()}
 
 
 class OwnRunsNamed(unittest.TestCase):
@@ -58,11 +59,11 @@ class OwnRunsNamed(unittest.TestCase):
             done = home.ak("models", env={**ENV, "COLUMNS": "120"})
         self.assertEqual(done.code, 0, done.err)
         shown = [line.split() for line in done.out.splitlines()]
-        self.assertEqual(shown[shown.index(["ORCHESTRATOR", *HEAD]):], [
-            ["ORCHESTRATOR", *HEAD], ["●", "Haiku", "4.5", "1"], [],
-            ["BUILDER", *HEAD], ["■", "Haiku", "4.5", "max", "1"], ["□", "Haiku", "4.5", "1"],
+        self.assertEqual(shown[shown.index(HEAD["ORCHESTRATOR"]):], [
+            HEAD["ORCHESTRATOR"], ["●", "Haiku", "4.5", "1"], [],
+            HEAD["BUILDER"], ["■", "Haiku", "4.5", "max", "1"], ["□", "Haiku", "4.5", "1"],
             [],
-            ["REVIEWER", *HEAD], ["■", "Haiku", "4.5", "max", "1"]])
+            HEAD["REVIEWER"], ["■", "Haiku", "4.5", "max", "1"]])
 
     def test_a_run_at_an_effort_stays_apart_from_a_name_holding_it(self):
         with Home() as home:
