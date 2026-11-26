@@ -384,6 +384,15 @@ class ExecutorsOptional(Sandbox):
         row = history.get("widgets")
         self.assertEqual((row["session"], row["orchestrator"]), ("fix-api", "opus"))
         self.assertEqual(transitions.history_ending(state)["session"], "fix-api")
+        # a legacy receipt without launched_orchestrator still writes its row when the live
+        # seat's orchestrator is not SQLite-bindable
+        live.write_text(json.dumps({"orchestrator": ["opus"], "workers": ["opus"],
+                                    "reviewers": ["astra"]}))
+        legacy = {key: value for key, value in state.items() if key != "launched_orchestrator"}
+        transitions.history_start({**legacy, "run_id": "legacy-list-orch"})
+        row = history.get("legacy-list-orch")
+        self.assertIsNotNone(row)
+        self.assertEqual((row["session"], row["orchestrator"]), ("fix-api", None))
 
         # own-PR size gate uses captured workers rather than reading a live or corrupt seat
         url = "https://github.com/acme/api/pull/7"

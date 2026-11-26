@@ -85,6 +85,37 @@ class CorruptSeatNeverAbortsLaunchedRun(unittest.TestCase):
         self.assertEqual(account, "first")
         self.assertEqual(row, ("fix-api", "alpha"))
 
+    def test_non_scalar_live_orchestrator_still_records_history_without_captured_orchestrator(self):
+        with Home() as home:
+            home.env["AK_NOTIFY_SINK"] = None
+            rig = Rig(home)
+            akconfig.write(home, {"beta": {"harness": "claude", "provider": "acme"},
+                                  "alpha": {"harness": "claude", "provider": "acme"}},
+                           orchestrator="alpha", workers=["beta"],
+                           settings={"review_rounds": 0})
+            home.fake("claude", "#!/bin/sh\nexit 0\n")
+            fakeadapter.install(home, claude="work")
+            home.write(".agentkit/state/session-fix-api.json", {
+                "orchestrator": ["alpha"], "workers": ["beta"], "reviewers": [],
+                "cwd": str(rig.path), "created": 1})
+            task = taskfile.write(home, rig.path)
+            run_dir = home.path / ".agentkit/runs/legacy-list-orch"
+            run_dir.mkdir(parents=True)
+            (run_dir / "log.txt").touch()
+            (run_dir / "task.md").write_text(task.read_text())
+            (run_dir / "run.json").write_text(json.dumps({
+                "run_id": run_dir.name, "state": "queued", "slot_waiting": True, "verdict": None,
+                "launched_session": "fix-api", "workers": ["beta"], "reviewers": [],
+                "launch_opts": {"--no-merge": True}, "policy": {"review_rounds": 0},
+            }))
+
+            done = home.ak("run", "resume", run_dir.name, timeout=300)
+            self.assertEqual(done.code, 0, done.out + done.err)
+            with contextlib.closing(sqlite3.connect(home.path / ".agentkit/history.db")) as db:
+                row = db.execute("SELECT session, orchestrator FROM runs WHERE run_id=?",
+                                 (run_dir.name,)).fetchone()
+            self.assertEqual(row, ("fix-api", None))
+
     def test_queued_own_pr_size_gate_uses_captured_workers_over_a_corrupt_seat(self):
         for workers, expected in ((["opus"], "Write it as a task"),
                                   ([], "Split it into smaller PRs.")):

@@ -178,6 +178,13 @@ def history_start(state, log=None):
     if orchestrator is None and session:
         record = config.session_records().get(session)
         orchestrator = record.get("orchestrator") if record else None
+    if not isinstance(orchestrator, (str, int, float)) or isinstance(orchestrator, bool):
+        orchestrator = None
+    elif isinstance(orchestrator, str):
+        try:
+            orchestrator.encode()     # SQLite rejects lone surrogates, dropping the whole row
+        except UnicodeEncodeError:
+            orchestrator = None
     history.start_run(state.get("run_id"), repo=state.get("repo"),
                       executor=state.get("executor"), reviewer=state.get("reviewer"),
                       rounds_used=len(state.get("round_summaries") or []),
