@@ -6,7 +6,7 @@ Black-box: `AK_BIN`, in a person's terminal (tests/fixtures/akterm.py) over seat
 them (tests/fixtures/akseat.py), their harnesses fakes (tests/fixtures/fakeadapter.py), as
 tests/test_key_an_apply_says_a_reason_once.py drives `a` on `c`: six seats on 6 Astra gone from
 tmux, whose move to Fable 5.1 the fake Claude Code's `auth` refuses on Claude I, their names and
-that reason two lines long, on a 100x24 terminal; then six whose first name alone fills the
+that reason two lines long, on a 100x25 terminal; then six whose first name alone fills the
 line.  Fails against `/bin/false`, against an ak that says "1 more reason" and nothing of the
 reason, and against one that cuts off what was refused where fewer names would have fitted it.
 """
@@ -66,7 +66,7 @@ class ANoteSaysItsFirstReason(unittest.TestCase):
         for name in names:
             Seat(self.home, name, model="astra", alive=False,
                  record={"workers": ["astra"], "reviewers": ["astra"]})
-        term = Terminal(self.home, size=(100, 24), env={"NO_COLOR": "1", **OFFLINE})
+        term = Terminal(self.home, size=(100, 25), env={"NO_COLOR": "1", **OFFLINE})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("c config")
@@ -79,7 +79,7 @@ class ANoteSaysItsFirstReason(unittest.TestCase):
                           and blocks(screen)[-2].startswith(f"  {names[0]}"))
         self.assertEqual(matrix(after), matrix(before))
         # every row stays on screen, down to the last
-        self.assertTrue(matrix(after)[-1].split("\n")[-1].startswith("  Limits "), after)
+        self.assertTrue(matrix(after)[-1].split("\n")[-1].startswith("  Money "), after)
         note = blocks(after)[-2].split("\n")
         self.assertEqual(len(note), 1, after)
         return note[0]

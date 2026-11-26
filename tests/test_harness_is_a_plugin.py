@@ -156,7 +156,7 @@ class Plugins(Fixture):
         self.assertFalse(plugin.resumable({"conversation": "c", "id_source": "discovered"},
                                           self.root, "c"))
         self.assertIsNone(plugin.restart_word({}))
-        self.assertIsNone(plugin.last_result({"cwd": str(self.root)}, self.root, "c"))
+        self.assertIsNone(plugin.last_request({"cwd": str(self.root)}, self.root, "c"))
         self.assertEqual(plugin.reconcile({"conversation": "c", "id_source": "discovered"}),
                          {"conversation": None, "resumable": False})
         self.assertEqual(plugin.reconcile({"conversation": "c",

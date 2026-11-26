@@ -259,14 +259,16 @@ def unpark(launched, payload):
     That 19 Nov turn was a long one, its login parked while it ran.  Asked on 22 Nov whether
     this should stay with turns begun after the parking, the owner: "Keep building", for a turn
     already running, "judged by when its last request was sent".  The harness fires Stop once
-    the model has finished responding (StopFailure for a request that failed), and asks the
-    model again only once every result of the tools its message before asked for is written
-    down: so at a Stop the request the model last answered went out after every tool's result
-    the record holds outside a sidechain, whether or not that answer's own entry is there yet.
-    On 25 Nov 2026 (version 2.1.332, a turn running `sleep 15`) it was not: the Stop hook
-    started with the record ending at the result, the answer's entry written 0.1 s later.  So
-    the refusals that go are those made before the later of the turn's start and that result
-    (`last_result`, its plugin's), asked last of the same record: no answer shows one made
+    the model has finished responding (StopFailure for a request that failed), and writes a
+    request line on the record before that request's answer, after any tool's result its
+    message before asked for: on 25 Nov 2026 (version 2.1.332, a turn running `sleep 15`), the
+    owner's words at 18:21:11.999, request 12.389 (0.39 s later), tool call 15.344, result
+    30.892, request 31.021 (0.13 s later), answer 32.178, with the Stop hook starting before
+    the answer's entry was written 0.1 s later.  Asked on 26 Nov whether to drop that 0.13 s /
+    0.39 s window between result (or prompt) and request, the owner: "Build it".  So the
+    refusals that go are those made before the later of the turn's start and that request, or
+    the last tool's result outside a sidechain where the record holds no request line
+    (`last_request`, its plugin's), asked last of the same record: no answer shows one made
     after it wrong.
     """
     try:
@@ -289,9 +291,9 @@ def unpark(launched, payload):
         conversation = plugin.conversation(record, cwd)
         if (plugin.error(record, cwd, conversation) == ""
                 and plugin.wrapped_up(record, cwd, conversation) is None):
-            result = plugin.last_result(record, cwd, conversation)
+            sent = plugin.last_request(record, cwd, conversation)
             usage.answered(cfg, entry["provider"], told or None, record["orchestrator"],
-                           turn if result is None else max(turn, result))
+                           turn if sent is None else max(turn, sent))
     except Exception:
         pass        # the login stays parked as it was; the Stop is no less judged
 

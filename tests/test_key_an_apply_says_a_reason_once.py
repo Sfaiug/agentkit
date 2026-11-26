@@ -130,14 +130,14 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
     def test_a_shorter_terminal_keeps_every_row_and_says_how_many_more(self):
         self.other()
         after, before = self.applied()
-        self.term.resize(100, 27)       # a line too short for both reasons under the rows
+        self.term.resize(100, 28)       # a line too short for both reasons under the rows
         shorter = self.term.wait(lambda screen: "  1 more reason" in lines(screen))
         version, other, more = said(shorter)
         self.assertEqual(version, "  Version ?")
         self.assertEqual(other, f"  {OTHER}: {OTHER_WHY}", shorter)
         self.assertEqual(matrix(shorter), matrix(before))
         self.assertEqual(key_line(shorter), KEYS)
-        self.term.resize(100, 25)       # the rows leave one line: the first reason takes it
+        self.term.resize(100, 26)       # the rows leave one line: the first reason takes it
         first = [f"  {OTHER}: {OTHER_WHY}"]
         shortest = self.term.wait(lambda screen: key_line(screen) == KEYS
                                   and said(screen) == first)

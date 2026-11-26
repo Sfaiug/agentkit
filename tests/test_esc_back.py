@@ -85,7 +85,7 @@ for module, name in ((menu, "config_matrix"), (menu, "models_page"),
                      (menu, "config_subscriptions"), (menu, "config_add_provider"),
                      (menu, "config_discord"), (menu, "config_audit"),
                      (menu, "config_done_check"),
-                     (menu, "config_machines"), (menu, "config_limits"),
+                     (menu, "config_machines"), (menu, "config_limits"), (menu, "config_money"),
                      (menu, "show_features"),
                      (menu, "new_session"),
                      (menu, "pause"), (terminal, "choose")):
@@ -318,6 +318,9 @@ class EscBack(unittest.TestCase):
         menu_.press(DOWN + ENTER, title("config · limits"))
         menu_.back("config_limits", title("config · limits"))
         self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor a number
+        menu_.press(DOWN + ENTER, title("config · money"))
+        menu_.back("config_money", title("config · money"))
+        self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor a currency
         menu_.back("config_matrix", config_)
         menu_.leave()
 

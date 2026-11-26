@@ -2,8 +2,9 @@
 
 The record and the defaults may name no executor once they name reviewers; a task launch is
 refused before any run exists; the session's own PR is still reviewed, and starts no follow-up
-workers; the last executor may be let go on the screens while the last reviewer may not; and
-with nobody marked to build every exec mark is drawn open, the orchestrator's too.
+workers; a seat, made or about to be, may let its last executor and last reviewer go on the
+screens while new seats' [defaults] keep a reviewer; and with nobody marked to build every exec
+mark is drawn open, the orchestrator's too.
 
 Offline: throwaway HOME, fake launch/drive/tmux, and invented GitHub responses.
 """
@@ -58,10 +59,13 @@ class ExecutorsOptional(Sandbox):
         self.assertEqual((loaded["workers"], loaded["reviewers"]), ([], []))
         config.save_session(self.cfg, "no-rev", "opus", ["opus"], {"reviewers": []})
         self.assertEqual(config.load_session(self.cfg, "no-rev")["reviewers"], [])
-        # [defaults] cannot hold an empty reviewer list yet: remember_defaults leaves it as it stands
-        before = config.load()["defaults"].get("reviewers")
+        # [defaults] cannot hold an empty reviewer list yet: remember_defaults leaves the
+        # reviewers it means as they stand, those its workers imply among them
+        reviewers = lambda defaults: defaults.get("reviewers", defaults["workers"])
+        before = reviewers(config.load()["defaults"])
         self.assertEqual(config.remember_defaults(loaded), "")
-        self.assertEqual(config.load()["defaults"].get("reviewers"), before)
+        self.assertEqual(config.load()["defaults"]["workers"], [])
+        self.assertEqual(reviewers(config.load()["defaults"]), before)
         self.assertTrue(record.review_off({"reviewers": []}))
         self.assertTrue(record.review_off({"reviewers": [], "review_pr": "https://github.com/acme/api/pull/7", "own_pr": True}))
         self.assertFalse(record.review_off({"reviewers": [], "review_pr": "https://github.com/acme/api/pull/7", "own_pr": False}))
@@ -150,14 +154,23 @@ class ExecutorsOptional(Sandbox):
         checkout.assert_not_called()
         spawn.assert_not_called()
 
-    def test_last_executor_may_go_and_the_last_reviewer_may_not(self):
+    def test_a_seat_lets_its_last_executor_and_reviewer_go_and_new_seats_keep_a_reviewer(self):
         config.save_session(self.cfg, "fix-api", "opus", ["fable"], {"reviewers": ["astra"]})
         selected = self.selected()
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {}), "")
         self.assertEqual(config.load_session(self.cfg, "fix-api")["workers"], [])
-        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 2, {}),
+        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 2, {}), "")
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["reviewers"], [])
+        born = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}
+        self.assertEqual(menu.born_mark(self.cfg, born, "astra", 2, {}), "")
+        self.assertEqual(born["reviewers"], [])
+        self.assertEqual(orch.role_refusal(self.cfg, born, {}), "")    # Enter makes it
+        before = dict(self.cfg["defaults"])
+        defaults = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}
+        self.assertEqual(menu.defaults_mark(self.cfg, defaults, "astra", 2),
                          "at least one model reviews")
-        self.assertEqual(config.load_session(self.cfg, "fix-api")["reviewers"], ["astra"])
+        self.assertEqual(defaults["reviewers"], ["astra"])
+        self.assertEqual(self.cfg["defaults"], before)
 
     def test_every_exec_mark_is_open_while_nobody_is_marked(self):
         marks = "●○■□"

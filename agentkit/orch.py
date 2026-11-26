@@ -4409,10 +4409,12 @@ ROLE_HEADS = ("orch", "builds", "reviews")
 
 
 def role_refusal(cfg, selected, providers):
-    """Use the launch's pairing rules, with a sentence that fits under the marks on a phone."""
+    """Use the launch's pairing rules, with a sentence that fits under the marks on a phone.
+    No reviewer forms no pair to refuse: a change then lands on its checks."""
     reviewers = selected.get("reviewers", selected["workers"])
     # Without executors the screen only needs runnable reviewers.
-    if staffing.pair_refusal(cfg, providers, selected["workers"] or reviewers, reviewers=reviewers):
+    if reviewers and staffing.pair_refusal(cfg, providers, selected["workers"] or reviewers,
+                                           reviewers=reviewers):
         return "no allowed executor/reviewer pair"
     return ""
 
@@ -4430,25 +4432,22 @@ def role_groups(cfg, selected, providers, **groups):
     """`selected` with `groups` (orchestrator, workers, reviewers) replaced, legacy reviewers
     copied first so the two columns are independent from the first flip; (`selected`, why)
     where the pair could not run (role_refusal) or a group names a model since removed from
-    the config.  Empty reviewers are not checked: that is possible only before choosing from
-    an all-spent screen."""
+    the config."""
     changed = {**selected, "reviewers": list(selected.get("reviewers", selected["workers"])),
                **groups}
-    if changed["reviewers"]:
-        try:
-            note = role_refusal(cfg, changed, providers)
-        except config.Error as exc:
-            note = str(exc)
-        if note:
-            return selected, note
+    try:
+        note = role_refusal(cfg, changed, providers)
+    except config.Error as exc:
+        note = str(exc)
+    if note:
+        return selected, note
     return changed, ""
 
 
 def role_mark(cfg, selected, name, column, providers, shown=None):
     """A proposed mark (role_groups), without mutating the saved groups when it cannot form a
     pair: set where the groups `shown` (`selected` where None) leave it off, else taken off.
-    Executors may be left empty: the orchestrator then builds everything.  Reviewers keep
-    one."""
+    Either group may be left empty: with no executor the orchestrator builds everything."""
     if column == 0:
         if selected["orchestrator"] == name:
             return selected, ""
@@ -4457,8 +4456,6 @@ def role_mark(cfg, selected, name, column, providers, shown=None):
     group, drawn = (one["workers"] if column == 1 else one.get("reviewers", one["workers"])
                     for one in (selected, shown or selected))
     on = name not in drawn
-    if not on and group == [name] and role == "reviewers":
-        return selected, "at least one model reviews"
     return role_groups(cfg, selected, providers, **{role: (
         group if name in group else [*group, name]) if on else [
         peer for peer in group if peer != name]})

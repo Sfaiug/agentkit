@@ -1111,15 +1111,27 @@ def links(work):
 MAKING = "ak is making this checkout"
 
 
+class RepositoryBusy(Exception):
+    """The repository's shared directory is held exclusively (e.g. by housekeeping)."""
+
+
 @contextmanager
-def repository_lock(repo, *, exclusive=False):
+def repository_lock(repo, *, exclusive=False, blocking=True):
     # Lock the shared git directory itself: preparation waits for gc, and gc skips a
     # preparation in progress. No lock file or checkout-specific identity can drift apart.
     env = project_env(repo)
     common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir", env=env)
     directory = os.open(common, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB if exclusive else fcntl.LOCK_SH)
+        if exclusive:
+            fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        elif blocking:
+            fcntl.flock(directory, fcntl.LOCK_SH)
+        else:
+            try:
+                fcntl.flock(directory, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RepositoryBusy(common) from None
         yield env, Path(common)
     finally:
         os.close(directory)
