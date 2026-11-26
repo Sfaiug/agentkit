@@ -364,7 +364,7 @@ def held(launched, payload, records=None):
         if live:
             config.write_latch(latch, {**record, "live_back": True})
             return live
-        owes = not asked and untested(seat)
+        owes = not asked and untested(seat, records)
         if owes:
             return owes     # at every stop, past the turn's blocks: nothing is kept
         if (asked or record.get("asked_back") or not trails_question(last_message(payload))

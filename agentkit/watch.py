@@ -5518,7 +5518,8 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if not question and isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return      # its wait is over: wait_over says so, and why, before any continue
     ends, undecided = stop.recorded_ending(name, records, question=question)
-    unrecorded = ends and not question and (stop.live_unrecorded(name) or stop.untested(name))
+    unrecorded = ends and not question and (stop.live_unrecorded(name)
+                                            or stop.untested(name, records))
     if ends and not unrecorded and not unseen:
         return
     parked = [directory.name for directory, _ in undecided]

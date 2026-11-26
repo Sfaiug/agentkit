@@ -87,16 +87,19 @@ UNTESTED_LINE = ("The suite of {checkout} reports no tests to ak: {runner}. Writ
                  "into your plan and build it.")
 
 
-def untested(name):
+def untested(name, records=None):
     """UNTESTED_LINE naming the first checkout `suite_times.unreported` names -- the one the
-    seat is filed under, as its session's record holds it (`repo`), and then each checkout a
-    done line of its plan names (`plan.place`), in the plan's order, each asked once -- where
-    the seat's plan holds done work and no open line, else None.  Its callers send it back at
-    every such turn's end, past nothing that ends a turn first (`recorded_ending`), and keep
-    nothing, so it stops by itself once that no longer holds."""
+    seat is filed under, as its session's record holds it (`repo`), then each checkout a done
+    line of its plan names (`plan.place`), in the plan's order, then the `repo` of each run of its
+    own (`_ending_work`) whose record holds it `merged`, in run-id order, each asked once --
+    where the seat's plan holds done work and no open line, else None.  `records` is the census
+    its caller holds (`recorded_ending`).  Its callers send it back at every such turn's end,
+    past nothing that ends a turn first, and keep nothing, so it stops by itself once that no
+    longer holds."""
     from . import plan, suite_times
     try:
-        repo = (config.session_record(config.resolve_session(name)) or {}).get("repo")
+        seat = config.session_record(config.resolve_session(name)) or {}
+        repo = seat.get("repo")
         text = plan.lines(name) if isinstance(repo, str) and repo else ()
     except config.Error:
         return None     # a seat or plan nothing can read shows nothing done
@@ -111,19 +114,27 @@ def untested(name):
 
     def checkouts():
         yield repo
-        seen = {same(repo)}
         for project in dict.fromkeys(found["project"] for line in text
                                      if (found := plan.LINE.match(line.strip()))):
             checkout = plan.place(name, project)
-            if checkout is None:
-                continue
-            key = same(checkout)
-            if key in seen:
-                continue
-            seen.add(key)
-            yield str(checkout)
+            if checkout is not None:
+                yield str(checkout)
+        # a run launched before this seat was made, or at no time on record, is a gone seat's
+        # whose name it took; a merge its record does not hold yet names nothing until it does
+        created = watch._stamp(seat.get("created"))
+        _, mine = _ending_work(name, records)
+        for _, state in sorted(mine, key=lambda run: Path(run[0]).name):
+            launched = watch._stamp(state.get("started_at")) or watch._stamp(state.get("queued_at"))
+            if (state.get("merged") is True and isinstance(state.get("repo"), str)
+                    and launched is not None and created is not None and launched >= created):
+                yield state["repo"]
 
+    seen = set()
     for checkout in checkouts():
+        key = same(checkout)
+        if key in seen:
+            continue
+        seen.add(key)
         if suite_times.unreported(checkout):
             return UNTESTED_LINE.format(checkout=checkout, runner=suite_times.RUNNER)
     return None
