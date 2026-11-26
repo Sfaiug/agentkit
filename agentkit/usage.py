@@ -477,7 +477,7 @@ def _probe_gently(cfg, provider, account=None, turn=False):
         fresh = _ask_probe(cfg, provider, now, account)
         _note_retry(provider, fresh, time.time(), account)
         cached = _cached_provider(provider, account)
-        fresh = _keep_probed(cfg, provider, account, cached, fresh)
+        fresh = _keep_probed(provider, account, cached, fresh)
         return _onto(cached, _kept(cached, fresh, now), now)
     with handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
@@ -488,7 +488,7 @@ def _probe_gently(cfg, provider, account=None, turn=False):
             lock.write_text(repr(now))
             fresh = _ask_probe(cfg, provider, now, account)
             _note_retry(provider, fresh, time.time(), account)
-            fresh = _keep_probed(cfg, provider, account, cached, fresh)
+            fresh = _keep_probed(provider, account, cached, fresh)
             # The mark on disk travels with the record that replaces it (`_onto`), not the one
             # `cached` held: a mark made since, or a credit that lifted it since, is the later
             # word.
@@ -536,7 +536,7 @@ def _read_by_turn(cfg, provider, account, cached):
     return cached
 
 
-def _keep_probed(cfg, provider, account, cached, fresh):
+def _keep_probed(provider, account, cached, fresh):
     """`fresh`, its meters kept (`_keep`) when they were measured after the reading the
     snapshot holds, spent or not: an adapter's own cache read again, or a refused probe, is no
     new reading.  One read again is the snapshot's own reading, so a cap of it read as the
@@ -546,8 +546,8 @@ def _keep_probed(cfg, provider, account, cached, fresh):
     if not meters or at is None or (stood is not None and at < stood):
         return fresh
     if stood is None or at > stood:
-        return {**fresh, "meters": _keep(cfg, provider, account, meters, at, "probe")}
-    if shared_week(cfg, provider, fresh) is None:
+        return {**fresh, "meters": _keep(provider, account, meters, at, "probe")}
+    if _holding_week(meters) is None:
         return fresh
     held = {_as_read(m): m["held"] for m in cached.get("meters") or []
             if isinstance(m, dict) and "held" in m}
@@ -561,18 +561,26 @@ def _as_read(meter):
             _number(meter.get("resets_at")))
 
 
-def _keep(cfg, provider, account, meters, at, source, beside=()):
+def _holding_week(meters):
+    """The shared week a cap's hold is in points of among `meters`: their `weekly_all`, no
+    model's own cap, still running now; None where they hold none."""
+    now = time.time()
+    return next((m for m in meters if m.get("name") == "weekly_all" and not m.get("scope")
+                 and not _past(m, now)), None)
+
+
+def _keep(provider, account, meters, at, source, beside=()):
     """One fresh reading's meters, each a row of history.db's `meter_readings`, with the plan
     its login is on as state/logins.json names it now and the scope its provider names; and
     returned as the snapshot holds them: where they and the login's meters they stand `beside`
-    hold its shared week (`shared_week`), each model's own cap of them with the part of that
+    hold its shared week (`_holding_week`), each model's own cap of them with the part of that
     week held for it (`cap_share.held`)."""
     account = account or config.DEFAULT_ACCOUNT
     plan = logins.whose(provider, account)[1]
     history.keep_readings([(provider, account, meter["name"], meter["used"],
                             _number(meter.get("resets_at")), _number(meter.get("window_secs")),
                             at, source, plan, _text(meter.get("scope"))) for meter in meters])
-    week = shared_week(cfg, provider, {"meters": [*meters, *beside]})
+    week = _holding_week([*meters, *beside])
     return meters if week is None else cap_share.held(provider, plan, account, week["name"],
                                                       meters, at)
 
@@ -1190,7 +1198,7 @@ def replenish(cfg, provider, account=None, kind=None):
     # history, and the owner, 21 Nov 2026, left that so.
     account = prov.get("account")
     back, _ = _reported(result.get("meters"), now)
-    back = _keep(cfg, provider, account, back, spent_at, "probe")
+    back = _keep(provider, account, back, spent_at, "probe")
     weekly, used, until = _weekly(prov), result.get("weekly_used"), result.get("resets_at")
     if not back and weekly and _number(used) is not None and _number(until) is not None:
         back = [_normalized({**weekly, "used": used, "resets_at": until}, now)]
@@ -1439,7 +1447,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured, asked):
     if not fresh:
         return False
     turned = {_key(m) for m in fresh}
-    fresh = _keep(cfg, provider, account, fresh, measured, "turn",
+    fresh = _keep(provider, account, fresh, measured, "turn",
                   beside=[m for m in old if _key(m) not in turned])
     # Normalized as a probed meter is, because every reader of the snapshot reads one.  A turn
     # asks of each cap it reads, not of every cap of its name as a probe does (`_meter_asked`),

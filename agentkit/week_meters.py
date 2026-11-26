@@ -184,7 +184,8 @@ def shared_weeks(cfg, since, until, *, db=None, newest=None):
              if meter is not None
              and (login := account or config.DEFAULT_ACCOUNT) in configured[provider]
              and (provider, login) != (newest or ())[:2]}
-    known |= {newest} if newest else set()
+    if newest and newest[0] in configured:      # a provider config.toml has since dropped has none
+        known.add(newest)
     by_provider = {}
     for provider, _, meter in known:
         by_provider.setdefault(provider, set()).add(meter)
