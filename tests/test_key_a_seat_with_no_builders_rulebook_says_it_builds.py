@@ -84,8 +84,9 @@ class NoBuilder(unittest.TestCase):
         with echo_home() as home:
             parent = Rig(home, "parent", files={"AGENTS.md": "Parent checkout rules.\n"})
             child = Rig(home, "child", files={"AGENTS.md": "Child checkout rules.\n"})
+            inherited = {"AGENTKIT_SEAT_RECORD": json.dumps({"repo": str(parent.path)})}
             opened = home.ak("orch", "--model", "two", "--workers", "one", tty=True, input="\n",
-                             cwd=child.path, env={"AGENTKIT_SEAT_REPO": str(parent.path)})
+                             cwd=child.path, env=inherited)
             self.assertEqual(opened.code, 0, opened.err)
             state = home.path / ".agentkit/state"
             record, = state.glob("session-*.json")

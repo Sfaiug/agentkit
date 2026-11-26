@@ -2502,8 +2502,8 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     state = run_record.read_state(run_dir) or {}
     workers = state.get("workers") if isinstance(state.get("workers"), list) else None
     policy = run_record.policy_of(state)
-    numbers = config.seat_numbers(None if workers is not None else run_session(state),
-                                  policy, workers=workers)
+    numbers = config.seat_numbers(None if workers is not None else run_session(state), policy,
+                                  record=None if workers is None else {"workers": workers})
     limit = numbers["orchestrator_lines"]
     read, over = seat_lines(repo, target_sha, head, limit)
     if over:
