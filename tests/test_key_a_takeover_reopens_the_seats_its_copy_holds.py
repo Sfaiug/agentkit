@@ -51,7 +51,9 @@ class ATakeoverReopensItsSeats(unittest.TestCase):
 
     def sessions(self):
         """The sessions ak's tmux server holds on the standby now, by name."""
-        return sorted(self.standby.tmux("list-sessions", "-F", "#{session_name}").out.split())
+        listed = self.standby.tmux("list-sessions", "-F", "#{session_name}")
+        self.assertEqual(listed.code, 0, listed.err)
+        return sorted(listed.out.removesuffix("\n").split("\n")) if listed.out else []
 
     def test_a_takeover_reopens_the_seat_its_copy_holds(self):
         # 1. home holds the owing seat's record and its tick records its boot; a pass copies both
