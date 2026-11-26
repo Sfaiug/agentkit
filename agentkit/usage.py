@@ -38,8 +38,8 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
-from . import (command_help, config, gitcall, history, logins, matrix, spend, staffing,
-               terminal, turns, usage_probe, usage_turn, worker)
+from . import (cap_share, command_help, config, gitcall, history, logins, matrix, spend,
+               staffing, terminal, turns, usage_probe, usage_turn, worker)
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -477,7 +477,7 @@ def _probe_gently(cfg, provider, account=None, turn=False):
         fresh = _ask_probe(cfg, provider, now, account)
         _note_retry(provider, fresh, time.time(), account)
         cached = _cached_provider(provider, account)
-        _keep_probed(provider, account, cached, fresh)
+        fresh = _keep_probed(provider, account, cached, fresh)
         return _onto(cached, _kept(cached, fresh, now), now)
     with handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
@@ -488,7 +488,7 @@ def _probe_gently(cfg, provider, account=None, turn=False):
             lock.write_text(repr(now))
             fresh = _ask_probe(cfg, provider, now, account)
             _note_retry(provider, fresh, time.time(), account)
-            _keep_probed(provider, account, cached, fresh)
+            fresh = _keep_probed(provider, account, cached, fresh)
             # The mark on disk travels with the record that replaces it (`_onto`), not the one
             # `cached` held: a mark made since, or a credit that lifted it since, is the later
             # word.
@@ -537,22 +537,52 @@ def _read_by_turn(cfg, provider, account, cached):
 
 
 def _keep_probed(provider, account, cached, fresh):
-    """Keep the meters a probe read (`_keep`) when they were measured after the reading the
+    """`fresh`, its meters kept (`_keep`) when they were measured after the reading the
     snapshot holds, spent or not: an adapter's own cache read again, or a refused probe, is no
-    new reading."""
+    new reading.  One read again is the snapshot's own reading, so a cap of it read as the
+    snapshot holds it, beside a shared week, holds what it held there."""
     at, stood = _taken(fresh), _taken(cached)
-    if fresh.get("meters") and at is not None and (stood is None or at > stood):
-        _keep(provider, account, fresh["meters"], at, "probe")
+    meters = fresh.get("meters")
+    if not meters or at is None or (stood is not None and at < stood):
+        return fresh
+    if stood is None or at > stood:
+        return {**fresh, "meters": _keep(provider, account, meters, at, "probe")}
+    if _holding_week(meters) is None:
+        return fresh
+    held = {_as_read(m): m["held"] for m in cached.get("meters") or []
+            if isinstance(m, dict) and "held" in m}
+    return {**fresh, "meters": [{**m, "held": held[_as_read(m)]} if _as_read(m) in held else m
+                                for m in meters]}
 
 
-def _keep(provider, account, meters, at, source):
+def _as_read(meter):
+    """Which reading of which cap a meter is: two alike hold alike."""
+    return (_text(meter.get("name")), _text(meter.get("scope")), _number(meter.get("used")),
+            _number(meter.get("resets_at")))
+
+
+def _holding_week(meters):
+    """The shared week a cap's hold is in points of among `meters`: their `weekly_all`, no
+    model's own cap, still running now; None where they hold none."""
+    now = time.time()
+    return next((m for m in meters if m.get("name") == "weekly_all" and not m.get("scope")
+                 and not _past(m, now)), None)
+
+
+def _keep(provider, account, meters, at, source, beside=()):
     """One fresh reading's meters, each a row of history.db's `meter_readings`, with the plan
-    its login is on as state/logins.json names it now and the scope its provider names."""
+    its login is on as state/logins.json names it now and the scope its provider names; and
+    returned as the snapshot holds them: where they and the login's meters they stand `beside`
+    hold its shared week (`_holding_week`), each model's own cap of them with the part of that
+    week held for it (`cap_share.held`)."""
     account = account or config.DEFAULT_ACCOUNT
     plan = logins.whose(provider, account)[1]
     history.keep_readings([(provider, account, meter["name"], meter["used"],
                             _number(meter.get("resets_at")), _number(meter.get("window_secs")),
                             at, source, plan, _text(meter.get("scope"))) for meter in meters])
+    week = _holding_week([*meters, *beside])
+    return meters if week is None else cap_share.held(provider, plan, account, week["name"],
+                                                      meters, at)
 
 
 def _adapter_json(harness, verb, timeout, account=None, words=()):
@@ -1168,7 +1198,7 @@ def replenish(cfg, provider, account=None, kind=None):
     # history, and the owner, 21 Nov 2026, left that so.
     account = prov.get("account")
     back, _ = _reported(result.get("meters"), now)
-    _keep(provider, account, back, spent_at, "probe")
+    back = _keep(provider, account, back, spent_at, "probe")
     weekly, used, until = _weekly(prov), result.get("weekly_used"), result.get("resets_at")
     if not back and weekly and _number(used) is not None and _number(until) is not None:
         back = [_normalized({**weekly, "used": used, "resets_at": until}, now)]
@@ -1416,7 +1446,9 @@ def _record_turn_meters(cfg, provider, fresh, account, measured, asked):
     fresh = [m for m in fresh if (at := held.get(_key(m))) is None or measured > at]
     if not fresh:
         return False
-    _keep(provider, account, fresh, measured, "turn")
+    turned = {_key(m) for m in fresh}
+    fresh = _keep(provider, account, fresh, measured, "turn",
+                  beside=[m for m in old if _key(m) not in turned])
     # Normalized as a probed meter is, because every reader of the snapshot reads one.  A turn
     # asks of each cap it reads, not of every cap of its name as a probe does (`_meter_asked`),
     # so its ask is that meter's own, and a cap of that name it did not read keeps the probe's.

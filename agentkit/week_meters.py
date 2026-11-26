@@ -166,13 +166,14 @@ def _valued(logins, fitted, rows):
     return {key: (points, unrated) for key, (points, unrated) in used.items()}
 
 
-def shared_weeks(cfg, since, until, *, db=None):
+def shared_weeks(cfg, since, until, *, db=None, newest=None):
     """{(provider, account, meter)} of each configured provider's logins' shared week now
     (`usage.week_names`), read once so `days`, `run_usage` and `seat_usage` select the same
     readings.  A login
     a configured provider no longer lists that has probe readings in [since, until] takes the
     one shared week its configured logins name between them; a provider whose configured logins
-    name two or none gains no login."""
+    name two or none gains no login.  `newest`, a (provider, account, meter) of a login's reading
+    newer than the snapshot of usage, stands in for what that holds of the login."""
     configured = {name: set(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT])
                   for name in cfg["providers"]}
     held = {name: prov for name, prov in staffing._cached_providers().items()
@@ -181,7 +182,10 @@ def shared_weeks(cfg, since, until, *, db=None):
              for provider, accounts in usage.week_names(cfg, held).items()
              for account, meter in accounts.items()
              if meter is not None
-             and (login := account or config.DEFAULT_ACCOUNT) in configured[provider]}
+             and (login := account or config.DEFAULT_ACCOUNT) in configured[provider]
+             and (provider, login) != (newest or ())[:2]}
+    if newest and newest[0] in configured:      # a provider config.toml has since dropped has none
+        known.add(newest)
     by_provider = {}
     for provider, _, meter in known:
         by_provider.setdefault(provider, set()).add(meter)

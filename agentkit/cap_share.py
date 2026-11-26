@@ -1,5 +1,6 @@
-"""What a model's own cap takes from its login's shared week (`of`) and the most it has been seen
-to rise in a span of time (`most`): it hides how both are read off the kept readings.
+"""What a model's own cap takes from its login's shared week (`of`), the most it has been seen to
+rise in a span of time (`most`), and the part of that week a cap just read holds for it (`held`):
+it hides how all three are read off the kept readings.
 
 For `of`, a reading holds a login's shared week and its scoped cap at one moment, both in whole
 points, so each end of a stretch between two readings is off by up to half a point.  Across any
@@ -32,26 +33,70 @@ def of(provider, plan, scope):
     """
     if not (usage._text(provider) and usage._text(plan) and usage._text(scope)):
         return None
+    return _read(lambda db: _of(db, provider, plan, scope, _weeks(db, provider)))
+
+
+def held(provider, plan, account, week, meters, at):
+    """`meters`, `account`'s reading of `provider` at `at` on `plan` beside its shared week
+    `week`, each model's own cap of them (`scope`) with `held`: the points of that week its share
+    (`of`) takes of what it has left, or of the most it has been seen to rise in the time to its
+    reset (`most`) where that is less.  Held to the week's last minute, a part its model never
+    comes to spend is thrown away: on 7 Nov 2026 a login's week ended with all of Fable's cap
+    unspent.  A cap with no share known, or nothing held, is as read, and so is every meter
+    where the history cannot answer.
+
+    Reads history.db once, in one snapshot, and not at all for a reading holding no cap.
+    `account`'s week is `week` whatever the snapshot of usage holds of it (`shared_weeks`'s
+    `newest`): these are that login's newest meters, and the snapshot may hold none of them yet.
+    """
+    if not usage._text(plan) or not any(usage._text(m.get("scope")) for m in meters):
+        return meters
+
+    def hold(db, weeks, cap):
+        share = _of(db, provider, plan, cap["scope"], weeks)
+        if share is None:
+            return cap
+        left, resets = 100 - cap["used"], usage._number(cap.get("resets_at"))
+        rise = (None if resets is None or resets <= at
+                else _rose(db, provider, plan, cap["scope"], resets - at))
+        part = share * (left if rise is None else min(left, rise))
+        return {**cap, "held": part} if part > 0 else cap
+
+    def reading(db):
+        weeks = _weeks(db, provider, (provider, account, week))
+        return [hold(db, weeks, m) if usage._text(m.get("scope")) else m for m in meters]
+    return _read(reading) or meters
+
+
+def _read(answer):
+    """`answer(db)` over one read-only snapshot of history.db, or None where it or config.toml
+    cannot answer: no migration runs ahead of it."""
     try:
-        cfg = config.load()
         with closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")     # one snapshot for the reads; in WAL no write waits
-            weeks = {account: meter
-                     for prov, account, meter in week_meters.shared_weeks(
-                         cfg, -math.inf, math.inf, db=db)
-                     if prov == provider}
-            if not weeks:
-                return None
-            rows = db.execute(
-                "SELECT account, meter, used, at, scope FROM meter_readings "
-                "WHERE provider = ? AND plan = ? "
-                "AND (scope IS NULL OR scope = ?) "
-                "AND typeof(used) IN ('integer', 'real') AND used >= 0 AND used <= 100 "
-                "AND typeof(at) IN ('integer', 'real') "
-                "ORDER BY at, rowid",
-                (provider, plan, scope)).fetchall()
+            return answer(db)
     except (config.Error, OSError, sqlite3.Error):
         return None
+
+
+def _weeks(db, provider, newest=None):
+    """{account: the name of its shared week} of `provider`'s logins (`shared_weeks`)."""
+    return {account: meter for prov, account, meter in week_meters.shared_weeks(
+                config.load(), -math.inf, math.inf, db=db, newest=newest) if prov == provider}
+
+
+def _of(db, provider, plan, scope, weeks):
+    """`of` read off `db`, each login's shared week the one `weeks` names for it."""
+    if not weeks:
+        return None
+    rows = db.execute(
+        "SELECT account, meter, used, at, scope FROM meter_readings "
+        "WHERE provider = ? AND plan = ? "
+        "AND (scope IS NULL OR scope = ?) "
+        "AND typeof(used) IN ('integer', 'real') AND used >= 0 AND used <= 100 "
+        "AND typeof(at) IN ('integer', 'real') "
+        "ORDER BY at, rowid",
+        (provider, plan, scope)).fetchall()
     by_login = {}       # {account: {at: [week_used, cap_used]}}
     for account, meter, used, at, row_scope in rows:
         if not math.isfinite(at) or (week := weeks.get(account)) is None:
@@ -111,17 +156,18 @@ def most(provider, plan, scope, seconds):
             or isinstance(seconds, bool) or not isinstance(seconds, (int, float))
             or (isinstance(seconds, float) and not math.isfinite(seconds)) or seconds <= 0):
         return None
-    try:
-        with closing(history._connect(readonly=True)) as db:
-            rows = db.execute(
-                "SELECT account, used, at FROM meter_readings "
-                "WHERE provider = ? AND plan = ? AND scope = ? "
-                "AND typeof(used) IN ('integer', 'real') AND used >= 0 AND used <= 100 "
-                "AND typeof(at) IN ('integer', 'real') "
-                "ORDER BY at, rowid",
-                (provider, plan, scope)).fetchall()
-    except (OSError, sqlite3.Error):
-        return None
+    return _read(lambda db: _rose(db, provider, plan, scope, seconds))
+
+
+def _rose(db, provider, plan, scope, seconds):
+    """`most` read off `db`."""
+    rows = db.execute(
+        "SELECT account, used, at FROM meter_readings "
+        "WHERE provider = ? AND plan = ? AND scope = ? "
+        "AND typeof(used) IN ('integer', 'real') AND used >= 0 AND used <= 100 "
+        "AND typeof(at) IN ('integer', 'real') "
+        "ORDER BY at, rowid",
+        (provider, plan, scope)).fetchall()
     by_login = {}       # {account: [(at, cap_used)]}
     for account, used, at in rows:
         if math.isfinite(at) and usage._text(account):
