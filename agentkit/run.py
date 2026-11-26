@@ -1416,7 +1416,8 @@ def preflight(run_dir, opts, log):
         state.setdefault("own_orchestrator", orch if is_own else None)
         state.setdefault("own_orchestrator_effort", effort if is_own else None)
         run_record.save_state(run_dir, state)
-        history.update_run(state.get("run_id"), kind=run_kind(state), log=log)
+        history.update_run(state.get("run_id"), kind=run_kind(state),
+                           no_review=int(run_record.no_review(state)), log=log)
         if is_own and not orch:
             raise Refused(f"no session record names the writer of this PR; "
                           f"review of the seat's own PR needs its orchestrator")
@@ -2322,13 +2323,14 @@ def pr_writer(cfg, state, session_name, author):
     was kept has none),
     never the config's since: `ak models` counts the pull request under it."""
     if "own_pr" not in state:
-        if session_name and by_viewer(author) and "launched_orchestrator" in state:
-            orchestrator = state.get("launched_orchestrator")
-            try:
-                config.model(cfg, orchestrator)
-            except (config.Error, OSError, ValueError, KeyError, TypeError):
-                orchestrator = None
-            is_own = True
+        if "launched_orchestrator" in state:
+            is_own = bool(session_name and by_viewer(author))
+            orchestrator = state.get("launched_orchestrator") if is_own else None
+            if orchestrator:
+                try:
+                    config.model(cfg, orchestrator)
+                except (config.Error, OSError, ValueError, KeyError, TypeError):
+                    orchestrator = None
         else:
             is_own, orchestrator = own_pr_orchestrator(cfg, session_name, author)
         return is_own, orchestrator, config.worker_effort(config.at_efforts(cfg, state),

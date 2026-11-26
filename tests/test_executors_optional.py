@@ -294,6 +294,35 @@ class ExecutorsOptional(Sandbox):
             own, writer, _ = run.pr_writer(self.cfg, pr_receipt, pr_receipt["launched_session"], "acme")
         self.assertEqual((own, writer), (True, "opus"))
 
+        # an inconclusive ownership probe must not fall back to own_pr_orchestrator / live seat
+        with patch.object(run, "viewer_login", side_effect=[None, "acme"]), \
+                patch.object(config, "load_session", return_value={"orchestrator": "astra"}) as probe_read:
+            own, writer, _ = run.pr_writer(self.cfg, pr_receipt, pr_receipt["launched_session"], "acme")
+        probe_read.assert_not_called()
+        self.assertEqual((own, writer), (False, None))
+
+        # an own PR refused in preflight still records no_review=1 in history
+        import sqlite3
+        from contextlib import closing
+        from agentkit import history, transitions
+        refused_dir = config.RUNS / "refused-own-pr"
+        refused_dir.mkdir()
+        pr_info = {"author": "acme", "title": "Fix", "headRefOid": "a" * 40, "baseRefName": "topic"}
+        config.save_session(self.cfg, "fix-api", "opus", [], {"reviewers": []})
+        with patch.object(run, "history_start", wraps=transitions.history_start), \
+                patch.object(run.gate, "admission", nullcontext), patch.object(run.gate, "claim_slot"), \
+                patch.object(run, "redress_seat"), patch.object(run, "installed_head", return_value="fixture"), \
+                patch.object(run, "launch_policy", return_value=policy), patch.object(run, "pr_view", return_value=pr_info), \
+                patch.object(run, "viewer_login", return_value="acme"), patch.object(run, "checkout_for", return_value=self.root), \
+                patch.object(run, "origin_default", return_value="main"), patch.object(run, "printed_at_launch"):
+            with self.assertRaisesRegex(run.Refused, "is based on topic"):
+                run.prepare(refused_dir, {"--review-pr": "https://github.com/acme/api/pull/8"},
+                            lambda _: None, self.cfg, printed=True)
+        with closing(sqlite3.connect(history.path())) as db:
+            row = db.execute("SELECT kind, no_review FROM runs WHERE run_id = ?",
+                             (refused_dir.name,)).fetchone()
+        self.assertEqual(row, ("seat PR", 1))
+
         live.write_text("invalid JSON")
         with patch.dict(os.environ, {config.RUN_DIR_ENV: str(pr_dir)}), \
                 patch.object(run, "depth_refused", return_value=False), \
