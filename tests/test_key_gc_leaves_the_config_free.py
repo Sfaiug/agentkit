@@ -6,13 +6,15 @@ stood still at the first mark made during a pass.  Here a pass is held ending an
 session (tests/test_key_gc_ends_idle_opencode_sessions.py) by a fake `opencode` that waits for
 the test: the first command's rename of an old key, a config write
 (tests/test_key_policy_names.py), ends meanwhile, and a second pass takes nothing.  A pass of
-a version before this one holds ~/.agentkit throughout, so while the test holds it a pass takes
-nothing either; and a home with no state folder is collected all the same.  Black-box: the
-program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each collection in a
-box with a /tmp of its own, and this test fails against `/bin/false`.
+a version before this one locks ~/.agentkit whole, so neither enters while the other runs; and
+a home whose state folder is missing, read-only, a file, a symlink or unreadable is collected
+all the same.  Black-box: the program `AK_BIN` names runs from outside through
+tests/fixtures/akbin.py, each collection in a box with a /tmp of its own, and this test fails
+against `/bin/false`.
 """
 
 import fcntl
+import json
 import os
 from pathlib import Path
 import shlex
@@ -52,6 +54,13 @@ class GcLeavesTheConfigFree(unittest.TestCase):
                 raise AssertionError("the pass asked OpenCode to end no session")
             time.sleep(0.05)
         self.assertEqual(self.gc(), (0, NONE, ""))
+        # An older collector locks ~/.agentkit whole without waiting: while a pass runs it stays out.
+        probe = os.open(home.path / ".agentkit", os.O_RDONLY)
+        try:
+            with self.assertRaises(BlockingIOError):
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(probe)
         config = home.path / ".agentkit" / "config.toml"
         shipped = config.read_text()
         config.write_text("rounds = 2\n" + shipped)
@@ -63,6 +72,11 @@ class GcLeavesTheConfigFree(unittest.TestCase):
         self.assertEqual((held.wait(timeout=120), home.log("spawn-1.out").read_text()),
                          (0, TAKEN))
         self.assertEqual(home.calls("opencode"), [["session", "delete", "--standalone", OLD]])
+        probe = os.open(home.path / ".agentkit", os.O_RDONLY)
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(probe)
 
     def test_a_pass_takes_nothing_while_one_of_the_version_before_holds_home(self):
         held = os.open(self.home.path / ".agentkit", os.O_RDONLY)
@@ -73,9 +87,51 @@ class GcLeavesTheConfigFree(unittest.TestCase):
             os.close(held)
         self.assertEqual(self.gc(), (0, TAKEN, ""))
 
-    def test_a_home_with_no_state_folder_is_collected(self):
-        (self.home.path / ".agentkit" / "state").rmdir()
-        self.assertEqual(self.gc(), (0, TAKEN, ""))
+    def test_a_home_with_unusable_state_is_collected(self):
+        old = time.time() - 2 * 86400
+        for case in ("missing", "unwritable home", "file", "symlink", "unreadable"):
+            with self.subTest(case=case):
+                # Each case begins with a fresh home holding one sweep item and one gc item
+                # that neither needs `state` to prove ownership.
+                home = Home()
+                try:
+                    dot, state = home.path / ".agentkit", home.path / ".agentkit" / "state"
+                    smoke = dot / "tmp" / "smoke-acme"
+                    smoke.mkdir(parents=True)
+                    os.utime(smoke, (old, old))
+                    ephemeral = dot / "tmp" / "update-acme"
+                    ephemeral.mkdir()
+                    receipt = ephemeral / ".agentkit-ephemeral.json"
+                    receipt.write_text(json.dumps({
+                        "version": 1, "kind": "update", "path": str(ephemeral),
+                        "pid": None, "created_at": old, "finished_at": old,
+                    }))
+                    os.utime(receipt, (old, old))
+                    os.utime(ephemeral, (old, old))
+                    state.rmdir()
+                    if case == "unwritable home":
+                        dot.chmod(0o500)
+                        if os.access(dot, os.W_OK):
+                            continue
+                    elif case == "file":
+                        state.write_text("keep\n")
+                    elif case == "symlink":
+                        target = home.root / "target"
+                        target.mkdir()
+                        state.symlink_to(target, target_is_directory=True)
+                    elif case == "unreadable":
+                        state.mkdir(mode=0o300)
+                        if os.access(state, os.R_OK):
+                            continue
+                    done = home.ak("run", "gc", boxed=True, env=ROOM)
+                    self.assertEqual(done.code, 0, done.out + done.err)
+                    self.assertFalse(smoke.exists(), done.out)
+                    self.assertFalse(ephemeral.exists(), done.out)
+                finally:
+                    dot.chmod(0o700)
+                    if state.is_dir() and not state.is_symlink():
+                        state.chmod(0o700)
+                    home.close()
 
 
 if __name__ == "__main__":

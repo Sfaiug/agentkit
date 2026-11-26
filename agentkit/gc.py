@@ -1126,16 +1126,14 @@ def git_housekeeping(log):
 
 @contextmanager
 def _one_pass():
-    """One collection pass at a time, with no lock file of its own: the pass holds the state
-    directory, made where a home has none.  Not ak's home, which every config write locks
-    (`config._config_lock`): a pass runs for minutes, and held there it stopped the models
-    screen at the first mark made meanwhile.  Home is locked only to look, since a pass of a
-    version from before this lock holds it throughout.  OSError where a pass already runs."""
+    """One collection pass at a time, whichever version runs it: each takes ak's home whole to
+    start, and waits for nobody.  This one then holds it shared, as a config write does
+    (`config._config_lock`): a pass runs for minutes, and held whole it stopped the models
+    screen at the first mark made meanwhile.  OSError where another holds home: a pass, or a
+    config write under way."""
     with retention.reading(config.HOME, directory=True) as home:
+        fcntl.flock(home, fcntl.LOCK_EX | fcntl.LOCK_NB)
         fcntl.flock(home, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        config.STATE.mkdir(mode=0o700, exist_ok=True)
-    with retention.reading(config.STATE, directory=True) as state:
-        fcntl.flock(state, fcntl.LOCK_EX | fcntl.LOCK_NB)
         yield
 
 
@@ -1160,7 +1158,7 @@ def schedule_gc(log):
 
 
 def record_gc(message):
-    """Bounded local audit trail, called only within a pass (`_one_pass`)."""
+    """Bounded local audit trail, called only while collection holds the home lock."""
     path, previous = config.STATE / "gc.log", config.STATE / "gc.log.1"
     if any(retention.present(p) and not retention.safe(p) for p in (path, previous)):
         raise OSError("unsafe collection log")
@@ -1322,12 +1320,14 @@ def gc(report, automatic=False):
     """Apply the planner conservatively; changed, busy or unverifiable candidates stay put."""
     removed = []
     balked = set()     # a harness whose own way of ending a conversation failed this pass
+    # Serialize automatic passes without creating a lock file (dry-run never takes this lock).
     try:
         with _one_pass():
             if automatic:
                 stamp = config.STATE / "gc.json"
-                if not gc_due() or any(retention.present(p) and not retention.safe(p)
-                                       for p in (stamp, stamp.with_suffix(".tmp"))):
+                if (not gc_due() or not retention.safe(config.STATE)
+                        or any(retention.present(p) and not retention.safe(p)
+                               for p in (stamp, stamp.with_suffix(".tmp")))):
                     return []
                 caller = report
                 def report(message):

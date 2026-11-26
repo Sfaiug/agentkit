@@ -431,18 +431,31 @@ _locking = threading.local()      # whether this thread holds the config lock (_
 def _config_lock():
     """One writer at a time of the config file, held by each (save) and around a read the write
     follows.  It locks the directory, which survives replacing the file and which no collector
-    removes, as it would a lock file of its own.  Its holder takes it again for nothing, as save
-    under add_model: a second lock of the directory would wait on the first."""
+    removes, as it would a lock file of its own: shared, behind whoever holds it whole, a writer
+    of a version before or a collection pass as it starts.  A pass shares it from there
+    (`gc._one_pass`), so no write waits the minutes one runs.  The one writer is who holds the
+    state directory in it (made if missing), or the directory itself whole where that one cannot
+    be opened.  Its holder takes it again for nothing, as save under add_model: a second lock of
+    the directory would wait on the first."""
     if getattr(_locking, "held", False):
         yield
         return
-    directory = os.open(HOME, os.O_RDONLY)
+    directory = alone = os.open(HOME, os.O_RDONLY)
     try:
-        fcntl.flock(directory, fcntl.LOCK_EX)
+        with suppress(OSError):
+            os.mkdir(PLACES["STATE"], 0o700, dir_fd=directory)
+        with suppress(OSError):
+            alone = os.open(PLACES["STATE"], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=directory)
+        if alone != directory:
+            fcntl.flock(directory, fcntl.LOCK_SH)
+        fcntl.flock(alone, fcntl.LOCK_EX)
         _locking.held = True
         yield
     finally:
         _locking.held = False
+        if alone != directory:
+            os.close(alone)
         os.close(directory)
 
 
