@@ -49,7 +49,7 @@ for args in commands:
     else:
         assert target in ('%7', '=' + given['name'] + ':')
         if args[0] == 'set-option':
-            if args[4] == '@ak_input_tty':
+            if args[4] in ('@ak_input_tty', '@ak_agent_state', '@ak_pane_launch'):
                 assert args[1] in ('-p', '-pu')
                 if args[1] == '-pu':
                     given['options'].pop(args[4], None)
@@ -291,8 +291,12 @@ class WrappedPane(Seats):
         self.assertTrue(watch.pane_unread(self.seat))
         calls = [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
         respawn = next(call for call in calls if call[0] == 'respawn-pane')
-        self.assertEqual(respawn[respawn.index(';') + 1:],
-                         ['set-option', '-pu', '-t', '%7', '@ak_input_tty'])
+        tail = respawn[respawn.index(';') + 1:]
+        self.assertEqual(tail[:-1],
+                         ['set-option', '-pu', '-t', '%7', '@ak_input_tty',
+                          ';', 'set-option', '-pu', '-t', '%7', '@ak_agent_state',
+                          ';', 'set-option', '-p', '-t', '%7', '@ak_pane_launch'])
+        self.assertTrue(tail[-1])
 
 
 class RelayBacklog(Seats):
