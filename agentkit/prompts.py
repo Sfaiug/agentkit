@@ -127,7 +127,7 @@ def review_records(out, text):
     return hand_in.read(written_answer(out, text).parent / hand_in.FILE)
 
 
-def record_findings(lp, out, text, submitted=None):
+def record_findings(lp, out, text, submitted=None, verdict=None):
     """What the reviewer said, and where the whole of it is.
 
     Written together everywhere, because a `findings_file` left pointing at another answer
@@ -136,7 +136,7 @@ def record_findings(lp, out, text, submitted=None):
     source = written_answer(out, text)
     if submitted is None:
         submitted = hand_in.read(source.parent / hand_in.FILE) or hand_in.Review([])
-    text = submitted.text
+    text = submitted.text(verdict)
     source = source.parent / hand_in.REPORT
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(text)
