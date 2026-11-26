@@ -169,7 +169,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         rows = [{"kind": "finding", "path": "first.txt", "line": 1,
                  "what": "Remove the unsafe setting", "why": "It removes saved data",
                  "evidence": {"quote": "first\n"}}, {"kind": "done"}]
-        text = hand_in.Review(rows).text
+        text = hand_in.Review(rows).text()
         lp.findings = text
         lp.state.update(verdict="FAIL", findings=text, review_records=rows,
                         review={"verdict": "FAIL", **run.commit_identity(lp.wt)})

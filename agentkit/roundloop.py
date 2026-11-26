@@ -1330,7 +1330,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
 
     def body_with(section):
         text = (f"{lp.body}\n\n{decided}{section}\n\n"
-                + (disputes.text + "\n" if disputes.disputes else "")
+                + (disputes.text() + "\n" if disputes.disputes else "")
                 + f"{heading}\n"
                 + (f"{deferred}\n" if deferred else "")
                 + (f"{flaky}\n" if flaky else "")
@@ -1593,7 +1593,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         verdict = "FAIL"
         overridden = "the checkout changed after verification"
         lp.log(f"WARN {overridden}; overriding to FAIL")
-    prompts.record_findings(lp, out, text, submitted=submitted)
+    prompts.record_findings(lp, out, text, submitted=submitted, verdict=verdict)
     lp.state["notes"] = submitted.notes
     # kept whatever the verdict, every round's; each defect once, as the last review to hand it
     # in put it: its text and command take the earlier one's place, proven on the head nearest

@@ -193,9 +193,10 @@ class Review:
     def notes(self):
         return [item_text(row) for row in self.records if row["kind"] == "note"]
 
-    @property
-    def text(self):
-        parts = [f"VERDICT: {self.verdict}"] if self.done else []
+    def text(self, verdict=None):
+        """The records as text, under the round's `verdict` where ak turned the reviewer's PASS
+        to FAIL: a failed review whose own text says PASS misleads whoever reads it."""
+        parts = [f"VERDICT: {verdict or self.verdict}"] if self.done else []
         for kind, heading in (("finding", "Findings"), ("follow-up", "Follow-ups"),
                               ("note", "Notes"), ("dispute", "Disputes")):
             items = ["- " + item_text(row).replace("\n", "\n  ")
