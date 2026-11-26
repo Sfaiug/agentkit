@@ -38,7 +38,9 @@
 #                     uses that subscription's own login, and no other
 # Verified against agy 1.2.9; see tests/fixtures/README.md for the captures.
 set -uo pipefail
-command -v agy >/dev/null || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
+# bash's `command -v` and `type -P` fall back to a non-executable file on PATH when none can run
+program() { [ -x "$(type -P "$1")" ]; }
+program agy || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 export AGY_CLI_DISABLE_AUTO_UPDATE=1   # `ak update` owns that; nothing mid-run moves
 # The login `agy` keeps: an hour-long access token beside the refresh token it renews that
 # one with, itself, whenever it runs.  Asked whether a refresh token is there, and `usage`
@@ -114,7 +116,7 @@ run)
   mkdir -p -- "$out" || exit 2
   out=$(cd -- "$out" && pwd) || exit 2
   [ -d "$ws" ] || { echo "antigravity.sh: no such workspace: $ws" >&2; exit 2; }
-  command -v agy >/dev/null || { echo "antigravity.sh: agy is not installed" >&2; exit 2; }
+  program agy || { echo "antigravity.sh: agy is not installed" >&2; exit 2; }
   # The prompt goes down stdin, opened before the cd so a relative path still names it: with no
   # -p, agy 1.2.13 takes a non-empty stdin as its print-mode prompt, and an argument over
   # 128 KiB -- a reviewer's prompt is three times that -- is one Linux refuses.  An empty one
@@ -241,7 +243,7 @@ usage)
   # included, which has no windows -- is a failed probe, not a missing meter: an
   # unauthenticated google read as neutral would stay in the pick, only for
   # the turn to fail authentication.
-  command -v agy >/dev/null || err "agy is not installed"
+  program agy || err "agy is not installed"
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   GEMINI_API_KEY= logged_in || err "no login in $TOKEN; run $SIGNIN once to sign in"
   # One deadline over everything below -- agy's version, both requests, a renewal and both
@@ -301,11 +303,11 @@ usage)
          window_secs:({weekly: 604800, "5h": 18000}[.window // ""])}]}' <<<"$body" \
     2>/dev/null || err "unparsable response from ${API#https://}" ;;
 install)
-  if command -v agy >/dev/null; then echo "agy: already installed ($(agy --version 2>/dev/null | head -1))"; exit 0; fi
-  command -v curl >/dev/null || { echo "antigravity.sh install: curl is required" >&2; exit 2; }
+  if program agy; then echo "agy: already installed ($(agy --version 2>/dev/null | head -1))"; exit 0; fi
+  program curl || { echo "antigravity.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://antigravity.google/cli/install.sh | bash ;;
 login)
-  command -v agy >/dev/null || { echo "antigravity.sh login: agy is not installed" >&2; exit 2; }
+  program agy || { echo "antigravity.sh login: agy is not installed" >&2; exit 2; }
   # `again` sets a named account's token aside, so agy opens on its sign-in, and puts it back
   # however this ends without a new one.  The usual login has no `again`: agy would restore it
   # from the desktop keyring, which only its own /logout clears.

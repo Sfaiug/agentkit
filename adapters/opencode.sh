@@ -52,7 +52,9 @@ if [ -n "${AGENTKIT_ACCOUNT:-}" ]; then
   [ "${1:-}" = usage ] && { printf '{"provider":"%s","meters":[],"error":"unknown: %s"}\n' "${PROVIDERS%% *}" "$why"; exit 0; }
   echo "$why" >&2; exit 1
 fi
-command -v opencode >/dev/null || PATH="$HOME/.opencode/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
+# bash's `command -v` and `type -P` fall back to a non-executable file on PATH when none can run
+program() { [ -x "$(type -P "$1")" ]; }
+program opencode || PATH="$HOME/.opencode/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 export OPENCODE_DISABLE_AUTOUPDATE=1   # `ak update` owns that; nothing mid-run moves
 # No project's opencode.json reaches a turn: the global one is the only config, which is where
 # agentkit/harness/opencode.py reads how MiMo is paid, and a workspace can never move it.  The
@@ -113,7 +115,7 @@ have_key() {
 # `"id": "<provider>"` each (2.0.24).  Matched as text, since a saved login is a yes even
 # where jq is missing.
 store_key() {
-  listed=$(command -v opencode >/dev/null \
+  listed=$(program opencode \
     && opencode auth list --standalone --format json 2>/dev/null) || listed=""
   [ -n "${1:-}" ] && want="\"id\":\"$1\"" || want='"id":'
   case "${listed//[[:space:]]/}" in *"$want"*) return 0 ;; esac
@@ -133,7 +135,7 @@ store_key() {
 # `auth` inside its caller's cap, and a missing or stopped one is no provider.  Settings, keys
 # among them, never leave jq.
 own_providers() {
-  command -v jq >/dev/null && command -v timeout >/dev/null && command -v opencode >/dev/null || return 1
+  command -v jq >/dev/null && command -v timeout >/dev/null && program opencode || return 1
   timeout -k 1 10 sh -c 'opencode api integration.list >/dev/null && opencode api provider.list &&
       opencode api config.get && opencode api --standalone config.get' 2>/dev/null | jq -cs '
       select(length == 3 and all(.[1:][]; type == "array"))
@@ -177,7 +179,7 @@ run)
   mkdir -p -- "$out" || exit 2
   out=$(cd -- "$out" && pwd) || exit 2
   [ -d "$ws" ] || { echo "opencode.sh: no such workspace: $ws" >&2; exit 2; }
-  command -v opencode >/dev/null || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }
+  program opencode || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }
   cd -- "$ws" || { echo "opencode.sh: no such workspace: $ws" >&2; exit 2; }
   # the effort as the model's variant (turn_variants); a model already carrying one keeps it
   tagged="$model#$effort"
@@ -242,7 +244,7 @@ interactive)
   # followed a prompt -- agentkit/harness/opencode.py -- and never a directory's latest by guess.
   [ "${4:-}" = new ] && {
     echo "opencode.sh interactive: the TUI cannot be given a session id" >&2; exit 3; }
-  binary=$(command -v opencode) || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }
+  binary=$(type -P opencode) && [ -x "$binary" ] || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }
   resume=""; [ -n "${3:-}" ] && resume=$(printf -- '--session %q ' "$3")
   # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
   # screen comes to rest, starts moving or opencode exits.  Headless `ak worker` runs are not
@@ -546,13 +548,13 @@ usage)
   jq -n --arg p mimo --arg n "$why" \
     '{"provider":$p,"meters":[],"error":null,"none":$n}' ;;
 install)
-  if command -v opencode >/dev/null; then echo "opencode: already installed ($(opencode --version 2>/dev/null | head -1))"; exit 0; fi
-  command -v curl >/dev/null || { echo "opencode.sh install: curl is required" >&2; exit 2; }
+  if program opencode; then echo "opencode: already installed ($(opencode --version 2>/dev/null | head -1))"; exit 0; fi
+  program curl || { echo "opencode.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://opencode.ai/v2/install | bash ;;   # v2: the v1 channel's latest rejects --standalone
 login)
   # The provider named, through OpenCode's own login for it, its sign-in where it has one; none
   # named is OpenCode's own list of every provider it can log in to.
-  command -v opencode >/dev/null || { echo "opencode.sh login: opencode is not installed" >&2; exit 2; }
+  program opencode || { echo "opencode.sh login: opencode is not installed" >&2; exit 2; }
   p=${PROVIDERS%% *}
   [ "${1:-}" != again ] && logged_in "$p" && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
   [ -t 0 ] || { echo "opencode: not logged in${p:+ to $p}; run \`opencode auth login${p:+ $p}\` in a terminal" >&2; exit 1; }
@@ -618,7 +620,7 @@ lend)
     [ -n "$doc" ] && printf -v doc %q "$doc" || doc="a document with no path"
     echo "opencode: $doc names a provider OpenCode merges over $CFG; no login lent" >&2; exit 1
   done
-  saved=$(command -v opencode >/dev/null && opencode auth export --standalone 2>/dev/null)
+  saved=$(program opencode && opencode auth export --standalone 2>/dev/null)
   copy=$(printf '%s' "$saved" | jq -Rsc --slurpfile cfg "$cfg" 'reduce (fromjson? | .[]?
       | select(.active and .value.type == "key" and (.value.key | strings | test("[^[:space:]]"))))
       as $c ($cfg[0] // {}; (if .providers[$c.integrationID] then

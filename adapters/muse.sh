@@ -37,7 +37,9 @@
 # AGENTKIT_MUSE_PROVIDER=echo selects the offline stub (tests); --model/--reasoning-effort
 # are only legal with --provider meta.
 set -uo pipefail
-command -v muse >/dev/null || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
+# bash's `command -v` and `type -P` fall back to a non-executable file on PATH when none can run
+program() { [ -x "$(type -P "$1")" ]; }
+program muse || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 # Shell rc files need not run in a worker or a detached seat. Also neutralize an inherited
 # installer request: the launcher handles it before it checks MUSE_NO_AUTO_UPDATE.
 export MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0
@@ -376,12 +378,12 @@ usage)
   }
   exec "$here/muse-usage.sh" ;;
 install)
-  if command -v muse >/dev/null; then echo "muse: already installed ($(muse --version 2>/dev/null))"; exit 0; fi
-  command -v curl >/dev/null || { echo "muse.sh install: curl is required" >&2; exit 2; }
+  if program muse; then echo "muse: already installed ($(muse --version 2>/dev/null))"; exit 0; fi
+  program curl || { echo "muse.sh install: curl is required" >&2; exit 2; }
   # bash, not sh: the installer uses [[ ]] throughout and dies under dash
   curl -fsSL https://dev.meta.ai/install.sh | bash ;;
 login)
-  command -v muse >/dev/null || { echo "muse.sh login: muse is not installed" >&2; exit 2; }
+  program muse || { echo "muse.sh login: muse is not installed" >&2; exit 2; }
   if [ "${1:-}" != again ] && [ -s "$AUTH" ]; then echo "muse: already logged in"; exit 0; fi
   [ -t 0 ] || { echo "muse: not logged in; run \`$LOGIN\` in a terminal" >&2; exit 1; }
   home || exit 2
