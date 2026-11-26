@@ -26,8 +26,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, NOW, boards
-from test_key_models_json_run_usage import EMPTY, TABLES as METER_TABLES
-from test_key_models_json_week_meters import HOUR, THEN, WeekMeters
+from test_key_models_json_week_meters import HOUR, TABLES as BASE, THEN, WeekMeters
+
+METER_TABLES = {**BASE, "turn_usage": "run_id, role, " + BASE["turn_usage"]}
+EMPTY = {"executor": {"points": {}, "unrated": 0}, "reviewer": {"points": {}, "unrated": 0}}
 
 DAY = 86400
 # Each run: an hour of build, half of review, a quarter of checks and an hour waiting,
@@ -271,7 +273,8 @@ class ModelsJsonTeamUsage(WeekMeters):
             team("high", 1, 1, 1, 1.0, 1, 1, usage=EMPTY)])
         self.assertEqual(found["usage"], {
             "executor": {"points": {"acme": {"Max": 17}, "brine": {"Plus": 10}}, "unrated": 3_000},
-            "reviewer": {"points": {"brine": {"Plus": 11.0033}}, "unrated": 3_500}})
+            "reviewer": {"points": {"brine": {"Plus": 11.0033}}, "unrated": 3_500},
+            "orchestrator": {"points": {"acme": {"Max": 10}, "brine": {"Plus": 10}}, "unrated": 0}})
 
 
 if __name__ == "__main__":

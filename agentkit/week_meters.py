@@ -1,11 +1,11 @@
 """What each plan's weekly meters rose, and the tokens that ran meanwhile, a day at a time (`days`),
-and what each run's builds and reviews took of them (`run_usage`): it hides how readings and
-tokens are paired.  A step is two probe readings of a login's shared week next to each other in
-time, holding the tokens the login ran on its provider's harnesses after the first and by the
-second, so nothing between two readings is kept, cut or carried.  A token costs no price here: a
-meter is what a plan gives, and a listed dollar is not what it takes.  `ak models --json` sums the
-days into `week_meters`, fits each model's rate from them, and values every run's turns at those
-rates.
+and what each run's builds and reviews (`run_usage`) and each orchestrator's seats (`seat_usage`)
+took of them: it hides how readings and tokens are paired.  A step is two probe readings of a
+login's shared week next to each other in time, holding the tokens the login ran on its provider's
+harnesses after the first and by the second, so nothing between two readings is kept, cut or
+carried.  A token costs no price here: a meter is what a plan gives, and a listed dollar is not
+what it takes.  `ak models --json` sums the days into `week_meters`, fits each model's rate from
+them, and values every run's and seat's turns at those rates.
 """
 
 from bisect import bisect_right
@@ -56,11 +56,9 @@ def days(cfg, since, until, *, meters=None):
         return []
     ran = {}        # {(provider, account): [(at, model, tokens)]}
     for account, event, model, at, tokens in seats:
-        if type(tokens) is int and tokens > 0:
-            ran_on = event.split(":", 1)[0] if isinstance(event, str) else None
-            for provider, match in ours.items():
-                if match(ran_on):
-                    ran.setdefault((provider, account), []).append((at, usage._text(model), tokens))
+        if (found := _seat(ours, event, tokens)) is not None:
+            provider, tokens = found
+            ran.setdefault((provider, account), []).append((at, usage._text(model), tokens))
     for account, turn, model, at, *counts in turns:
         if (found := _turn(ours, turn, counts)) is not None:
             provider, tokens = found
@@ -86,11 +84,8 @@ def run_usage(cfg, since, until, fitted, *, meters=None):
     """{(run_id, role): ({(provider, plan): points}, unrated)} of the `turn_usage` rows in
     (since, until] naming a run and a role, valued at `fitted`, `rates.fitted`'s exact rates.
 
-    A row is chosen as `days` chooses one (`_turn`), and its plan is the one its login's reading
-    (`_readings`) last at or before the row's `at` names, else its first reading after.  Where
-    that names a plan with a rate for its model, its tokens take `tokens * rate / MILLION`
-    points under `(provider, plan)`, summed exactly (a plan taking none not named); else its
-    tokens are `unrated`.  {} where the history cannot answer."""
+    A row is chosen as `days` chooses one (`_turn`), and valued under its login's plan at its
+    time (`_valued`).  {} where the history cannot answer."""
     ours = _ours(cfg)
     history._ensure_migrated()      # a meter_readings table from before plan and scope has neither
     try:
@@ -103,22 +98,68 @@ def run_usage(cfg, since, until, fitted, *, meters=None):
                 "output FROM turn_usage WHERE at > ? AND at <= ?", (since, until)).fetchall()
     except (OSError, sqlite3.Error):
         return {}
-    times = {login: [at for at, *_ in readings] for login, readings in logins.items()}
-    used = {}       # {(run_id, role): [{(provider, plan): Fraction}, unrated]}
+    rows = []
     for run_id, role, account, turn, model, at, *counts in turns:
         run_id, role = usage._text(run_id), usage._text(role)
-        if run_id is None or role is None or (found := _turn(ours, turn, counts)) is None:
-            continue
-        provider, tokens = found
+        if run_id is not None and role is not None and (found := _turn(ours, turn, counts)) is not None:
+            rows.append(((run_id, role), found[0], account, model, at, found[1]))
+    return _valued(logins, fitted, rows)
+
+
+def seat_usage(cfg, since, until, fitted, *, meters=None):
+    """{(orchestrator, effort): ({(provider, plan): points}, unrated)} of the `seat_usage` rows
+    in (since, until], valued at `fitted`, `rates.fitted`'s exact rates.
+
+    A row is chosen as `days` chooses one (`_seat`), and valued under its login's plan at its
+    time (`_valued`), keyed by its `orchestrator` and `effort` (each text or None).  {} where
+    the history cannot answer or has no `seat_usage` table."""
+    ours = _ours(cfg)
+    history._ensure_migrated()      # a meter_readings table from before plan and scope has neither
+    try:
+        with closing(history._connect(readonly=True)) as db:
+            db.execute("BEGIN")
+            active = shared_weeks(cfg, since, until, db=db) if meters is None else meters
+            logins = _readings(db, active, since, until)
+            # seat_tokens creates `seat_usage` separately; absent means no seat rows yet, and an
+            # older table without `orchestrator` or `effort` names neither
+            columns = {name for name, in db.execute(
+                "SELECT name FROM pragma_table_info('seat_usage')")}
+            if not columns:
+                return {}
+            orchestrator = "orchestrator" if "orchestrator" in columns else "NULL"
+            effort = "effort" if "effort" in columns else "NULL"
+            seats = db.execute(
+                f"SELECT {orchestrator}, {effort}, account, event, model, at, tokens "
+                "FROM seat_usage WHERE at > ? AND at <= ?", (since, until)).fetchall()
+    except (OSError, sqlite3.Error):
+        return {}
+    rows = []
+    for orchestrator, effort, account, event, model, at, tokens in seats:
+        if (found := _seat(ours, event, tokens)) is not None:
+            rows.append(((orchestrator if isinstance(orchestrator, str) else None,
+                          effort if isinstance(effort, str) else None),
+                         found[0], account, model, at, found[1]))
+    return _valued(logins, fitted, rows)
+
+
+def _valued(logins, fitted, rows):
+    """{key: ({(provider, plan): points}, unrated)} of `(key, provider, account, model, at,
+    tokens)` rows: each row's plan is the one its login's reading (`logins`) last at or before
+    `at` names, else its first reading after; where that names a plan with a rate in `fitted`
+    for its model, its tokens take `tokens * rate / MILLION` points under `(provider, plan)`,
+    summed exactly (a plan taking none not named), else its tokens are `unrated`."""
+    times = {login: [at for at, *_ in readings] for login, readings in logins.items()}
+    used = {}       # {key: [{(provider, plan): Fraction}, unrated]}
+    for key, provider, account, model, at, tokens in rows:
         readings = logins.get((provider, account))
         plan = (readings[max(0, bisect_right(times[provider, account], at) - 1)][2]
                 if readings else None)
         model = usage._text(model)
         rate = (fitted.get((provider, plan), {}).get(model)
                 if plan is not None and model is not None else None)
-        points, unrated = used.setdefault((run_id, role), [{}, 0])
+        points, unrated = used.setdefault(key, [{}, 0])
         if rate is None:
-            used[run_id, role][1] = unrated + tokens
+            used[key][1] = unrated + tokens
         elif rate:
             points[provider, plan] = (points.get((provider, plan), Fraction(0))
                                       + tokens * rate / rates.MILLION)
@@ -127,7 +168,8 @@ def run_usage(cfg, since, until, fitted, *, meters=None):
 
 def shared_weeks(cfg, since, until, *, db=None):
     """{(provider, account, meter)} of each configured provider's logins' shared week now
-    (`usage.week_names`), read once so `days` and `run_usage` select the same readings.  A login
+    (`usage.week_names`), read once so `days`, `run_usage` and `seat_usage` select the same
+    readings.  A login
     a configured provider no longer lists that has probe readings in [since, until] takes the
     one shared week its configured logins name between them; a provider whose configured logins
     name two or none gains no login."""
@@ -190,6 +232,16 @@ def _readings(db, meters, since, until):
         if (provider, account, meter) in meters:
             logins.setdefault((provider, account), []).append((at, used, usage._text(plan)))
     return logins
+
+
+def _seat(ours, event, tokens):
+    """(provider, tokens) of a `seat_usage` row `days` counts tokens from, None for any other:
+    `tokens` a whole number above zero, its event's harness of that provider."""
+    if type(tokens) is not int or tokens <= 0:
+        return None
+    ran_on = event.split(":", 1)[0] if isinstance(event, str) else None
+    provider = next((name for name, match in ours.items() if match(ran_on)), None)
+    return (provider, tokens) if provider is not None else None
 
 
 def _turn(ours, turn, counts):
