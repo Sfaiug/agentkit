@@ -477,8 +477,7 @@ class Listings(Sandbox):
                 self.assertEqual(second, heavy)
         # the config's own key, with no override
         shipped = (REPO / config.DEFAULT_CONFIG_NAME).read_text()
-        (config.HOME / config.CONFIG_NAME).write_text(
-            re.sub(r"(?m)^max_runs = 0\b", "max_runs = 2", shipped))
+        (config.HOME / config.CONFIG_NAME).write_text("max_runs = 2\n" + shipped)
         with patch.dict(os.environ):
             os.environ.pop("AK_MAX_RUNS", None)
             first, second = self.status([]).splitlines()[:2]

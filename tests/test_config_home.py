@@ -137,7 +137,6 @@ class ConfigHome(unittest.TestCase):
 
     def test_the_shipped_default_parses_and_names_every_model_it_offers_and_defaults_to(self):
         cfg = tomllib.loads(DEFAULT.read_text())
-        self.assertIsInstance(cfg.get("max_runs"), int)
         # every model in the file is offered both ways, so every one of them has to be whole
         for names in (list(cfg["models"]), [cfg["defaults"]["orchestrator"]],
                       cfg["defaults"]["workers"]):
