@@ -37,24 +37,24 @@ set -- unshare --user --map-current-user --net --keep-caps sh -c \
   'echo "$0" >/proc/sys/net/unix/max_dgram_qlen
    ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen &&
      [ -z "$(ip -o link show | grep -v ": lo:")" ] || exit 253
-   exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes"
+   echo built >&9
+   exec setpriv --inh-caps=-all --ambient-caps=-all "$@" 9>&-' "$notes"
 # It builds, asked before the command by sh, which the sandbox runs anyway: an image may hold no
 # true program.
-"$@" sh -c : || { echo "ak helper: the sandbox did not build" >&2; exit 253; }
+"$@" sh -c : 9>/dev/null || { echo "ak helper: the sandbox did not build" >&2; exit 253; }
 # Kills for memory, before the command's launch and after it: of the piece's own cgroup where it
 # has one, as a container on a kernel other pieces share does, else of its VM's kernel.
 before=$({ cat /sys/fs/cgroup/memory.events || cat /proc/vmstat; } 2>/dev/null | awk '/^oom_kill /')
-# The command's own shell takes this file away as it starts: one still there after a launch that
-# ended non-zero is a launch that ran nothing, as unshare ends 1 where it built no sandbox, this
-# once or since the first look, and the piece ends as one the helper could not run.
-unrun=$(mktemp) || { echo "ak helper: no temporary file" >&2; exit 253; }
-"$@" bash -c "rm -f $(printf %q "$unrun")
-$command"
+# Built, the sandbox says so on a descriptor of its own, closed to the command, whose output goes
+# where the piece's does: one that said nothing ran nothing, as unshare ends 1 where it builds
+# none, this once or since the preflight.
+exec 8>&1
+built=$("$@" bash -c "$command" 9>&1 >&8 8>&-)
 code=$?
 # The kernel killed a process for memory: the VM or container was too small for the piece, which
 # ak then runs here and gives a larger one next time (helper.short).
 [ "$({ cat /sys/fs/cgroup/memory.events || cat /proc/vmstat; } 2>/dev/null | awk '/^oom_kill /')" \
   = "$before" ] || { echo "ak helper: the VM ran out of memory" >&2; exit 254; }
-[ "$code" = 0 ] || [ ! -e "$unrun" ] ||
-  { rm -f "$unrun"; echo "ak helper: the sandbox ran nothing" >&2; exit 253; }
+# A launch that ran nothing ends the piece as one the helper could not run, which ak then runs here.
+[ -n "$built" ] || { echo "ak helper: the sandbox ran nothing" >&2; exit 253; }
 exit "$code"

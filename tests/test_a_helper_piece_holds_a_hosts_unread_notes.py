@@ -18,7 +18,7 @@ HELD = "/proc/sys/net/unix/max_dgram_qlen"
 PIECE = (Path(__file__).resolve().parents[1] / "tools/helper/piece.sh").read_text()
 # piece.sh's own lines: from the sandbox's size to its preflight, and the command's launch.
 SANDBOX, LAUNCH = (re.search(lines, PIECE, re.M).group(0) for lines in (
-    r'^notes=(?s:.*?)^"\$@" sh -c :.*\n', r'^unrun=(?s:.*?)^\$command"\n'))
+    r'^notes=(?s:.*?)^"\$@" sh -c :.*\n', r'^exec 8>&1\n.*\n'))
 # Of /proc/sys/net: remounting a bind of /proc/sys leaves a mount at /proc/sys/net writable.
 # Recursive: the kernel refuses a user namespace a plain bind with an inherited mount under it.
 READ_ONLY = "mount --rbind /proc/sys/net /proc/sys/net && mount -o remount,bind,ro /proc/sys/net"
