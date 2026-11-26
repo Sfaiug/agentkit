@@ -56,13 +56,19 @@ x86_64 = "https://github.com/openai/codex/releases/download/rust-v{version}/code
 reset = true
 
 # Each plan `login-end` names, at its list price in US dollars a month as read in November 2026.
-# Pro is sold at $100, $200 and $500 a month and a login names each `pro`, so the owner was asked
-# what that login costs, 19 Nov 2026: "$200".  A `price` on the provider's table in config.toml
-# replaces it, for every login of that provider, or, as `price = { second = 100 }`, for each
-# login it names.
+# Pro is sold at $100 and $200 a month and a login names both `pro`, so the owner was asked what
+# that login costs, 19 Nov 2026: "$200"; a login of the $500 one names `promax`.  A `price` on the
+# provider's table in config.toml replaces it, for every login of that provider, or, as
+# `price = { second = 100 }`, for each login it names.
 [plans]
 plus = 20
 pro = 200
+promax = 500
+
+# The plans above priced in euros a month before tax: only what the owner pays, 24 Nov 2026, of
+# the $500 one: "rounded 429 euro".
+[plans_eur]
+promax = 429
 
 # A Codex seat owns only the threads its own Codex's SessionStart hook reported, so its row is
 # recomputed rather than read: a seat tmux has lost keeps it, and one that owns no thread comes

@@ -95,6 +95,8 @@ provider = "mimo"
 # price = 200 on a provider is what each of its subscriptions costs a month, in whatever you
 # pay in, and price = { second = 100 } what the logins it names do; any other login costs its
 # plan's list price in US dollars (`[plans]` in adapters/<harness>.toml).
+# [money] currency = "EUR" prices each plan on `ak models --json` in euros, "USD" (absent) in
+# dollars: at a number `price` above, else at its list price before tax in that currency, if any.
 [providers.anthropic]
 mode = "subscription"
 [providers.openai]

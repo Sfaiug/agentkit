@@ -732,13 +732,14 @@ def main(argv):
     found = answer(rows, marked, cfg=cfg, task_usage=(logins, shares))
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     # here, not at the top: the boards and the screen need no database
-    from . import ledger, own, week_meters
+    from . import ledger, money, own, week_meters
     if "--json" in flags:
         until = time.time()
         since = until - ledger.WINDOW
         meters = week_meters.shared_weeks(cfg, since, until)
         days = week_meters.days(cfg, since, until, meters=meters)
         fits = rates.fitted(days)
+        plans = by_plan(days, fits)
         by_run = week_meters.run_usage(cfg, since, until, fits, meters=meters)
         by_seat = week_meters.seat_usage(cfg, since, until, fits, meters=meters)
         runs = ledger.counted(by_run, by_seat, until=until)
@@ -762,8 +763,7 @@ def main(argv):
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()},
-            "runs": runs, "own": mine,
-            "week_meters": by_plan(days, fits)}))
+            "runs": runs, "own": mine, "week_meters": plans, "money": money.month(cfg, plans)}))
         print()
         return 0
     mine = own.by_role(ledger.counted()["teams"], team_now(cfg, seat))

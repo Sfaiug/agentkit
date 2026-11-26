@@ -57,10 +57,11 @@ class ModelsCommand(unittest.TestCase):
         found = json.loads(self.models("--json"))
         # Subscription measurements, the tasks by team (tests/
         # test_key_models_json_counts_tasks_by_team.py), each role's rows of them
-        # (tests/test_key_models_json_own_rows.py) and what the plans' week meters rose (tests/
-        # test_key_models_json_week_meters.py) have their own keys; this remains Go's older claim.
+        # (tests/test_key_models_json_own_rows.py), what the plans' week meters rose (tests/
+        # test_key_models_json_week_meters.py) and each plan's monthly price (tests/
+        # test_key_models_json_money.py) have their own keys; this remains Go's older claim.
         self.assertEqual(sorted(found.keys() - {"usage", "task_usage", "runs", "own",
-                                                "week_meters"}),
+                                                "week_meters", "money"}),
                          ["execute", "live", "orchestrate", "review"])
         self.assertEqual(round(found["execute"]["best"], 1), 100.0)
         self.assertEqual([(row["name"], row["effort"], round(row["quality"], 1), row["cost"],
