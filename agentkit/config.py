@@ -1383,11 +1383,12 @@ def efforts_of(entry):
 def _worded(efforts):
     """A seat record's `efforts` without a build or review effort that is no word (a hand-edited
     null), as it is read (_validate_session) and as its efforts are changed (change_efforts): that
-    role follows the effort, as one never set does.  Any other shape is handed back as it is."""
+    role follows the effort, as one never set does.  Any other shape is handed back as it is, an
+    effort that is no word too, for _validate_session to refuse: every writer reads the effort."""
     if not isinstance(efforts, dict):
         return efforts
-    return {model: {key: word for key, word in held.items()
-                    if isinstance(word, str) or key not in ROLE_EFFORTS.values()}
+    return {model: {key: word for key, word in held.items() if isinstance(word, str)
+                    or key == "effort" or key not in ROLE_EFFORTS.values()}
             if isinstance(held, dict) else held for model, held in efforts.items()}
 
 
