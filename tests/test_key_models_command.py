@@ -22,11 +22,16 @@ from test_key_models_answer import ENV, NOW, boards
 ROLES = [*(f"  {role:<12}  Acme Mid 5 low  not on the boards"
            for role in ("orchestrator", "executor", "reviewer")), ""]
 COMPARED = f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"
-# On 100 cells the tables' columns pass the edge: each row folds
+# On 100 cells the three tables fit as columns
 OWN = ["Your team now has no task yet", "",
-       "ORCHESTRATOR", "● Acme Mid 5 low", "  tasks 0", "",
-       "BUILDER", "■ Acme Mid 5 low", "  tasks 0", "■ Bolt 3 low", "  tasks 0", "",
-       "REVIEWER", "■ Acme Mid 5 low", "  tasks 0", "■ Bolt 3 low", "  tasks 0"]
+       "ORCHESTRATOR      tasks  went live  time  usage",
+       "● Acme Mid 5 low      0", "",
+       "BUILDER           tasks  went live  passed 1st review  reviews  time  usage",
+       "■ Acme Mid 5 low      0", "■ Bolt 3 low          0", "",
+       "REVIEWER          tasks  went live  issues  false alarms  time  usage",
+       "■ Acme Mid 5 low      0", "■ Bolt 3 low          0", "",
+       "reviews and issues: per task · time and usage: per task that went live,",
+       "usage also as a share of one login's week on its plan"]
 
 
 class ModelsCommand(unittest.TestCase):
