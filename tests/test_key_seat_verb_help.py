@@ -27,7 +27,7 @@ WAIT = ("end this turn waiting on a pull request or run\n"
         "\n"
         "Example: ak wait https://github.com/acme/api/pull/12\n")
 USAGE = {
-    "plan": "usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
+    "plan": "usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' [--repo PATH] | "
             "ak plan check N 'COMMAND'",
     "notify": 'usage: ak notify needs "QUESTION" [--session NAME] [--dry-run]\n'
               "       ak notify --check",

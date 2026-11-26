@@ -19,7 +19,7 @@ from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.gitrig import Rig
 
-USAGE = ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
+USAGE = ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' [--repo PATH] | "
          "ak plan check N 'COMMAND'")
 PLAN = ".agentkit/state/plan-fix-api.md"
 

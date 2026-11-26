@@ -21,7 +21,7 @@ from fixtures.sink import Sink
 
 NOTIFY_USAGE = ('ak notify: usage: ak notify needs "QUESTION" [--session NAME] [--dry-run]\n'
                 "       ak notify --check\n")
-PLAN_USAGE = ("ak plan: usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
+PLAN_USAGE = ("ak plan: usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' [--repo PATH] | "
               "ak plan check N 'COMMAND'\n")
 NO_SEAT = "ak notify: notify needs a session: use --session NAME\n"
 INSIDE = {"AGENTKIT_SESSION": "fix-api"}
