@@ -539,42 +539,33 @@ def _read_by_turn(cfg, provider, account, cached):
 def _keep_probed(provider, account, cached, fresh):
     """`fresh`, its meters kept (`_keep`) when they were measured after the reading the
     snapshot holds, spent or not: an adapter's own cache read again, or a refused probe, is no
-    new reading."""
+    new reading.  One read again is the reading the snapshot holds, so its caps hold as they
+    held."""
     at, stood = _taken(fresh), _taken(cached)
-    if fresh.get("meters") and at is not None and (stood is None or at > stood):
-        return {**fresh, "meters": _keep(provider, account, fresh["meters"], at, "probe")}
-    return fresh
+    if not fresh.get("meters") or at is None or (stood is not None and at < stood):
+        return fresh
+    if at == stood:
+        held = {_key(m): m["held"] for m in cached.get("meters") or []
+                if isinstance(m, dict) and "held" in m}
+        return {**fresh, "meters": [{**m, "held": held[_key(m)]} if _key(m) in held else m
+                                    for m in fresh["meters"]]}
+    return {**fresh, "meters": _keep(provider, account, fresh["meters"], at, "probe")}
 
 
-def _keep(provider, account, meters, at, source):
+def _keep(provider, account, meters, at, source, beside=()):
     """One fresh reading's meters, each a row of history.db's `meter_readings`, with the plan
     its login is on as state/logins.json names it now and the scope its provider names; and
-    returned as the snapshot holds them, where the reading holds the shared week (`weekly_all`),
-    each model's own cap in it (`scope`) with the part of that week held for it (`_hold`)."""
+    returned as the snapshot holds them: where they, or the login's meters they stand `beside`,
+    hold its shared week (`weekly_all`) still running at `at`, each model's own cap of them with
+    the part of that week held for it (`cap_share.held`)."""
     account = account or config.DEFAULT_ACCOUNT
     plan = logins.whose(provider, account)[1]
     history.keep_readings([(provider, account, meter["name"], meter["used"],
                             _number(meter.get("resets_at")), _number(meter.get("window_secs")),
                             at, source, plan, _text(meter.get("scope"))) for meter in meters])
-    if not any(meter["name"] == "weekly_all" for meter in meters):
+    if not any(m.get("name") == "weekly_all" and not _past(m, at) for m in [*meters, *beside]):
         return meters
-    return [_hold(provider, plan, meter, at) if _text(meter.get("scope")) else meter
-            for meter in meters]
-
-
-def _hold(provider, plan, cap, at):
-    """`cap`, read at `at`, with `held`: the points of its login's shared week that its share of
-    the week (`cap_share.of`) takes of what it has left, or of the most it has been seen to rise
-    in the time to its reset (`cap_share.most`) where that is less.  Held to the week's last
-    minute, a part its model never comes to spend is thrown away: on 7 Nov 2026 a login's week
-    ended with all of Fable's cap unspent.  With no share known, or nothing held, `cap` as read."""
-    share = cap_share.of(provider, plan, cap["scope"])
-    if share is None:
-        return cap
-    left, resets = 100 - cap["used"], _number(cap.get("resets_at"))
-    rise = None if resets is None else cap_share.most(provider, plan, cap["scope"], resets - at)
-    held = share * (left if rise is None else min(left, rise))
-    return {**cap, "held": held} if held > 0 else cap
+    return cap_share.held(provider, plan, account, "weekly_all", meters, at)
 
 
 def _adapter_json(harness, verb, timeout, account=None, words=()):
@@ -1438,7 +1429,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured, asked):
     fresh = [m for m in fresh if (at := held.get(_key(m))) is None or measured > at]
     if not fresh:
         return False
-    fresh = _keep(provider, account, fresh, measured, "turn")
+    fresh = _keep(provider, account, fresh, measured, "turn", beside=old)
     # Normalized as a probed meter is, because every reader of the snapshot reads one.  A turn
     # asks of each cap it reads, not of every cap of its name as a probe does (`_meter_asked`),
     # so its ask is that meter's own, and a cap of that name it did not read keeps the probe's.

@@ -1,13 +1,14 @@
 """A model's own cap in a kept reading of a login holding its shared week (`weekly_all`) says the
 points of that week held for it, `held`: its plan's share of the week (`cap_share.of`) of what it
 has left, or of the most it has been seen to rise in the time to its reset (`cap_share.most`)
-where that is less.  A cap with no share known or nothing left, or on a reading without the shared
-week, carries no `held`, and nothing the probe read changes.
+where that is less, from the login's first reading on.  A cap with no share known or nothing
+left, or on a reading without a shared week still running, carries no `held`, and nothing the
+probe read changes.
 
 Black-box: in a Home of tests/fixtures/akbin.py on tests/fixtures/meters.py's harness, with a
-history.db of invented readings, each login's plan in state/logins.json and its last reading in
-state/usage.json, one `ak usage --json` probes every login, and state/usage.json and history.db
-are read as any program reads them.  Fails against /bin/false.
+history.db of invented readings and each login's plan in state/logins.json, one `ak usage --json`
+probes every login, and state/usage.json and history.db are read as any program reads them.
+Fails against /bin/false.
 """
 
 from contextlib import closing
@@ -33,8 +34,8 @@ HALF = ((30, 0, 0), (20, 4, 11))
 RISES_TEN = (*HALF, (18, 10, 21))
 
 
-def week(used):
-    return {"name": "weekly_all", "used": used, "resets_at": NOW + 3 * DAY, "window_secs": WEEK}
+def week(used, resets_at=NOW + 3 * DAY):
+    return {"name": "weekly_all", "used": used, "resets_at": resets_at, "window_secs": WEEK}
 
 
 def cap(used, resets_at=NOW + 3 * DAY):
@@ -48,7 +49,7 @@ SESSION = {"name": "session", "used": 30, "resets_at": NOW + HOUR, "window_secs"
 class ACapsPartIsWhatItCanStillSpend(unittest.TestCase):
     def probe(self, logins):
         """One `ak usage --json` in a Home whose logins, {account: (plan, its readings in
-        history.db, the meters its probe answers)}, each last read an hour ago; the snapshot's
+        history.db, the meters its probe answers)}, were never read before; the snapshot's
         meters it wrote, {account: {name: meter}}, and history.db's rows of the probe's
         readings, {account: {name: (used, resets_at, window_secs, scope, plan)}}."""
         home = Home()
@@ -59,9 +60,6 @@ class ACapsPartIsWhatItCanStillSpend(unittest.TestCase):
         home.write(".agentkit/state/logins.json", {"acme": {account: {
             "email": f"{account}@acme.test", "ends": None, "plan": plan, "checked_at": NOW}
             for account, (plan, _, _) in logins.items()}})
-        home.write(".agentkit/state/usage.json", {"fetched_at": NOW - HOUR, "providers": {
-            "acme": {"accounts": {account: {"meters": answer, "fetched_at": NOW - HOUR}
-                                  for account, (_, _, answer) in logins.items()}}}})
         rows = []
         for account, (plan, readings, _) in logins.items():
             for ago, used_week, used_cap in readings:
@@ -100,8 +98,9 @@ class ACapsPartIsWhatItCanStillSpend(unittest.TestCase):
     def test_no_share_known_a_spent_cap_or_no_shared_week_holds_nothing(self):
         written, _ = self.probe({"spent": ("Max", HALF, [week(50), cap(100)]),
                                  "unknown": ("Pro", (), [week(50), cap(20)]),
-                                 "capped": ("Max", (), [SESSION, cap(20)])})
-        for account in ("spent", "unknown", "capped"):
+                                 "capped": ("Max", (), [SESSION, cap(20)]),
+                                 "rolled": ("Max", (), [week(50, resets_at=NOW - 1), cap(20)])})
+        for account in ("spent", "unknown", "capped", "rolled"):
             self.assertNotIn("held", written[account]["weekly_scoped"], account)
 
     def test_what_the_probe_read_is_kept_and_written_as_read(self):
