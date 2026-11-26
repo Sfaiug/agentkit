@@ -228,12 +228,12 @@ class UnlistedModelLab(Sandbox):
         self.assertIsNone(config.family("claudette-1", ["Claude"]))
         self.assertEqual(config.spoken("claude-nova-7-1", ["Claude"]), "Nova 7.1")
         self.assertEqual(config.spoken("gpt-5-5", ["GPT"]), "GPT 5.5")
-        # With no lineup, the family word itself names the lab: the id's, else the harness's own
-        # (codex's for bolt); a harness with none (opencode) keeps the provider.
-        self.assertEqual(staffing.lab(self.cfg, "nova", []), "Claude")
-        self.assertEqual(staffing.lab(self.cfg, "dart", []), "Claude")
+        # With no lineup, the family word names the provider its harness runs on, nova's own; no
+        # family word keeps the provider.
+        self.assertEqual(staffing.lab(self.cfg, "nova", []), "anthropic")
+        self.assertEqual(staffing.lab(self.cfg, "dart", []), "anthropic")
         self.assertEqual(staffing.lab(self.cfg, "near", []), "dune")
-        self.assertEqual(staffing.lab(self.cfg, "bolt", []), "GPT")
+        self.assertEqual(staffing.lab(self.cfg, "bolt", []), "openai")
         self.assertEqual(staffing.pair_tier(self.cfg, "nova", "dart", []), 1)
         self.assertEqual(staffing.pair_tier(self.cfg, "nova", "bolt", []), 0)
 
@@ -244,48 +244,58 @@ class UnlistedModelLab(Sandbox):
         self.assertEqual(staffing.lab(self.cfg, "nova", lineup), "acme")
         self.assertEqual(staffing.lab(self.cfg, "dart", lineup), "acme")
         self.assertEqual(staffing.lab(self.cfg, "near", lineup), "dune")
-        self.assertEqual(staffing.lab(self.cfg, "bolt", lineup), "GPT")
+        self.assertEqual(staffing.lab(self.cfg, "bolt", lineup), "openai")
         # A row holding dart itself wins over any family word.
         held = [*lineup, {"release": "dart-2", "name": "Dart 2", "board_name": "Dart 2",
                           "maker": "Dune", "effort": "high", "values": {},
                           "yours": [{"harness": "opencode", "model": "dune/CLAUDE-dart-2"}]}]
         self.assertEqual(staffing.lab(self.cfg, "dart", held), "dune")
 
-    def test_entries_without_a_model_id_are_of_their_harnesss_family_else_their_provider(self):
+    def test_entries_without_a_model_id_fall_back_to_their_provider(self):
         self.cfg["models"]["num"] = {"harness": "claude", "model": 7, "effort": "high",
                                      "provider": "dune"}
         self.cfg["models"]["def_a"] = {"harness": "claude", "model": "default", "effort": "high",
                                        "provider": "anthropic"}
         self.cfg["models"]["def_b"] = {"harness": "codex", "model": "default", "effort": "high",
                                        "provider": "openai"}
-        self.cfg["models"]["def_c"] = {"harness": "opencode", "model": "default", "effort": "high",
-                                       "provider": "dune"}
-        self.assertEqual(staffing.lab(self.cfg, "num", []), "Claude")
-        self.assertEqual(staffing.lab(self.cfg, "def_c", []), "dune")
-        self.assertEqual(staffing.pair_tier(self.cfg, "nova", "def_a", []), 1)
-        with patch.object(config, "families", return_value=["Default", *config.families()]):
-            self.assertEqual(staffing.lab(self.cfg, "def_a", []), "Claude")
-            self.assertEqual(staffing.lab(self.cfg, "def_b", []), "GPT")
+        self.assertEqual(staffing.lab(self.cfg, "num", []), "dune")
+        with patch.object(config, "families", return_value=["Default", "Claude"]):
+            self.assertEqual(staffing.lab(self.cfg, "def_a", []), "anthropic")
+            self.assertEqual(staffing.lab(self.cfg, "def_b", []), "openai")
             self.assertEqual(staffing.pair_tier(self.cfg, "def_a", "def_b", []), 0)
 
-    def test_a_makerless_row_a_wordless_row_id_and_a_second_spelling_part_no_family(self):
-        self.cfg["models"]["mist"] = {**self.cfg["models"]["nova"], "model": "default"}
-        self.cfg["models"]["haze"] = {**self.cfg["models"]["nova"], "model": "haze-1"}
-        family = ("nova", "mist", "haze", "dart")
+    def test_a_family_word_is_of_the_provider_its_harnesses_run_on_where_that_is_one(self):
+        models = self.cfg["models"]
+        models["mist"] = {**models["nova"], "model": "default"}
+        models["haze"] = {**models["nova"], "model": "haze-1"}
 
         def labs(*rows):
             lineup = [{"maker": maker, "yours": [{"harness": "claude", "model": model}]}
                       for maker, model in rows]
-            return {staffing.lab(self.cfg, name, lineup) for name in family}
+            return {staffing.lab(self.cfg, name, lineup)
+                    for name in ("nova", "dart", "mist", "haze")}
 
-        # A row naming no maker leaves its model to its family word, as if no row held it.
-        self.assertEqual(labs(("", "claude-nova-2")), {"Claude"})
-        # A row holding an id that opens with no family word is of its harness's family too.
-        self.assertEqual(labs(("Acme", "haze-1")), {"acme"})
-        # Another manifest spelling claude's word its own way names the same family.
+        # nova and dart, named by claude's word, are of the lab of mist and haze, on claude and
+        # named by none: with no lineup, under a row that names no maker, under one holding an
+        # id that opens with no family word, and under one of another maker ahead of nova's.
+        for rows in ([], [("", "claude-nova-2")], [("Anthropic", "haze-1")],
+                     [("Bolt", "bolt-3"), ("Anthropic", "claude-nova-2")]):
+            self.assertEqual(labs(*rows), {"anthropic"}, rows)
+        # A manifest spelling the word its own way names the same family; one whose word only
+        # opens with it, here codex's, names another.
         with patch.object(config, "families", return_value=["CLAUDE", *config.families()]):
-            self.assertEqual(labs(), {"CLAUDE"})
-            self.assertEqual(labs(("Acme", "claude-nova-2")), {"acme"})
+            self.assertEqual(labs(), {"anthropic"})
+        longer = {"codex": {"family": "Claude-Labs"}, "claude": {"family": "Claude"}}
+        with patch.object(config, "manifest", lambda harness: longer.get(harness, {})):
+            self.assertEqual(staffing.lab(self.cfg, "nova", []), "anthropic")
+        # Where the config names no one maker for the word, the word itself stays the lab:
+        # claude on two providers, claude's provider running codex too, nothing on claude.
+        models["side"] = {**models["mist"], "provider": "dune"}
+        self.assertEqual(staffing.lab(self.cfg, "nova", []), "Claude")
+        models["side"] = {**models["bolt"], "provider": "anthropic"}
+        self.assertEqual(staffing.lab(self.cfg, "nova", []), "Claude")
+        self.cfg["models"] = {"dart": models["dart"]}
+        self.assertEqual(staffing.lab(self.cfg, "dart", []), "Claude")
 
 
 if __name__ == "__main__":
