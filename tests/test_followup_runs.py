@@ -233,6 +233,60 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(receipt["workers"], state["workers"])
         self.assertEqual(receipt["reviewers"], [self.executor])
 
+    def test_seat_with_no_reviewers_binds_empty_reviewers_and_lands_review_off(self):
+        config.save_session(self.cfg, "seat", self.executor, [self.executor], {"reviewers": []})
+        directory, state = self.source("no-reviewers")
+        [child] = self.start(directory, state)
+        receipt = record.read_state(child)
+        self.assertEqual(receipt["workers"], [self.executor])
+        self.assertEqual(receipt["reviewers"], [])
+        self.assertTrue(record.review_off(receipt))
+        code, fixed = self.drive(child)
+        self.assertEqual(code, 0, "\n".join(self.logs))
+        self.assertTrue(fixed["merged"])
+        self.assertIsNone(fixed["reviewer"])
+        self.assertTrue(record.review_off(fixed))
+        calls = [json.loads(line) for line in (self.root / "harness/calls.jsonl").read_text().splitlines()]
+        self.assertEqual([c["role"] for c in calls], ["executor"])
+
+        # An empty workers list is still dropped from a seat launch's receipt.
+        config.save_session(self.cfg, "seat", self.executor, [], {"reviewers": []})
+        empty_workers = config.RUNS / "empty-workers"
+        empty_workers.mkdir()
+        (empty_workers / "task.md").write_text(
+            f"---\nrepo: {self.repo}\nbase: origin/main\ntarget: main\n---\n# Fix\n\n"
+            "## Done when\n```bash\ntrue\n```\n")
+        (empty_workers / "log.txt").touch()
+        run.launch_for_seat(empty_workers, {"launched_session": "seat"},
+                            {"followup": {"run": directory.name, "text": OTHER},
+                             "repo": str(self.repo)}, self.cfg)
+        saved = record.read_state(empty_workers)
+        self.assertNotIn("workers", saved)
+        self.assertEqual(saved["reviewers"], [])
+        self.assertTrue(record.review_off(saved))
+
+        # capture_launch keeps an empty reviewers list and drops an empty workers list.
+        captured = config.RUNS / "captured-bound"
+        captured.mkdir()
+        run.capture_launch(captured, receipt={"followup": {"run": directory.name, "text": OTHER},
+                                              "launched_session": "seat",
+                                              "workers": [], "reviewers": []})
+        captured_state = record.read_state(captured)
+        self.assertNotIn("workers", captured_state)
+        self.assertEqual(captured_state["reviewers"], [])
+        self.assertTrue(record.review_off(captured_state))
+
+        # A seat with no record of its own passes on the launching run's empty reviewers list.
+        config.session_path("seat").unlink()
+        third = "third.py:3 - missing check - base abc123: `check()` raises ValueError"
+        no_rec, no_rec_state = self.source("no-record-no-reviewers", reviewers=[], followups=[third])
+        with patch.object(orch, "find", return_value={"name": "seat"}):
+            [orphan_child] = self.start(no_rec, no_rec_state)
+        orphan_receipt = record.read_state(orphan_child)
+        self.assertEqual(orphan_receipt["workers"], no_rec_state["workers"])
+        self.assertEqual(orphan_receipt["reviewers"], [])
+        self.assertTrue(record.review_off(orphan_receipt))
+
     def test_long_first_line_still_fits_github_pr_title_limit(self):
         long_item = "x" * 256 + "\nreproduction details"
         directory, state = self.source("long-title", followups=[long_item])
