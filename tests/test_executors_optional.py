@@ -384,17 +384,9 @@ class ExecutorsOptional(Sandbox):
         row = history.get("widgets")
         self.assertEqual((row["session"], row["orchestrator"]), ("fix-api", "opus"))
         self.assertEqual(transitions.history_ending(state)["session"], "fix-api")
-        # a legacy receipt without launched_orchestrator still writes its row when the live
-        # seat's orchestrator is not SQLite-bindable
-        live.write_text(json.dumps({"orchestrator": ["opus"], "workers": ["opus"],
-                                    "reviewers": ["astra"]}))
-        legacy = {key: value for key, value in state.items() if key != "launched_orchestrator"}
-        transitions.history_start({**legacy, "run_id": "legacy-list-orch"})
-        row = history.get("legacy-list-orch")
-        self.assertIsNotNone(row)
-        self.assertEqual((row["session"], row["orchestrator"]), ("fix-api", None))
 
-        # own-PR size gate uses captured workers rather than reading a live or corrupt seat
+        # own-PR size gate uses captured workers rather than reading a live or corrupt seat,
+        # and a legacy receipt without workers still survives invalid JSON in the live seat
         url = "https://github.com/acme/api/pull/7"
         with patch.object(run, "change_reviewed", return_value=False), \
                 patch.object(run, "seat_lines", return_value=(1000, True)):
@@ -407,6 +399,17 @@ class ExecutorsOptional(Sandbox):
                 with patch.object(run.run_record, "read_state", return_value=receipt):
                     _, why = run.own_pr_first_review(self.root, url, "7", "a", "a", "b", self.root)
                 self.assertIn(expected, why)
+
+        # a legacy receipt without launched_orchestrator still writes its row when the live
+        # seat's orchestrator is not SQLite-bindable (list or out-of-range integer)
+        legacy = {key: value for key, value in state.items() if key != "launched_orchestrator"}
+        for suffix, bad in (("list", ["opus"]), ("high", 1 << 63), ("low", -(1 << 63) - 1)):
+            live.write_text(json.dumps({"orchestrator": bad, "workers": ["opus"],
+                                        "reviewers": ["astra"]}))
+            transitions.history_start({**legacy, "run_id": f"legacy-{suffix}-orch"})
+            row = history.get(f"legacy-{suffix}-orch")
+            self.assertIsNotNone(row)
+            self.assertEqual((row["session"], row["orchestrator"]), ("fix-api", None))
 
 if __name__ == "__main__":
     unittest.main()
