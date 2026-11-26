@@ -42,6 +42,11 @@ def _add_usage(to, used):
             plans[plan] = plans.get(plan, Fraction(0)) + value
 
 
+def _unused():
+    """A team's or a size's `usage`, before its tasks add theirs."""
+    return {role: {"points": {}, "unrated": 0} for role in (*USAGE_ROLES, "orchestrator")}
+
+
 def sum_usage(by_run):
     """{role: {"points": {provider: {plan: Fraction}}, "unrated": tokens}} for `executor` and
     `reviewer`, summed exactly from `by_run`, `week_meters.run_usage`'s; a plan with none not
@@ -98,7 +103,8 @@ def counted(usage=None, seats=None, *, until=None):
     ended or while it runs, and of its orchestrator's entry of `seats` (`_seat`) its tasks over
     those of every team of that entry (`orchestrator`, `unrated` rounded half to even); per
     `SIZE` lines, smallest first, the same of the tasks whose size is at most `upto` and over
-    `upto` less SIZE, `lines_live` the sizes of those live summed;
+    `upto` less SIZE, `lines_live` the sizes of those live summed, `orchestrator` of each team's
+    entry its tasks there over those of every team of that entry;
     `usage` over every run (`executor`, `reviewer`) and seat (`orchestrator`); and `seats`, per
     orchestrator and effort (`sum_seats`)."""
     until = time.time() if until is None else until
@@ -108,7 +114,8 @@ def counted(usage=None, seats=None, *, until=None):
     for row in history.changes_since(since):
         changes.setdefault(row.get("change") or row["run_id"], []).append(row)
     reviewed, first_efforts, disputes = history._reviews_read()
-    teams, sizes = {}, {}
+    # sized: (team, upto) -> that team's tasks of that size
+    teams, sizes, sized = {}, {}, {}
     for change, runs in changes.items():
         # the run a change is named for began it, whatever start a relaunch ties with; a change
         # comes whole, so a task whose first run ended outside the window, or recorded no end,
@@ -126,11 +133,11 @@ def counted(usage=None, seats=None, *, until=None):
         first = {**task[0], "reviewer_effort": first_efforts.get(task[0]["run_id"])}
         roles = {role: {"name": first.get(role), "effort": first.get(f"{role}_effort")}
                  for role in ROLES}
-        team = teams.setdefault(repr(roles), {
+        key = repr(roles)
+        team = teams.setdefault(key, {
             **roles, "tasks": 0, "first_run": 0, "live": 0, "first_pass": 0, "reviews": 0,
             "issues": 0, "disputed": 0, "taken_back": 0, "hours": dict.fromkeys(HOURS, 0),
-            "usage": {role: {"points": {}, "unrated": 0}
-                      for role in (*USAGE_ROLES, "orchestrator")}})
+            "usage": _unused()})
         team["first_run"] += history.merged(task[0])
         team["first_pass"] += bool(first_review and first_review["round"] == 1
                                    and first_review.get("verdict") == "PASS")
@@ -141,33 +148,40 @@ def counted(usage=None, seats=None, *, until=None):
             disputed, taken_back = disputes.get(row["run_id"], (0, 0))
             team["disputed"] += disputed
             team["taken_back"] += taken_back
-            for role in USAGE_ROLES:
-                if (used := usage.get((row["run_id"], role))) is not None:
-                    _add_usage(team["usage"][role], used)
         live = any(map(history.merged, task))
         counts = [team]
         # its size: the most lines a first review of one of its runs read; none kept, no size
         size = max((row["first_review_lines"] for row in task
                     if row.get("first_review_lines") is not None), default=None)
         if size is not None:
-            counts.append(sizes.setdefault(max(1, (size + SIZE - 1) // SIZE) * SIZE, {
-                "tasks": 0, "live": 0, "lines_live": 0, "hours": dict.fromkeys(HOURS, 0)}))
+            upto = max(1, (size + SIZE - 1) // SIZE) * SIZE
+            counts.append(sizes.setdefault(upto, {
+                "tasks": 0, "live": 0, "lines_live": 0, "hours": dict.fromkeys(HOURS, 0),
+                "usage": _unused()}))
             counts[-1]["lines_live"] += size * live
+            sized[key, upto] = sized.get((key, upto), 0) + 1
         for count in counts:
             count["tasks"] += 1
             count["live"] += live
             for part, columns in HOURS.items():
                 count["hours"][part] += sum(row.get(column) or 0
                                             for row in task for column in columns) / 3600
+            for row in task:
+                for role in USAGE_ROLES:
+                    if (used := usage.get((row["run_id"], role))) is not None:
+                        _add_usage(count["usage"][role], used)
     seats = seats or {}
-    # a seat's turn belongs to no task, so an orchestrator's divides evenly over the tasks it wrote
+    # a seat's turn belongs to no task, so an orchestrator's divides evenly over the tasks it
+    # wrote: a team, and a size of a team, each takes those of its tasks
     wrote = {}
     for team in teams.values():
         wrote[_seat(team)] = wrote.get(_seat(team), 0) + team["tasks"]
-    for team in teams.values():
+    for team, count, tasks in [*((team, team, team["tasks"]) for team in teams.values()),
+                               *((teams[key], sizes[upto], tasks)
+                                 for (key, upto), tasks in sized.items())]:
         points, unrated = seats.get(_seat(team), ({}, 0))
-        share = Fraction(team["tasks"], wrote[_seat(team)])
-        _add_usage(team["usage"]["orchestrator"],
+        share = Fraction(tasks, wrote[_seat(team)])
+        _add_usage(count["usage"]["orchestrator"],
                    ({plan: value * share for plan, value in points.items()},
                     round(unrated * share)))
     seat_rows, orch_usage = sum_seats(seats)
