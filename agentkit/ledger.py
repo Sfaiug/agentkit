@@ -53,8 +53,27 @@ def sum_usage(by_run):
     return out
 
 
-def counted(usage=None, *, until=None):
-    """{"since", "until", "teams", "sizes", "usage"}: the window; per team, most tasks first,
+def sum_seats(by_seat):
+    """([{"name", "effort", "points", "unrated"}], {"points", "unrated"}) from `by_seat`,
+    `week_meters.seat_usage`'s: one entry per `(orchestrator, effort)`, most points first (all
+    plans summed), then name and effort, null last, and their exact sum."""
+    total = {"points": {}, "unrated": 0}
+    rows = []
+    for (name, effort), used in sorted(
+            by_seat.items(),
+            key=lambda item: (-sum(item[1][0].values(), Fraction(0)),
+                              item[0][0] is None, item[0][0] or "",
+                              item[0][1] is None, item[0][1] or "")):
+        row = {"name": name, "effort": effort, "points": {}, "unrated": 0}
+        _add_usage(row, used)
+        _add_usage(total, used)
+        rows.append(row)
+    return rows, total
+
+
+def counted(usage=None, seats=None, *, until=None):
+    """{"since", "until", "teams", "sizes", "usage", "seats"}: the window; per team, most tasks
+    first,
     each role's {"name", "effort"} as its first run's row names them (the reviewer's effort its
     first review's), its tasks, those whose first run merged (`history.merged`), those any of
     whose runs merged (`live`), those whose first run's first review (first written of its lowest
@@ -64,8 +83,9 @@ def counted(usage=None, *, until=None):
     `conceded` or `dropped` (`taken_back`), the hours every run of them spent (`HOURS`), and the
     `usage` (`week_meters.run_usage`'s) every run of them took by role, summed exactly, however it
     ended or while it runs; per `SIZE` lines, smallest first, the same of the tasks whose size is
-    at most `upto` and over `upto` less SIZE, `lines_live` the sizes of those live summed; and
-    `usage` over every run."""
+    at most `upto` and over `upto` less SIZE, `lines_live` the sizes of those live summed;
+    `usage` over every run (`executor`, `reviewer`) and seat (`orchestrator`); and `seats`, per
+    orchestrator and effort (`sum_seats`)."""
     until = time.time() if until is None else until
     since = until - WINDOW
     usage = usage or {}
@@ -123,7 +143,9 @@ def counted(usage=None, *, until=None):
             for part, columns in HOURS.items():
                 count["hours"][part] += sum(row.get(column) or 0
                                             for row in task for column in columns) / 3600
+    seat_rows, orch_usage = sum_seats(seats or {})
     return {"since": since, "until": until,
             "teams": sorted(teams.values(), key=lambda team: -team["tasks"]),
             "sizes": [{"upto": upto, **count} for upto, count in sorted(sizes.items())],
-            "usage": sum_usage(usage)}
+            "usage": {**sum_usage(usage), "orchestrator": orch_usage},
+            "seats": seat_rows}

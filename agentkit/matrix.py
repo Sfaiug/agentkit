@@ -740,7 +740,8 @@ def main(argv):
         days = week_meters.days(cfg, since, until, meters=meters)
         fits = rates.fitted(days)
         by_run = week_meters.run_usage(cfg, since, until, fits, meters=meters)
-        runs = ledger.counted(by_run, until=until)
+        by_seat = week_meters.seat_usage(cfg, since, until, fits, meters=meters)
+        runs = ledger.counted(by_run, by_seat, until=until)
         mine = own.by_role(runs["teams"], team_now(cfg, seat))
 
         def drawn(row, said):
