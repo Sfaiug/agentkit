@@ -568,9 +568,15 @@ def _adapter_json(harness, verb, timeout, account=None, words=()):
 
 
 def _number(value):
-    """`value` as a float when it really is a number, else None -- True is not a 1 here."""
-    return (None if isinstance(value, bool) or not isinstance(value, (int, float))
-            or not math.isfinite(value) else float(value))
+    """`value` as a float when it really is a finite number a float holds, else None -- True is
+    not a 1 here."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        value = float(value)
+    except OverflowError:
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _text(value):

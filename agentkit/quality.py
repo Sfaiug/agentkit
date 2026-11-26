@@ -8,6 +8,7 @@ error.  Every score carries its standard error, each error counted once however 
 take it.  Reads no board, config or clock: rows come in, ratings and role picks go out.
 """
 
+import fractions
 import math
 import statistics
 
@@ -241,6 +242,14 @@ def pick(rated, role):
     if not span:
         return best
     rise = best["quality"] - cheapest["quality"]
-    # Scale every distance by the same span: division can round equal gaps apart.
-    return max(front, key=lambda row: (row["quality"] - cheapest["quality"]) * span
-               - rise * (row["cost"] - cheapest["cost"]))
+    # Scale every distance by the same span: division can round equal gaps apart; when the
+    # product overflows, use exact rationals so collinear ties still pick the cheapest row.
+    if math.isfinite(rise * span):
+        return max(front, key=lambda row: (row["quality"] - cheapest["quality"]) * span
+                   - rise * (row["cost"] - cheapest["cost"]))
+    base_cost = fractions.Fraction(cheapest["cost"])
+    base_quality = fractions.Fraction(cheapest["quality"])
+    exact_span = fractions.Fraction(best["cost"]) - base_cost
+    exact_rise = fractions.Fraction(best["quality"]) - base_quality
+    return max(front, key=lambda row: (fractions.Fraction(row["quality"]) - base_quality) * exact_span
+               - exact_rise * (fractions.Fraction(row["cost"]) - base_cost))

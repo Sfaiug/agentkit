@@ -40,6 +40,11 @@ class QualityWeightedMean(unittest.TestCase):
         self.assertAlmostEqual(bolt["se"], math.hypot(0.4 * share(0.5, 132), 0.4 * 4 / 3.92,
                                                       0.2 * share(0.2, 66)))
 
+    def test_pick_keeps_the_cheapest_on_a_collinear_tie_even_when_rise_times_span_overflows(self):
+        scale = 3 * 2.0 ** 1014
+        rows = [{"cost": scale * q, "quality": 78 + q} for q in (0, 15, 22)]
+        self.assertIs(quality.pick(rows, "execute"), rows[0])
+
 
 if __name__ == "__main__":
     unittest.main()
