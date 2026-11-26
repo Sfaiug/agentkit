@@ -6317,6 +6317,7 @@ def config_machines(cfg):
 
         def page():
             work = machines.work(name, cfg)
+            config.load()       # as on Machines' own page
             return [(label, [(on, "accent") if word in work else (off, "dim"),
                              ("on" if word in work else "off", None)],
                      ("mark", lambda word=word: flip(word)))
@@ -6328,7 +6329,6 @@ def config_machines(cfg):
         return open_page
 
     def page():
-        config.load()       # a file that will not load closes the page, saying why on `c`
         rows = [(machine.name, machine_value(machine, cfg),
                  None if machine.name == machines.HERE else work_page(machine.name))
                 for machine in machines.known()]
@@ -6337,6 +6337,9 @@ def config_machines(cfg):
         except config.Error as exc:
             stand_ins, why = [], str(exc)
         rows += [(host, stand_in_value(age, takes), None) for host, age, takes in stand_ins]
+        # a file that will not load closes the page, saying why on `c`; read last, so one
+        # breaking under the reads above does too
+        config.load()
         return [*rows, ("+ add a machine", "", add_field)], why
     config_page("machines", page)
 

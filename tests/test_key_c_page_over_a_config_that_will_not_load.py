@@ -1,5 +1,5 @@
-"""A `c` page that reads config.toml itself, `Machines`, brings the owner back to `c` saying why
-once the file will not load, open as it broke or opened after:
+"""A `c` page that reads config.toml itself, `Machines` and a machine's under it, brings the owner
+back to `c` saying why once the file will not load, open as it broke or opened after:
 the menu stays up, one Esc on `c` leaves it, and nothing is written over the file.
 
 Black-box: the program `AK_BIN` names, in a terminal of its own (tests/fixtures/akterm.py), its
@@ -25,7 +25,8 @@ class CPageOverAConfigThatWillNotLoad(unittest.TestCase):
         self.addCleanup(self.home.close)
         fakeadapter.install(self.home, claude="pass", codex="pass")
         self.path = akconfig.write(self.home, {"fable": {"harness": "claude", "effort": "xhigh"},
-                                               "astra": {"harness": "codex", "effort": "high"}})
+                                               "astra": {"harness": "codex", "effort": "high"}},
+                                   extra="[machines.acme-linux]\n")
         self.broken = self.path.read_text() + "\n[unfinished\n"
         self.term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.term.wait("esc leave")
@@ -51,6 +52,17 @@ class CPageOverAConfigThatWillNotLoad(unittest.TestCase):
     def test_machines_open_as_the_file_breaks(self):
         self.term.keys("Enter")
         self.term.wait("+ add a machine")
+        self.breaks()
+        self.term.keys("j")
+        self.back_on_c()
+
+    def test_a_machine_open_as_the_file_breaks(self):
+        self.term.keys("Enter")
+        self.term.wait("+ add a machine")
+        self.term.keys("j")
+        self.term.wait("› acme-linux")
+        self.term.keys("Enter")
+        self.term.wait("builds and reviews")
         self.breaks()
         self.term.keys("j")
         self.back_on_c()
