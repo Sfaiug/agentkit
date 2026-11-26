@@ -47,6 +47,15 @@ def _unused():
     return {role: {"points": {}, "unrated": 0} for role in (*USAGE_ROLES, "orchestrator")}
 
 
+def _part(used, start, end, of):
+    """Of `used`, `(points, unrated)` as `_add_usage` takes it, the part of tasks `start` up to
+    `end` of `of`: its points exact, its unrated tokens rounded half to even where those tasks end
+    less where they start, so that parts ending where the next starts sum to the whole."""
+    points, unrated = used
+    return ({plan: value * Fraction(end - start, of) for plan, value in points.items()},
+            round(unrated * Fraction(end, of)) - round(unrated * Fraction(start, of)))
+
+
 def sum_usage(by_run):
     """{role: {"points": {provider: {plan: Fraction}}, "unrated": tokens}} for `executor` and
     `reviewer`, summed exactly from `by_run`, `week_meters.run_usage`'s; a plan with none not
@@ -104,7 +113,7 @@ def counted(usage=None, seats=None, *, until=None):
     those of every team of that entry (`orchestrator`, `unrated` rounded half to even); per
     `SIZE` lines, smallest first, the same of the tasks whose size is at most `upto` and over
     `upto` less SIZE, `lines_live` the sizes of those live summed, `orchestrator` of each team's
-    entry its tasks there over those of every team of that entry;
+    its tasks there over the team's (`_part`, the team's sizes smallest first);
     `usage` over every run (`executor`, `reviewer`) and seat (`orchestrator`); and `seats`, per
     orchestrator and effort (`sum_seats`)."""
     until = time.time() if until is None else until
@@ -114,7 +123,7 @@ def counted(usage=None, seats=None, *, until=None):
     for row in history.changes_since(since):
         changes.setdefault(row.get("change") or row["run_id"], []).append(row)
     reviewed, first_efforts, disputes = history._reviews_read()
-    # sized: (team, upto) -> that team's tasks of that size
+    # sized: {team: {upto: that team's tasks of that size}}
     teams, sizes, sized = {}, {}, {}
     for change, runs in changes.items():
         # the run a change is named for began it, whatever start a relaunch ties with; a change
@@ -159,7 +168,8 @@ def counted(usage=None, seats=None, *, until=None):
                 "tasks": 0, "live": 0, "lines_live": 0, "hours": dict.fromkeys(HOURS, 0),
                 "usage": _unused()}))
             counts[-1]["lines_live"] += size * live
-            sized[key, upto] = sized.get((key, upto), 0) + 1
+            of_team = sized.setdefault(key, {})
+            of_team[upto] = of_team.get(upto, 0) + 1
         for count in counts:
             count["tasks"] += 1
             count["live"] += live
@@ -172,18 +182,18 @@ def counted(usage=None, seats=None, *, until=None):
                         _add_usage(count["usage"][role], used)
     seats = seats or {}
     # a seat's turn belongs to no task, so an orchestrator's divides evenly over the tasks it
-    # wrote: a team, and a size of a team, each takes those of its tasks
+    # wrote, and a team's over its sizes, whose parts so sum to the team's where all are sized
     wrote = {}
     for team in teams.values():
         wrote[_seat(team)] = wrote.get(_seat(team), 0) + team["tasks"]
-    for team, count, tasks in [*((team, team, team["tasks"]) for team in teams.values()),
-                               *((teams[key], sizes[upto], tasks)
-                                 for (key, upto), tasks in sized.items())]:
-        points, unrated = seats.get(_seat(team), ({}, 0))
-        share = Fraction(tasks, wrote[_seat(team)])
-        _add_usage(count["usage"]["orchestrator"],
-                   ({plan: value * share for plan, value in points.items()},
-                    round(unrated * share)))
+    for key, team in teams.items():
+        used = _part(seats.get(_seat(team), ({}, 0)), 0, team["tasks"], wrote[_seat(team)])
+        _add_usage(team["usage"]["orchestrator"], used)
+        done = 0
+        for upto, tasks in sorted(sized.get(key, {}).items()):
+            _add_usage(sizes[upto]["usage"]["orchestrator"],
+                       _part(used, done, done + tasks, team["tasks"]))
+            done += tasks
     seat_rows, orch_usage = sum_seats(seats)
     return {"since": since, "until": until,
             "teams": sorted(teams.values(), key=lambda team: -team["tasks"]),
