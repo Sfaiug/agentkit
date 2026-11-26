@@ -307,8 +307,6 @@ seat opened without `--dangerously-skip-permissions`; `antigravity-question-pane
 `ask_question` dialog of a plain `agy`, whose tools include it; `antigravity-ctrl-c-pane.txt` a
 seat at its prompt after one Ctrl-C, and `antigravity-terms-ctrl-c-pane.txt` the terms page a
 first run opens on, after one Ctrl-C.
-`antigravity-more-background-draft-pane.txt` is agy 1.5.18, captured 2026-11-26 the same way: five
-`sleep 300` left running, four listed over `↓ 1 more`, no footer, a line typed and never sent.
 
 ## Seat-state captures (v5n)
 
