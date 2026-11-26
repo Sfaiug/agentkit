@@ -115,6 +115,43 @@ class ReviewPrSuiteFallback(unittest.TestCase):
         self.assertIn("## Round 1 (PASS, done-when not run)", result)
         self.assertNotIn("done-when passed", result)
 
+    def test_pr_with_once_suite_does_not_contradict_deferred_note(self):
+        target = self.commit(f"---\ntests: {SUITE}  # once\n---\n# acme\n")
+        head = self.commit("# acme\n\nNo front matter here.\n")
+        self.review(target, head)
+        self.assertEqual(self.gates, [[]], self.logs)
+        prompt = self.reviews[-1]
+        self.assertIn(f"runs once at landing on the commit to be merged: {SUITE}", prompt)
+        self.assertNotIn("the repository suite runs after a passing review", prompt)
+
+    def test_retried_pr_review_clears_stale_donewhen_log_before_fail(self):
+        from agentkit import prompts
+        target = self.commit(f"---\ntests: {SUITE}\n---\n# acme\n")
+        head = self.commit(f"---\ntests: {SUITE}\n---\n# acme\n\nChanged.\n")
+        self.git("update-ref", "refs/remotes/origin/main", target)
+        directory = config.RUNS / "pr-review"
+        directory.mkdir()
+        url = "https://github.com/acme/acme/pull/1"
+        info = {"state": "OPEN", "headRefOid": head, "baseRefName": "main",
+                "title": "Mend the fence", "author": "fixture", "body": "Fixture PR"}
+        opts = {"--review": None, "--review-pr": url}
+        with patch.object(run, "pr_view", return_value=info), \
+                patch.object(run, "checkout_for", return_value=self.repo), \
+                patch.object(run, "fetch", return_value=(0, "")), \
+                patch.object(run, "gh_json", return_value=(info, "")):
+            with patch.object(prompts, "record_findings",
+                              side_effect=InterruptedError("cut before verdict")):
+                with self.assertRaises(InterruptedError):
+                    run.review_pr(self.cfg, directory, url, opts, self.logs.append)
+            log_path = directory / "round-1" / "donewhen.log"
+            self.assertTrue(log_path.is_file())
+            failure = "VERDICT: FAIL\n\n## Findings\n- AGENTS.md:5 - fixture defect - needs a fix\n"
+            with patch.object(worker, "call", side_effect=submitting((0, failure, "fixture", False))):
+                state = run.review_pr(self.cfg, directory, url, opts, self.logs.append)
+        self.assertEqual(state["verdict"], "FAIL")
+        self.assertIsNone(state["review"]["done_when"])
+        self.assertFalse(log_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
