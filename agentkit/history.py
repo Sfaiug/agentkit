@@ -693,10 +693,10 @@ def check_passed(run_id, kind, tree):
     """
     if not run_id or not isinstance(kind, str) or not kind or not isinstance(tree, str) or not tree:
         return False
-    run = Path(run_id).name if isinstance(run_id, os.PathLike) else str(run_id)
-    if not run:
-        return False
     try:
+        run = Path(run_id).name if isinstance(run_id, os.PathLike) else str(run_id)
+        if not run:
+            return False
         with _LOCK:
             connection = _connect(readonly=True)
             try:
@@ -707,7 +707,7 @@ def check_passed(run_id, kind, tree):
                     (run, kind, tree)).fetchone()
             finally:
                 connection.close()
-    except (OSError, sqlite3.Error, TypeError, ValueError):
+    except Exception:   # noqa: BLE001 -- unreadable DB (incl. py3.11 symlink-loop RuntimeError)
         return False
     return bool(row and row[0] == 0 and row[1] is not None)
 

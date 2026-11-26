@@ -9,19 +9,19 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox
-from agentkit import gate, history, worker
+from agentkit import gate, history, scoreboard, worker
 
 SHA = "a" * 40
 
 
 class CheckPassed(Sandbox):
-    def insert(self, run_id, kind, tree, exit_code, finished_at=2.0):
+    def insert(self, run_id, kind, tree, exit_code, finished_at=2.0, cmd="python3 suite.py"):
         with contextlib.closing(sqlite3.connect(history.path())) as db:
             db.execute(
                 "INSERT INTO checks (run_id, round, kind, command, tree, place, exit, "
                 "requested_at, started_at, finished_at, rerun) "
-                "VALUES (?, 1, ?, 'python3 suite.py', ?, 'host', ?, 1.0, 1.0, ?, 0)",
-                (run_id, kind, tree, exit_code, finished_at))
+                "VALUES (?, 1, ?, ?, ?, 'host', ?, 1.0, 1.0, ?, 0)",
+                (run_id, kind, cmd, tree, exit_code, finished_at))
             db.commit()
 
     def test_missing_unreadable_none_and_empty_answer_false_without_raising(self):
@@ -33,6 +33,9 @@ class CheckPassed(Sandbox):
             self.assertFalse(history.check_passed(*args), args)
         history.path().unlink()
         history.path().mkdir()
+        self.assertFalse(history.check_passed("r1", "chosen", SHA))
+        history.path().rmdir()
+        history.path().symlink_to(history.path().name)
         self.assertFalse(history.check_passed("r1", "chosen", SHA))
 
     def test_last_row_for_run_kind_tree_decides(self):
@@ -73,11 +76,14 @@ class CheckPassed(Sandbox):
             rows = db.execute("SELECT exit FROM checks WHERE run_id='r1' AND kind='chosen'").fetchall()
         self.assertEqual(rows, [(1,), (1,)])
 
-    def test_test_audit_counts_chosen_reds_in_catches(self):
-        history.start_run("r1", repo="acme")
+    def test_audit_and_board_count_chosen_with_done_when(self):
+        history.start_run("r1", repo="acme", started_at=10.0)
+        history.finish_run("r1", final_state="pass", finished_at=20.0, changed_lines=1)
         history.test_reds((self.root / "r1", 1, "chosen", SHA), {"1/1": ["tests/a.py"]}, [])
-        reds, _, _ = history.test_audit("acme")
-        self.assertEqual(reds["tests/a.py"]["catches"], 1)
+        self.assertEqual(history.test_audit("acme")[0]["tests/a.py"]["catches"], 1)
+        self.insert("r1", "done-when", SHA, 0, cmd="AK_SHARD=1/2 python3 other.py")
+        self.insert("r1", "chosen", SHA, 0, cmd="AK_SHARD=1/1 python3 suite.py")
+        self.assertEqual(scoreboard.compute(now=30.0)["checks"][0]["suites"], 1.0)
 
 
 if __name__ == "__main__":

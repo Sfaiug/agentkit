@@ -198,8 +198,9 @@ def compute(now=None):
         pieces = [row for row in check_rows if row["run_id"] in run_ids]
         if not pieces:
             return None
-        suites = {(row["run_id"], row["round"], row["kind"], row["tree"]) for row in pieces
-                  if row["command"].startswith("AK_SHARD=")}
+        suites = {(row["run_id"], row["round"],
+                   "done-when" if row["kind"] == "chosen" else row["kind"], row["tree"])
+                  for row in pieces if row["command"].startswith("AK_SHARD=")}
         seconds = sum(row["finished_at"] - row["started_at"] for row in pieces
                       if row["finished_at"] is not None and row["started_at"] is not None)
         return {"suites": len(suites) / len(changes), "hours": seconds / 3600 / len(changes)}
