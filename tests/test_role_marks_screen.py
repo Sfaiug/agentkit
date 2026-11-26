@@ -114,20 +114,30 @@ class RoleMarks(Sandbox):
         selected = {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"]}
         second = ("model", config.offered(self.cfg)[1])
         with patch.object(terminal, "utf8", return_value=False), \
-                patch.object(terminal, "layout_width", return_value=40):
+                patch.object(terminal, "layout_width", return_value=60):
             lines, places = menu.config_body(self.cfg, second, 2, selected, rows=())
         self.assertEqual(lines[0].split(), ["orch", "builds", "reviews"])
-        self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
+        self.assertTrue(all(terminal.cells(line) <= 60 for line in lines))
         self.assertTrue(all({0, 1, 2} <= {cell[2] for cell in cells}
                             for _, cells in places.values()))
         self.assertIn("[.]", next(lines[line] for line, (row, _) in places.items()
                                   if row == second))
+        with patch.object(terminal, "utf8", return_value=False), \
+                patch.object(terminal, "layout_width", return_value=40):
+            lines, places = menu.config_body(self.cfg, second, 2, selected, rows=())
+        self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
+        by_row = {}
+        for line, (row, cells) in places.items():
+            by_row.setdefault(row, set()).update(cell[2] for cell in cells)
+        self.assertTrue(all({0, 1, 2} <= cols for cols in by_row.values()))
+        self.assertTrue(any("[.]" in lines[line] for line, (row, _) in places.items()
+                            if row == second))
 
     def test_roles_the_label_cannot_make_fit_fold_under_it_on_every_narrow_width(self):
         selected = {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"]}
         here = ("model", "opus")
         shapes = {}
-        for room in range(16, 41):
+        for room in range(16, 61):
             for chosen in (selected, None):
                 moves = []
                 with patch.object(terminal, "layout_width", return_value=room), \
@@ -149,17 +159,17 @@ class RoleMarks(Sandbox):
                         self.assertIn(key[2], [cell[2] for cell in places[line][1]])
                 mine = [line for line, (row, _) in places.items() if row == here]
                 shapes[room, chosen is None] = [terminal.plain(lines[line], True) for line in mine]
-        folds = [room for room in range(16, 41) if len(shapes[room, False]) > 1]
+        folds = [room for room in range(16, 61) if len(shapes[room, False]) > 1]
         self.assertEqual(folds, list(range(16, folds[-1] + 1)))     # every width under the first
         above = shapes[folds[-1] + 1, False]
-        self.assertEqual(len(above), 1)                 # one column more: the label still gives way
-        self.assertTrue(above[0].split()[1].endswith("…"), above)
+        self.assertEqual(len(above), 1)                 # one column more: every name fits whole
+        self.assertEqual(above[0].split()[1:3], ["Opus", "5.5"])
         last = shapes[folds[-1], False]
         self.assertEqual(last[0].split()[1:], ["Opus", "5.5"])      # folded, the name is whole
         self.assertEqual([part.split()[:2] for part in last[1:]],
                          [["orch", "●"], ["builds", "■"], ["reviews", "□"]])
         self.assertEqual([part[0] for part in last], ["›", " ", " ", " "])    # one row, one mark
-        bare = [room for room in range(16, 41) if len(shapes[room, True]) > 1]      # no marks
+        bare = [room for room in range(16, 61) if len(shapes[room, True]) > 1]      # no marks
         self.assertEqual(bare, list(range(16, bare[-1] + 1)))
         self.assertEqual([part.split()[0] for part in shapes[bare[-1], True][1:]],
                          ["orch", "builds", "reviews"])
@@ -244,23 +254,25 @@ class RoleMarks(Sandbox):
 
 class RoleMarksScreen(unittest.TestCase):
     def test_scrolling_reaches_the_last_model_and_clicks_use_the_scrolled_row(self):
-        screen = Screen(self, rows=12, cols=40)
+        screen = Screen(self, rows=13, cols=40)
         screen.menu()
         screen.models()
         screen.picker()
         screen.send(DOWN * 20)
         lines = screen.picker(lambda lines: "MiMo" in highlighted(lines))
-        self.assertLessEqual(len(lines), 12)
+        self.assertLessEqual(len(lines), 13)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
-        row = lines.index(highlighted(lines)) + 1
-        col = [at for at, char in enumerate(highlighted(lines)) if marks(char)][2] + 1
+        top = lines.index(highlighted(lines))
+        row = top + 4                               # MiMo's folded reviews line (1-based)
+        col = next(at for at, char in enumerate(lines[row - 1]) if marks(char)) + 1
         # `esc back` where the key line draws it: once the mark is clicked the pointer rests on
         # it, and the key line says what that mark is
         back = next((number, line.index("esc back") + 1) for number, line in enumerate(lines, 1)
                     if "esc back" in line)
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
         screen.picker(lambda lines: "MiMo" in highlighted(lines)
-                      and marks(highlighted(lines)) == "○□■")
+                      and "".join(marks(line) for line in lines[lines.index(highlighted(lines)) + 1:][:3])
+                      == "○□■")
         row, col = back
         mark = len(screen.text())
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
@@ -270,24 +282,26 @@ class RoleMarksScreen(unittest.TestCase):
         screen.leave()
 
     def test_config_reviewer_click_saves_self_pair_and_last_one_is_one_line(self):
-        # tall enough for Astra's row over the For line and the lines the longest full name's
-        # line takes
-        screen = ConfigScreen(self, workers=["opus"], cols=40, rows=27)
+        # tall enough for Astra's folded row over the For line on a 40-column phone
+        screen = ConfigScreen(self, workers=["opus"], cols=40, rows=35)
         lines = screen.frame()
-        number, line = row(lines, "astra")
-        first = next(line for line in lines if line.split()[:1] == ["orch"]).index("review") + 1
-        mark = first + len(line[first - 1:]) - len(line[first - 1:].lstrip())   # its review mark
-        lines = screen.click(mark, number,
-                             lambda lines: marks(row(lines, "astra")[1]) == "○□■")
+        number, _ = row(lines, "astra")
+        review = number + 3                         # its folded reviews line (1-based)
+        mark = next(at for at, char in enumerate(lines[review - 1]) if marks(char)) + 1
+        def role_marks(lines, name):
+            at = row(lines, name)[0]
+            return "".join(marks(line) for line in lines[at:at + 3])
+        lines = screen.click(mark, review,
+                             lambda lines: role_marks(lines, "astra") == "○□■")
         self.assertEqual(screen.record()["reviewers"], ["opus", "astra"])
         # Opus reviewing itself could start, so removing Astra saves.
-        lines = screen.click(mark, number,
-                             lambda lines: marks(row(lines, "astra")[1]) == "○□□")
+        lines = screen.click(mark, review,
+                             lambda lines: role_marks(lines, "astra") == "○□□")
         self.assertEqual(screen.record()["reviewers"], ["opus"])
         self.assertFalse(any("no allowed" in line for line in lines))
         before = screen.session.read_bytes()
-        number, line = row(lines, "opus")
-        lines = screen.click(mark, number,
+        number, _ = row(lines, "opus")
+        lines = screen.click(mark, number + 3,
                              lambda lines: any("at least one model reviews" in line for line in lines))
         self.assertEqual([line.strip() for line in lines if "at least one model reviews" in line],
                          ["at least one model reviews"])

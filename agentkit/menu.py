@@ -4386,10 +4386,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on.  `cells` are a model row's (first, last, column), for a
     click, counted from 1 as the terminal counts: its marks and efforts, never its label, which
-    a click acts on nothing of. On a phone the cells give way, then the room a role keeps for
-    words it does not show, then the label, and where one cell of label still leaves the roles
-    too little room each role folds onto a line of its own under the label, its head before it
-    instead of over it.
+    a click acts on nothing of. On a phone the cells give way, and where the labels still leave
+    the roles too little room each role folds onto a line of its own under the label, its head
+    before it instead of over it.
     `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is the For line over the
     headings, and a seat's efforts are its record's (config.at_efforts).
     """
@@ -4407,34 +4406,29 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 effort) + 1 if effort in taken else 0)
     shows = {name: config_columns(selected, name) for name in names}
     label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
-    # each role's words: every one a listed model, marked or not, may say there, and those it says
-    may = {number: [word for name in names for word in (efforts[name, number], *levels[name])]
-           for number in (3, 4, 5)}
-    says = {number: [efforts[name, number] for name in names if number in shows[name]]
-            for number in (3, 4, 5)}
+    # every effort word a listed model offers, marked or not (fallback when no catalog read)
+    may = [word for name in names for word in levels[name]] or list(config.EFFORTS)
 
-    def widths(tall, words):
+    def widths(tall):
         """Each role's mark (` ● `, a space before cells), then its efforts under its head: the
-        cells, then the widest of its `words`."""
+        cells, then the widest effort any listed model offers."""
         mark = (4 if tall else 3) if selected else 0
-        wide = {number: max(terminal.cells(head) - mark, (tall + 2 if tall else 0) + max(
-            map(terminal.cells, words[number]), default=0))
-            for number, head in enumerate(orch.ROLE_HEADS, 3)}
+        word = max(map(terminal.cells, may), default=0)
+        wide = {number: max(terminal.cells(head) - mark, (tall + 2 if tall else 0) + word)
+                for number, head in enumerate(orch.ROLE_HEADS, 3)}
         return {**{number - 3: mark for number in wide if mark}, **wide}
-    bars = max(map(len, levelled.values()))                 # the cells, before every word
-    # A role keeps room for every word it may say, so neither a mark nor a step moves a column
-    # (the owner, 26 Nov 2026), wherever every name is whole beside it.  The bars give way, then
-    # that room: a column goes before a word is cut (docs/cli-design.md), and kept on 40 cells
-    # it leaves the shipped models' names two.
-    for tall, words in ((bars, may), (0, may), (0, says)):
-        width = widths(tall, words)
-        if 2 + label + 6 + sum(width.values()) <= room:
-            break
+    tall = max(map(len, levelled.values()), default=0)       # the cells, before every word
+    width = widths(tall)
+    # A role keeps room for every level a listed model offers, so neither a mark nor a step moves
+    # a column (the owner, 26 Nov 2026).  On a narrow terminal the bars give way, then the roles
+    # fold under each whole model name (docs/cli-design.md).
+    if 2 + label + 6 + sum(width.values()) > room:
+        tall, width = 0, widths(0)
     # a barred model's word after the most cells any model has; one with no cells beside its mark
     leads = {key: "".join(cells) + " " * (tall + 2 - len(cells)) if tall and cells else ""
              for key, cells in levelled.items()}
     roles = 6 + sum(width.values())
-    folded = 2 + 1 + roles > room
+    folded = 2 + label + roles > room
     label = min(label, max(1, room - 2 - (0 if folded else roles)))
     left = 2 + label                                        # the columns before the marks
     lines = [] if folded else [terminal.styled((" " * left + "".join(
@@ -4465,15 +4459,21 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 if number not in shows[name]:      # an open mark has no effort beside it
                     line, first = line + " " * width[number], first + width[number]
                     continue
-                text = texts[number] if number < 3 else efforts[name, number]
+                text = texts[number] if number < 3 else str(efforts[name, number])
                 keyed = at == ("model", name) and number == column
                 kind = ("dim" if note or text in (marks[1], marks[3])
                         else "accent" if number < 3 else None)
+                lead = leads[name, number] if number >= 3 else ""
                 if number >= 3:   # an effort is its cells and then its word, the keys' lit whole
-                    lead = leads[name, number]
-                    lead = terminal.styled(terminal.plain(lead, True), kind) if (
+                    # a retired effort wider than the model's catalog fits its column without moving it
+                    if lead and terminal.cells(lead) + terminal.cells(text) > width[number]:
+                        gap_len = max(1, width[number] - len(levelled[name, number])
+                                      - terminal.cells(text))
+                        lead = "".join(levelled[name, number]) + " " * gap_len
+                    word = terminal.cut(text, max(1, width[number] - terminal.cells(lead)))
+                    drawn_lead = terminal.styled(terminal.plain(lead, True), kind) if (
                         kind == "dim" and lead) else lead
-                    text = lead + (terminal.styled(text, kind) if kind else text)
+                    text = drawn_lead + (terminal.styled(word, kind) if kind else word)
                     text = terminal.selected(text, 1, terminal.cells(text)) if keyed else text
                 line += (terminal.toggle(text, width[number], kind, keyed) if number < 3 else
                          text + " " * (width[number] - terminal.cells(text)))
@@ -4489,8 +4489,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                                   efforts[name, number],
                                   _effort_moves(levels[name], efforts[name, number], kind,
                                                 at == ("model", name),
-                                                first + terminal.cells(leads[name, number]),
-                                                first if leads[name, number] and not note
+                                                first + terminal.cells(lead),
+                                                first if lead and not note
                                                 else None)))
                 first += width[number]
             for number, (part, cells) in enumerate([*parts, (line, cells)]):

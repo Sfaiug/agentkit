@@ -561,12 +561,14 @@ class Matrix(unittest.TestCase):
         self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # on the first page
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews"])
+        top = lines.index(highlighted(lines))
+        self.assertEqual([line.split()[0] for line in lines[top + 1:top + 4]],
+                         ["orch", "builds", "reviews"])
         # what a key could not do has lines of its own, however little room the rows leave
         lines = screen.press(DOWN + RIGHT * 4 + SPACE,
                              lambda lines: "at least one model reviews" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
-        self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
+        self.assertEqual(highlighted(lines), "› Opus 5.5")         # whole, folded on a phone
         lines = screen.press(DOWN * 14,
                              lambda lines: highlighted(lines).startswith("› Limits"))
         self.assertLessEqual(len(lines), 23)
