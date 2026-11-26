@@ -215,11 +215,13 @@ class InstallQuestion(unittest.TestCase):
         self.assertEqual(len(self.calls()), 12)
 
     def test_unknown_answer_installs_nothing(self):
+        # A space inside a name makes it no name; only the ones around it are trimmed.
         self.all_adapters()
-        proc = self.run_harnesses(tty=1, answer="vim\n")
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(self.calls(), [])
-        self.assertIn("'vim' is not one of", proc.stderr)
+        for answer in ("vim", "Chat GPT"):
+            proc = self.run_harnesses(tty=1, answer=f"{answer}\n")
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual(self.calls(), [])
+            self.assertIn(f"'{answer.lower()}' is not one of", proc.stderr)
 
     def test_installed_harness_skips_the_question(self):
         # The question is for a machine with none of the harnesses; with one on PATH

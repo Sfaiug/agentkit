@@ -356,11 +356,12 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   chosen=${installed:-$offered}
   if [ "$TTY" = 1 ] && [ -z "$installed" ] && [ -n "$offered" ]; then
     read -r -p "Which subscription do you have ($names, or all)? [all] " answer || answer=""
-    answer=$(printf '%s' "$answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    # `read` trims the answer, and case folds as ASCII: a Turkish locale folds I to no i
+    answer=$(printf '%s' "$answer" | LC_ALL=C tr '[:upper:]' '[:lower:]')
     case "$answer" in
       ""|all) ;;
       *) chosen=""
-         for each in $(printf '%s' "$offered" | tr '[:upper:]' '[:lower:]'); do
+         for each in $(printf '%s' "$offered" | LC_ALL=C tr '[:upper:]' '[:lower:]'); do
            IFS=: read -r name bin _ <<<"$each"
            case "$answer" in "$name"|"$bin") chosen=$each ;; esac
          done
