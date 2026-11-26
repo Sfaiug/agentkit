@@ -1241,8 +1241,10 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
     The refusal shows on a meter gating `model`, and the mark records the meters it can have
     come from (`exhausted_meters`): that one, or with none showing it, every meter gating
     `model`.  It parks only the models those all gate (`_parks`), so a refusal of Fable's own
-    cap leaves Opus to its meters.  A mark made without a model records none, and parks every
-    model.
+    cap leaves Opus to its meters.  A mark made without a model records None, and parks every
+    model.  So does the empty list of a model none of whose meters the reading holds, but that
+    is one model's refusal, and which the list does not say: a turn answered since ends the
+    first alone (`answered`).
     """
     now = time.time()
     try:
@@ -1283,7 +1285,7 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
                                           "exhausted_used": levels, "exhausted_by": by,
-                                          "exhausted_meters": named if model else []})
+                                          "exhausted_meters": named if model else None})
     return float(until)
 
 
@@ -1291,8 +1293,8 @@ def answered(cfg, provider, account, model, at):
     """A turn of `model`, begun at `at`, was answered on `account`, that login of `provider`:
     each refusal parked there that no meter showed, made before `at`, whose every meter it can
     have come from (`exhausted_meters`) gates `model` in that login's reading, was wrong, and
-    goes: one made without a model, which names none and parks every model, among them.
-    Returns whether one went.
+    goes; one made without a model, which records None there, goes as one naming this model's
+    meters does.  Returns whether one went.
 
     Nothing else ends such a mark before its time, right or wrong.  On 19 Nov 2026 a login 25%
     used was parked for another login's refusal, and through that hour twenty seats waited for
@@ -1301,15 +1303,19 @@ def answered(cfg, provider, account, model, at):
     a turn on it, the owner said "Yes, build it"; on 21 Nov, "Keep trying".
 
     One change under `_write`, as `mark_exhausted`'s is: config.toml is read there, and a
-    refusal written meanwhile is seen.  A mark made without a model parks this one too, so the
-    answer shows it as wrong as one naming this model's meters: asked on 26 Nov 2026 whether to
-    leave such a mark alone, as no caller makes one today, the owner said "Build it".  One whose
-    `exhausted_meters` is no list, or names a meter the reading no longer holds, names whose it
-    was nowhere (`_parks`), so it stays, as does one a meter showed (`_fresh_window` ends it).  What the change raises -- a model
-    config.toml no longer has, a config.toml that cannot be read, a reading of another shape --
-    is the caller's, and the file is then as it was: the caller's copy of the config standing
-    in (`_on_disk`), or a reading of another shape read as an empty one, would unpark on what
-    nobody can say gates `model`.  So the reading is read as stored, absent the only empty one.
+    refusal written meanwhile is seen.  A mark made without a model is of no model in
+    particular: it says the login refuses whatever is asked of it, so the answer shows it as
+    wrong as one naming this model's meters: asked on 26 Nov 2026 whether to leave such a mark
+    alone, as no caller makes one today, the owner said "Build it".  One naming no meter
+    otherwise -- its list empty, as of a model none of whose meters the reading then held, or
+    not there, as before marks named any -- or a meter the reading no longer holds names whose
+    it was nowhere (`_parks`): it can be another model's refusal, of which this answer says
+    nothing, so it stays, as does one a meter showed (`_fresh_window` ends it).  What the
+    change raises -- a model config.toml no longer has, a config.toml that cannot be read, a
+    reading of another shape -- is the caller's, and the file is then as it was: the caller's
+    copy of the config standing in (`_on_disk`), or a reading of another shape read as an
+    empty one, would unpark on what nobody can say gates `model`.  So the reading is read as
+    stored, absent the only empty one.
     """
     def change(providers, _):
         here = _config_now(cfg)
@@ -1320,9 +1326,11 @@ def answered(cfg, provider, account, model, at):
         gating = [_identity(m) for m in _gating_meters(here, model, reading)[0]]
 
         def wrong(mark):
-            made, named = _number(mark.get("exhausted_at")), mark.get("exhausted_meters")
+            # a mark holding no `exhausted_meters` reads as the empty list: neither says whose
+            made, named = _number(mark.get("exhausted_at")), mark.get("exhausted_meters", [])
             return (mark.get("exhausted_by") is None and made is not None and made < at
-                    and isinstance(named, list) and all(r in gating for r in named))
+                    and (named is None or isinstance(named, list) and named
+                         and all(r in gating for r in named)))
 
         marks = _marks(record)
         kept = [mark for mark in marks if not wrong(mark)]

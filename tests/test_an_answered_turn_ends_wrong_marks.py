@@ -1,5 +1,6 @@
 """A turn answered on a login ends the refusals parked there that no meter showed, made before
-the turn began, whose every meter gates the turn's model; every other mark stays.
+the turn began, that name meters all gating the turn's model or were made without a model;
+every other mark stays.
 
 Fake meters in a temporary HOME: nothing here reaches a real usage endpoint or a real
 credential.  Provider names are invented.
@@ -129,11 +130,19 @@ class AnsweredTurnEndsWrongMarks(unittest.TestCase):
 
     def test_a_refusal_made_without_a_model_goes(self):
         self.refuse("second", None, NOW)
-        self.assertEqual(self.login("second")["exhausted_meters"], [])
+        self.assertIsNone(self.login("second")["exhausted_meters"])
         self.assertTrue(usage.answered(self.cfg, "acme", "second", "one", self.now + 10))
         self.assertEqual(self.made(self.login("second")), [])
 
-    def test_a_refusal_whose_meters_are_no_list_stays(self):
+    def test_a_refusal_of_a_model_none_of_whose_meters_is_read_stays(self):
+        # the login reads model one's own cap alone: two's refusal names no meter, and is two's
+        self.meters["acme", "second"] = [{**m, "scope": "one"} for m in self.week("weekly_one")]
+        self.refuse("second", "two", NOW)
+        self.assertEqual(self.login("second")["exhausted_meters"], [])
+        self.assert_stays()
+        self.assertTrue(usage.model_exhausted(self.cfg, "two", {"acme": self.login("second")})[0])
+
+    def test_a_refusal_made_before_marks_named_meters_stays(self):
         self.refuse("second", "one", NOW)
         cache = config.STATE / "usage.json"
         held = json.loads(cache.read_text())
