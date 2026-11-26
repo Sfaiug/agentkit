@@ -654,10 +654,6 @@ def resume_after_boot(cfg, dry_run=False, log=print):
     like any closed seat. A seat that died owing and came back on its own conversation is marked
     for `continue_turns`: otherwise it sits silent at its prompt, its turn, question or work lost.
     """
-    if config.server_alias():
-        # A client's seats, and the boot that cut them off, are its home's: asked first, before
-        # the boot id is read, so the copy a standby takes over from keeps the home's claim.
-        return
     from . import menu as menu_mod    # here, not at the top: the menu imports this module
     boot = boot_id()
     if not boot:

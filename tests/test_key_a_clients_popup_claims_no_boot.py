@@ -1,6 +1,7 @@
 """A client's popup claims no boot: on a machine whose server record (`state/server`) names a
 home, `ak --overlay` with a seat that owes work and a watch.json holding another boot's id exits
-0, opens no session, and leaves that file's `boot_id` and `boot_resume` as they were.
+1 naming that home, opens no session, and leaves that file's `boot_id` and `boot_resume` as they
+were.
 
 A standby's ~/.agentkit is a copy of its home's, the home's boot id and seat records among them,
 so to the boot resume every seat there looks cut off by a reboot: on 22 Nov 2026 a standby's menu
@@ -29,7 +30,8 @@ class AClientsPopup(unittest.TestCase):
             watch = home.write(".agentkit/state/watch.json", {"boot_id": "the home's"})
             home.write(".agentkit/state/server", "acme-box\n")
             done = home.ak("--overlay", input="", env={"AK_NOW": "100 100 this-boot"})
-            self.assertEqual(done.code, 0, done.out + done.err)
+            self.assertEqual(done.code, 1, done.out + done.err)
+            self.assertIn("acme-box", done.out)
             self.assertEqual(home.tmux("list-sessions", "-F", "#{session_name}").out.split(), [])
             kept = json.loads(watch.read_text())
             self.assertEqual((kept.get("boot_id"), kept.get("boot_resume")), ("the home's", None))
