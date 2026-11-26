@@ -12,7 +12,7 @@ combination of models, and I would like to see why, in numbers".
 from fractions import Fraction
 import math
 
-from . import config, menu, terminal
+from . import config, menu, terminal, usage
 from .ledger import HOURS, ROLES, recorded
 
 FEW = 20        # a row of fewer tasks says only how many: a few tasks say nothing yet
@@ -21,25 +21,32 @@ WORDS = {"orchestrator": "ORCHESTRATOR", "executor": "BUILDER", "reviewer": "REV
 
 def share(part, whole):
     """A row's `part` of its `whole` as a whole percent, `-` where it counts none."""
-    return lambda row: f"{round(100 * row[part] / row[whole])}%" if row[whole] else "-"
+    return lambda row, _: f"{round(100 * row[part] / row[whole])}%" if row[whole] else "-"
 
 
 def per_task(part):
     """A row's `part` per task, to a tenth."""
-    return lambda row: f"{row[part] / row['tasks']:.1f}"
+    return lambda row, _: f"{row[part] / row['tasks']:.1f}"
 
 
-# Each role's table: each column its heading and its text of a row of FEW tasks or more, "" where
-# it says nothing; each role serves its own purpose (the owner, 24 Nov 2026: "for exec how fast
-# and it goes through without any extra findings and rounds, and for reviwer the more issues it
-# finds the better, I guess also issues which we act on").
-LEAD = {"tasks": lambda row: str(row["tasks"]), "went live": share("live", "tasks")}
-LAST = {"per task live": lambda row: per_live(row) if row["live"] else ""}
-COLUMNS = {"orchestrator": {**LEAD, **LAST},
+def last(role):
+    """The columns every table ends in, none said of a row none of whose tasks went live: the
+    hours per task live, then what its model took of its plans in `role` (`took`)."""
+    return {"per task live": lambda row, _: per_live(row) if row["live"] else "",
+            "usage per task live": lambda row, paid: took(row, role, paid) if row["live"] else ""}
+
+
+# Each role's table: each column its heading and its text of a row of FEW tasks or more at what
+# its plans cost (`money.month`'s), "" where it says nothing; each role serves its own purpose
+# (the owner, 24 Nov 2026: "for exec how fast and it goes through without any extra findings and
+# rounds, and for reviwer the more issues it finds the better, I guess also issues which we act
+# on").
+LEAD = {"tasks": lambda row, _: str(row["tasks"]), "went live": share("live", "tasks")}
+COLUMNS = {"orchestrator": {**LEAD, **last("orchestrator")},
            "executor": {**LEAD, "passed 1st review": share("first_pass", "tasks"),
-                        "reviews per task": per_task("reviews"), **LAST},
+                        "reviews per task": per_task("reviews"), **last("executor")},
            "reviewer": {**LEAD, "issues per task": per_task("issues"),
-                        "false alarms": share("taken_back", "issues"), **LAST}}
+                        "false alarms": share("taken_back", "issues"), **last("reviewer")}}
 
 
 def by_role(teams, now):
@@ -91,14 +98,15 @@ def by_role(teams, now):
     return own
 
 
-def lines(own, cfg, room):
-    """`own` (`by_role`) as `ak models` draws it on `room` cells: a line on the team now, then a
-    table a role of its rows in `own`'s order under its role's COLUMNS, each in use marked as
-    docs/cli-design.md marks one (menu.config_audit's `●` for the one orchestrator, `■` for any
-    of several), named as every screen names it (`named`).  The name and LEAD's columns are sized
-    once for the three tables, to stand under each other, each other column for its own; where a
-    table passes the edge every row folds, no column headed: its model's line, then its numbers
-    indented, each after its column's name, wrapped between two of them."""
+def lines(own, cfg, room, paid):
+    """`own` (`by_role`) as `ak models` draws it on `room` cells, its plans costing what `paid`
+    (`money.month`'s) says: a line on the team now, then a table a role of its rows in `own`'s
+    order under its role's COLUMNS, each in use marked as docs/cli-design.md marks one
+    (menu.config_audit's `●` for the one orchestrator, `■` for any of several), named as every
+    screen names it (`named`).  The name and LEAD's columns are sized once for the three tables,
+    to stand under each other, each other column for its own; where a table passes the edge every
+    row folds, no column headed: its model's line, then its numbers indented, each after its
+    column's name, wrapped between two of them."""
     team, tasks = own["team"], own["team"]["tasks"]
     said = [f"{team['live']} of {tasks} tasks went live", *(
         [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting"]
@@ -109,7 +117,7 @@ def lines(own, cfg, room):
     marks = ("●○", "■□") if terminal.utf8() else ("*.", "#-")
     tables = {role: [((marks[role != "orchestrator"][0], "accent") if row["in_use"] else
                       (marks[role != "orchestrator"][1], "dim"), named(cfg, row),
-                      numbers(row, COLUMNS[role])) for row in own[role]] for role in ROLES}
+                      numbers(row, COLUMNS[role], paid)) for row in own[role]] for role in ROLES}
     # each table's widths, its names' first; the names' and LEAD's then the widest of the three
     widths = {role: [max(map(terminal.cells, column)) for column in zip(
         (WORDS[role], *COLUMNS[role]), *((f"{mark} {model}", *texts)
@@ -142,11 +150,40 @@ def per_live(counts, parts=HOURS):
     return f"{math.fsum(counts['hours'][part] for part in parts) / counts['live']:.1f} h"
 
 
-def numbers(row, columns):
-    """A row's texts under `columns`, a table of COLUMNS: below FEW tasks, its tasks alone."""
+def took(row, role, paid):
+    """`$0.25 · 0.6% of a week`: what a row's model took of its plans in `role` per task that went
+    live, each plan's points (100 one login's week on it) at its price a month in `paid`
+    (`money.month`'s), a week 12/52 of a month, then the points summed; the share alone where a
+    plan has no price, `-` where it took no points: each from its exact value (`fixed`), the
+    points' Fractions and the price as written."""
+    priced = [(points, paid["month"].get(provider, {}).get(plan))
+              for provider, plans in row["usage"][role]["points"].items()
+              for plan, points in plans.items()]
+    if not priced:
+        return "-"
+    share = sum(points for points, _ in priced) / row["live"]
+    said = f"{fixed(share, 1)}% of a week"
+    if any(price is None for _, price in priced):
+        return said
+    cost = (sum(points * Fraction(str(price)) for points, price in priced)
+            / row["live"] / 100 * 12 / 52)
+    return f"{usage.SIGNS[paid['currency']]}{fixed(cost, 2)} · {said}"
+
+
+def fixed(value, places):
+    """Exact `value`, never below zero, rounded once to `places` decimals as its digits: no float
+    between, as a float's binary value can lie across a decimal boundary (0.35 below it), or a
+    large one's neighbours farther apart than a cent."""
+    whole, part = divmod(round(value * 10 ** places), 10 ** places)
+    return f"{whole}.{part:0{places}d}"
+
+
+def numbers(row, columns, paid):
+    """A row's texts under `columns`, a table of COLUMNS, at `paid`: below FEW tasks, its tasks
+    alone."""
     if row["tasks"] < FEW:
         return (str(row["tasks"]), *[""] * (len(columns) - 1))
-    return tuple(text(row) for text in columns.values())
+    return tuple(text(row, paid) for text in columns.values())
 
 
 def named(cfg, row):
