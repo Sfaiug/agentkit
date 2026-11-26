@@ -233,6 +233,35 @@ class EffortCells(unittest.TestCase):
         self.assertEqual(PLACE.findall(frame), [("5", "20")])     # its two cells written as one
         self.assertEqual(terminal.ANSI.sub("", frame), "最高")
 
+    def test_unseen_retired_or_non_text_efforts_count_for_nothing_and_shown_retired_is_whole(self):
+        cfg = {
+            "defaults": {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["opus"]},
+            "providers": {"anthropic": {"mode": "subscription"}},
+            "models": {
+                "opus": {"harness": "claude", "model": "claude-opus-5-5", "effort": "low",
+                         "provider": "anthropic"},
+                "haiku": {"harness": "claude", "model": "claude-haiku-4-5", "effort": "none",
+                          "provider": "anthropic"},
+            },
+        }
+        taken = {"claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"],
+                 "claude-haiku-4-5": ["none"]}
+        clean = {"orchestrator": "haiku", "workers": [], "reviewers": []}
+        unseen = {**clean, "efforts": {"opus": {"exec_effort": "very_retired_word",
+                                                "review_effort": None}}}
+        shown = {"orchestrator": "haiku", "workers": ["opus"], "reviewers": [],
+                 "efforts": {"opus": {"exec_effort": "very_retired_word"}}}
+        with patch.object(menu, "effort_levels", side_effect=lambda entry, _c: taken[entry["model"]]), \
+                patch.object(terminal, "utf8", return_value=True):
+            for room in (100, 50, 40):
+                with patch.object(terminal, "layout_width", return_value=room):
+                    a, _ = menu.config_body(cfg, selected=clean, rows=())
+                    b, _ = menu.config_body(cfg, selected=unseen, rows=())
+                    c, _ = menu.config_body(cfg, selected=shown, rows=())
+                self.assertEqual(a, b)      # unseen retired word & non-text effort leave layout put
+                drawn_c = "\n".join(terminal.ANSI.sub("", line) for line in c)
+                self.assertIn("very_retired_word", drawn_c)  # shown retired word is drawn whole
+
 
 if __name__ == "__main__":
     unittest.main()
