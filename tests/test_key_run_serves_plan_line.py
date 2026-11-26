@@ -2,7 +2,7 @@
 
 Black-box: AK_BIN launches tasks from an akseat seat. Host readings hold them at
 admission so both run.json and history.db must already name the line. A check
-replacement keeps that link; a task running no open line's check names none.
+replacement keeps that link; a seat's task must match a line that is still open.
 """
 
 from contextlib import closing
@@ -80,15 +80,14 @@ class RunServesPlanLine(unittest.TestCase):
         _, linked = self.launch("test -f web.txt", "test -f api.txt")
         self.assertEqual(linked, self.line(1))
 
-    def test_an_unmatched_task_with_two_open_lines_launches_without_a_link(self):
-        _, linked = self.launch("test -f notes.txt")
-        self.assertIsNone(linked)
-
-    def test_an_unmatched_task_names_no_line_though_one_line_is_open(self):
+    def test_a_task_matching_only_a_completed_line_is_refused(self):
         self.rig.commit({"api.txt": "api\n"}, "ship api")
         self.assertIn("- [x] acme api", self.ak("plan"))
-        _, linked = self.launch("test -f notes.txt")
-        self.assertIsNone(linked)
+        task = taskfile.write(self.home, self.rig.path, done_when=("test -f api.txt",))
+        done = self.home.ak("run", str(task), env={"AGENTKIT_SESSION": SEAT})
+        self.assertEqual(done.code, 2, done.out + done.err)
+        self.assertIn("ak plan add", done.err)
+        self.assertEqual(taskfile.runs(self.home), [])
 
     def test_a_launch_outside_a_seat_names_no_line(self):
         _, linked = self.launch("test -f web.txt", seat=None)

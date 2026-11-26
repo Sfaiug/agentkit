@@ -64,7 +64,9 @@ class EndingWaitsForNoVerification(unittest.TestCase):
         self.home.write(".agentkit/state/plan-acme.md", "".join(
             f"- [ ] {what} · check: `{check}` · ~/code/app#{root} · written 2026-11-06 09:00\n"
             for what, check in (("a slow check passes", f"sh {shlex.quote(str(block))}"),
-                                ("both files are in", BOTH))))
+                                ("both files are in", BOTH),
+                                ("first file is in", "test -f first.txt"),
+                                ("second file is in", "test -f second.txt"))))
 
     def until(self, ready, why, bound=120):
         deadline = time.monotonic() + bound

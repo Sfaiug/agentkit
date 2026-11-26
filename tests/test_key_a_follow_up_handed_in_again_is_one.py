@@ -50,7 +50,8 @@ class AFollowUpHandedInAgainIsOne(unittest.TestCase):
                                               "caller.txt": "uses retry.txt\nretries twice\n"})
         GitHub(cls.home).grant(rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
-        Seat(cls.home, "acme", cwd=rig.path, record={"reviewers": ["astra"]}, planned=True)
+        Seat(cls.home, "acme", cwd=rig.path, record={"reviewers": ["astra"]},
+             planned=("test -f feature.txt",))
         cls.release = cls.home.root / "adapters" / "release"
         # The fix run's turn waits for the test, so what the merge started is still there to read.
         fakeadapter.install(cls.home, claude=[WORK, FIX, held(cls.release, fakeadapter.PASS)],

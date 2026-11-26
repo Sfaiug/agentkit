@@ -51,7 +51,8 @@ class AFollowUpJoinsAnOpenFixOnlyAtItsSite(unittest.TestCase):
         rig = Rig(cls.home, "widgets", files={"alpha*/api.py": "old\n", "*alpha*/api.py": "old\n"})
         GitHub(cls.home).grant(rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
-        Seat(cls.home, "acme", cwd=rig.path, record={"reviewers": ["astra"]}, planned=True)
+        Seat(cls.home, "acme", cwd=rig.path, record={"reviewers": ["astra"]},
+             planned=("test -f a.txt", "test -f b.txt"))
         cls.release = cls.home.root / "adapters" / "release"
         # Every fix run's turn waits for the test, so the first run's is open for the second.
         hold = held(cls.release, fakeadapter.PASS)
