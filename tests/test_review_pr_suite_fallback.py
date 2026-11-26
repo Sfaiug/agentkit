@@ -129,6 +129,7 @@ class ReviewPrSuiteFallback(unittest.TestCase):
         target = self.commit(f"---\ntests: {suite}\n---\n# acme\n")
         head = self.commit("# acme\n\nChanged.\n")
         with patch.object(run, "pr_writer", return_value=(True, "opus", None)), \
+                patch.object(run, "origin_default", return_value="main"), \
                 patch.object(run, "own_pr_budget", return_value=(1, None)), \
                 patch.object(run, "plan_context", return_value=""), \
                 patch.object(run, "unanswered_head", return_value=None), \
