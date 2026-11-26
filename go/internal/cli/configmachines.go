@@ -1,15 +1,12 @@
 package cli
 
 import (
-	"cmp"
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
 
 	"agentkit/internal/config"
-	"agentkit/internal/googlecloud"
 	"agentkit/internal/machines"
 	"agentkit/internal/menu"
 	"agentkit/internal/seat"
@@ -17,8 +14,7 @@ import (
 )
 
 // menuMachines is `Machines` on `c` (menu.config_machines), from the tick's records alone: a row
-// for every machine ak may use, this one first, Enter opening its work but on this one's; then
-// the cloud's, Space switching it on or off, saved at once, and Enter opening its work.  Last,
+// for every machine ak may use, this one first, Enter opening its work but on this one's.  Last,
 // `+ add a machine` takes an ssh address, with the line that makes a new machine ready under its
 // field, and adds the machine once it answers, else says why not (machines.Ask, machines.Add);
 // Esc while it is asked goes back, nothing written.
@@ -53,6 +49,9 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			return append(lines, s.Unbroken("    "+line)...)
 		}}
 	return configPage("machines", "", func() ([]menu.PageRow, bool) {
+		if config.Check() != nil { // a file that will not load closes the page, saying why on `c`
+			return nil, false
+		}
 		var rows []menu.PageRow
 		for _, machine := range machines.Known() {
 			work, known := workWords(machine)
@@ -65,23 +64,15 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			}
 			rows = append(rows, row)
 		}
-		active, _ := config.CloudBudget()
-		work, known := workWords(machines.Cloud)
-		return append(rows, menu.PageRow{Label: "Google Cloud", Value: googlecloud.Summary(true) + " · " + work, On: active,
-			Flip: func() string { return saved(machines.Cloud.Save("active", !active, seat.KeepConfigEfforts)) },
-			Open: func() bool { return menuMachineWork(machines.Cloud.Name, keyboard, painter) }}, add), known
+		return append(rows, add), true
 	}, keyboard, painter)
 }
 
 // menuMachineWork is `config · machines · <name>`: a mark for each work a machine may take,
-// Space flipping it, saved at once, but builds and reviews on a Mac.  A machine ak rents takes
-// the cloud's marks, whose page has its monthly cap too, a field (saveCap).  Each draw and each
-// flip reads the machine afresh, as a probe may land while the page is open.
+// Space flipping it, saved at once, but builds and reviews on a Mac.  Each draw and each flip reads
+// the machine afresh, as a probe may land while the page is open.
 func menuMachineWork(name string, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
-	if machines.Named(name).Rented() {
-		name = ""
-	}
-	return configPage("machines · "+cmp.Or(name, "Google Cloud"), "", func() ([]menu.PageRow, bool) {
+	return configPage("machines · "+name, "", func() ([]menu.PageRow, bool) {
 		work, known := machines.Named(name).Work()
 		if !known {
 			return nil, false
@@ -93,11 +84,6 @@ func menuMachineWork(name string, keyboard *terminal.Keyboard, painter *terminal
 				value = "on"
 			}
 			rows = append(rows, menu.PageRow{Label: mark[1], Value: value, On: on, Flip: func() string { return flipWork(name, mark[0]) }})
-		}
-		if name == "" {
-			_, cap := config.CloudBudget()
-			rows = append(rows, menu.PageRow{Label: "Monthly cap", Value: fmt.Sprintf("€%.6g", cap),
-				Field: saveCap, Placeholder: "whole euros per month, 0 or more"})
 		}
 		return rows, true
 	}, keyboard, painter)
@@ -114,7 +100,7 @@ func flipWork(name, word string) string {
 	if !slices.Equal(machine.Takes(flipped), flipped) {
 		return "this machine cannot build or review"
 	}
-	return saved(machine.Save("work", flipped, seat.KeepConfigEfforts))
+	return saved(machine.Save(flipped, seat.KeepConfigEfforts))
 }
 
 // workWords is the work a machine's marks allow as the page names it (menu.work_words).

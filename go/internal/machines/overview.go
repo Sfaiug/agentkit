@@ -4,20 +4,17 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"time"
 
 	"agentkit/internal/run"
 )
 
 // Overview is m as `c`'s Machines page says it, off the reading String says (menu.machine_value):
-// home, rented until its end, or its kind; its size; then how busy it is and the memory used, or
+// home or its kind; its size; then how busy it is and the memory used, or
 // since when it has not answered, or that it never has.
 func (m Machine) Overview() string {
 	kind := kindOf(m.checks, m.said)
 	if m.Name == Here {
 		kind = "home"
-	} else if m.until != 0 {
-		kind = "rented until " + time.Unix(m.until, 0).Format("15:04")
 	}
 	words := []string{kind}
 	number := func(key string) float64 {

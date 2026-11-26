@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// A machine takes suites unless its own marks leave tests out, and none does while any table's
-// marks are some Python refuses.
+// A machine takes suites unless its own marks leave tests out, and none does while any machine's
+// marks are some Python refuses; a `[google_cloud]` table, read by nothing, refuses nothing.
 func TestAMachineTakesSuitesAsPythonReadsItsMarks(t *testing.T) {
 	for _, each := range []struct {
 		toml string
@@ -19,7 +19,7 @@ func TestAMachineTakesSuitesAsPythonReadsItsMarks(t *testing.T) {
 		{"[machines.acme]\nwork = ['turns', 'tests']\n", true},
 		{"[machines.acme]\nwork = ['turns']\n", false},
 		{"[machines.acme]\n[machines.beta]\nwork = ['builds']\n", false},
-		{"[machines.acme]\n[google_cloud]\nwork = 'tests'\n", false},
+		{"[machines.acme]\n[google_cloud]\nwork = 'tests'\n", true},
 		{"[machines.acme]\nmax_runs = 2\n", true},
 		{"[machines.acme]\nmax_runs = 9223372036854775808\n", true},
 		{"[machines.acme]\nmax_runs = 0\n", false},

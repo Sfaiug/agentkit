@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestConfigServicesShowSavedStatusWithoutRevealingSecrets(t *testing.T) {
+func TestDiscordValueShowsSavedStatusWithoutRevealingSecrets(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -20,24 +20,20 @@ func TestConfigServicesShowSavedStatusWithoutRevealingSecrets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	discord, cloud := ConfigServices()
-	if discord != "not connected" || cloud != "off" {
-		t.Fatalf("unconfigured: %q, %q", discord, cloud)
+	if discord := DiscordValue(); discord != "not connected" {
+		t.Fatalf("unconfigured: %q", discord)
 	}
 	write("secrets/discord_webhook", "https://example.com/acme-secret\n")
 	write("secrets/discord_user_id", "12345678\n")
-	discord, _ = ConfigServices()
-	if discord != "id …5678 · webhook …secret" {
+	if discord := DiscordValue(); discord != "id …5678 · webhook …secret" {
 		t.Fatal(discord)
 	}
 	write("state/discord-user.json", `{"id":"12345678","name":"acme-owner"}`)
-	discord, _ = ConfigServices()
-	if discord != "@acme-owner · webhook …secret" {
+	if discord := DiscordValue(); discord != "@acme-owner · webhook …secret" {
 		t.Fatal(discord)
 	}
 	write("secrets/discord_user_id", "87654321\n")
-	discord, _ = ConfigServices()
-	if discord != "id …4321 · webhook …secret" {
+	if discord := DiscordValue(); discord != "id …4321 · webhook …secret" {
 		t.Fatal(discord)
 	}
 }

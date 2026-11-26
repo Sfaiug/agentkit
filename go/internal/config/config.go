@@ -273,14 +273,12 @@ func load() (*table, error) {
 // never reads, as Python's config._work_in does: a mistyped word would otherwise send no work
 // there without a word.
 func workIn(root *table) error {
-	labels, tables := []string{"google_cloud"}, []any{root.values["google_cloud"]}
-	if named, ok := root.values["machines"].(*table); ok {
-		for _, name := range named.keys {
-			labels, tables = append(labels, "machines."+name), append(tables, named.values[name])
-		}
+	named, ok := root.values["machines"].(*table)
+	if !ok {
+		return nil
 	}
-	for i, value := range tables {
-		marks, ok := value.(*table)
+	for _, name := range named.keys {
+		marks, ok := named.values[name].(*table)
 		if !ok {
 			continue
 		}
@@ -290,13 +288,11 @@ func workIn(root *table) error {
 				known = known && (word == "turns" || word == "tests")
 			}
 			if !known {
-				return fmt.Errorf("[%s].work must list only turns and tests (got %s)", labels[i], valueRepr(work))
+				return fmt.Errorf("[machines.%s].work must list only turns and tests (got %s)", name, valueRepr(work))
 			}
 		}
-		if labels[i] != "google_cloud" {
-			if cap, ok := marks.values["max_runs"]; ok && capOf(cap) == "" {
-				return fmt.Errorf("[%s].max_runs must be a whole number of 1 or more (got %s)", labels[i], valueRepr(cap))
-			}
+		if cap, ok := marks.values["max_runs"]; ok && capOf(cap) == "" {
+			return fmt.Errorf("[machines.%s].max_runs must be a whole number of 1 or more (got %s)", name, valueRepr(cap))
 		}
 	}
 	return nil

@@ -21,20 +21,16 @@ func machineTable() (*table, bool) {
 }
 
 // MachineWork is the work config.toml marks machine `name` for, as Python's machines.work reads
-// the marks before a Mac's probe rules turns out: its `[machines.<name>]` table's `work`, or for
-// "" `[google_cloud]`'s, every rental's; with none, the old turns_on_machines switch's, turns
-// while it is true, and tests.  False where the file cannot be read or any table's marks or cap
-// are some Python refuses (config._work_in).
+// the marks before a Mac's probe rules turns out: its `[machines.<name>]` table's `work`; with
+// none, the old turns_on_machines switch's, turns while it is true, and tests.  False where the
+// file cannot be read or any table's marks or cap are some Python refuses (config._work_in).
 func MachineWork(name string) ([]string, bool) {
 	root, ok := machineTable()
 	if !ok {
 		return nil, false
 	}
 	named, _ := root.get("machines").(*table)
-	own, _ := root.get("google_cloud").(*table)
-	if name != "" {
-		own, _ = named.get(name).(*table)
-	}
+	own, _ := named.get(name).(*table)
 	if work := own.get("work"); work != nil {
 		return marks(work), true
 	}
@@ -51,9 +47,6 @@ func MachineMaxRuns(name string) (string, bool) {
 	root, ok := machineTable()
 	if !ok {
 		return "", false
-	}
-	if name == "" {
-		return "", true
 	}
 	named, _ := root.get("machines").(*table)
 	own, _ := named.get(name).(*table)

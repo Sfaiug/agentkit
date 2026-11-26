@@ -6,20 +6,20 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
-	"agentkit/internal/googlecloud"
 	"agentkit/internal/notify"
 )
 
-// ConfigServices reads the saved Discord and cloud status without contacting either service.
-func ConfigServices() (discord, cloud string) {
-	discord = "not connected"
-	if who, hook := DiscordShown(); hook != "" {
-		discord = "webhook " + hook
-		if who != "" {
-			discord = who + " · " + discord
-		}
+// DiscordValue is `Discord`'s value on `c` (menu.discord_value), read off the saved secrets
+// without contacting Discord.
+func DiscordValue() string {
+	who, hook := DiscordShown()
+	if hook == "" {
+		return "not connected"
 	}
-	return discord, googlecloud.Summary(false)
+	if who != "" {
+		return who + " · webhook " + hook
+	}
+	return "webhook " + hook
 }
 
 // DiscordShown is who a card pings and where it goes, as `Discord` shows them (menu.discord_shown):

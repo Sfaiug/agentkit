@@ -13,7 +13,6 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
-	"agentkit/internal/googlecloud"
 	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
@@ -40,7 +39,7 @@ var readings = []struct {
 // machine, of one it did not ask too: one Add asked meanwhile.
 func Check() error {
 	now := float64(time.Now().UnixNano()) / 1e9
-	names, _, _ := known()
+	names, _ := known()
 	answers := answers(context.Background(), names)
 	return write(context.Background(), func(record *run.Object) {
 		for i, name := range names {
@@ -107,14 +106,11 @@ func answers(ctx context.Context, names []string, options ...string) []host.Answ
 	return host.Ask(ctx, commands)
 }
 
-// route is how ak's ssh reaches name (Python's machines.ssh and _keys): a rental by its route, any
-// other by ssh's own config, with ak's key, once made, offered after the keys that config gives
-// it (`ssh -G`, bounded, a `Match exec` with it), so a machine set up by hand is offered first
-// what it was.  Naming any ends the defaults ssh offers while none is, so they are named too.
+// route is how ak's ssh reaches name (Python's machines.ssh and _keys): by ssh's own config, with
+// ak's key, once made, offered after the keys that config gives it (`ssh -G`, bounded, a `Match
+// exec` with it), so a machine set up by hand is offered first what it was.  Naming any ends the
+// defaults ssh offers while none is, so they are named too.
 func route(ctx context.Context, name string) []string {
-	if route := googlecloud.SSHConfig(name); len(route) > 0 {
-		return route
-	}
 	if _, err := os.Stat(key()); err != nil {
 		return nil
 	}

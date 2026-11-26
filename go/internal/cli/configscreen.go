@@ -265,7 +265,6 @@ var configPages = map[string]func(*terminal.Keyboard, *terminal.Painter) bool{
 // the weekly audit feature for now. Dont delete it, but remove it." `Weekly audit`, its value
 // menu.audit_value's, stood between Discord and Done check.
 func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
-	discord, cloud := menu.ConfigServices()
 	checker, on, err := config.DoneCheck()
 	check := ""
 	if err != nil {
@@ -282,9 +281,13 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	if known == 1 {
 		noun = "machine"
 	}
-	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
+	machined := fmt.Sprintf("%d %s", known, noun)
+	if err := config.Check(); err != nil { // one that will not load is shown as why
+		machined = err.Error()
+	}
+	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: menu.DiscordValue()},
 		{Name: "Done check", Value: check},
-		{Name: "Machines", Value: fmt.Sprintf("%d %s · Google Cloud %s", known, noun, cloud)},
+		{Name: "Machines", Value: machined},
 		{Name: "Limits", Value: limits}}, true
 }
 

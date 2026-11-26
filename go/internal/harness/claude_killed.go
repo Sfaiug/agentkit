@@ -12,7 +12,7 @@ import (
 // all its stream's lines and those its session's transcripts hold from its harness receipt to
 // its last event; false where it is missing either or none is found.  The stream counts a
 // message's input and cache but only its first chunk of output; the transcript keeps its final
-// counts.  They name init's session only where a transcript's line counted: one killed on a rented
+// counts.  They name init's session only where a transcript's line counted: one killed on another
 // machine brings none home, and this host's conversation, which a later turn resumes, holds none
 // of its messages.
 func claudeKilledCounts(out string, init *run.Object) (any, bool, []Counts, bool) {
