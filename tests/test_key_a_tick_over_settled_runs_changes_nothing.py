@@ -62,16 +62,19 @@ class SettledRuns(unittest.TestCase):
         cls.fakes = fakeadapter.install(home, claude="work", codex="pass")
         cls.gh = GitHub(home)
         cls.rig = Rig(home, "app")
-        cls.seat = Seat(home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]})
+        cls.seat = Seat(home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]},
+                        planned=("true",))
         cls.seat_says("orch", "project", str(cls.rig.path))
-        cls.seat_says("plan", "add", "the api file is in", "--check", "test -f api.txt")
         cls.launch("Add retry file", ["work"], ["fail"])
         cls.launch("Fix the docs", [{"final": "Not needed.",
                                      "hand_in": [["not-needed", "it passes already"]]}], ["pass"],
                    body=FIX + "\n")
         cls.launch("Add web file", [work("web.txt")], ["pass"], "--no-merge")
         cls.stopped()
-        cls.launch("Add api file", [work("api.txt")], ["pass"], "--no-merge")
+        # The final plan names the checkout so its merge can tick the line.
+        home.write(".agentkit/state/plan-acme.md", "")
+        cls.seat_says("plan", "add", "the api file is in", "--check", "test -f api.txt")
+        cls.launch("Add api file", [work("api.txt")], ["pass"], "--no-merge", check="test -f api.txt")
         # Publish the reviewed local work externally; the tick starts with a settled receipt.
         directory = next(path for path in taskfile.runs(home) if path.name.endswith("-add-api-file"))
         merged = json.loads((directory / "run.json").read_text())
@@ -103,11 +106,11 @@ class SettledRuns(unittest.TestCase):
         assert done.code == 0, done.out + done.err
 
     @classmethod
-    def launch(cls, title, claude, codex, *args, body=""):
+    def launch(cls, title, claude, codex, *args, body="", check="true"):
         """The seat runs a task in the foreground, its harnesses doing as scripted."""
         cls.fakes["claude"].behave(*claude)
         cls.fakes["codex"].behave(*codex)
-        task = taskfile.write(cls.home, cls.rig.path, title, done_when=("true",), body=body)
+        task = taskfile.write(cls.home, cls.rig.path, title, done_when=(check,), body=body)
         done = cls.home.ak("run", str(task), *args, env=SEAT, timeout=600)
         assert done.code in (0, 1), done.out + done.err
 

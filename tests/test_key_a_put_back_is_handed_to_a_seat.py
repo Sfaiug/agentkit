@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import REAL_TMUX, Home, rerun_boxed
 from fixtures.akinstall import Install
-from fixtures.akseat import PLAN_LINE
+from fixtures.akseat import plan_line
 
 READINGS = {"free_mb": 64000, "mem_total_mb": 128000, "cpus": 8, "load": 0.1,
             "slice_cpu_pressure": 0, "slice_memory_pressure": 0}
@@ -103,7 +103,7 @@ class APutBackIsHandedToASeat(unittest.TestCase):
     def test_the_seat_is_told_once_and_its_next_agentkit_run_starts_first(self):
         before, after = self.moved()
         seat = self.install.seat()
-        self.home.write(f".agentkit/state/plan-{seat.name}.md", PLAN_LINE + "\n")
+        self.home.write(f".agentkit/state/plan-{seat.name}.md", plan_line("true") + "\n")
         fakes = fakeadapter.install(self.home, claude="work", codex="pass")
         release = fakes["claude"].dir / "release"
         # bounded, so a turn the test never let go cannot outlive it

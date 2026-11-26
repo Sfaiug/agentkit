@@ -35,9 +35,9 @@ GOING = (("20261029-0900-acme-holds", "acme", True), ("20261029-0901-acme-waits"
          ("20261029-0904-bravo-waits", "bravo", False), ("20261029-0905-delta-holds", "delta", True),
          ("20261029-0906-nobody-waits", None, False), ("20261029-0907-nobody-too", None, False))
 HOLDING = sum(holds for _, _, holds in GOING)
-TITLES = iter(("Add retry file", "Bump alpha notes", "Write beta log", "Trim gamma docs",
-               "Sort delta list", "Name epsilon flag", "Fix zeta cache", "Load eta page",
-               "Draw theta map", "Rank iota rows", "Tune kappa knob"))
+TITLES = ("Add retry file", "Bump alpha notes", "Write beta log", "Trim gamma docs",
+          "Sort delta list", "Name epsilon flag", "Fix zeta cache", "Load eta page",
+          "Draw theta map", "Rank iota rows", "Tune kappa knob")
 
 
 def record(run_dir):
@@ -65,9 +65,10 @@ class SeatQueue(unittest.TestCase):
         cls.gh = GitHub(home)
         akconfig.write(home, ["opus", "astra"], settings={"max_runs": HOLDING})
         fakeadapter.install(home, claude="work", codex="pass")
+        cls.titles = iter(TITLES)
         for seat in ("acme", "bravo", "charlie", "delta"):
             Seat(home, seat, cwd=cls.rig.path, alive=False, record={"workers": ["opus", "astra"]},
-                 planned=True)
+                 planned=(f"test -f {title.split()[1]}.txt" for title in TITLES))
         now = time.time()
         for n, (run_id, seat, holds) in enumerate(GOING):
             sleeps.append(subprocess.Popen(["sleep", "600"], start_new_session=True))
@@ -102,7 +103,7 @@ class SeatQueue(unittest.TestCase):
 
     @classmethod
     def task(cls):
-        title = next(TITLES)
+        title = next(cls.titles)
         return str(taskfile.write(cls.home, cls.rig.path, title,
                                   done_when=(f"test -f {title.split()[1]}.txt",)))
 

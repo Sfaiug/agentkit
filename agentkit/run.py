@@ -689,6 +689,14 @@ def seat_refusal(opts, flags):
     return None
 
 
+def served_line_refusal(task_path, cmds):
+    if plan.served_line(config.current_session(), cmds):
+        return None
+    return (f"{Path(task_path).name}: none of its ## Done when checks match an open plan line "
+            "(your plan is what your bar counts): first run ak plan add \"<outcome>\" "
+            "--check '<focused-check>' and put that same check in ## Done when")
+
+
 def users_refusal(checkout, ref, then):
     """Why a launch into `checkout` waits for its owner, or None: its AGENTS.md at `ref` has no
     `users:` answer, which decides whether a reviewer holds a new feature to the project's
@@ -1493,6 +1501,8 @@ def preflight(run_dir, opts, log):
         refusal = (taskfile.checks_refusal(every)
                    or from_refusal(run_dir / "task.md", (meta.get("from") or "").strip(), repo,
                                    opts["--no-worktree"]))
+        if not refusal and from_seat() and run_kind(state) == "task":
+            refusal = served_line_refusal(state.get("task_file") or run_dir / "task.md", cmds)
         if refusal:
             raise Refused(refusal)
         commands = " ; ".join(every)
@@ -3357,15 +3367,23 @@ def main(argv):
     queued_child = queued_child if queued_child and queued(Path(queued_child)) else None
     # a launch's own child holds what its launch read: nothing refuses it for a line landed since
     for task in positional if not queued_child else ():
+        path = Path(task).expanduser()
         numbers = launch_policy(task)
         refusal = (taskfile.rounds_refusal(opts["--rounds"], "--rounds", numbers["review_rounds"])
                    if opts["--rounds"] else None)
         # a seat's task carries the owner's answer into AGENTS.md, read once launch_policy has
         # resolved the clone's default branch; no checkout, no file to read
-        checkout = launch_checkout(task) if not refusal and from_seat() else None
-        if checkout and not re.search(r"\busers: (none|real)\b", Path(task).expanduser().read_text()):
+        seat_launching = from_seat()
+        checkout = launch_checkout(task) if not refusal and seat_launching else None
+        if checkout and not re.search(r"\busers: (none|real)\b", path.read_text()):
             refusal = users_refusal(checkout, config.RULES_REF,
                                     "Put the chosen line in the task, which adds it to AGENTS.md.")
+        if not refusal and seat_launching and path.is_file():
+            _, body, _ = taskfile.parse_task(path)
+            cmds = taskfile.done_when(body, path)
+            # Let preflight settle the suite and ask oversized tasks to split first.
+            if len(taskfile.group_commands(cmds)[0]) <= taskfile.MAX_CHECKS:
+                refusal = served_line_refusal(path, cmds)
         if refusal:
             raise config.Error(refusal)
     parallel = None

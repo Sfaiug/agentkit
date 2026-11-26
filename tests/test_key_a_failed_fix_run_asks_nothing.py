@@ -60,7 +60,7 @@ class AFailedFixRunAsksNothing(unittest.TestCase):
         akconfig.write(cls.home, ["opus", "astra"])
         fakeadapter.install(cls.home, claude=["work", ATTEMPT], codex=[FOLLOW_UP, "pass"])
         cls.seat = Seat(cls.home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]},
-                        planned=True)
+                        planned=("test -f retry.txt", "test -f sturdy.txt"))
         merged = cls.home.ak("run", str(taskfile.write(cls.home, cls.rig.path)), env=SEAT,
                              timeout=300)
         if merged.code:

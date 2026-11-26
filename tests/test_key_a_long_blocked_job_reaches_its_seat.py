@@ -43,7 +43,7 @@ class ALongBlockedJobReachesItsSeat(unittest.TestCase):
         akconfig.write(home, ["opus", "astra"])
         rig = Rig(home, "widget")
         GitHub(home)
-        seat = Seat(home, "acme", cwd=rig.path, planned=True,
+        seat = Seat(home, "acme", cwd=rig.path, planned=("test -f a.txt", "test -f b.txt"),
                     record={"workers": ["opus"], "reviewers": ["astra"]})
         fakeadapter.install(home, codex="pass", claude={"final": "Blocked.",
                                                         "hand_in": [["blocked", REASON]]})
