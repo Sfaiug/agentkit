@@ -106,27 +106,21 @@ def exit_guard(command):
     return None
 
 
-def _evidence_text(evidence):
-    if "quote" in evidence:
-        return "\nQuote:\n" + evidence["quote"]
-    text = f"\n$ {evidence['run']}\n"
-    if "commit" in evidence:
-        text += f"Commit {evidence['commit']}:\n"
-    text += proof_text(evidence)
-    if "base" in evidence:
-        text += f"\nBase {evidence['base']['sha']}:\n" + proof_text(evidence["base"])
-    return text
-
-
 def item_text(row):
     if row["kind"] == "concede":
         return f"{row['path']}:{row['line']} - {row['why']}"
-    if row["kind"] == "dispute":
-        parts = (*row.get("earlier", ()), row)
-        text = item_text(row["finding"]) + "".join(
-            "\nDispute: " + part["why"] + _evidence_text(part["evidence"]) for part in parts)
+    text = (item_text(row["finding"]) + "\nDispute: " + row["why"] if row["kind"] == "dispute"
+            else f"{row['path']}:{row['line']} - {row['what']} - {row['why']}")
+    evidence = row["evidence"]
+    if "quote" in evidence:
+        text += "\nQuote:\n" + evidence["quote"]
     else:
-        text = f"{row['path']}:{row['line']} - {row['what']} - {row['why']}" + _evidence_text(row["evidence"])
+        text += f"\n$ {evidence['run']}\n"
+        if "commit" in evidence:
+            text += f"Commit {evidence['commit']}:\n"
+        text += proof_text(evidence)
+        if "base" in evidence:
+            text += f"\nBase {evidence['base']['sha']}:\n" + proof_text(evidence["base"])
     if row["kind"] == "finding" and row.get("handed") == "follow-up":
         text += "\nBlocking: its proof passes on base and fails on this commit, so this change caused it"
     if row.get("before"):

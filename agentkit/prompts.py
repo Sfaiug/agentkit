@@ -506,33 +506,14 @@ def earlier_findings(lp):
             if isinstance(row, dict) and row.get("kind") == "finding"]
 
 
-def _dispute_site(row):
-    # Key by the handed finding's own site so symlinks neither merge two findings nor split one.
-    target = row.get("finding") if isinstance(row.get("finding"), dict) else row
-    return target["path"], target["line"]
-
-
 def dispute_rows(lp):
-    """The disputes the round's fixer handed in, one per disputed finding, keeping every
-    distinct accepted reason and proof in order (latest as the row's own)."""
-    by_site = {}
+    """The disputes the round's fixer handed in, each once."""
+    rows = []
     for file in lp.state.get("dispute_files", []):
         submitted = hand_in.read(file)
         for row in submitted.disputes if submitted is not None else ():
-            group, claims = by_site.setdefault(_dispute_site(row), ([], set()))
-            evidence = row["evidence"]
-            claim = (row["why"], evidence.get("run"), evidence.get("quote"))
-            if claim not in claims:
-                claims.add(claim)
-                group.append(row)
-    rows = []
-    for (path, line), (group, _) in by_site.items():
-        # Keep the handed finding's own site so downstream answers and concessions match it.
-        latest = {**group[-1], "path": path, "line": line}
-        if len(group) > 1:
-            latest["earlier"] = [
-                {"why": prior["why"], "evidence": prior["evidence"]} for prior in group[:-1]]
-        rows.append(latest)
+            if row not in rows:
+                rows.append(row)
     return rows
 
 
@@ -753,24 +734,13 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
 def review_disputes(lp, head):
     """Keep the finding snapshot the fixer received; replay its dispute on the reviewed work."""
     disputes = []
-    log_index = 0
-
-    def replay(evidence):
-        nonlocal log_index
-        if "run" not in evidence:
-            return evidence
-        log_index += 1
-        command = evidence["run"]
-        return {"run": command, "commit": head or "workspace", **proof_on(
-            lp, command, lp.round_dir / f"dispute-{log_index}.log", head)}
-
-    for row in dispute_rows(lp):
-        earlier = [{**prior, "evidence": replay(prior["evidence"])}
-                   for prior in row.get("earlier", ())]
-        replayed = {**row, "evidence": replay(row["evidence"])}
-        if earlier:
-            replayed["earlier"] = earlier
-        disputes.append(replayed)
+    for index, row in enumerate(dispute_rows(lp), 1):
+        evidence = row["evidence"]
+        if "run" in evidence:
+            command = evidence["run"]
+            evidence = {"run": command, "commit": head or "workspace", **proof_on(
+                lp, command, lp.round_dir / f"dispute-{index}.log", head)}
+        disputes.append({**row, "evidence": evidence})
     return hand_in.Review(disputes)
 
 

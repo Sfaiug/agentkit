@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, history, ledger, prompts, roundloop, run, stop, transitions, turns, worker
+from agentkit import config, hand_in, history, ledger, prompts, run, stop, transitions, turns, worker
 from fixtures.hand_in import scripted, stateful
 
 FINDING = ["finding", "api.py:1", "feature disabled", "task requires the feature",
@@ -174,30 +174,26 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         calls, result = self.rounds(["--run", PROOF], extra_disputes=[
             ["dispute", "api.py:1", why, "--quote", "enabled = True"]])
         self.assertEqual(len(hand_in.read(calls[2]["file"]).disputes), 2)
-        self.assertEqual(len(self.lp.state["disputes"]), 1)
         for text in (WHY, why, "proof from loop", "Quote:\n  enabled = True"):
             self.assertIn(text, calls[3]["prompt"])
             self.assertIn(text, result)
 
-    def test_two_disputes_of_one_finding_count_once_across_files_retries_and_symlinks(self):
-        # Across two dispute files (a handover), two reasons for one finding merge and count once.
-        earlier = self.directory / "first-turn"
-        later = self.directory / "second-turn"
-        earlier.mkdir()
-        later.mkdir()
-        finding = {"kind": "finding", "path": "api.py", "line": 1, "what": "fixture finding",
-                   "why": "fixture reason", "evidence": {"run": "false", "returncode": 1, "output": ""}}
+    def test_two_disputes_of_one_finding_keep_each_proof_and_count_once_in_the_ledger(self):
+        finding = hand_in.checked(
+            ["finding", "api.py:1", "wrong default", "the fixture requires it", "--run", "false"], self.wt)
         listed = self.directory / "listed.json"
         listed.write_text(json.dumps([finding]))
-        first_turn = hand_in.start(earlier, self.wt, role="fixer", findings=listed)
-        second_turn = hand_in.start(later, self.wt, role="fixer", findings=listed)
-        first = "The first dispute reason."
-        why = "The second dispute reason."
-        self.assertEqual(self.cli(first_turn, "dispute", "api.py:1", first, "--run", "true").returncode, 0)
-        self.assertEqual(self.cli(second_turn, "dispute", "api.py:1", why, "--run", "true").returncode, 0)
-        disputes = prompts.dispute_rows(SimpleNamespace(state={"dispute_files": [first_turn, second_turn]}))
-        self.assertEqual([row["why"] for row in disputes], [why])
-        self.assertEqual([part["why"] for part in disputes[0]["earlier"]], [first])
+        turn_dir = self.directory / "two-disputes"
+        turn_dir.mkdir()
+        turn = hand_in.start(turn_dir, self.wt, role="fixer", findings=listed)
+        cmd = "grep -qx 'enabled = False' api.py"
+        self.assertEqual(self.cli(turn, "dispute", "api.py:1", "first reason", "--run", cmd).returncode, 0)
+        api = self.wt / "api.py"
+        api.rename(self.wt / "implementation.py")
+        api.symlink_to("implementation.py")
+        self.assertEqual(
+            self.cli(turn, "dispute", "api.py:1", "second reason", "--quote", "enabled = False").returncode, 0)
+        disputes = prompts.dispute_rows(SimpleNamespace(state={"dispute_files": [turn]}))
         now = time.time()
         history._write(lambda db: db.execute(
             "INSERT INTO runs (run_id, repo, kind, final_state, finished_at, changed_lines) "
@@ -206,61 +202,14 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         history.record_review("fix-api", "round-1", blocking=1, round=1, verdict="FAIL",
                               records=[finding], **options)
         history.record_review("fix-api", "round-2", blocking=0, round=2, verdict="PASS",
-                              records=[dict(row, outcome="conceded") for row in disputes], **options)
+                              records=[dict(row, outcome="conceded", conceded="agreed") for row in disputes],
+                              **options)
+        saved = [row for row in history.run_findings("fix-api") if row["review_id"] == "round-2"]
+        self.assertEqual([(row["proof"], row["outcome"]) for row in saved],
+                         [(cmd, "conceded"), ("enabled = False", None)])
         team, = ledger.counted(until=now)["teams"]
         self.assertEqual({key: team[key] for key in ("issues", "disputed", "taken_back")},
                          {"issues": 1, "disputed": 1, "taken_back": 1})
-        # Retry scans keep the later dispute even when glob returns retry2 before retry1.
-        out, retry1, retry2 = [self.directory / name for name in ("ex", "ex-retry1", "ex-retry2")]
-        for attempt in (out, retry1, retry2):
-            attempt.mkdir()
-        r1 = hand_in.start(retry1, self.wt, role="fixer", findings=listed)
-        self.assertEqual(self.cli(r1, "dispute", "api.py:1", first, "--run", "true").returncode, 0)
-        r2 = hand_in.start(retry2, self.wt, previous=r1, role="fixer", findings=listed)
-        self.assertEqual(self.cli(r2, "dispute", "api.py:1", why, "--quote", "enabled = False").returncode, 0)
-        lp = SimpleNamespace(state={}, save=lambda: None)
-        with patch.object(Path, "glob", return_value=iter((retry2, retry1))):
-            roundloop.record_disputes(lp, out)
-        retried = prompts.dispute_rows(lp)
-        self.assertEqual([row["why"] for row in retried], [why])
-        self.assertEqual([part["why"] for part in retried[0]["earlier"]], [first])
-        # Symlinks neither merge two distinct handed findings nor split one handed finding.
-        other = self.wt / "other.py"
-        other.write_text("enabled = False\n")
-        pair = [hand_in.checked(["finding", site, f"defect at {site}", "why", "--run", "false"], self.wt)
-                for site in ("api.py:1", "other.py:1")]
-        pair_file = self.directory / "pair.json"
-        pair_file.write_text(json.dumps(pair))
-        pair_dir = self.directory / "pair-turn"
-        pair_dir.mkdir()
-        pair_turn = hand_in.start(pair_dir, self.wt, role="fixer", findings=pair_file)
-        api = self.wt / "api.py"
-        self.assertEqual(self.cli(pair_turn, "dispute", "api.py:1", first, "--run", "true").returncode, 0)
-        api.unlink()
-        api.symlink_to("other.py")
-        self.assertEqual(self.cli(pair_turn, "dispute", "api.py:1", why, "--run", "true").returncode, 0)
-        self.assertEqual(self.cli(pair_turn, "dispute", "other.py:1", "other reason", "--run", "true").returncode, 0)
-        linked = prompts.dispute_rows(SimpleNamespace(state={"dispute_files": [pair_turn]}))
-        self.assertEqual([(row["path"], row["finding"]["path"], row["why"]) for row in linked],
-                         [("api.py", "api.py", why), ("other.py", "other.py", "other reason")])
-        self.assertEqual([part["why"] for part in linked[0]["earlier"]], [first])
-        # An earlier executable proof followed by a quote stays in findings history with its exit.
-        cmd = "grep -qx 'enabled = False' other.py"
-        exec_dir = self.directory / "exec-turn"
-        exec_dir.mkdir()
-        exec_turn = hand_in.start(exec_dir, self.wt, role="fixer", findings=listed)
-        self.assertEqual(self.cli(exec_turn, "dispute", "api.py:1", first, "--run", cmd).returncode, 0)
-        self.assertEqual(self.cli(exec_turn, "dispute", "api.py:1", why, "--quote", "enabled = False").returncode, 0)
-        with patch.object(prompts, "proof_on",
-                          return_value={"returncode": 1, "output": "reviewed proof failed", "killed": False}):
-            reviewed = prompts.review_disputes(
-                SimpleNamespace(state={"dispute_files": [exec_turn]}, round_dir=self.directory),
-                "fixture-head").disputes
-        history.record_review("fix-api", "round-3", blocking=0, round=3, verdict="PASS",
-                              records=[dict(row, outcome="conceded", conceded="agreed") for row in reviewed],
-                              **options)
-        saved = [row for row in history.run_findings("fix-api") if row["review_id"] == "round-3"]
-        self.assertEqual([(row["proof"], row["commit_exit"]) for row in saved], [(cmd, 1)])
 
     def cli(self, file, *args):
         return subprocess.run([sys.executable, str(REPO / "bin/ak"), "hand-in", *args],

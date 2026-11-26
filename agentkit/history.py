@@ -1034,6 +1034,12 @@ def _moment(path):
         return None
 
 
+def _dispute_target(row):
+    """The finding a dispute answers: its handed snapshot's site where kept, else its own."""
+    target = row.get("finding") if isinstance(row.get("finding"), dict) else row
+    return target["path"], target["line"]
+
+
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
                   effort=None, records=(), log=None):
     """Keep one finished review's weighed counts, its round, the round's verdict (the review's,
@@ -1041,7 +1047,9 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
     and a `findings` row for each of `records` but its closing (`FINDINGS_SCHEMA`).
 
     Its output directory identifies it, so recording it again cannot count it twice; only
-    runs already recorded in history can contribute.
+    runs already recorded in history can contribute.  At most one dispute row per finding in a
+    review carries `outcome`, so additional accepted proofs for the same finding keep their own
+    rows without double-counting the issue.
     """
     def insert(connection):
         if connection.execute(
@@ -1051,12 +1059,21 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
                 (review_id, harness, model, blocking, followup, note, round, verdict, effort,
                  run_id)).rowcount:
             at = time.time()
+            counted, rows = set(), []
+            for row in records:
+                if row["kind"] in (*hand_in.CLOSING, "concede"):
+                    continue
+                if row["kind"] == "dispute" and row.get("outcome") is not None:
+                    site = _dispute_target(row)
+                    if site in counted:
+                        row = {**row, "outcome": None}
+                    else:
+                        counted.add(site)
+                rows.append((run_id, review_id, round, *_finding(row), at))
             connection.executemany(
                 "INSERT INTO findings (run_id, review_id, round, path, line, handed, kind, proof, "
                 "commit_exit, base_exit, replayed, reason, outcome, inside_fix, at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                [(run_id, review_id, round, *_finding(row), at)
-                 for row in records if row["kind"] not in (*hand_in.CLOSING, "concede")])
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
 
     _write(insert, log)
 
@@ -1068,17 +1085,9 @@ def _finding(row):
     on a reviewed commit that is base's own.  A record whose kind weighing left alone was handed
     in as that kind."""
     evidence = row["evidence"]
-    # A merged dispute keeps every accepted executable proof command and prefers a non-zero or
-    # killed reviewed exit over a passing one or a later quote that carries no exit.
-    runs = [part["evidence"] for part in (*row.get("earlier", ()), row) if "run" in part["evidence"]]
-    if row.get("earlier") and runs:
-        evidence = next((ev for ev in reversed(runs) if ev.get("returncode") or ev.get("killed")), runs[-1])
-        proof = "\n".join(dict.fromkeys(ev["run"] for ev in runs))
-    else:
-        proof = evidence.get("run", evidence.get("quote"))
     on_base = evidence.get("base") or (evidence if "before" in row and "commit" in evidence else {})
     return (row["path"], row["line"], row.get("handed", row["kind"]), row["kind"],
-            proof,
+            evidence.get("run", evidence.get("quote")),
             None if on_base is evidence else evidence.get("returncode"), on_base.get("returncode"),
             row.get("replayed"), row.get("conceded") or row.get("outside") or row.get("dropped"), row.get("outcome"),
             row.get("inside_fix"))

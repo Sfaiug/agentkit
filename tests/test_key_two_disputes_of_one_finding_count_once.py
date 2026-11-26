@@ -1,8 +1,9 @@
-"""Two disputes of one finding reach the review together and count once in history and the ledger.
+"""Two disputes of one finding keep every accepted proof and count once in the runs ledger.
 
-When a fixer hands in two accepted disputes with different reasons for the same blocking finding,
-both reach the next review and result.md under that finding, while history.db's `findings` table
-and `ak models --json`'s team counts record one issue, one disputed, and one taken back.
+When a fixer hands in two accepted disputes with different reasons and evidence for the same
+blocking finding, both reach the next review, result.md, and history.db's `findings` table, while
+only one row carries `outcome` so `ak models --json`'s team counts record one issue, one disputed,
+and one taken back.
 
 Black-box: the program `AK_BIN` names runs `ak run --no-merge` and `ak models --json` from outside
 through tests/fixtures/akbin.py, on a project from gitrig.py with scripted harnesses from
@@ -36,7 +37,7 @@ class TwoDisputesOfOneFinding(unittest.TestCase):
         cls.home.write(".agentkit/state/boards.json", boards())
         cls.models = cls.home.ak("models", "--json", env=ENV)
 
-    def test_both_accepted_disputes_reach_the_review_and_result_together(self):
+    def test_both_accepted_disputes_reach_the_review_and_result(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual(self.state["verdict"], "PASS")
         prompt = Path(self.fakes["codex"].runs()[1]["argv"][3]).read_text()
@@ -44,14 +45,15 @@ class TwoDisputesOfOneFinding(unittest.TestCase):
             self.assertIn(text, prompt)
             self.assertIn(text, self.result)
         self.assertTrue((self.run_dir / "round-2/dispute-1.log").is_file())
-        self.assertEqual(len(self.state["disputes"]), 1)
 
-    def test_history_and_models_ledger_count_the_disputed_finding_once(self):
+    def test_history_keeps_both_proofs_and_models_ledger_counts_the_finding_once(self):
         self.assertEqual(
             read(self.home, "SELECT path, line, proof, commit_exit, outcome, reason "
-                            "FROM findings WHERE kind='dispute'"),
+                            "FROM findings WHERE kind='dispute' ORDER BY rowid"),
             [{"path": "retry.txt", "line": 1, "proof": "echo first proof output",
-              "commit_exit": 0, "outcome": "conceded", "reason": CONCEDED}])
+              "commit_exit": 0, "outcome": "conceded", "reason": CONCEDED},
+             {"path": "retry.txt", "line": 1, "proof": "hello",
+              "commit_exit": None, "outcome": None, "reason": CONCEDED}])
         self.assertEqual(self.models.code, 0, self.models.out + self.models.err)
         team, = json.loads(self.models.out)["runs"]["teams"]
         self.assertEqual({key: team[key] for key in ("issues", "disputed", "taken_back")},

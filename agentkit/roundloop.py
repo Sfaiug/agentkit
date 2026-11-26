@@ -242,13 +242,7 @@ def continuation(lp):
 def record_disputes(lp, out):
     """A provider handover must not lose disputes already accepted during the turn."""
     out = Path(out)
-    prefix = f"{out.name}-retry"
-    # Sort retries numerically so filesystem traversal order never puts an earlier attempt last.
-    retries = sorted(
-        out.parent.glob(f"{prefix}*"),
-        key=lambda path: (int(s), "") if (s := path.name.removeprefix(prefix)).isdigit()
-        else (float("inf"), path.name))
-    for directory in (out, *retries):
+    for directory in (out, *out.parent.glob(f"{out.name}-retry*")):
         submitted = hand_in.read(directory / hand_in.FILE)
         if submitted is not None and submitted.disputes:
             path = str(directory / hand_in.FILE)
