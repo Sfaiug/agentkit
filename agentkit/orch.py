@@ -125,11 +125,13 @@ FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
          'set-option -pu -t "$p" @ak_was_$s; else tmux set-option -pu -t "$p" $s; fi; done; '
          'tmux set-option -pu -t "$p" @ak_floats; fi; l -U; true')
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
-# The size a seat opens at, nobody attached, where tmux's own is 80x24.  A harness's input box
-# can scroll a draft taller than it: one that shows half the pane's rows less five shows 7 of the
-# 11 rows ak's longest line (`watch.longest()`) takes on 80x24, and ak then has to know its line
-# from its last rows before it presses Enter; here the line takes 4 of 20 (measured 25 Nov 2026).
-# A client attached sizes the window to itself, and it keeps that size when the client has gone.
+# The size a seat stays at while nobody is attached, where tmux's own is 80x24.  A harness's input
+# box can scroll a draft taller than it: one that shows half the pane's rows less five shows 7 of
+# the 11 rows ak's longest line (`watch.longest()`) takes on 80x24, and ak then has to know its
+# line from its last rows before it presses Enter; here the line takes 4 of 20 (measured 25 Nov
+# 2026).  A client attached sizes the window to itself; when the last client leaves a seat,
+# `hook_options` puts its windows back to this size and unsets `window-size` so the next client
+# sizes them to itself again.
 SEAT_SIZE = "240x50"
 UPDATE_JOB = "update"      # the tmux session an update runs in, on the jobs server
 UPDATE_RESULT = "update-result"   # where it leaves the one line the menu shows when it is done
@@ -2117,7 +2119,8 @@ def server_conf():
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
     exits in the moment it opens has to survive that too, and the file is read before it runs;
-    so is what then brings it back (`hook_options`).  A session opens SEAT_SIZE.
+    so is what then brings it back (`hook_options`).  A session opens SEAT_SIZE, and returns to it
+    once its last client leaves.
 
     The popup is sized for the client that opens it, read when the key is pressed: on a
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
@@ -2168,7 +2171,8 @@ def server_conf():
 
 def hook_options():
     """The server's options that run ak: what brings back a seat whose harness ended without ak
-    ending it, and what puts the seat a client is in first (`front`).
+    ending it, what puts the seat a client is in first (`front`), and what puts a seat's windows
+    back to `SEAT_SIZE` once its last client leaves.
 
     tmux runs `pane-died` when a pane's program exits or is killed under `remain-on-exit`, and
     never for `respawn-pane -k` or `kill-session`, the ways ak ends one: so the owner's `/exit`,
@@ -2178,17 +2182,63 @@ def hook_options():
     draws a job's output, and its failure, over the pane, so the tick's log takes all of it and
     the job always succeeds.  A pane left dead says how to open it again, where tmux would say
     `Pane is dead`; a tmux before 3.3 has no option for that, and `-q` keeps it quiet.
+
+    A client that detaches or switches away leaves the seat's window at its own terminal's size,
+    because tmux keeps the last client's size after it goes; when another client is still on a
+    different session, `client-detached` does not even name the session left behind.  So both
+    hooks synchronously walk every detached seat (`MARK`, `session_attached == 0`) inside the
+    server via `run-shell -C`, skipping windows set to `manual` or still sized by any unsuspended
+    client (an attached session whose active window is this one under `aggressive-resize`, else
+    any attached session holding it -- never `window_active_clients`, which counts suspended
+    clients tmux excludes from sizing), resize each remaining window not at `SEAT_SIZE` back to
+    it, and restore its prior `window-size` option (which `resize-window` flips to `manual`) --
+    unsetting it where it was inherited (`set-option -woq` with a distinct non-manual probe takes
+    only when no window option is set, without applying cached manual dimensions), or setting its
+    explicit value back so policies like `smallest` are preserved.
     """
     from . import watch   # here, not at the top: watch imports this module
     ak = shlex.join([sys.executable, str(versions.live() / "bin" / "ak"), "orch"])
     log = shlex.quote(str(watch.log_path()))
+    width, height = SEAT_SIZE.split("x")
 
     def job(verb):
         return "run-shell -b " + tmux_word(f"{tmux_text(ak)} {verb} >>{tmux_text(log)} 2>&1; true")
+    front = job("front")
+    # inside `run-shell -C`, tmux expands `#{S:...}` / `#{W:...}` into one guarded restore per
+    # detached seat window not already SEAT_SIZE (empty expands to a silent no-op).  The inner
+    # guard matches tmux's own sizing rule using `session_attached` (which excludes suspended
+    # clients, unlike `window_active_clients`): active window of an attached session under
+    # `aggressive-resize`, else any window of an attached session.  `set-option -woq` with a
+    # distinct non-manual probe takes only when `window-size` was inherited, without applying
+    # cached manual dimensions.
+    active = "#{S:#{?#{&&:#{session_attached},#{==:#{window_id},__WID__}},1,}}"
+    linked = "#{S:#{?#{session_attached},#{W:#{?#{==:#{window_id},__WID__},1,}},}}"
+    unheld = f"#{{==:#{{?#{{aggressive-resize}},{active},{linked}}},}}"
+    diff = f"#{{||:#{{!=:#{{window_width}},{width}}},#{{!=:#{{window_height}},{height}}}}}"
+    resize = f"resize-window -t __WID__ -x {width} -y {height}"
+    per_win = (
+        f"if-shell -t __WID__ -F '#{{&&:{unheld},{diff}}}' {{ "
+        f"set-option -woq -t __WID__ window-size __PROBE__ ; "
+        f"if-shell -t __WID__ -F '#{{==:#{{window-size}},__PROBE__}}' "
+        f"{{ {resize} ; set-option -wu -t __WID__ window-size }} "
+        f"{{ {resize} ; set-option -w -t __WID__ window-size __WS__ }} "
+        f"}} ; "
+    )
+    # escape format delimiters for the enclosing `#{?...,arm,}`, then splice the outer window fields
+    probe = "#{?#{==:#{window-size},latest},largest,latest}"
+    per_win = (per_win.replace("#", "##").replace(",", "#,").replace("}", "#}")
+               .replace("__WID__", "#{window_id}").replace("__WS__", "#{window-size}")
+               .replace("__PROBE__", probe))
+    need = f"#{{&&:#{{!=:#{{window-size}},manual}},{diff}}}"
+    restore = ('run-shell -C "'
+               f"#{{S:#{{?#{{&&:#{{{MARK}}},#{{==:#{{session_attached}},0}}}},"
+               f"#{{W:#{{?{need},{per_win},}}}},}}}}" + '"')
+    left = f"{restore} ; {front}"
     return {"pane-died": job("ended #{q:session_name} #{pane_dead_time}"),
             "remain-on-exit-format": WAY_BACK,
-            **dict.fromkeys(("client-attached", "client-detached", "client-session-changed"),
-                            job("front"))}
+            "client-attached": front,
+            "client-detached": left,
+            "client-session-changed": left}
 
 
 def look_options():
