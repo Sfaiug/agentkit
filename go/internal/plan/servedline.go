@@ -6,6 +6,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/notify"
+	"agentkit/internal/task"
 )
 
 // ServedLine is the open line a seat's task with those checks serves, Python's served_line: the
@@ -22,7 +23,8 @@ func ServedLine(name string, checks []string) (string, error) {
 	}
 	wanted := map[string]bool{}
 	for _, check := range checks {
-		wanted[folded(check)] = true
+		bare, _ := task.SplitOnce(check)
+		wanted[folded(bare)] = true
 	}
 	for _, line := range opened {
 		if written, _ := parse(line); wanted[folded(written.Check)] {

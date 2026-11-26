@@ -1,7 +1,7 @@
 """A seat's own launch, of a task or of a PR review, waits for an open line in its plan: the plan
 is what its bar counts and what a review of its pull request checks against, so a seat with no
-plan, or one whose every line is done, is refused and told to `ak plan add` first.  Any open line
-lets it go, a deferred one an earlier ak wrote too, which a launch never verifies away.  A launch
+plan, or one whose every line is done, is refused and told to `ak plan add` first.  A matching open line
+lets a task go, a deferred one an earlier ak wrote too, which a launch never verifies away.  A launch
 from no seat, or from inside a run (a queued child `spawn_bg` starts under the seat's name), goes
 ahead plan or no plan.
 
@@ -52,7 +52,8 @@ class SeatRunNeedsPlanLine(unittest.TestCase):
         # the first step past the refusals, where a launch that goes ahead stops here
         self.ahead = stack.enter_context(patch.object(box, "check", side_effect=config.Error("ahead")))
         self.task = self.root / "fix-api.md"
-        self.task.write_text("---\nrepo: none\n---\n# Fix the api\n\n## Done when\n```bash\ntrue\n```\n")
+        self.task.write_text("---\nrepo: none\n---\n# Fix the api\n\n## Done when\n```bash\n"
+                             "python3 tests/test_api.py\npython3 tests/test_retry.py\n```\n")
 
     def launch(self, *args):
         out, err = io.StringIO(), io.StringIO()

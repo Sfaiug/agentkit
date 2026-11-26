@@ -28,7 +28,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import command_help, config, gitcall, guard, history, parsed, terminal
+from . import command_help, config, gitcall, guard, history, parsed, task, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 # an eye line, from before every line had a check, reads done: how a change looks is the
@@ -421,7 +421,7 @@ def served_line(name, commands):
 
     Outcome and written stamp keep the link when `ak plan check` replaces the check.
     """
-    checks = {" ".join(command.split()) for command in commands}
+    checks = {" ".join(task.split_once(command)[0].split()) for command in commands}
     found = next((line for line in map(LINE.match, open_lines(name))
                   if " ".join(line["check"].split()) in checks), None)
     return link(found) if found else None

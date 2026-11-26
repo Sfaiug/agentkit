@@ -44,7 +44,7 @@ class SeatVerbs(unittest.TestCase):
         config.ensure_dirs()
         config.save_session(config.load(), SEAT, "opus", ["opus"], {"reviewers": ["astra"]})
         # a seat launches only with an open line in its plan
-        plan.write(SEAT, [plan.compose("Fix the api", "check: `false`", "acme",
+        plan.write(SEAT, [plan.compose("Fix the api", "check: `true`", "acme",
                                        "2026-10-23 09:00", None)])
         self.prepare = stack.enter_context(patch.object(run, "prepare"))
         self.drive = stack.enter_context(patch.object(run, "drive", return_value=0))

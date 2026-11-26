@@ -26,7 +26,7 @@ FAILING = {"final": "Found one.", "hand_in": [
 
 
 class SeatWithNoReviewer(unittest.TestCase):
-    def staged(self, *, workers=("opus",), work="work"):
+    def staged(self, *, workers=("opus",), work="work", planned=True):
         home = Home()
         self.addCleanup(home.close)
         home.env.update(AK_NOTIFY_SINK=None,
@@ -39,13 +39,13 @@ class SeatWithNoReviewer(unittest.TestCase):
         gh = GitHub(home)
         gh.grant(rig.slug, "WRITE")
         fakes = fakeadapter.install(home, claude=work, codex=FAILING)
-        Seat(home, "acme", model="opus", cwd=rig.path, alive=False, planned=True,
+        Seat(home, "acme", model="opus", cwd=rig.path, alive=False, planned=planned,
              record={"workers": list(workers), "reviewers": []})
         return home, rig, gh, fakes
 
     def launch(self, *, workers=("opus",), pr=False, work="work",
                checks=("test -f retry.txt",), files=None, flags=()):
-        home, rig, gh, fakes = self.staged(workers=workers, work=work)
+        home, rig, gh, fakes = self.staged(workers=workers, work=work, planned=checks)
         if pr:
             rig.branch("contrib", files or {"retry.txt": "hello\n"})
             args = ("--review-pr", gh.open_pr(rig, "contrib", author="acme"))

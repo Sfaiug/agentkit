@@ -76,6 +76,7 @@ func seatJobHome(t *testing.T) string {
 	t.Setenv("AK_MAX_RUNS", "0") // a job a gate decides is Python's
 	t.Setenv("AK_TEST_DONE", "fail")
 	t.Setenv("AGENTKIT_SESSION", "acme")
+	write(t, filepath.Join(home, ".agentkit", "state", "plan-acme.md"), "- [ ] Fix the API · check: `true` · acme · written 2026-10-23 09:00\n")
 	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), `{"orchestrator": "opus", "workers": ["opus"], `+
 		`"cwd": "`+home+`", "created": 1799000000, "conversation": "conv-acme", "id_source": "launcher", "resumable": true}`)
 	write(t, filepath.Join(home, "bin", "tmux"), "#!/bin/sh\nexit 1\n")

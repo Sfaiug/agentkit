@@ -58,7 +58,7 @@ class SeatOwnPrQuickSet(unittest.TestCase):
         cls.gh.grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
         Seat(cls.home, "acme", cwd=cls.rig.path, alive=False,
-             record={"workers": ["opus", "astra"]}, planned=True)
+             record={"workers": ["opus", "astra"]}, planned=("test -f local.txt", "test -f draft.txt"))
         # claude: fixer for fixed, fixer for broken, reviewer for other (no writer -> first model),
         # executor for each --no-worktree run.
         # codex: reviewer for seed, fixed (FAIL then PASS), broken (PASS then PASS), each

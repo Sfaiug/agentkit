@@ -149,7 +149,7 @@ func TestAStopAsPreflightRefusesKeepsItsWord(t *testing.T) {
 		j := createdJob(t, "fix-api.md")
 		path := j.receipt.List("tasks")[0].(*run.Object).Str("task_file")
 		write(t, path, "---\nrepo: none"+c.from+"\n---\n# Fix api\n\n## Done when\n```bash\ntrue\n```\n")
-		l, _, _, err := j.task(path)
+		l, _, _, err := j.task(path, nil)
 		if l == nil || (l.reason == "") != (c.from == "") {
 			t.Fatalf("preflight judged %v: %v", l, err)
 		}

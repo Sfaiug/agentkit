@@ -46,7 +46,7 @@ func launchStands(dir string, record *run.Object) bool {
 	}
 	seated, _, _ := Seat()
 	// its launch asked the project's contract, which Python's resume of a receipt does not again
-	reason, _, at, err := launcher{seat: seated, bound: bound, origin: record}.preflight(meta, cmds, path, path, task.Title(task.Text(data), "task"), values, flags)
+	reason, _, at, err := launcher{seat: seated, bound: bound, origin: record}.preflight(meta, cmds, path, path, task.Title(task.Text(data), "task"), values, flags, record.Get("plan_line"))
 	// preflight polls the gate for a launch, holding the slots lock for its receipt: a resume polls
 	// for the run its receipt is (pollsHere)
 	at.admitted.release()

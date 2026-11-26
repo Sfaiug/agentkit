@@ -208,7 +208,7 @@ def _ours(path, *beside):
         retention.present(other) and not retention.safe(other) for other in beside)
 
 
-def job_create(cfg, task_paths, opts, parallel):
+def job_create(cfg, task_paths, opts, parallel, *, plan_lines=None):
     """Build the job receipt before the first run starts; every change after saves it again."""
     if opts.get("--no-worktree"):
         raise config.Error("--no-worktree runs in the repo's current branch: one checkout cannot "
@@ -275,7 +275,8 @@ def job_create(cfg, task_paths, opts, parallel):
                                                    "--first", "--in-order")},
            "tasks": [{"name": info["name"], "title": info["title"], "state": "queued",
                       "run_id": None, "executor": None, "reviewer": None,
-                      "started_at": None, "finished_at": None, "task_file": str(info["path"])}
+                      "started_at": None, "finished_at": None, "task_file": str(info["path"]),
+                      "plan_line": (plan_lines or {}).get(info["path"])}
                      for info in infos]}
     save_job(job_dir, job)
     return job_dir, job
@@ -809,7 +810,9 @@ def job_start_task(cfg, job_dir, task, opts, log):
             log(f"{task['name']}: reviewer {kept} is the rerun executor's own model; "
                 "the rerun will pick another reviewer")
             run_opts["--review"] = None
-    run.prepare(run_dir, run_opts, gitcall.logger(run_dir), cfg, job_id=job_dir.name, task_file=task_path)
+    run.prepare(run_dir, run_opts, gitcall.logger(run_dir), cfg, job_id=job_dir.name,
+                task_file=task_path,
+                receipt={"plan_line": task["plan_line"]} if "plan_line" in task else None)
     log(f"{task['name']} start: {run_dir.name}")
     return run_dir, run_opts
 

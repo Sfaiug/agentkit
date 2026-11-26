@@ -36,7 +36,8 @@ class WaitOnAJob(unittest.TestCase):
         self.addCleanup(home.close)
         akconfig.write(home, ["opus", "astra"])
         self.rig, self.gh = Rig(home, "widget"), GitHub(home)
-        self.seat = Seat(home, "acme", cwd=self.rig.path, planned=True,
+        self.seat = Seat(home, "acme", cwd=self.rig.path,
+                         planned=("test -f alpha.txt", "test -f beta.txt"),
                          record={"workers": ["opus"], "reviewers": ["astra"]})
         # Two held slots give this seat room to launch a two-task job.
         for name in ("api", "docs"):

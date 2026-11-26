@@ -92,7 +92,7 @@ type launcher struct {
 // launch is the launch of the task at path, text being what it says, as Task says, and the run's
 // directory, "" where it made none.
 func (l launcher) launch(path, text string, values map[string]string, flags map[string]bool, out, errOut io.Writer) (string, int, string, error) {
-	at, code, why, err := l.judge(path, text, values, flags)
+	at, code, why, err := l.judge(path, text, values, flags, nil)
 	if at == nil {
 		return "", code, why, err
 	}
@@ -130,7 +130,7 @@ type launching struct {
 
 // judge is the launch of the task at path as preflight settles it; nil where it goes no further,
 // with `ak run`'s exit status and why for one refused before any run directory, or ErrPython.
-func (l launcher) judge(path, text string, values map[string]string, flags map[string]bool) (*launching, int, string, error) {
+func (l launcher) judge(path, text string, values map[string]string, flags map[string]bool, jobTask *run.Object) (*launching, int, string, error) {
 	meta, cmds, err := task.Parse(path, text)
 	if err != nil || python(path, values, l.bound) {
 		return nil, 0, "", ErrPython
@@ -144,10 +144,12 @@ func (l launcher) judge(path, text string, values map[string]string, flags map[s
 	if at.dir, err = freeDir(time.Now().Format("20060102-1504-") + task.Slug(at.named)); err != nil {
 		return nil, 0, "", err
 	}
-	if at.line, err = servedLine(l.seat, cmds); err != nil {
+	if jobTask != nil && jobTask.Has("plan_line") {
+		at.line = jobTask.Get("plan_line") // an earlier task may already have ticked it
+	} else if at.line, err = servedLine(l.seat, cmds); err != nil {
 		return nil, 0, "", err
 	}
-	at.reason, at.warning, at.place, err = l.preflight(meta, cmds, path, filepath.Join(at.dir, "task.md"), at.named, values, flags)
+	at.reason, at.warning, at.place, err = l.preflight(meta, cmds, path, filepath.Join(at.dir, "task.md"), at.named, values, flags, at.line)
 	var outright *refusedOutright
 	if errors.As(err, &outright) {
 		return nil, 2, outright.why, nil
@@ -445,7 +447,7 @@ func roundsFor(path string, meta map[string]string) (int, error) {
 // where Python's gate decides the launch, a refusal it ends as a run in error, whose receipt Python
 // writes queued for its slot.  A run it passes is admitted before it finds its base, which may
 // write origin/HEAD.
-func (l launcher) preflight(meta map[string]string, cmds []string, path, copied, title string, values map[string]string, flags map[string]bool) (string, string, place, error) {
+func (l launcher) preflight(meta map[string]string, cmds []string, path, copied, title string, values map[string]string, flags map[string]bool, line any) (string, string, place, error) {
 	at := place{on: installed()} // the ak whose refusals these are, read before they are
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
 		if reason != "" && gated(l.depth()) {
@@ -504,6 +506,9 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 	var later string
 	if at.every, at.once, later, err = laterRefusal(at.repo, copied, meta, cmds, flags); err != nil {
 		return refuse("", "", err)
+	}
+	if later == "" && l.seat != "" && l.origin == nil && l.job == nil && line == nil {
+		later = missingPlanLine(path)
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
