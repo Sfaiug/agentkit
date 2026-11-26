@@ -93,25 +93,30 @@ class ModelsJsonFirstIssuesUsage(WeekMeters):
     seat, turn = run_usage.ModelsJsonRunUsage.seat, run_usage.ModelsJsonRunUsage.turn
 
     def test_each_row_s_usage_sums_its_tasks_builds_reviews_and_orchestrator_share(self):
-        # acme/Max: 100 pts/M for anvil-1; nova at high took 9 points and 3,000 unrated tokens
+        # acme/Max: 100 pts/M for anvil-1; nova at high took 8 points and 4,000 unrated tokens
         self.read(50, 10)
-        self.seat(45, 90_000, orchestrator="nova", effort="high")
-        self.read(40, 19)
-        self.seat(35, 3_000, model="anvil-9", orchestrator="nova", effort="high")
+        self.seat(45, 80_000, orchestrator="nova", effort="high")
+        self.read(40, 18)
+        self.seat(35, 4_000, model="anvil-9", orchestrator="nova", effort="high")
         self.turn(35, (100_000, 0, 0, 0), run_id="fix-api", role="executor")
         self.turn(35, (20_000, 0, 0, 0), run_id="fix-api", role="reviewer")
         self.turn(35, (30_000, 0, 0, 0), run_id="write-cache", role="executor")
+        self.turn(35, (30_000, 0, 0, 0), run_id="write-cache", role="reviewer")
         self.turn(35, (10_000, 0, 0, 0), run_id="finish-cache", role="executor")
         self.turn(35, (2_000, 0, 0, 0), model="anvil-9", run_id="finish-cache", role="reviewer")
+        self.turn(35, (60_000, 0, 0, 0), run_id="fix-menu", role="executor")
+        self.turn(35, (50_000, 0, 0, 0), run_id="fix-menu", role="reviewer")
         self.turn(35, (50_000, 0, 0, 0), run_id="fix-text", role="executor")
         history(self.home, [
             run("fix-api", 5),
             run("write-cache", 4, **FAILED),
             run("finish-cache", 3, change="write-cache"),
+            run("fix-menu", 3),
             run("fix-text", 2),
         ], [
             ("fix-api", 1, "medium", "PASS", 0),
             ("write-cache", 1, "medium", "FAIL", 2),
+            ("fix-menu", 1, "medium", "FAIL", 2),
             ("fix-text", 1, "medium", "FAIL", "two"),
         ])
         found = self.answer(TABLES)["runs"]
@@ -119,16 +124,16 @@ class ModelsJsonFirstIssuesUsage(WeekMeters):
             row(0, 1, 1, 1, 1.0, {
                 "executor": {"points": {"acme": {"Max": 10}}, "unrated": 0},
                 "reviewer": {"points": {"acme": {"Max": 2}}, "unrated": 0},
-                "orchestrator": {"points": {"acme": {"Max": 3}}, "unrated": 1_000}}),
-            row(2, 1, 0, 1, 2.0, {
-                "executor": {"points": {"acme": {"Max": 4}}, "unrated": 0},
-                "reviewer": {"points": {}, "unrated": 2_000},
-                "orchestrator": {"points": {"acme": {"Max": 3}}, "unrated": 1_000}})])
+                "orchestrator": {"points": {"acme": {"Max": 2}}, "unrated": 1_000}}),
+            row(2, 2, 1, 2, 3.0, {
+                "executor": {"points": {"acme": {"Max": 10}}, "unrated": 0},
+                "reviewer": {"points": {"acme": {"Max": 8}}, "unrated": 2_000},
+                "orchestrator": {"points": {"acme": {"Max": 4}}, "unrated": 2_000}})])
         # fix-text's build and its share of nova's seats stay in its team alone
         self.assertEqual([team["usage"] for team in found["teams"]], [{
-            "executor": {"points": {"acme": {"Max": 19}}, "unrated": 0},
-            "reviewer": {"points": {"acme": {"Max": 2}}, "unrated": 2_000},
-            "orchestrator": {"points": {"acme": {"Max": 9}}, "unrated": 3_000}}])
+            "executor": {"points": {"acme": {"Max": 25}}, "unrated": 0},
+            "reviewer": {"points": {"acme": {"Max": 10}}, "unrated": 2_000},
+            "orchestrator": {"points": {"acme": {"Max": 8}}, "unrated": 4_000}}])
 
 
 if __name__ == "__main__":
