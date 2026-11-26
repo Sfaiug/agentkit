@@ -141,7 +141,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, logins, look, machines, money, open_runs, parsed, record
+from . import done_check, logins, look, machines, money, open_runs, parsed, readings, record
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -6313,6 +6313,18 @@ def work_words(name, cfg):
     return ", ".join(tasks) or "no work"
 
 
+def machine_hours(name):
+    """`name`'s last 24 hours of processors as 24 marks (EIGHTHS and GLYPHS's full cell, 1 or
+    more full, `·` with no reading), or `no readings yet` when none of the 24 has one."""
+    series = readings.hours(name, time.time(), 24, home=False)
+    if not any(hour.processors is not None for hour in series):
+        return "no readings yet"
+    marks, empty = (EIGHTHS[1:] + GLYPHS[True][0], "·") if terminal.utf8() else ("_,-:=+*#", ".")
+    return "".join(empty if h.processors is None
+                   else marks[7 if h.processors >= 1 else min(6, max(0, round(8 * h.processors) - 1))]
+                   for h in series)
+
+
 def config_machines(cfg):
     """Recorded machines; Enter opens their work marks and cap on runs at once.  Under them, each
     machine that copies this one (standby.copies), whose row, as this host's, opens nothing, or
@@ -6403,7 +6415,8 @@ def config_machines(cfg):
                                ("on" if word in work else "off", None)],
                        ("mark", lambda word=word: flip(word)))
                       for word, label in (("turns", "builds and reviews"), ("tests", "tests"))),
-                    ("runs at once", "no limit" if cap is None else config.whole(cap), cap_field)], ""
+                    ("runs at once", "no limit" if cap is None else config.whole(cap), cap_field),
+                    ("last 24 hours", machine_hours(name), None)], ""
 
         def open_page(draw):
             config_page(f"machines · {name}", page)
