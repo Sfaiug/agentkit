@@ -6305,12 +6305,12 @@ def work_words(name, cfg):
 
 
 def config_machines(cfg):
-    """Recorded machines; Enter opens their work marks.  Under them, each machine that copies this
-    one (standby.copies), whose row, as this host's, opens nothing, or under the rows why they
-    cannot be read.  Last, `+ add a machine` takes an ssh address, or with none typed finds those
-    that ran the line making a new machine one it adds (machines.join_line, under its field;
-    machines.found), and writes each to config.toml once it answers (machines.add), else says why
-    not."""
+    """Recorded machines; Enter opens their work marks and cap on runs at once.  Under them, each
+    machine that copies this one (standby.copies), whose row, as this host's, opens nothing, or
+    under the rows why they cannot be read.  Last, `+ add a machine` takes an ssh address, or with
+    none typed finds those that ran the line making a new machine one it adds (machines.join_line,
+    under its field; machines.found), and writes each to config.toml once it answers (machines.add),
+    else says why not."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def add_field(draw):
@@ -6355,13 +6355,41 @@ def config_machines(cfg):
                 return "this machine cannot build or review"
             return _saved(cfg, cfg, before)
 
+        def cap_field(draw):
+            typed = terminal.field("    ", "a whole number, or 0 for no limit",
+                                   around=lambda line: draw([line]))
+            if typed is None or terminal.is_esc(typed):
+                return ""
+            typed = typed.strip()
+            if typed:
+                if not re.fullmatch(r"[0-9]+", typed):
+                    return "runs at once must be a whole number, or 0 for no limit"
+                try:
+                    number = int(typed.lstrip("0") or "0")
+                except ValueError:
+                    return "runs at once must be a whole number, or 0 for no limit"
+            else:
+                number = 0
+            before = copy.deepcopy(cfg)
+            if number:
+                cfg.setdefault("machines", {}).setdefault(name, {})["max_runs"] = number
+            else:
+                named = cfg.get("machines")
+                table = named.get(name) if isinstance(named, dict) else None
+                if not isinstance(table, dict) or "max_runs" not in table:
+                    return ""
+                del table["max_runs"]
+            return _saved(cfg, cfg, before)
+
         def page():
             work = machines.work(name, cfg)
+            cap = machines.max_runs(name, cfg)
             config.load()       # as on Machines' own page
-            return [(label, [(on, "accent") if word in work else (off, "dim"),
-                             ("on" if word in work else "off", None)],
-                     ("mark", lambda word=word: flip(word)))
-                    for word, label in (("turns", "builds and reviews"), ("tests", "tests"))], ""
+            return [*((label, [(on, "accent") if word in work else (off, "dim"),
+                               ("on" if word in work else "off", None)],
+                       ("mark", lambda word=word: flip(word)))
+                      for word, label in (("turns", "builds and reviews"), ("tests", "tests"))),
+                    ("runs at once", "no limit" if cap is None else config.whole(cap), cap_field)], ""
 
         def open_page(draw):
             config_page(f"machines · {name}", page)
