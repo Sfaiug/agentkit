@@ -507,14 +507,13 @@ def earlier_findings(lp):
 
 
 def dispute_rows(lp):
-    """The disputes the round's fixer handed in, each once."""
-    rows = []
+    """The disputes the round's fixer handed in, one per disputed site, latest winning."""
+    rows = {}
     for file in lp.state.get("dispute_files", []):
         submitted = hand_in.read(file)
         for row in submitted.disputes if submitted is not None else ():
-            if row not in rows:
-                rows.append(row)
-    return rows
+            rows[row["path"], row["line"]] = row
+    return list(rows.values())
 
 
 def moved_lines(lp, path, line, since, head):

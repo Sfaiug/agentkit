@@ -8,12 +8,14 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, run, stop, transitions, turns, worker
+from agentkit import config, hand_in, history, ledger, prompts, run, stop, transitions, turns, worker
 from fixtures.hand_in import scripted, stateful
 
 FINDING = ["finding", "api.py:1", "feature disabled", "task requires the feature",
@@ -97,7 +99,7 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
                            "# Enable the feature and keep the answer correct", ["true"], "context")
 
-    def rounds(self, evidence, review_commands=None, extra_disputes=()):
+    def rounds(self, evidence, review_commands=None, extra_disputes=(), expected_why=WHY):
         if review_commands is None:
             review_commands = [["concede", "api.py:1", WHY]]
         plans = [
@@ -128,7 +130,7 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.assertIn("wrong answer", calls[2]["prompt"])
         self.assertIn("feature disabled", calls[2]["prompt"])
         self.assertIn("feature disabled", calls[3]["prompt"])
-        self.assertIn(WHY, calls[3]["prompt"])
+        self.assertIn(expected_why, calls[3]["prompt"])
         self.assertNotIn("## Disputes", calls[1]["prompt"])
         self.assertEqual((self.wt / "api.py").read_text(), "enabled = True\nanswer = 1\nuntouched = True\n")
         run.write_result(self.directory, self.lp.state, ["true"], cfg=self.cfg)
@@ -167,14 +169,60 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.assertNotIn("## Disputes", result)
         self.assertIn("no defect in loop proof", self.lp.state["notes"][0])
 
-    def test_every_dispute_reaches_the_next_review_and_the_conceded_list(self):
-        why = "The quoted assignment also proves it is enabled."
-        calls, result = self.rounds(["--run", PROOF], extra_disputes=[
-            ["dispute", "api.py:1", why, "--quote", "enabled = True"]])
+    def test_every_disputed_finding_reaches_the_next_review_and_the_conceded_list(self):
+        why = "The quoted assignment proves the answer is right."
+        calls, result = self.rounds(
+            ["--run", PROOF],
+            review_commands=[["concede", "api.py:1", WHY], ["concede", "api.py:2", why]],
+            extra_disputes=[["dispute", "api.py:2", why, "--quote", "answer = 1"]])
         self.assertEqual(len(hand_in.read(calls[2]["file"]).disputes), 2)
-        for text in (WHY, why, "proof from loop", "Quote:\n  enabled = True"):
+        for text in (WHY, why, "proof from loop", "Quote:\n  answer = 1"):
             self.assertIn(text, calls[3]["prompt"])
             self.assertIn(text, result)
+
+    def test_two_disputes_of_one_finding_keep_only_the_latest_and_count_once(self):
+        first = "The first dispute reason is replaced."
+        why = "The quoted assignment proves it is enabled."
+        calls, result = self.rounds(
+            ["--run", PROOF],
+            review_commands=[["concede", "api.py:1", "conceded"]],
+            extra_disputes=[["dispute", "api.py:1", why, "--quote", "enabled = True"]],
+            expected_why=why)
+        self.assertEqual(len(hand_in.read(calls[2]["file"]).disputes), 2)
+        self.assertEqual(len(self.lp.state["disputes"]), 1)
+        for text in (why, "Quote:\n  enabled = True"):
+            self.assertIn(text, calls[3]["prompt"])
+            self.assertIn(text, result)
+        for text in (WHY, "proof from loop"):
+            self.assertNotIn(text, calls[3]["prompt"])
+            self.assertNotIn(text, result)
+        # Across two dispute files (a handover), two reasons for one finding still count once.
+        earlier = self.directory / "first-turn"
+        later = self.directory / "second-turn"
+        earlier.mkdir()
+        later.mkdir()
+        finding = {"kind": "finding", "path": "api.py", "line": 1, "what": "fixture finding",
+                   "why": "fixture reason", "evidence": {"run": "false", "returncode": 1, "output": ""}}
+        listed = self.directory / "listed.json"
+        listed.write_text(json.dumps([finding]))
+        first_turn = hand_in.start(earlier, self.wt, role="fixer", findings=listed)
+        second_turn = hand_in.start(later, self.wt, role="fixer", findings=listed)
+        self.assertEqual(self.cli(first_turn, "dispute", "api.py:1", first, "--run", "true").returncode, 0)
+        self.assertEqual(self.cli(second_turn, "dispute", "api.py:1", why, "--run", "true").returncode, 0)
+        disputes = prompts.dispute_rows(SimpleNamespace(state={"dispute_files": [first_turn, second_turn]}))
+        self.assertEqual([row["why"] for row in disputes], [why])
+        now = time.time()
+        history._write(lambda db: db.execute(
+            "INSERT INTO runs (run_id, repo, kind, final_state, finished_at, changed_lines) "
+            "VALUES (?, ?, ?, ?, ?, ?)", ("fix-api", "acme", "task", "pass", now - 1, 1)))
+        options = dict(harness="codex", model="crux-2", effort="medium", followup=0, note=0)
+        history.record_review("fix-api", "round-1", blocking=1, round=1, verdict="FAIL",
+                              records=[finding], **options)
+        history.record_review("fix-api", "round-2", blocking=0, round=2, verdict="PASS",
+                              records=[dict(row, outcome="conceded") for row in disputes], **options)
+        team, = ledger.counted(until=now)["teams"]
+        self.assertEqual({key: team[key] for key in ("issues", "disputed", "taken_back")},
+                         {"issues": 1, "disputed": 1, "taken_back": 1})
 
     def cli(self, file, *args):
         return subprocess.run([sys.executable, str(REPO / "bin/ak"), "hand-in", *args],
