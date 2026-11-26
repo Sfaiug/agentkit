@@ -5,8 +5,11 @@ relaunch ties with), its orchestrator, executor and reviewer each a model at an 
 reviewer's its first review's).  Per team: its tasks, those merged on their first run, those
 merged on any, those whose first run's first review (round 1) passed, the reviews of a round
 over every run of them, their blocking issues summed, their answered disputes and those the
-reviewer took back (`conceded` or `dropped`), the hours every run of them spent, and the
-usage every run of them took by role (as `runs.usage`, tests/test_key_models_json_run_usage.py).
+reviewer took back (`conceded` or `dropped`), the hours every run of them spent, the usage
+every run of them took by role (as `runs.usage`, tests/test_key_models_json_run_usage.py), and,
+as `orchestrator`, of the `runs.seats` entry of its orchestrator's name and effort (of no name
+where it has no effort, whatever name it holds) its tasks over those of every team of that entry,
+`unrated` rounded half to even; an entry no team matches is in no team.
 A follow-up, a seat's own pull request and a task whose first run ended outside the window, or
 recorded no end, count nowhere, nor do its relaunches.
 
@@ -26,10 +29,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, NOW, boards
-from test_key_models_json_week_meters import HOUR, TABLES as BASE, THEN, WeekMeters
-
-METER_TABLES = {**BASE, "turn_usage": "run_id, role, " + BASE["turn_usage"]}
-EMPTY = {"executor": {"points": {}, "unrated": 0}, "reviewer": {"points": {}, "unrated": 0}}
+from test_key_models_json_week_meters import WeekMeters
+import test_key_models_json_run_usage as run_usage
+from test_key_models_json_run_usage import EMPTY, TABLES
 
 DAY = 86400
 # Each run: an hour of build, half of review, a quarter of checks and an hour waiting,
@@ -105,8 +107,9 @@ def history(home, runs, reviews, findings=None):
 
 
 def team(executor_effort, tasks, first_run, live, runs, first_pass, reviews, issues=0,
-         disputed=0, taken_back=0, reviewer_effort="medium", usage=EMPTY):
-    return {"orchestrator": {"name": "nova", "effort": "high"},
+         disputed=0, taken_back=0, reviewer_effort="medium", usage=EMPTY, orchestrator="nova",
+         orchestrator_effort="high"):
+    return {"orchestrator": {"name": orchestrator, "effort": orchestrator_effort},
             "executor": {"name": "bolt", "effort": executor_effort},
             "reviewer": {"name": "crux", "effort": reviewer_effort},
             "tasks": tasks, "first_run": first_run, "live": live,
@@ -208,15 +211,18 @@ class ModelsJsonCountsTasksByTeam(unittest.TestCase):
             team("max", 1, 1, 1, 1.0, 0, 2, 2, disputed=0, taken_back=0)])
 
 
+def took(points=None, unrated=0):
+    """A team's usage that took only `points` and `unrated` of its orchestrator's seats."""
+    return {**EMPTY, "orchestrator": {"points": points or {}, "unrated": unrated}}
+
+
 class ModelsJsonTeamUsage(WeekMeters):
-    def turn(self, ago, counts, model="anvil-1", account="default", harness="echo",
-             run_id="fix-api", role="executor"):
-        turn = (self.home.path / f".agentkit/runs/{run_id}/round-1"
-                / f"{role}-{len(self.rows['turn_usage'])}")
-        turn.mkdir(parents=True)
-        (turn / "harness").write_text(harness)
-        self.rows["turn_usage"].append((run_id, role, str(turn), account, model,
-                                        THEN - ago * HOUR, *counts))
+    seat, turn = run_usage.ModelsJsonRunUsage.seat, run_usage.ModelsJsonRunUsage.turn
+
+    def teams(self, runs):
+        """`runs`, each reviewed once in round 1, and `ak models --json`'s `runs`."""
+        history(self.home, runs, [(row["run_id"], 1, "medium") for row in runs])
+        return self.answer(TABLES)["runs"]
 
     def test_each_team_s_usage_sums_its_tasks_and_relaunches_not_follow_ups(self):
         # acme/Max: 100 pts/M for anvil-1; brine/Plus: 100/3 pts/M for bolt-1
@@ -262,12 +268,12 @@ class ModelsJsonTeamUsage(WeekMeters):
                   run_id="fix-api-again", role="reviewer")
         self.turn(35, (20_000, 0, 0, 0), run_id="fix-old-again", role="executor")
         history(self.home, runs, reviews)
-        found = self.answer(METER_TABLES)["runs"]
+        found = self.answer(TABLES)["runs"]
         self.assertCountEqual(found["teams"], [
-            team("max", 2, 2, 2, 2.0, 2, 2, usage={
+            team("max", 2, 2, 2, 2.0, 2, 2, usage={**EMPTY,
                 "executor": {"points": {"acme": {"Max": 10}}, "unrated": 2_000},
                 "reviewer": {"points": {"brine": {"Plus": 10.0033}}, "unrated": 0}}),
-            team("low", 1, 0, 1, 2.0, 1, 1, usage={
+            team("low", 1, 0, 1, 2.0, 1, 1, usage={**EMPTY,
                 "executor": {"points": {"brine": {"Plus": 10}}, "unrated": 0},
                 "reviewer": {"points": {}, "unrated": 3_000}}),
             team("high", 1, 1, 1, 1.0, 1, 1, usage=EMPTY)])
@@ -275,6 +281,42 @@ class ModelsJsonTeamUsage(WeekMeters):
             "executor": {"points": {"acme": {"Max": 17}, "brine": {"Plus": 10}}, "unrated": 3_000},
             "reviewer": {"points": {"brine": {"Plus": 11.0033}}, "unrated": 3_500},
             "orchestrator": {"points": {"acme": {"Max": 10}, "brine": {"Plus": 10}}, "unrated": 0}})
+
+    def test_one_orchestrator_s_seats_divide_over_its_teams_by_their_tasks(self):
+        # acme/Max: 100 pts/M for anvil-1; nova at high took 10 points and 2,002 unrated tokens
+        self.read(50, 10)
+        self.seat(45, 100_000, orchestrator="nova", effort="high")
+        self.read(40, 20)
+        self.seat(35, 2_002, model="anvil-9", orchestrator="nova", effort="high")
+        found = self.teams([run("fix-api", 5), run("fix-docs", 4), run("fix-cache", 3),
+                            run("fix-login", 2, executor_effort="low")])
+        # 3/4 and 1/4: 1,501.5 and 500.5 tokens, each rounded half to even
+        self.assertCountEqual(found["teams"], [
+            team("max", 3, 3, 3, 3.0, 3, 3, usage=took({"acme": {"Max": 7.5}}, 1_502)),
+            team("low", 1, 1, 1, 1.0, 1, 1, usage=took({"acme": {"Max": 2.5}}, 500))])
+
+    def test_teams_of_no_orchestrator_effort_share_the_seats_of_no_name(self):
+        self.read(50, 10)
+        self.seat(45, 100_000)                                  # no name, no effort: 10 points
+        self.read(40, 20)
+        self.seat(35, 3_000, orchestrator="nova")              # nova's, of no effort
+        found = self.teams([run("fix-api", 5, orchestrator_effort=None),
+                            run("fix-docs", 4, orchestrator="vega", orchestrator_effort=None),
+                            run("fix-cache", 3, orchestrator="vega", orchestrator_effort=None)])
+        self.assertCountEqual(found["teams"], [
+            team("max", 1, 1, 1, 1.0, 1, 1, orchestrator_effort=None,
+                 usage=took({"acme": {"Max": 3.33333}})),
+            team("max", 2, 2, 2, 2.0, 2, 2, orchestrator="vega", orchestrator_effort=None,
+                 usage=took({"acme": {"Max": 6.66667}}))])
+
+    def test_seats_no_team_matches_stay_in_seats_alone_and_a_team_none_matches_holds_zeros(self):
+        self.read(50, 10)
+        self.seat(45, 100_000, orchestrator="nova", effort="low")
+        self.read(40, 20)
+        found = self.teams([run("fix-api", 5)])                 # nova at high
+        self.assertEqual(found["teams"], [team("max", 1, 1, 1, 1.0, 1, 1, usage=took())])
+        self.assertEqual(found["seats"], [
+            {"name": "nova", "effort": "low", "points": {"acme": {"Max": 10}}, "unrated": 0}])
 
 
 if __name__ == "__main__":

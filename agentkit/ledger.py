@@ -71,6 +71,14 @@ def sum_seats(by_seat):
     return rows, total
 
 
+def _seat(team):
+    """The key of `week_meters.seat_usage` that `team`'s orchestrator's own turns are kept under:
+    neither its name nor its effort where it has no effort (`seat_tokens.orchestrating`)."""
+    orchestrator = team["orchestrator"]
+    return ((None, None) if orchestrator["effort"] is None
+            else (orchestrator["name"], orchestrator["effort"]))
+
+
 def counted(usage=None, seats=None, *, until=None):
     """{"since", "until", "teams", "sizes", "usage", "seats"}: the window; per team, most tasks
     first,
@@ -82,8 +90,10 @@ def counted(usage=None, seats=None, *, until=None):
     `findings` rows of those runs whose `outcome` is a text (`disputed`) and of them those
     `conceded` or `dropped` (`taken_back`), the hours every run of them spent (`HOURS`), and the
     `usage` (`week_meters.run_usage`'s) every run of them took by role, summed exactly, however it
-    ended or while it runs; per `SIZE` lines, smallest first, the same of the tasks whose size is
-    at most `upto` and over `upto` less SIZE, `lines_live` the sizes of those live summed;
+    ended or while it runs, and of its orchestrator's entry of `seats` (`_seat`) its tasks over
+    those of every team of that entry (`orchestrator`, `unrated` rounded half to even); per
+    `SIZE` lines, smallest first, the same of the tasks whose size is at most `upto` and over
+    `upto` less SIZE, `lines_live` the sizes of those live summed;
     `usage` over every run (`executor`, `reviewer`) and seat (`orchestrator`); and `seats`, per
     orchestrator and effort (`sum_seats`)."""
     until = time.time() if until is None else until
@@ -114,7 +124,8 @@ def counted(usage=None, seats=None, *, until=None):
         team = teams.setdefault(repr(roles), {
             **roles, "tasks": 0, "first_run": 0, "live": 0, "first_pass": 0, "reviews": 0,
             "issues": 0, "disputed": 0, "taken_back": 0, "hours": dict.fromkeys(HOURS, 0),
-            "usage": {role: {"points": {}, "unrated": 0} for role in USAGE_ROLES}})
+            "usage": {role: {"points": {}, "unrated": 0}
+                      for role in (*USAGE_ROLES, "orchestrator")}})
         team["first_run"] += history.merged(task[0])
         team["first_pass"] += bool(first_review and first_review["round"] == 1
                                    and first_review.get("verdict") == "PASS")
@@ -143,7 +154,18 @@ def counted(usage=None, seats=None, *, until=None):
             for part, columns in HOURS.items():
                 count["hours"][part] += sum(row.get(column) or 0
                                             for row in task for column in columns) / 3600
-    seat_rows, orch_usage = sum_seats(seats or {})
+    seats = seats or {}
+    # a seat's turn belongs to no task, so an orchestrator's divides evenly over the tasks it wrote
+    wrote = {}
+    for team in teams.values():
+        wrote[_seat(team)] = wrote.get(_seat(team), 0) + team["tasks"]
+    for team in teams.values():
+        points, unrated = seats.get(_seat(team), ({}, 0))
+        share = Fraction(team["tasks"], wrote[_seat(team)])
+        _add_usage(team["usage"]["orchestrator"],
+                   ({plan: value * share for plan, value in points.items()},
+                    round(unrated * share)))
+    seat_rows, orch_usage = sum_seats(seats)
     return {"since": since, "until": until,
             "teams": sorted(teams.values(), key=lambda team: -team["tasks"]),
             "sizes": [{"upto": upto, **count} for upto, count in sorted(sizes.items())],
