@@ -147,9 +147,11 @@ class MachinesOnC(unittest.TestCase):
                 self.term.wait("builds and reviews")
                 self.term.keys("Space")
                 self.term.wait("○ off")
-                machines = akconfig.read(self.home)["machines"]
-                self.assertEqual(machines["acme-mac"]["work"], ["turns", "tests"])
-                self.assertEqual(machines["acme-linux"]["work"], ["tests"])
+                cfg = akconfig.read(self.home)
+                self.assertEqual(cfg["machines"]["acme-mac"]["work"], ["turns", "tests"])
+                self.assertEqual(cfg["machines"]["acme-linux"]["work"], ["tests"])
+                # a table nothing reads is kept as it was
+                self.assertEqual(cfg["google_cloud"], {"active": True, "work": "all"})
                 self.term.keys("Escape")
                 self.leave()
                 self.home.write(".agentkit/state/machines.json", {
