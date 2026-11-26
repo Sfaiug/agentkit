@@ -2775,13 +2775,17 @@ def seat_rulebook(session, repo=None):
 def seat_numbers(session, numbers, *, workers=None):
     """The POLICY `numbers` as the seat `session` (or a run's captured `workers`) holds them:
     executor_lines 0 where it marks no builder, since `ak run` refuses every task, so its rules
-    say it builds each change itself.  Where orchestrator_lines is 0 too nobody could build, a
-    pair `_policy_in` refuses, so they stay as they are."""
+    say it builds each change itself; review_rounds 0 where it marks no reviewer, since each run
+    it launches lands on its checks (`record.review_off`).  Where orchestrator_lines is 0 too
+    nobody could build, a pair `_policy_in` refuses, so executor_lines stays as it is."""
+    record = session_records().get(session, {}) if session else {}
     if workers is None:
-        workers = session_records().get(session, {}).get("workers") if session else None
-    if workers != [] or numbers["orchestrator_lines"] == 0:
-        return numbers
-    return {**numbers, "executor_lines": 0}
+        workers = record.get("workers")
+    if workers == [] and numbers["orchestrator_lines"] != 0:
+        numbers = {**numbers, "executor_lines": 0}
+    if record.get("reviewers") == []:
+        numbers = {**numbers, "review_rounds": 0}
+    return numbers
 
 
 def rulebook_digest(data):
