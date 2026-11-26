@@ -7640,8 +7640,8 @@ def update_first(live=None, updates=None):
 
 def main(argv):
     """The menu.  `--overlay` is the popup inside a seat, and never leaves this machine: on a
-    client, which has no seat, it says whose client this is, in a tmux message that outlasts the
-    popup too (`orch.leave_message`), and exits 1.
+    client, which has no seat, it says whose client this is, on stdout and through
+    `orch.leave_message`, and exits 1.
 
     A popup is opened over tmux sessions that are here, so it neither hops to the server the
     way a client's menu does nor runs the maintenance that a menu opening a seat runs: reaping
@@ -7667,8 +7667,9 @@ def main(argv):
     if home and flags["--overlay"]:
         # The popup is the menu over a seat here, and a client's seats are on its home: a
         # standby's records of them are a copy of that home's, which its menu opened a second
-        # time on 22 Nov 2026.  Said in a tmux message too: what a popup prints goes with it.
-        said = f"this machine is a client of {home} and opens no seat: its seats are on {home}"
+        # time on 22 Nov 2026.  Said in a tmux message too, as what a popup prints goes with it,
+        # and the home first, as tmux cuts a message at its terminal's width.
+        said = f"{home} has the seats: this machine is its client and opens none"
         print(said)
         orch.leave_message(said)
         return 1

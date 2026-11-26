@@ -2402,14 +2402,23 @@ def inside(session):
 
 
 def leave_message(text):
-    """`text` as a tmux message: on the status line of the client this process is under, the one
-    `attach` would switch, until a key is pressed there.  It outlives the process, and a popup
-    tmux takes down as its command ends; outside tmux there is no client to leave it with."""
-    if os.environ.get("TMUX"):
-        named = os.environ.get(CLIENT_ENV)
-        # tmux reads a message as a format and as a time: its `#` and its `%` double
-        tmux_out("display-message", *(("-c", named) if named else ()), "-d", "0",
-                 tmux_text(text).replace("%", "%%"), socket="", client=True)
+    """`text` as a tmux message: on the status line of the client this process's popup is on, until
+    a key is pressed there, so it outlasts the popup, which tmux takes down as its command ends.
+    That client is the one the popup names (CLIENT_ENV); a popup that names none, as a tmux before
+    FLOATS opens it, leaves its message only where the server has one client.  Outside tmux there
+    is no client."""
+    if not os.environ.get("TMUX"):
+        return
+    named = os.environ.get(CLIENT_ENV)
+    if not named:
+        # the pick is tmux's then, the client last active, and it can be told no other: 3.2a's
+        # `display-message` refuses `-c`
+        rc, clients = tmux_out("list-clients", "-F", "#{client_name}", socket="", client=True)
+        if rc != 0 or len(clients.splitlines()) != 1:
+            return
+    # tmux reads a message as a format and as a time: its `#` and its `%` double
+    tmux_out("display-message", *(("-c", named) if named else ()), "-d", "0",
+             tmux_text(text).replace("%", "%%"), socket="", client=True)
 
 
 def seen_by_user(name, session=None):
