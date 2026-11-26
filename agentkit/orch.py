@@ -101,21 +101,23 @@ CLIENT_ENV = "AGENTKIT_CLIENT"
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
 # opens over: `b` and `m`, the border and dim colours, are asked as the key is pressed (`roles`,
 # themes.py run bare), so the popup's border and the pane are in the theme a menu kept last
-# then; the first popup over it keeps each style the pane has of its own, if it has one (`h`),
-# every one counts itself in, the pane draws in `m`, the popup is held until it is down, and the
-# last one down puts back exactly what the pane had.  Both styles go dim, because tmux draws
-# the active pane in `window-active-style`'s colour over `window-style`'s.  Each step holds the
-# pane's own tmux lock, so two popups over one pane never count, keep or put back over each
-# other, and every lock is let go by a command of its own, which a command failing before it
-# cannot skip.  The pane goes dim beside the popup coming up, not before it, and the popup
-# down waits for it to have; every call is the real tmux (`guard.real`), since the shim a
-# seat's PATH starts with costs each a Python start, and the key waited on all of them.  It
-# ends in `true` whatever failed (a pane stopped under it), because tmux shows a job that ends
-# otherwise over the pane.
+# then -- where the look reads on the colour kept, the border the look's on that colour, a third
+# word, which the popup is handed (`tmux_conf`); the first popup over it keeps each style the
+# pane has of its own, if it has one (`h`), every one counts itself in, the pane draws in `m`,
+# the popup is held until it is down, and the last one down puts back exactly what the pane had.
+# Both styles go dim, because tmux draws the active pane in `window-active-style`'s colour over
+# `window-style`'s.  Each step holds the pane's own tmux lock, so two popups over one pane never
+# count, keep or put back over each other, and every lock is let go by a command of its own,
+# which a command failing before it cannot skip.  The pane goes dim beside the popup coming up,
+# not before it, and the popup down waits for it to have; every call is the real tmux
+# (`guard.real`), since the shim a seat's PATH starts with costs each a Python start, and the
+# key waited on all of them.  It ends in `true` whatever failed (a pane stopped under it),
+# because tmux shows a job that ends otherwise over the pane.
 FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
          'o() { tmux show-options -pqv -t "$p" "$1"; }; '
          'h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; '
-         'l() { tmux wait-for "$1" "ak-float$p"; }; set -- $(%(roles)s); b="fg=#$1" m="fg=#$2"; '
+         'l() { tmux wait-for "$1" "ak-float$p"; }; '
+         'set -- $(%(roles)s); b="fg=#$1${3:+,bg=#$3}" m="fg=#$2"; '
          '{ l -L; n=$(o @ak_floats); '
          'for s in window-style window-active-style; do '
          'if [ -z "$n" ] && h $s; then tmux set-option -p -t "$p" @ak_was_$s "$(o $s)"; fi; '
@@ -1164,12 +1166,13 @@ def tmux_env(client=False):
     and the server named on the command line is the only one that can be reached.  Only
     `switch-client` keeps it, because without it there is no client to switch.  The mark goes
     from every one (`owner`), and so does the version a run is pinned to (`versions.unpinned`),
-    and the popup's client (CLIENT_ENV): any may start a server, whose global environment is the
-    starting client's, a pane takes the PATH of the client that spawns it, and both outlive the
-    caller.
+    and the popup's client (CLIENT_ENV) and the colour it was handed (`terminal.BACKGROUND_ENV`):
+    any may start a server, whose global environment is the starting client's, and a popup
+    handed none takes it; a pane takes the PATH of the client that spawns it, and both outlive
+    the caller.
     """
     return {k: v for k, v in versions.unpinned(owner.unmarked()).items()
-            if k != CLIENT_ENV and (client or k != "TMUX")}
+            if k not in (CLIENT_ENV, terminal.BACKGROUND_ENV) and (client or k != "TMUX")}
 
 
 def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
@@ -2153,7 +2156,9 @@ def server_conf():
 
     The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
     popup, and says nothing): a rounded border in the theme's border with ` agentkit ` set into
-    its top edge, a column and a row of padding inside it -- the menu's to leave, since tmux
+    its top edge, where the look reads on the colour a menu kept the look's border on that colour,
+    which its menu is handed to draw in (`terminal.BACKGROUND_ENV`), so frame and menu are of the
+    key's one read; a column and a row of padding inside it -- the menu's to leave, since tmux
     pads nothing (`terminal.inset`) -- and none on a phone, which spares no cell.  While it is up
     the pane it opened over draws its default text dim (FLOAT).  The popup is opened from a
     `run-shell` job rather than by the binding, because a binding's commands are its client's
@@ -2166,8 +2171,9 @@ def server_conf():
         border = f'-b rounded -S "$b" -T {shlex.quote(POPUP_TITLE)}'    # FLOAT's border
         roles = shlex.join([sys.executable, "-S", "-I", str(versions.live() / "agentkit" /
                                                             "themes.py"),
-                            str(config.HOME / config.CONFIG_NAME), "border", "dim"])
-        handed = f'-e "{terminal.FEATURES_ENV}=$f" -e "{CLIENT_ENV}=$c"'
+                            str(config.HOME / config.CONFIG_NAME), "look", "border", "dim"])
+        handed = (f'-e "{terminal.FEATURES_ENV}=$f" -e "{CLIENT_ENV}=$c" '
+                  f'${{3:+-e {terminal.BACKGROUND_ENV}=$3}}')
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "
                                         "f='#{client_termfeatures}'; " + tmux_text(

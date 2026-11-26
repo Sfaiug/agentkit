@@ -39,7 +39,7 @@ type Keyboard struct {
 	taken   bool
 	screen  bool
 	sensed  Screen
-	fits    bool   // the terminal said its background, which sensed's theme fits; else the kept one
+	fits    bool   // the terminal said its background, or a popup was handed one, which sensed fits
 	keyed   []byte // what was read past a key, or typed while Sense waited
 	unread  []Key  // keys a wait read and kept for the screen after it (Unread)
 	woken   [2]*os.File
@@ -94,9 +94,10 @@ func (k *Keyboard) give(modes string) {
 // which takes a process), and whether its background is light, by its answer to OSC 11 within a
 // second, as a busy host can take most of one to pass it on, the answer kept for what cannot ask
 // (keep), and whether the look reads on it (lookOn), but in a popup over a seat, painted whatever
-// it answers and inset by AGENTKIT_PADDING, as Python's terminal.screens and terminal.sense.  DA1,
-// which every terminal answers and in turn, ends the wait with the answers.  Anything typed
-// meanwhile is kept for ReadKey.
+// it answers -- in the look on the colour Ctrl-b m read kept, where it handed one (Background),
+// which a frame up is then drawn for -- and inset by AGENTKIT_PADDING, as Python's
+// terminal.screens and terminal.sense.  DA1, which every terminal answers and in turn, ends the
+// wait with the answers.  Anything typed meanwhile is kept for ReadKey.
 func (k *Keyboard) Sense(popup bool) {
 	features, set := os.LookupEnv("AGENTKIT_TERMFEATURES")
 	if !set && os.Getenv("TMUX") != "" { // asked of the client this runs under, $TMUX kept
@@ -120,17 +121,22 @@ func (k *Keyboard) Sense(popup bool) {
 	k.fits = false
 	if said != nil {
 		background = string(heard[said[2]:said[3]])
-		rgb, light := backgroundOf(background)
-		if light {
-			in = white
-		}
+		rgb, theirs := backgroundOf(background)
 		if k.fits = rgb != ""; k.fits {
-			keep(in)
+			in = theirs
+			keep(in, rgb)
 		}
 		if k.fits && !popup {
 			reading = lookOn(rgb, in)
 		}
 		heard = append(heard[:said[0]:said[0]], heard[said[1]:]...)
+	}
+	handed := ""
+	if popup {
+		handed = os.Getenv(Background)
+	}
+	if theirs, ok := themeOfRGB(handed); ok {
+		in, k.fits, background, reading = theirs, true, handed, lookOn(handed, theirs)
 	}
 	if at := attributesSaid.FindIndex(heard); at != nil {
 		heard = append(heard[:at[0]:at[0]], heard[at[1]:]...)
@@ -142,7 +148,7 @@ func (k *Keyboard) Sense(popup bool) {
 			pad = wanted
 		}
 	}
-	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), pad: pad, ascii: !utf8(), theme: in, background: background, own: reading}
+	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), pad: pad, ascii: !utf8(), theme: in, background: background, own: reading, popup: popup}
 }
 
 // Screen is what Sense found, at the size the terminal is now, in the theme its background fits,

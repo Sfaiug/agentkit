@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,31 +22,61 @@ const (
 	white
 )
 
-// keptAt is where a menu keeps the shades its terminal's background fits, as Python's
-// config.STATE / themes.KEPT: `light`, else `dark`.
+// keptAt is where a menu keeps its terminal's answer, as Python's config.STATE / themes.KEPT:
+// `light` or `dark`, then the colour it named (keep).
 func keptAt() string { return filepath.Join(config.Home(), "state", "background") }
 
-// kept is the shades the answer a menu kept last fits, as its file is now (Python's themes.fits):
-// white's where it says `light`, else black's, as on a machine no menu has asked yet.  Every draw
-// asks, so nothing that draws for hours, a seat's bar among them, keeps an answer kept before.
-func kept() theme {
-	if said, err := os.ReadFile(keptAt()); err == nil && strings.TrimSpace(string(said)) == "light" {
+// said is the words kept at keptAt, as Python's themes.said: the colour none where a release
+// before this kept the word alone, nothing where nothing is kept.
+func said() []string {
+	read, _ := os.ReadFile(keptAt())
+	return strings.Fields(string(read))
+}
+
+// kept is the shades the answer a menu kept last fits, as its file is now (fits): every draw asks,
+// so nothing that draws for hours, a seat's bar among them, keeps an answer kept before.
+func kept() theme { return fits(said()) }
+
+// fits is the shades an answer kept fits, words what it says (said), as Python's themes.fits:
+// white's where the first is `light`, else black's, as on a machine no menu has asked yet.
+func fits(words []string) theme {
+	if len(words) > 0 && words[0] == "light" {
 		return white
 	}
 	return black
 }
 
-// keep keeps the shades a terminal's answer fits for what cannot ask (kept): moved in whole from
-// a file of its own, so menus keeping theirs at once each leave a whole one.  Where it cannot,
-// what cannot ask stays in the shades kept before.
-func keep(fits theme) {
+// themeOf is the theme a background fits whose channels, each from 0 to 1, are these, as Python's
+// themes.theme_of: white's where its luma is past half way, else black's.
+func themeOf(red, green, blue float64) theme {
+	if 0.2126*red+0.7152*green+0.0722*blue > 0.5 {
+		return white
+	}
+	return black
+}
+
+// themeOfRGB is the theme a background of rgb, rrggbb, fits (themeOf), as Python's
+// themes.theme_of_rgb; false where rgb is no such colour.
+func themeOfRGB(rgb string) (theme, bool) {
+	channel, err := hex.DecodeString(rgb)
+	if err != nil || len(channel) != 3 {
+		return black, false
+	}
+	return themeOf(float64(channel[0])/255, float64(channel[1])/255, float64(channel[2])/255), true
+}
+
+// keep keeps a terminal's answer for what cannot ask: the shades it fits, in (kept), and after
+// them its colour, rgb, `light ffffff`, for Ctrl-b m to hand its menu (InLook).  Moved in whole
+// from a file of its own, so menus keeping theirs at once each leave a whole one.  Where it
+// cannot, what cannot ask stays in the shades kept before.
+func keep(in theme, rgb string) {
 	at := keptAt()
 	os.MkdirAll(filepath.Dir(at), 0o700) // owner-only, as Python's config.ensure_dirs makes them
 	part, err := os.CreateTemp(filepath.Dir(at), ".background-")
 	if err != nil {
 		return
 	}
-	_, err = part.WriteString([]string{black: "dark\n", white: "light\n"}[fits])
+	_, err = part.WriteString([]string{black: "dark ", white: "light "}[in] + rgb + "\n")
 	if closed := part.Close(); err != nil || closed != nil || os.Rename(part.Name(), at) != nil {
 		os.Remove(part.Name())
 	}

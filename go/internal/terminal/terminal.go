@@ -53,23 +53,23 @@ func colourOf(word string, in theme) string { return roles[roleOf(word)][in] }
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
 
-// backgroundOf is the colour an answer names, rrggbb, "" where it names none to tell, and whether
-// its luma is past half way.
-func backgroundOf(answer string) (rgb string, light bool) {
+// backgroundOf is the colour an answer names, rrggbb, "" where it names none to tell, and the theme
+// it fits, its channels as it said them (themeOf).
+func backgroundOf(answer string) (rgb string, in theme) {
 	found := backgroundRGB.FindStringSubmatch(answer)
 	if found == nil {
-		return "", false
+		return "", black
 	}
 	var channel [3]float64
 	for i, part := range found[1:] {
 		value, err := strconv.ParseUint(part, 16, 64)
 		if err != nil {
-			return "", false
+			return "", black
 		}
 		channel[i] = float64(value) / (math.Pow(16, float64(len(part))) - 1)
 		rgb += fmt.Sprintf("%02x", int(math.RoundToEven(channel[i]*255)))
 	}
-	return rgb, 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5
+	return rgb, themeOf(channel[0], channel[1], channel[2])
 }
 
 // trueColour is whether a tmux client's features say it takes true colour, as tmux and ssh both
@@ -108,6 +108,7 @@ type Screen struct {
 	theme                     theme
 	background                string // the terminal's answer to OSC 11 (Sense), "" where it gave none
 	own                       own    // where the look reads on the terminal's own background (lookOn)
+	popup                     bool   // a popup over a seat: painted whatever it answers (Sense)
 }
 
 // For is out as a screen that never asks its terminal what it is: in the shades kept (kept).

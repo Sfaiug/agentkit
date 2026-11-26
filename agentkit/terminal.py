@@ -17,7 +17,7 @@ from functools import lru_cache, wraps
 from itertools import groupby
 
 from . import config, guard, motion, reads, warm
-from .themes import BLACK, KEPT, ROLES, WHITE, fits
+from .themes import BLACK, KEPT, ROLES, WHITE, fits, said, theme_of, theme_of_rgb
 
 # glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
@@ -55,6 +55,7 @@ _BACKGROUND = ""   # ... and that answer, "" where it gave none: what a frame up
 LOOK = None        # ... each role's colour where the look reads on its background (reads.look)
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
+BACKGROUND_ENV = "AGENTKIT_BACKGROUND"   # ... and the colour kept, where the look reads on it
 _PAD = 0           # ... and those this process leaves (`inset`)
 _POPUP = False     # ... and whether it is a popup over a seat: painted whatever it answers
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
@@ -97,7 +98,7 @@ def kept():
         return BLACK
     stamp = (path, seen.st_ino, seen.st_mtime_ns, seen.st_size)
     if _KEPT[0] != stamp:
-        _KEPT[:] = stamp, fits(path)
+        _KEPT[:] = stamp, fits(said(path))
     return _KEPT[1]
 
 
@@ -252,9 +253,10 @@ class _Screen:
 
 
 def _painted(text):
-    """`text` on the background of the theme in force, none where the look reads (`LOOK`), in
-    its text where it sets no colour (`_Screen`)."""
-    back, fore = "49" if LOOK else ink(colour("background"), "48"), ink(colour("text"), "38")
+    """`text` on the background of the theme in force, none where the look reads (`LOOK`) but in
+    a popup, which paints the one it was handed, in its text where it sets no colour (`_Screen`)."""
+    back = "49" if LOOK and not _POPUP else ink(colour("background"), "48")
+    fore = ink(colour("text"), "38")
     again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
 
     def put_back(code):
@@ -272,7 +274,8 @@ def _painted(text):
 def screens(popup=False):
     """Where stdout is a terminal, this process's screens leave for it through `_Screen`, painted;
     in a `popup`, inside the cells it asks for (PAD_ENV) to be left blank inside its border, and
-    in its theme whatever its terminal answers (`sense`).
+    painted whatever its terminal answers, in the look on the colour it was handed, else in its
+    theme (`sense`).
 
     tmux 3.5a borders a popup but pads nothing inside the border, so the screens leave the
     padding themselves: they lay out to the room inside it (`width`, `height`), what they write
@@ -1074,7 +1077,11 @@ def sense():
     `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
     back up where it was drawn for what it found (`_last_frame`), the hold it was given back under
     hiding the wait.  LOOK is the look on the background it answered, where it reads
-    (`reads.look`), but in a popup over a seat (`screens`), painted whatever it answers.
+    (`reads.look`), but in a popup over a seat (`screens`), painted whatever it answers: in the
+    look on the colour `Ctrl-b m` read kept as it was pressed, where it handed one
+    (BACKGROUND_ENV), which a frame up is then drawn for; else in its theme.  It is handed the
+    colour, never reading it itself, so the popup's frame, which the key drew from that read, and
+    the menu are of one read, whatever is kept meanwhile, a start in place (`hand_on`) too.
     """
     global _RGB, THEME, _BACKGROUND, LOOK, _KEYED
     features = os.environ.get(FEATURES_ENV)
@@ -1107,23 +1114,28 @@ def sense():
     THEME = LOOK = None
     if colour:
         red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
-        THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK  # luma
-        _keep(THEME)
-        LOOK = None if _POPUP else reads.look(
-            bytes(round(c * 255) for c in (red, green, blue)).hex(), THEME)
+        THEME = theme_of(red, green, blue)
+        rgb = bytes(round(c * 255) for c in (red, green, blue)).hex()
+        _keep(THEME, rgb)
+        LOOK = None if _POPUP else reads.look(rgb, THEME)
+    handed = os.environ.get(BACKGROUND_ENV, "") if _POPUP else ""
+    if theme_of_rgb(handed) is not None:
+        _BACKGROUND, THEME = handed, theme_of_rgb(handed)
+        LOOK = reads.look(handed, THEME)
     _last_frame()
 
 
-def _keep(theme):
-    """The theme the terminal's answer fits, kept for what cannot ask (`kept`): moved in whole
-    from a file of its own, so menus keeping theirs at once each leave a whole one."""
+def _keep(theme, rgb):
+    """The terminal's answer kept for what cannot ask: the `theme` it fits (`kept`), and after
+    it the colour, `rgb`, `light ffffff`, for Ctrl-b m to hand its menu (themes.py).  Moved in
+    whole from a file of its own, so menus keeping theirs at once each leave a whole one."""
     part = None
     try:
         for place in (os.path.dirname(config.STATE), config.STATE):   # owner-only: ensure_dirs
             os.makedirs(place, mode=0o700, exist_ok=True)
         handle, part = tempfile.mkstemp(dir=config.STATE, prefix=f".{KEPT}-")     # 0600
         with os.fdopen(handle, "w", encoding="utf-8") as file:
-            file.write("light\n" if theme == WHITE else "dark\n")
+            file.write(f"{'light' if theme == WHITE else 'dark'} {rgb}\n")
         os.replace(part, os.path.join(config.STATE, KEPT))
     except OSError:          # nothing kept: what cannot ask stays in the one kept before
         if part:
