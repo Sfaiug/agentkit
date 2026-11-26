@@ -58,6 +58,7 @@ from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity,
     slugify, stopped, tool_env, tool_run, with_suite)
 
 _PICKUP_START = None    # the version this queued launch was judged on
+_CHECKOUT_CHECKED_ENV = "AK_CHECKOUT_CHECKED"   # run_dir whose pre-slot checkout check already ran
 
 
 def ignore_time_keys(run_dir, meta, log):
@@ -2140,7 +2141,7 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
     already_checked = (
         bool(existing and existing.get("state") == "running"
              and existing.get("pid") == os.getpid())
-        or len(os.environ.get(waiter.SLOT_WAIT_ENV, "").split()) == 2
+        or os.environ.get(_CHECKOUT_CHECKED_ENV) == str(run_dir)
     )
     sampler = history.Sampler(run_dir.name, log=log)
     stop_after_finally = False
@@ -2148,7 +2149,9 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
     try:
         if prior and not job and not already_checked:
             require_checkout(prior, blocking=False)
+            os.environ[_CHECKOUT_CHECKED_ENV] = str(run_dir)
         with run_slot(run_dir, prior):
+            os.environ.pop(_CHECKOUT_CHECKED_ENV, None)
             state = job() if job else loop(cfg, run_dir, run_dir / "task.md", opts, log, prior)
     except run_record.StopRequested:
         # A stop landed mid-attempt: the disk already says `stopped`, so there is
@@ -2215,6 +2218,7 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
         stop_after_finally = True
         return 2
     finally:
+        os.environ.pop(_CHECKOUT_CHECKED_ENV, None)
         sampler.stop()
         sampler.join(timeout=2)
         # the loop's work ends here however it ended, parked or killed with no receipt of it
