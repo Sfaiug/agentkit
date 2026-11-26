@@ -90,12 +90,10 @@ UNTESTED_LINE = ("The suite of {checkout} reports no tests to ak: {runner}. Writ
 def untested(name):
     """UNTESTED_LINE naming the first checkout `suite_times.unreported` names -- the one the
     seat is filed under, as its session's record holds it (`repo`), and then each checkout a
-    done line of its plan names (`plan.place`, and any symlink under `config.CODE` to that
-    same checkout whose name differs, since `plan.named` resolves symlinks while history
-    records the name a run was launched under), in the plan's order, each checkout asked once
-    -- where the seat's plan holds done work and no open line, else None.  Its callers send it
-    back at every such turn's end, past nothing that ends a turn first (`recorded_ending`), and
-    keep nothing, so it stops by itself once that no longer holds."""
+    done line of its plan names (`plan.place`), in the plan's order, each asked once -- where
+    the seat's plan holds done work and no open line, else None.  Its callers send it back at
+    every such turn's end, past nothing that ends a turn first (`recorded_ending`), and keep
+    nothing, so it stops by itself once that no longer holds."""
     from . import plan, suite_times
     try:
         repo = (config.session_record(config.resolve_session(name)) or {}).get("repo")
@@ -108,26 +106,12 @@ def untested(name):
     def same(path):
         try:
             return Path(path).resolve()
-        except (OSError, ValueError):
+        except (OSError, RuntimeError, ValueError):
             return Path(path)
-
-    def code_links():
-        found = {}
-        try:
-            entries = sorted(config.CODE.iterdir())
-        except OSError:
-            return found
-        for entry in entries:
-            try:
-                if entry.is_symlink():
-                    found.setdefault(entry.resolve(), []).append(entry)
-            except OSError:
-                continue
-        return found
 
     def checkouts():
         yield repo
-        seen, links = {same(repo)}, None
+        seen = {same(repo)}
         for project in dict.fromkeys(found["project"] for line in text
                                      if (found := plan.LINE.match(line.strip()))):
             checkout = plan.place(name, project)
@@ -138,13 +122,6 @@ def untested(name):
                 continue
             seen.add(key)
             yield str(checkout)
-            if links is None:
-                links = code_links()
-            tried = {checkout.name}
-            for alias in (key, *links.get(key, ())):
-                if alias.name not in tried:
-                    tried.add(alias.name)
-                    yield str(alias)
 
     for checkout in checkouts():
         if suite_times.unreported(checkout):
