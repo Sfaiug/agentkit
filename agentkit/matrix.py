@@ -760,6 +760,24 @@ def dumped(value, at="\n"):
     return json.dumps(value, allow_nan=False)
 
 
+def counted(cfg, until=None):
+    """`(runs, plans, paid)` over the ledger's window ending at `until` (now): the shared week
+    meters read once, models' rates fitted from them, runs' and seats' usage valued at those rates,
+    the ledger counted with both (`ledger.counted`), the plans summed (`by_plan`), and each plan's
+    monthly price (`money.month`)."""
+    # here, not at the top: the boards and the screen need no database
+    from . import ledger, money, week_meters
+    until = time.time() if until is None else until
+    since = until - ledger.WINDOW
+    meters = week_meters.shared_weeks(cfg, since, until)
+    days = week_meters.days(cfg, since, until, meters=meters)
+    fits = rates.fitted(days)
+    plans = by_plan(days, fits)
+    by_run = week_meters.run_usage(cfg, since, until, fits, meters=meters)
+    by_seat = week_meters.seat_usage(cfg, since, until, fits, meters=meters)
+    return ledger.counted(by_run, by_seat, until=until), plans, money.month(cfg, plans)
+
+
 def main(argv):
     if command_help.show("models", argv):
         return 0
@@ -773,18 +791,9 @@ def main(argv):
     logins, shares = _task_usage(cfg)
     found = answer(rows, marked, cfg=cfg, task_usage=(logins, shares))
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
-    # here, not at the top: the boards and the screen need no database
-    from . import ledger, money, own, week_meters
-    until = time.time()
-    since = until - ledger.WINDOW
-    meters = week_meters.shared_weeks(cfg, since, until)
-    days = week_meters.days(cfg, since, until, meters=meters)
-    fits = rates.fitted(days)
-    plans = by_plan(days, fits)
-    by_run = week_meters.run_usage(cfg, since, until, fits, meters=meters)
-    by_seat = week_meters.seat_usage(cfg, since, until, fits, meters=meters)
-    runs = ledger.counted(by_run, by_seat, until=until)
-    mine, paid = own.by_role(runs["teams"], team_now(cfg, seat)), money.month(cfg, plans)
+    from . import own       # here, not at the top: the boards and the screen need no database
+    runs, plans, paid = counted(cfg)
+    mine = own.by_role(runs["teams"], team_now(cfg, seat))
     if "--json" in flags:
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
