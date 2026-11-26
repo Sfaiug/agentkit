@@ -207,6 +207,12 @@ class ModelsOwnTables(unittest.TestCase):
         self.assertEqual(shown[at:at + 9], [
             "BUILDER", "■ Bolt 3 max", "  tasks 44", "  went live 52%",
             "  passed 1st review", "  36%", "  reviews 2.1", "  time 5.3 h", "  usage -"])
+        # a number wider than the screen is cut, its lines kept under its row's
+        with home_of([("now", 20, 20, {"executor_seconds": 2.0 ** 200 * 3600})]) as home:
+            shown = self.own(40, home)
+        at, hours = shown.index("  time"), f"{2 ** 200}.0"
+        self.assertEqual(shown[at:at + 4], ["  time", f"  {hours[:38]}", f"  {hours[38:]} h",
+                                            "  usage -"])
 
     def test_false_alarms_are_the_share_of_a_reviewer_s_issues_it_took_back(self):
         # crux's 20 tasks each fail once on 2 issues, of the 40 one conceded, one dropped and

@@ -213,8 +213,8 @@ def named(cfg, row):
 def told(said, room):
     """A folded row's (column's name, its text) pairs, each text after its name, two cells in and
     as many to a line as fit: the indent gives way before a number is parted from its name, and
-    one too wide for the screen goes on at its words on lines of its own, two in where each word
-    fits there, never past `room`."""
+    one too wide for the screen goes on at its words on lines of its own, two in, the indent
+    giving way before a word that fits the screen is cut, never past `room`."""
     lines, joins = [], False    # whether the last line takes another pair
     for head, text in said:
         part = f"{terminal.styled(head, 'muted')} {text}"
@@ -226,7 +226,9 @@ def told(said, room):
             lines.append(" " * min(2, room - terminal.cells(part)) + part)
             joins = lines[-1].startswith("  ")
         else:
-            lead = "  " if all(terminal.cells(word) <= room - 2 for word in part.split()) else ""
+            widest = max((terminal.cells(word) for word in part.split()
+                          if terminal.cells(word) <= room), default=0)
+            lead = " " * min(2, room - widest)
             lines += [lead + line for line in terminal.wrap(part, room - len(lead))]
             joins = False
     return lines
