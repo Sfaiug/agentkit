@@ -37,6 +37,7 @@ ROWS = ["Claude Code",
         "  Done check  on · the seat's reviewer",
         "  Machines    1 machine",
         "  Limits      review 3 rounds · executor 300 lines · orchestrator 50 lines · extra 2 rounds",
+        "  Money       $ US dollars",
         ""]
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # a seat's, on a mark
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   c config   esc leave"

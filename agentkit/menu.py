@@ -141,7 +141,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, ledger, logins, look, machines, open_runs, parsed, record
+from . import done_check, ledger, logins, look, machines, money, open_runs, parsed, record
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -3133,11 +3133,12 @@ def show_notices(messages):
 # The rows under the models, each running its own step.  Owner, 10 Nov 2026: "Remove the weekly
 # audit feature for now. Dont delete it, but remove it."  `Weekly audit` (AUDIT), its value
 # audit_value's, stood between `Discord` and `Done check`.
-CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Done check", "Machines", "Limits")
+CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Done check", "Machines", "Limits", "Money")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
 DONE_CHECK = ("row", "Done check")   # on or off, and the model that makes it (done_check.setting)
 MACHINES = ("row", "Machines")
 LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
+MONEY = ("row", "Money")         # the currency prices are in (config_money)
 # The config.POLICY numbers on `Limits`: each one's name there, how `Limits`' value on `c` says
 # it, before the number and its unit after, None where `c` leaves it out, and the steps ← and →
 # move it through (limit_step), None where they count by one from 0 with no top, as config.toml
@@ -4381,7 +4382,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
     A model `providers` read as spent is dim.  Then `Models`,
-    `Subscriptions`, `Discord`, `Done check`, `Machines` and `Limits` with
+    `Subscriptions`, `Discord`, `Done check`, `Machines`, `Limits` and `Money` with
     their values, unless `rows` is empty (a new session's screen).  A row is `("model", name)`
     or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
@@ -4492,7 +4493,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     if not rows:
         return lines, places
     lines.append("")
-    values = ("", "", discord_value(), done_check_value(cfg), machines_value(), limits_value(cfg))
+    values = ("", "", discord_value(), done_check_value(cfg), machines_value(), limits_value(cfg),
+              money_value(cfg))
     # the values line up past the widest row that has one
     wide = max(terminal.cells(row) for row in CONFIG_ROWS[2:])
     for row, value in zip(CONFIG_ROWS, values):
@@ -4999,6 +5001,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                         config_machines(cfg)
                     elif here == LIMITS:
                         config_limits(cfg)
+                    elif here == MONEY:
+                        config_money(cfg)
                     else:
                         config_discord()
             elif act in ("left", "right"):
@@ -6110,11 +6114,11 @@ def audit_names(cfg, names):
 
 def setting(cfg, page, table, read):
     """What `c`'s page `page` shows of `[table]` in config.toml and how it writes it, as `read`
-    (config.audit, done_check.setting) takes the table: the setting, else the one left once each
-    key `read` cannot take on its own is dropped, so the first change mends a table nothing
-    reads, and one that is not a table keeps nothing; why `read` takes none, or ""; and
-    `write(key, value)`, which sets `key` to `value`, or takes it out for None, beside the keys
-    kept and saves it, `cfg` with it (_saved), once `read` takes it, else writes nothing and
+    (config.audit, done_check.setting, money.currency) takes the table: the setting, else the
+    one left once each key `read` cannot take on its own is dropped, so the first change mends a
+    table nothing reads, and one that is not a table keeps nothing; why `read` takes none, or "";
+    and `write(key, value)`, which sets `key` to `value`, or takes it out for None, beside the
+    keys kept and saves it, `cfg` with it (_saved), once `read` takes it, else writes nothing and
     returns why, else ""."""
     held, kept = cfg.get(table), {}
     for key, value in held.items() if isinstance(held, dict) else ():
@@ -6224,6 +6228,28 @@ def config_done_check(cfg):
                 ("Model", checker_name(cfg, held["model"]), (choices, False))], \
             "\n".join(filter(None, (why, DONE_CHECK_NOTE)))
     config_page("done check", page)
+
+
+# What each currency `[money] currency` may name (money.TABLES) is called, after its sign.
+CURRENCY_NAMES = {"USD": "US dollars", "EUR": "euros"}
+
+
+def money_value(cfg):
+    """`Money`'s value, and its page's `Currency`'s: the currency prices are in (money.currency)
+    after its sign, `$ US dollars`, or without UTF-8 after its ISO code, `USD US dollars`."""
+    code = money.currency(cfg)
+    return f"{usage.SIGNS[code] if terminal.utf8() else code} {CURRENCY_NAMES[code]}"
+
+
+def config_money(cfg):
+    """`Money`: `Currency`, the currency prices are in (config_page), Space switching it to the
+    next of money.TABLES, written to `[money]` in config.toml at once (setting)."""
+    def page():
+        held, _, write = setting(cfg, "money", "money", money.currency)
+        codes = list(money.TABLES)
+        return [("Currency", money_value(cfg), ("mark", lambda: write(
+            "currency", codes[(codes.index(held) + 1) % len(codes)])))], ""
+    config_page("money", page)
 
 
 def machines_value():
