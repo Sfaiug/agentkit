@@ -47,10 +47,10 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, hand_back,
-               handback, history, host, lease, login_refusals, logins, look, notify, orch, owner,
-               parsed, pause, questions, seat_tokens, staffing, standby, statusbar, step_down,
-               transitions, turns, update, usage, versions, worker)
+from . import (aside_editor, box, browser, change_rules, command_help, config, front, gc, gitcall,
+               hand_back, handback, history, host, lease, login_refusals, logins, look, notify,
+               orch, owner, parsed, pause, questions, seat_tokens, staffing, standby, statusbar,
+               step_down, transitions, turns, update, usage, versions, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
@@ -8600,8 +8600,7 @@ def after_merge_revert(statuses, probes, key, now, dry_run, log):
     if code:
         log(f"WARN cannot inspect run {directory.name}'s release for a revert: {paths}")
         return None
-    if any({"migrations", "alembic"} & set(Path(path).parts) or Path(path).suffix.lower() == ".sql"
-           for path in paths.split("\0") if path):
+    if any(map(change_rules.schema, filter(None, paths.split("\0")))):
         return release, REVERT_SCHEMA
     code, parents = gitcall.git_out(st["repo"], "rev-list", "--parents", "-n", "1", sha)
     if code:
