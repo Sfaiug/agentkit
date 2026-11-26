@@ -24,7 +24,7 @@ def days(cfg, since, until, *, meters=None):
     counts: the points its steps rose, exactly, so that days summed and rounded once are what
     `math.fsum` makes of their steps, and each model's tokens in them.
 
-    A login's readings are its probe readings of its shared week (`usage.week_names`), a model's
+    A login's readings are its probe readings of its shared week (`shared_weeks`), a model's
     own cap of that name (`scope`) none, whose `used` is a number from 0 to 100 and whose `at` is
     a number, in the order of `at`, then of the row; any other row is no reading.  A step is two
     of a login's readings next to each other: it counts where both name one plan (`usage._text`)
@@ -35,15 +35,15 @@ def days(cfg, since, until, *, meters=None):
     a seat row its `tokens`, a turn row its four counts summed, each a whole number or a turn
     row's NULL, summing above zero, any other row no row; one holding a row of no model counts
     for nothing, as what that row ran is unknown.  Read in one transaction of the history, so a
-    row written meanwhile is in all three reads or none; none where it cannot answer, as one
+    row written meanwhile is in all reads or none; none where it cannot answer, as one
     whose readings keep no plan, no write having migrated it since."""
-    meters = shared_weeks(cfg) if meters is None else meters
     ours = _ours(cfg)
     history._ensure_migrated()      # a meter_readings table from before plan and scope has neither
     try:
         with closing(history._connect(readonly=True)) as db:
-            db.execute("BEGIN")     # one snapshot for the three reads; in WAL no write waits
-            logins = _readings(db, meters, since, until)
+            db.execute("BEGIN")     # one snapshot for the reads; in WAL no write waits
+            active = shared_weeks(cfg, since, until, db=db) if meters is None else meters
+            logins = _readings(db, active, since, until)
             # seat_tokens creates `seat_usage` separately; absent means no seat rows yet
             seats = (db.execute("SELECT account, event, model, at, tokens FROM seat_usage "
                                 "WHERE at > ? AND at <= ?", (since, until)).fetchall()
@@ -91,13 +91,13 @@ def run_usage(cfg, since, until, fitted, *, meters=None):
     that names a plan with a rate for its model, its tokens take `tokens * rate / MILLION`
     points under `(provider, plan)`, summed exactly (a plan taking none not named); else its
     tokens are `unrated`.  {} where the history cannot answer."""
-    meters = shared_weeks(cfg) if meters is None else meters
     ours = _ours(cfg)
     history._ensure_migrated()      # a meter_readings table from before plan and scope has neither
     try:
         with closing(history._connect(readonly=True)) as db:
             db.execute("BEGIN")
-            logins = _readings(db, meters, since, until)
+            active = shared_weeks(cfg, since, until, db=db) if meters is None else meters
+            logins = _readings(db, active, since, until)
             turns = db.execute(
                 "SELECT run_id, role, account, turn, model, at, input, cache_write, cache_read, "
                 "output FROM turn_usage WHERE at > ? AND at <= ?", (since, until)).fetchall()
@@ -125,14 +125,47 @@ def run_usage(cfg, since, until, fitted, *, meters=None):
     return {key: (points, unrated) for key, (points, unrated) in used.items()}
 
 
-def shared_weeks(cfg):
+def shared_weeks(cfg, since, until, *, db=None):
     """{(provider, account, meter)} of each configured provider's logins' shared week now
-    (`usage.week_names`), read once so `days` and `run_usage` select the same readings."""
+    (`usage.week_names`), read once so `days` and `run_usage` select the same readings.  A login
+    a configured provider no longer lists that has probe readings in [since, until] takes the
+    one shared week its configured logins name between them; a provider whose configured logins
+    name two or none gains no login."""
+    configured = {name: set(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT])
+                  for name in cfg["providers"]}
     held = {name: prov for name, prov in staffing._cached_providers().items()
-            if name in cfg["providers"]}
-    return {(provider, account or config.DEFAULT_ACCOUNT, meter)
-            for provider, accounts in usage.week_names(cfg, held).items()
-            for account, meter in accounts.items() if meter is not None}
+            if name in configured}
+    known = {(provider, login, meter)
+             for provider, accounts in usage.week_names(cfg, held).items()
+             for account, meter in accounts.items()
+             if meter is not None
+             and (login := account or config.DEFAULT_ACCOUNT) in configured[provider]}
+    by_provider = {}
+    for provider, _, meter in known:
+        by_provider.setdefault(provider, set()).add(meter)
+    one = {provider: next(iter(found)) for provider, found in by_provider.items()
+           if len(found) == 1}
+    if not one:
+        return known
+    return known | {(provider, account, one[provider])
+                    for provider, account in _probe_logins(db, since, until)
+                    if provider in one and usage._text(account) is not None
+                    and account not in configured[provider]}
+
+
+def _probe_logins(db, since, until):
+    """[(provider, account)] with probe readings in [since, until], using `db` or a fresh
+    read-only connection; [] where the history cannot be read."""
+    query = ("SELECT DISTINCT provider, account FROM meter_readings "
+             "WHERE source = 'probe' AND typeof(at) IN ('integer', 'real') "
+             "AND at >= ? AND at <= ?")
+    if db is not None:
+        return db.execute(query, (since, until)).fetchall()
+    try:
+        with closing(history._connect(readonly=True)) as conn:
+            return conn.execute(query, (since, until)).fetchall()
+    except (OSError, sqlite3.Error):
+        return []
 
 
 def _ours(cfg):
