@@ -1,0 +1,51 @@
+"""Where a plan's price a month in a currency comes from: the `price` on its provider's table in
+the config where it is one number (the owner's own word in what they pay in), else the plan's list
+price before tax on the manifest table of that currency (`TABLES`) of the harness that asks the
+provider's logins.  No price is ever converted from another currency: a plan no table of that
+currency lists has none.
+"""
+
+import math
+
+from . import config, logins
+
+# Each currency `[money] currency` may name, and the table of a harness's manifest holding each
+# plan its `login-end` names at its list price a month in that currency before tax.
+TABLES = {"USD": "plans", "EUR": "plans_eur"}
+MAX_PRICE = 1_000_000
+
+
+def currency(cfg):
+    """`[money] currency` of `cfg`, USD where it names none; config.load refuses any other."""
+    return cfg.get("money", {}).get("currency", "USD")
+
+
+def price(cfg, provider, plan, paid="USD"):
+    """What one login of `provider` on `plan` costs a month in `paid`, or None: the provider's
+    own numeric `price` in `cfg` (never a `price` table by login, as usage is kept by plan), else
+    the plan's list price in `paid` on the manifest of the harness that asks its logins."""
+    table = (cfg.get("providers") or {}).get(provider)
+    own = _price(table.get("price")) if isinstance(table, dict) else None
+    if own is not None:
+        return own
+    listed = config.manifest(logins.harness(cfg, provider)).get(TABLES[paid])
+    return _price(listed.get(plan)) if isinstance(listed, dict) else None
+
+
+def month(cfg, plans):
+    """`ak models --json`'s `money`: `currency`, and what one login of each plan of each provider
+    `plans` ({provider: {plan: ...}}) names costs a month in it."""
+    paid = currency(cfg)
+    return {"currency": paid, "month": {
+        provider: {plan: price(cfg, provider, plan, paid) for plan in found}
+        for provider, found in plans.items()}}
+
+
+def _price(value):
+    """`value`, as the table holds it, when it is a finite number (no boolean) from 0 to
+    MAX_PRICE, else None."""
+    if type(value) is int:
+        return value if 0 <= value <= MAX_PRICE else None
+    if isinstance(value, float) and math.isfinite(value) and 0 <= value <= MAX_PRICE:
+        return value
+    return None

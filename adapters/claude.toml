@@ -98,6 +98,13 @@ pro = 20
 "max 5x" = 100
 "max 20x" = 200
 
+# The same plans at their list price in euros a month before tax, as read in November 2026; the
+# owner, 24 Nov 2026: "for claude I pay 180 euro net per month".
+[plans_eur]
+pro = 18
+"max 5x" = 90
+"max 20x" = 180
+
 # What a screen calls a plan above where that is not `login-end`'s word, which stays the one kept
 # and priced: "Rename 20x max to ULTRA." (the owner, 10 Nov 2026)
 [plan_names]
