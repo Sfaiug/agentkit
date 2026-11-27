@@ -6426,10 +6426,9 @@ def config_machines(cfg):
     marks.  Each machine that copies this one (standby.copies) is said at the end of the row of
     the first listed machine but the home whose last reading names its host, one machine one
     row, else under them on a row that opens nothing; why they cannot be read under the rows.
-    Last, `+ add a machine` takes an
-    ssh address, or with none typed finds those that ran the line making a new machine one it
-    adds (machines.join_line, under its field; machines.found), and writes each to config.toml
-    once it answers (machines.add), else says why not."""
+    Last, `+ add a machine` takes an ssh address, or with none typed finds those that ran the
+    line making a new machine one it adds (machines.join_line, under its field; machines.found),
+    and writes each to config.toml once it answers (machines.add), else says why not."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def add_field(draw):
