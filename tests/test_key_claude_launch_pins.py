@@ -25,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home
 
-PINS = {"permissions": {"defaultMode": "bypassPermissions"}, "crossSessionInbound": "refuse",
+PINS = {"permissions": {"defaultMode": "bypassPermissions"},
+        "skipDangerousModePermissionPrompt": True, "crossSessionInbound": "refuse",
         "switchModelsOnFlag": True}
 # What the owner's login says, each against a pin.
 LOGIN = '{"permissions": {"defaultMode": "acceptEdits"}, "crossSessionInbound": "allow",\n' \

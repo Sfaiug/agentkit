@@ -24,7 +24,7 @@ env = ["-u", "CLAUDE_CODE_OAUTH_TOKEN", "-u", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_
 # its own rules off: no CLAUDE.md, .claude/rules or auto-memory, the user's or the repository's
 off = ["CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"]
 # what every session ak starts runs with, outranking the login's settings file
-pins = '{"permissions":{"defaultMode":"bypassPermissions"},"crossSessionInbound":"refuse","switchModelsOnFlag":true}'
+pins = '{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"crossSessionInbound":"refuse","switchModelsOnFlag":true}'
 seat = ["claude", "{conversation}", "--append-system-prompt-file", "{rulebook}", "--model", "{model}",
         "--effort", "{effort}", "--dangerously-skip-permissions", "--settings", "{pins}",
         "--remote-control", "{session}"]

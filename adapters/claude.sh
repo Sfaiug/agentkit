@@ -39,14 +39,15 @@ program claude || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its installer puts 
 # them, a seat's its rulebook with the project's AGENTS.md in it (`config.seat_rulebook`),
 # whatever harness runs them.  `run` sets these and `interactive` prints them.
 OWN_RULES_OFF="CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"
-# What every session ak starts runs with, whatever the login's settings say: bypass permissions,
+# What every session ak starts runs with, whatever the login's settings say: bypass permissions
+# with its warning answered (a home that never answered it stops a seat at `Yes, I accept`),
 # Claude Code's own messages from other sessions refused (seats never message one another; a seat
 # waits on a pull request or run through `ak wait`), and a message its safeguards flag switching
 # the conversation to another model by itself instead of pausing the seat on a dialog until the
 # owner answers.  `--settings` outranks the login's settings file, so an accepted auto-mode offer
 # or a hand edit there cannot undo them, and no launch writes them into that file.  `run` and
 # `renew` pass it and `interactive` prints it.
-PINS='{"permissions":{"defaultMode":"bypassPermissions"},"crossSessionInbound":"refuse","switchModelsOnFlag":true}'
+PINS='{"permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true,"crossSessionInbound":"refuse","switchModelsOnFlag":true}'
 TMPD="$HOME/.agentkit/tmp"
 # `claude setup-token` mints a long-lived token; install.sh writes it here, 0600.  A worker given
 # one never reads or refreshes the seat's own OAuth pair, so a refresh race between the seat and

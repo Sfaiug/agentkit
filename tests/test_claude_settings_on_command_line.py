@@ -22,7 +22,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit.harness.claude import account_config
 
-PINS = {"permissions": {"defaultMode": "bypassPermissions"}, "crossSessionInbound": "refuse",
+PINS = {"permissions": {"defaultMode": "bypassPermissions"},
+        "skipDangerousModePermissionPrompt": True, "crossSessionInbound": "refuse",
         "switchModelsOnFlag": True}
 # what an accepted auto-mode offer, a safeguards dialog answer and a hand edit leave behind
 UNDONE = {"permissions": {"defaultMode": "auto", "allow": ["Read"]},
