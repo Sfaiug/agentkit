@@ -5,6 +5,7 @@
 version = 1
 name = "Codex"
 family = "GPT"
+maker = "OpenAI"
 
 [check]
 model = "gpt-5.6-luna"

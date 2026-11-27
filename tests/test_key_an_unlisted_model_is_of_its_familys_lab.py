@@ -1,5 +1,6 @@
-"""A model no stored lineup holds is of the lab its family word names: the reviewer is of another
-lab than the writer's where one is marked (the owner, 18 and 22 Nov 2026).
+"""A model no stored lineup holds is of the lab its family word names, with no text-maker row
+for that word the maker the manifest declaring it names: the reviewer is of another lab than
+the writer's where one is marked (the owner, 18 and 22 Nov 2026).
 
 nova builds on claude's provider, its id opening with claude's family word.  dart, on another
 provider and harness, has an id opening with that same family word after a `provider/` prefix;
@@ -8,7 +9,11 @@ bolt, on a third provider, opens with none.  Every window has usage left:
 - no lineup stored, dart and bolt marked to review: bolt reviews, and no reviewer turn runs on
   dart's harness, whichever of the two the draw puts first;
 - a lineup stored that holds nova and not dart, the same marks: the same;
-- no lineup stored, dart alone marked to review: dart reviews, as today.
+- no lineup stored, dart alone marked to review: dart reviews, as today;
+- no lineup stored, mist, on nova's harness and provider and running its default, and bolt
+  marked to review: bolt reviews, and no reviewer turn runs on claude, whichever of the two the
+  draw puts first, as nova's family word is of the maker claude's manifest names, whose
+  provider mist runs on.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on the
 fixtures of tests/test_key_a_lab_is_a_models_maker.py.
@@ -29,7 +34,9 @@ from test_key_writer_reviews_only_without_room import OFFLINE, launched, record,
 MODELS = {"nova": {"harness": "claude", "model": "claude-nova-2"},
           "dart": {"harness": "opencode", "provider": "dune", "model": "dune/claude-dart-2"},
           "bolt": {"harness": "codex", "model": "bolt-3"}}
-# Draws that put dart first and bolt first in the reviewer draw (`usage.pick_order`).
+MIST = {"nova": MODELS["nova"], "mist": {"harness": "claude", "model": "default"},
+        "bolt": MODELS["bolt"]}
+# Draws that put dart (and mist) first and bolt first in the reviewer draw (`usage.pick_order`).
 DRAWS = ("20261125-0900", "20261125-0901")
 
 
@@ -41,13 +48,14 @@ def lineup():
          "maker": "Acme", "effort": "high", "values": {}, "yours": [entry]}]}}
 
 
-def reviewed(case, reviewers, *, stored=False, draws=("",)):
-    """Run one task per draw in `draws`, nova building and `reviewers` marked to review."""
+def reviewed(case, reviewers, *, stored=False, draws=("",), models=MODELS):
+    """Run one task per draw in `draws`, nova of `models` building and `reviewers` marked to
+    review."""
     case.home = home = Home()
     case.addClassCleanup(home.close)
     home.env.update(OFFLINE)
     rig = Rig(home, "widgets")
-    akconfig.write(home, MODELS, workers=["nova"], reviewers=reviewers)
+    akconfig.write(home, models, workers=["nova"], reviewers=reviewers)
     if stored:
         home.write(".agentkit/state/matrix.json", lineup())
     case.fakes = fakeadapter.install(home, claude="work", opencode="pass", codex="pass")
@@ -108,6 +116,21 @@ class DartAloneMarkedToReview(unittest.TestCase):
         self.assertEqual(roles(self.fakes["opencode"]), ["reviewer"])
         self.assertEqual(roles(self.fakes["codex"]), [])
         self.assertEqual(state["review"]["reviewer"], "dart")
+
+
+class DefaultModelBesideANamedSibling(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        reviewed(cls, ["mist", "bolt"], stored=False, draws=DRAWS, models=MIST)
+
+    def test_bolt_reviews_and_no_reviewer_turn_runs_on_claude_whichever_draw_puts_first(self):
+        for draw, done, state in self.runs:
+            with self.subTest(draw=draw):
+                self.assertEqual(done.code, 0, done.out + done.err)
+                self.assertEqual(launched(done), ("nova", "bolt"))
+                self.assertEqual(state["review"]["reviewer"], "bolt")
+        self.assertEqual(roles(self.fakes["claude"]), ["executor"] * len(DRAWS))
+        self.assertEqual(roles(self.fakes["codex"]), ["reviewer"] * len(DRAWS))
 
 
 if __name__ == "__main__":

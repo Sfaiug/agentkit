@@ -5,6 +5,7 @@
 version = 1
 name = "Muse Code"
 family = "Muse"
+maker = "Meta"
 
 [check]
 model = "muse-spark-1.3-contributor"

@@ -228,13 +228,42 @@ class UnlistedModelLab(Sandbox):
         self.assertIsNone(config.family("claudette-1", ["Claude"]))
         self.assertEqual(config.spoken("claude-nova-7-1", ["Claude"]), "Nova 7.1")
         self.assertEqual(config.spoken("gpt-5-5", ["GPT"]), "GPT 5.5")
-        # With no lineup, the family word itself names the lab; no family word keeps the provider.
-        self.assertEqual(staffing.lab(self.cfg, "nova", []), "Claude")
-        self.assertEqual(staffing.lab(self.cfg, "dart", []), "Claude")
+        # With no lineup, the maker the family's manifest names is the lab, as `config.company`
+        # names it: no provider's `maker` names `Anthropic`, so its name in lower case.  No family
+        # word keeps the provider.
+        self.assertEqual(staffing.lab(self.cfg, "nova", []), "anthropic")
+        self.assertEqual(staffing.lab(self.cfg, "dart", []), "anthropic")
         self.assertEqual(staffing.lab(self.cfg, "near", []), "dune")
         self.assertEqual(staffing.lab(self.cfg, "bolt", []), "openai")
         self.assertEqual(staffing.pair_tier(self.cfg, "nova", "dart", []), 1)
         self.assertEqual(staffing.pair_tier(self.cfg, "nova", "bolt", []), 0)
+
+    def test_a_familys_lab_is_the_maker_its_manifest_names(self):
+        # A provider whose `maker` names the manifest's maker is that maker's lab.
+        self.cfg["providers"]["acme"] = {"maker": "Anthropic"}
+        self.assertEqual(staffing.lab(self.cfg, "nova", []), "acme")
+        self.assertEqual(staffing.lab(self.cfg, "dart", []), "acme")
+        del self.cfg["providers"]["acme"]
+        # A second spelling of the word, declared first and naming no maker, reads the maker of
+        # the manifest that declares the word and names one, across Unicode case variants too.
+        spelled = [("acme", {"family": "CLAUDE"}),
+                   ("claude", {"family": "Claude", "maker": "Anthropic"})]
+        with patch.object(config, "manifests", return_value=spelled):
+            self.assertEqual(config.family("claude-nova-2"), "CLAUDE")
+            self.assertEqual(staffing.lab(self.cfg, "nova", []), "anthropic")
+            self.assertEqual(staffing.lab(self.cfg, "dart", []), "anthropic")
+        folded = [("acme", {"family": "Acme\u00df", "maker": "Dune"}),
+                  ("other", {"family": "ACMESS"})]
+        self.cfg["models"]["sharp"] = {"harness": "claude", "model": "acmess-nova",
+                                       "effort": "high", "provider": "openai"}
+        with patch.object(config, "manifests", return_value=folded):
+            self.assertEqual(config.family("acmess-nova"), "ACMESS")
+            self.assertEqual(staffing.lab(self.cfg, "sharp", []), "dune")
+        # A manifest declaring the family and naming no maker leaves the word itself.
+        with patch.object(config, "manifests", return_value=[("claude", {"family": "Claude"})]):
+            self.assertEqual(staffing.lab(self.cfg, "nova", []), "Claude")
+            self.assertEqual(staffing.lab(self.cfg, "dart", []), "Claude")
+            self.assertEqual(staffing.lab(self.cfg, "near", []), "dune")
 
     def test_unlisted_model_takes_the_maker_of_a_row_holding_its_family(self):
         lineup = [{"release": "claude-nova-2", "name": "Nova 2", "board_name": "Claude Nova 2",
@@ -244,6 +273,16 @@ class UnlistedModelLab(Sandbox):
         self.assertEqual(staffing.lab(self.cfg, "dart", lineup), "acme")
         self.assertEqual(staffing.lab(self.cfg, "near", lineup), "dune")
         self.assertEqual(staffing.lab(self.cfg, "bolt", lineup), "openai")
+        # A sibling row with a non-text maker names no maker: alone, the manifest's maker wins;
+        # before a row naming a text maker, that later row wins.
+        non_text = [{"release": "claude-other-1", "name": "Other 1", "board_name": "Other 1",
+                     "maker": 17, "effort": "high", "values": {},
+                     "yours": [{"harness": "opencode", "model": "dune/claude-other-1"}]}]
+        self.assertEqual(staffing.lab(self.cfg, "nova", non_text), "anthropic")
+        named = {"release": "claude-other-2", "name": "Other 2", "board_name": "Other 2",
+                 "maker": "Dune", "effort": "high", "values": {},
+                 "yours": [{"harness": "opencode", "model": "dune/claude-other-2"}]}
+        self.assertEqual(staffing.lab(self.cfg, "nova", [*non_text, named]), "dune")
         # A row holding dart itself wins over any family word.
         held = [*lineup, {"release": "dart-2", "name": "Dart 2", "board_name": "Dart 2",
                           "maker": "Dune", "effort": "high", "values": {},
