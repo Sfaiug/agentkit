@@ -1907,11 +1907,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     # sentence column starts at the same column under every project.
     widths = v5o_column_widths([seat for project in ordered
                                 for seat in project["seats"]], width)
-    # one reading of the cached meters and logins for the whole draw, so the grid the screen is
-    # laid out around is the one the pointer lights, and a click signs in what was drawn amber
+    # one reading of the wall clock, cached meters and logins for the whole draw, so the grid
+    # the screen is laid out around, its news and every frame of a gliding meter are of those
+    # cells, and a click signs in what was drawn amber
+    now = time.time()
     rows = usage_rows(cfg)
-    ending = login_notes(rows)
-    meters_full = usage_lines(cfg, layout, rows=rows, ending=ending)
+    ending = login_notes(rows, now)
+    cells = usage_cells(cfg, now, rows=rows)
+    meters_full = usage_lines(cfg, layout, rows=rows, ending=ending, cells=cells)
     # Height is budgeted the way width is: the frame, the usage and the keys always, and the
     # rows in what is left, a page at a time. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
@@ -1988,7 +1991,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     # the blank lines too (compact), and only one with no room for a seat under its heading
     # even then cuts the readings.
     least = LEAST * (2 if width < 60 else 1)
-    summary = usage_summary(cfg, layout, rows=rows)
+    summary = usage_summary(cfg, layout, rows=rows, cells=cells)
     block = meters_full or summary     # a width with no grid says the readings
     meters, compact = next((meters, compact) for meters, compact
                            in ((block, False), (summary, False), (summary, True))
@@ -1998,7 +2001,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         # the screen's size too; else what leaves one row
         spare = _room(meters, True, True, 0) - 3
         if spare < 0 and len(meters) > 1:
-            meters = usage_summary(cfg, layout, max(1, len(meters) + spare), rows)
+            meters = usage_summary(cfg, layout, max(1, len(meters) + spare), rows, cells=cells)
         meters = meters[:max(0, len(meters) + _room(meters, True, True, 0) - 1)]
     paged = len(flat) > 1 and len(flat) > _room(meters, False, compact)     # one page first
     room = _room(meters, paged, compact)
@@ -2116,8 +2119,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         # the one the pointer or the highlight is on lit, and under the grid what its cell has
         # no room for
         out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, lit=pointed, rows=rows,
-                                                           ending=ending)
-        out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows,
+                                                           ending=ending, cells=cells)
+        out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, now=now, rows=rows,
                                                           ending=ending)
     out = terminal.lit(out, spots)
     moved, rising = "", False
@@ -2132,7 +2135,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             moves.append((("born",), True, None, False))
         if at:            # the card `x` asks on: its news touched as it is asked (`asking`)
             moves.append((("asked",), True, None, False))
-        news = clock.look({key: shown for key, shown, _, _ in moves})
+        # each meter's (left, said), by its subscription, and the whole grid's cells, while drawn
+        # as a grid (None without one, so a draw with no grid at this width changes at once)
+        prev = clock.seen and clock.seen.get(("usage",), (None,))[0]
+        readings = [(("usage", subscription(row)), cell[2:] if grid else None)
+                    for row, cell in zip(rows, cells)]
+        news = clock.look({key: shown for key, shown, _, _ in moves} | dict(readings)
+                          | {("usage",): tuple(cells) if grid else None})
 
         def line(name, moving, counted=None):
             row, span = bars[name]
@@ -2179,6 +2188,42 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 if shown == "done" and key[1] in bars:
                     clock.grows.pop(key[1], None)
                     line(key[1], lambda cells: motion.sweeping(cells, since))
+        # Each gliding meter is news of `clock.look` alone (nothing kept on `clock`), as a seat's
+        # line is: timed from the draw that saw the change, a reading landing mid-glide gliding
+        # from the reading the draw before was gliding to, a draw at a new width before a resize
+        # is noticed gliding on at that width where both draws have a grid there, arrows leaving
+        # it gliding, and `Clock.settle`/`Clock.forget` ending it; where motion is off nothing
+        # glides (`clock.start`).  A meter this draw shows at once is settled in `seen` so a
+        # later draw never revives a change it already jumped to.
+        moment = motion.moment()
+        glides = {}
+        if (grid and prev and motion.movable() and usage_lines(
+                cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev)):
+            for n, (key, shown) in enumerate(readings):
+                since, before = news.get(key, (None, None))
+                if (shown and shown[0] and before and (before[0] or before[1][:1] != "—")
+                        and since + motion.GLIDE > moment):
+                    at_now = meter_at(shown[0], since, before, moment)
+                    probe = [*cells[:n], (*cells[n][:2], *at_now), *cells[n + 1:]]
+                    if usage_lines(cfg, layout, rows=rows, ending=ending, cells=probe):
+                        glides[n] = since, before
+        for n, (key, shown) in enumerate(readings):
+            if n not in glides and key in news:
+                clock.seen[key] = (shown, None, None)
+        if glides:
+            until = max(since for since, _ in glides.values()) + motion.GLIDE
+
+            def grid_at(when):
+                if when >= until:
+                    return [terminal.cleared(text)
+                            for text in out[grid - 1:grid - 1 + len(meters)]]
+                shown = [(*cell[:2], *meter_at(cell[2], *glides[n], when)) if n in glides else cell
+                         for n, cell in enumerate(cells)]
+                return [terminal.cleared(text) for text in usage_lines(
+                    cfg, layout, lit=pointed, rows=rows, ending=ending, cells=shown)]
+
+            for n in range(len(meters)):
+                clock.start([(grid + n, 1)], lambda when, n=n: grid_at(when)[n], until)
         for cell, char, bright in breaths:
             breathe, growing = motion.breathing(char, "working", bright), clock.cells.get(cell)
             if growing:       # a tip still growing in breathes once it is there
@@ -2825,7 +2870,7 @@ def restored(handed, meter, cfg):
     return Path(cursor) if cursor.startswith("/") else cursor
 
 
-def usage_summary(cfg, width, most=None, rows=None):
+def usage_summary(cfg, width, most=None, rows=None, cells=None):
     """The usage block folded, for a screen too short for it and a few rows under it: each
     subscription's label and what it has left -- `17%`, a spent week's credits where they fit,
     else `0%`, as on its row, `0%` once spent until its reset, `—` with no reading -- whole, as
@@ -2843,7 +2888,7 @@ def usage_summary(cfg, width, most=None, rows=None):
                 lines.append([])
             lines[-1].append(part)
         return [line for line in lines if line]
-    found = usage_cells(cfg, rows=rows)
+    found = usage_cells(cfg, rows=rows) if cells is None else cells
     lines = fill(found, width - 2)
     if most is not None and len(lines) > most:
         # the last line keeps room for ` · …`, a label giving way to it as to the width
@@ -2884,6 +2929,14 @@ def usage_cells(cfg, now=None, rows=None):
     return found
 
 
+def meter_at(left, since, before, now):
+    """(left, said), as `usage_cells` says them, of a meter gliding (`draw`) to `left` from
+    `before` at `now`, eased in GLIDE seconds from `since`, and `before` while that is 0."""
+    first = before[0] or 0
+    shown = round(first + (left - first) * motion.eased((now - since) / motion.GLIDE))
+    return (shown, f"{shown}% left") if shown else before
+
+
 METER = 10        # cells of a subscription's meter on the ak screen
 COLUMN = 33       # ... and of its whole cell, its label, meter and share or `empty until` date
 
@@ -2900,7 +2953,7 @@ def usage_cell(width, n):
     return 3 + n * (room + 2), 2 + n * (room + 2) + room
 
 
-def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None):
+def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cells=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
     a meter -- the bar (terminal.share_parts), full for what is left -- and what its cell says.
@@ -2910,9 +2963,11 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None):
     (`usage_detail`).  What each cell says is whole: the labels give way to the longest, and a
     width with no room for a label beside it has no grid (`[]`), the screen saying the readings
     (`usage_summary`).  `ending`, `login_notes` of `rows` where the caller has read them already;
-    `columns`, as many to a line as `Subscriptions` draws, one."""
+    `columns`, as many to a line as `Subscriptions` draws, one; `cells`, `usage_cells`' answer
+    already in hand, or with gliding meters at their frame's reading (`draw`)."""
     rows = usage_rows(cfg) if rows is None else rows
-    found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
+    found = [(*cell[:3], terminal.plain(cell[3]))
+             for cell in (usage_cells(cfg, rows=rows) if cells is None else cells)]
     if not found:
         return []
     columns, room = columns or usage_columns(width), min(COLUMN, width - 2)

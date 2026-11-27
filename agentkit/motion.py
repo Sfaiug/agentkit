@@ -7,9 +7,9 @@ a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles f
 light crosses its line, either's row glowing in its word's colour as it fades; the line a row
 opens comes up as the highlight comes to it, and a page's rows as it is turned to; each
 progress line grows to its length as the menu opens and glides to a new one as its plan moves,
-its count counting up with it; an effort's bar a step filled rises into place and a step onto a
-model's highest effort sends a light through its word, a mark set fills and one cleared empties,
-one whose change was refused shakes;
+its count counting up with it, as a usage meter does to a new reading (menu.draw); an effort's
+bar a step filled rises into place and a step onto a model's highest effort sends a light
+through its word, a mark set fills and one cleared empties, one whose change was refused shakes;
 a popup's content fades in once, as it opens, a card as it is asked, and a page's under its
 header as it opens, its name writing itself out in the header; the rule under a screen's
 header glides while its content is fetched and a light passes once along it when a count ends
@@ -638,10 +638,17 @@ class Clock:
             if self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
                 lit = terminal.pointed(row, column, text)
+                # a row's line clearing its tail (`terminal.cleared`), a usage grid gliding,
+                # cleared past where the highlight moves, which keeps its blank past the line's
+                # end, as at rest
+                line = column == 1 and lit.endswith("\033[K")
+                lit = lit.removesuffix("\033[K") if line else lit
                 for left, right, rgb in moving.get(row, ()):
-                    if left < column + width and right >= column:
+                    end = right if line else min(right, column + width - 1)
+                    if left <= end and right >= column:
                         lit = terminal.backed(lit, rgb, max(left, column) - column + 1,
-                                              min(right, column + width - 1) - column + 1)
+                                              end - column + 1)
+                lit = terminal.cleared(lit) if line else lit
                 out += f"\033[{row};{column}H{terminal.fade(lit, amount if row >= first else 0)}"
                 for inside in [cell for cell in self.shown if cell[0] == row
                                and column < cell[1] < column + width]:
