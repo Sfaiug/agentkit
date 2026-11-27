@@ -22,6 +22,8 @@ from test_new_session_screen import Screen, RIGHT, LEFT, DOWN, ENTER, SPACE, hig
 class RoleMarks(Sandbox):
     def setUp(self):
         super().setUp()
+        # every harness installed here, whatever PATH holds: default_crew passes over one not
+        self.stack.enter_context(patch.object(config, "harness_present", return_value=True))
         self.stack.enter_context(patch.dict(os.environ, {
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AGENTKIT_SESSION": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
@@ -229,6 +231,26 @@ class RoleMarks(Sandbox):
                 self.assertEqual(orch.default_crew(self.cfg, {}, "astra"),
                                  {"orchestrator": "astra", "workers": workers,
                                   "reviewers": expected})
+
+    def test_uninstalled_models_fall_back_as_spent_and_off_models_stay_as_on_main(self):
+        self.cfg["defaults"].update(workers=["opus", "astra"], reviewers=["opus", "astra"])
+        for present, spent, default, expected in (
+                ({"muse"}, set(), "spark", ("spark", ["spark"], ["spark"])),
+                ({"codex", "muse"}, set(), "astra", ("astra", ["astra"], ["astra"])),
+                ({"muse"}, {"spark"}, "spark", ("spark", [], ["spark"])),
+                (set(), set(), "opus", ("opus", ["opus", "astra"], ["opus", "astra"]))):
+            with self.subTest(present=present, spent=spent), \
+                    patch.object(config, "harness_present", side_effect=lambda h: h in present), \
+                    patch.object(orch, "spent_note", side_effect=lambda c, n, p:
+                                 "spent" if n in spent else ""):
+                self.assertEqual(orch.default_crew(self.cfg, {}, default),
+                                 dict(zip(("orchestrator", "workers", "reviewers"), expected)))
+        # off in the model list is treated as on main, not dropped as uninstalled
+        self.cfg["models_off"] = ["claude-opus-5-5"]
+        with patch.object(config, "harness_present", side_effect=lambda h: h == "muse"), \
+                patch.object(orch, "spent_note", return_value=""):
+            self.assertEqual(orch.default_crew(self.cfg, {}, "spark"),
+                             {"orchestrator": "spark", "workers": ["opus"], "reviewers": ["opus"]})
 
     def test_tab_then_esc_on_the_new_row_keeps_its_picks_spent_ones_too(self):
         picked = {"orchestrator": "opus", "workers": ["opus", "astra"],
