@@ -1,15 +1,18 @@
-"""A server install's closing list names a model program only where none is installed.
+"""A server install's closing list names a model program only where none is installed, and asks for
+Claude's worker token only where Claude's program is.
 
 install.sh asks which model program to install, and one is enough.  So its closing list ("what
 this run could not do") names no program the machine does not have, unless it has none at all:
-then one line says so and that a terminal run of ./install.sh asks which to install.  A file of
-a program's name that cannot be run is no program.  Each program installed and not logged in
-keeps its one login line, as before, and the `summary:` line counts the lines listed.
+then one line says so and that a terminal run of ./install.sh asks which to install.  Claude's
+worker token lines (missing, expiring soon, expired) appear only where Claude's program is
+installed.  A file of a program's name that cannot be run is no program.  Each program installed
+and not logged in keeps its one login line, as before, and the `summary:` line counts the lines
+listed.
 Black-box: install.sh of the checkout `AK_BIN` names runs from outside in a Home made the
 account's own by tests/fixtures/installer.py, first with its fake of every program and no login,
 then with none on its PATH, the host's taken off too, but a `codex` file it cannot run, then
-with only a fake codex and its login on disk.  The claude worker token is on disk, so the only
-lines naming a program are the ones under test.
+with only a fake codex and its login on disk; and a Home with codex alone (plus a non-executable
+`claude`), then with Claude's program added, across missing, expiring and expired worker tokens.
 """
 
 from pathlib import Path
@@ -91,6 +94,51 @@ class ListsOnlyWhatIsMissing(unittest.TestCase):
                                                 f"{how}")]), 1, logins)
         self.assertEqual(len(logins), len(PROGRAMS), logins)
         self.assertEqual([item for item in items if item not in logins], self.items(self.chosen))
+
+    def test_claude_worker_token_is_listed_only_where_claude_is_installed(self):
+        with Home() as home:
+            installer.prepare(home)
+            installer.own_home(home)
+            installer.without(home, *PROGRAMS)
+            home.fake("codex", "#!/bin/sh\nexit 0\n")
+            home.write(".codex/auth.json", "{}\n")
+            # a non-executable file named claude is not an installed program
+            (home.bin / "claude").touch(mode=0o644)
+            token = home.path / ".agentkit/secrets/claude_oauth_token"
+            # expiring: an hour off the day boundary so ten days left never flips mid-run
+            states = (
+                ("missing", None,
+                 rf"  claude worker token -- run `claude setup-token` in a terminal and write it to "
+                 rf"{re.escape(str(token))}, so a worker never shares the seat's login"),
+                ("expiring", 355 * 86400 - 3600,
+                 rf"  claude worker token expires \d{{4}}-\d{{2}}-\d{{2}} \(in 10 days\) -- run "
+                 rf"`claude setup-token` in a terminal and replace {re.escape(str(token))}"),
+                ("expired", 400 * 86400,
+                 rf"  claude worker token expired \d{{4}}-\d{{2}}-\d{{2}} -- run "
+                 rf"`claude setup-token` in a terminal and replace {re.escape(str(token))}"),
+            )
+
+            def put_token(ago):
+                if ago is None:
+                    token.unlink(missing_ok=True)
+                else:
+                    home.write(".agentkit/secrets/claude_oauth_token", "acme-token\n", ago=ago)
+
+            for name, ago, _ in states:
+                with self.subTest(claude=False, token=name):
+                    put_token(ago)
+                    items = self.items(installer.run(home, "--server"))
+                    self.assertEqual(naming_a_program(items), [])
+                    self.assertEqual([item for item in items
+                                      if "claude" in item.replace(str(home.path), "").lower()], [])
+
+            home.fake("claude", "#!/bin/sh\nexit 0\n")
+            for name, ago, pattern in states:
+                with self.subTest(claude=True, token=name):
+                    put_token(ago)
+                    items = self.items(installer.run(home, "--server"))
+                    matches = [item for item in items if re.fullmatch(pattern, item)]
+                    self.assertEqual(len(matches), 1, items)
 
 
 if __name__ == "__main__":

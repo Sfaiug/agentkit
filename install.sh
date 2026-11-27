@@ -1485,7 +1485,7 @@ fi
 if [ "$SANDBOX" = 0 ] && have tailscale && ! tailscale status >/dev/null 2>&1; then
   add_pending "tailscale -- \`sudo tailscale up\` (or the app), so the client can reach the server"
 fi
-if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
+if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ] && program claude; then
   if [ ! -s "$AK/secrets/claude_oauth_token" ]; then
     add_pending "claude worker token -- run \`claude setup-token\` in a terminal and write it to $AK/secrets/claude_oauth_token, so a worker never shares the seat's login"
   else
