@@ -140,7 +140,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import carried, done_check, logins, look, machines, money, open_runs, parsed, readings, record
+from . import carried, done_check, logins, look, machines, money, open_runs, parsed, readings, record, releases
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -5120,16 +5120,16 @@ def _logs_in(takes):
     return {"sign-in": "sign in", "key": "API key"}.get(takes, "log in")
 
 
-def _through_choices(cfg, harness, listed, screen):
+def _through_choices(cfg, harness, listed, screen, offered=None):
     """`add a subscription`'s first list for `harness`, as OpenCode's own `/models` lists them:
-    every model its catalog lists (_offered) of a provider in `listed` with a mode, which it
-    runs now, beside that provider's name; then each provider it lists with none, to log in
-    to, by what it takes (_logs_in).  Each is ((harness, provider), the model, or None for a
-    login) and the columns it shows, so typing a model's name after `/` finds it before a
-    provider that shares it."""
+    every model its catalog lists (_offered, or `offered` where read already) of a provider in
+    `listed` with a mode, which it runs now, beside that provider's name; then each provider it
+    lists with none, to log in to, by what it takes (_logs_in).  Each is ((harness, provider),
+    the model, or None for a login) and the columns it shows, so typing a model's name after `/`
+    finds it before a provider that shares it."""
     ready = {provider: name for provider, name, mode, _ in listed if mode}
     choices = []
-    for model in _offered(harness, *screen, cfg=cfg):
+    for model in (_offered(harness, *screen, cfg=cfg) if offered is None else offered):
         provider = model["id"].partition("/")[0]
         if provider in ready:
             choices.append((((harness, provider), model),
@@ -6012,9 +6012,10 @@ DONE_CHECK_NOTE = "A model reads what you asked a seat and names what its work d
 
 def models_page(cfg, keyboard):
     """`Models`: a row per harness the config's providers run on (config.provider_harnesses),
-    opening `■` each model the config runs there and `□` each other its catalog offers
-    (_offered), or for a harness that logs in to providers (config.provider_hosts) each it runs
-    now, then each of the config's providers it lists with no login (_through_choices).  Space
+    opening `■` each model the config runs there and `□` only the newest release of each line its
+    catalog offers (_offered, releases.newest), or for a harness that logs in to providers
+    (config.provider_hosts) each newest it runs now, then each of the config's providers it lists
+    with no login (_through_choices).  Space
     takes one out (remove_model), the last model kept, or in: one taken out here as it was, its
     provider's table as the page opened; any other named from its label (config.short_name), at
     its harness's first model's effort, else `high`, as near as it goes (_nearest), under that
@@ -6070,17 +6071,20 @@ def models_page(cfg, keyboard):
     ran = {}
 
     def listing(harness):     # what a harness's row opens onto: (model, the provider it is
-        said = ""             # listed under) each, (None, one to log in), and why none is, or ""
+        said, catalog = "", []  # listed under) each, (None, one to log in), offered ids, and note
         try:
             if harness not in config.provider_hosts():
-                rows = [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
+                catalog = _offered(harness, "config · models", cfg=cfg)
+                rows = [(model, None) for model in catalog]
             else:
                 listed = waited(lambda: config.listed_providers(harness), "config · models",
                                 doing=f"asking {config.provider_hosts()[harness]} "
                                       "which providers it has")
+                catalog = _offered(harness, "config · models", cfg=cfg)
                 by = {row[0]: row for row in listed}
                 rows = [(model, by[provider]) for (((_, provider), model), _)
-                        in _through_choices(cfg, harness, listed, ("config · models",))
+                        in _through_choices(cfg, harness, listed, ("config · models",),
+                                            offered=catalog)
                         if model or provider in cfg["providers"]]
         except config.Error as exc:     # what the config runs there comes out with no listing
             rows, said = [], f"config: {exc}"
@@ -6091,7 +6095,12 @@ def models_page(cfg, keyboard):
         ids = {model["id"] for model, _ in rows if model}
         rows += [({"id": model, "label": label}, None)
                  for model, label in ran[harness].items() if model not in ids]
-        return rows, said or ("" if rows else "its catalog lists no model")
+        # catalog models compete only among what the harness lists; unlisted history rows are
+        # offered `□` only for lines the catalog does not list, so they never hide a listed release
+        catalog_ids = {model["id"] for model in catalog}
+        extras = [model for model, _ in rows if model and model["id"] not in catalog_ids]
+        offered = {model["id"] for model in releases.newest(catalog, extras=extras)}
+        return rows, offered, bool(catalog), said
 
     def ticks(harness):       # the list a harness's row opens
         got = []
@@ -6106,14 +6115,18 @@ def models_page(cfg, keyboard):
         def choices():
             if not got:
                 got.append(listing(harness))
-            rows, said = got[0]
+            rows, offered, has_catalog, said = got[0]
+            shown = [(model, row) for model, row in rows
+                     if not model or on(harness, model["id"]) or model["id"] in offered]
+            note = said or ("" if shown else
+                            "no model to offer" if has_catalog else "its catalog lists no model")
             return [([(full, "accent") if on(harness, model["id"]) else (empty, "dim"),
                       (model["label"], None)],
                      lambda model=model, row=row: tick(harness, model, row),
                      bool(on(harness, model["id"]))) if model else
                     ([(row[1], None), (_logs_in(row[3]), "dim")], lambda row=row: log_in(row),
                      "log in")
-                    for model, row in rows] + ([([(said, "dim")], lambda: "", "")] if said else [])
+                    for model, row in shown] + ([([(note, "dim")], lambda: "", "")] if note else [])
         return choices, True
 
     def page():
