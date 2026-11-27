@@ -75,7 +75,6 @@ class RoleEditOnTheRecord(unittest.TestCase):
                               "acme-top-1\tAcme Top 1\thigh\n")
         cls.seat = Seat(home, SEAT, model="base", record=CREW)
         cls.path = home.path / f".agentkit/state/session-{SEAT}.json"
-        cls.lock = cls.path.with_name(f".{cls.path.stem}.lock")    # its writers' one at a time
 
     def opened(self, record, models=False):
         """Seat SEAT holding `record` and `c` open over it, its models screen on it (`r`) where
@@ -103,6 +102,11 @@ class RoleEditOnTheRecord(unittest.TestCase):
 
     def record(self):
         return json.loads(self.path.read_text())
+
+    @property
+    def lock(self):
+        """The file ak's writers of the record lock, one at a time (config.record_lock_path)."""
+        return self.path.with_name(f".{self.path.stem}.lock")
 
     def save(self, record):
         """The seat's record replaced by `record` as ak writes one, under its lock through the
