@@ -1275,8 +1275,8 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
     model.  Where the reading holds no meter gating `model` -- as on a meterless provider --
     the list is empty, parking every model as well, and the mark records `model` itself
     (`exhausted_model`) so a turn of that model answered since can end it (`answered`).  The
-    owner, 26 Nov 2026, of unparking built for Claude Code: "I want you to also apply to every
-    other harness. All should work the same way with ak."
+    owner, 26 Nov 2026, of unparking: "I want you to also apply to every other harness. All
+    should work the same way with ak."
     """
     now = time.time()
     try:
@@ -1344,9 +1344,9 @@ def answered(cfg, provider, account, model, at):
     alone, as no caller makes one today, the owner said "Build it".  A mark whose list is empty
     because the reading held no meter gating its model -- as on a meterless provider -- carries
     that model's name (`exhausted_model`) and goes when that model answers, a name of another
-    type than a string read as none; the owner, 26 Nov 2026, of unparking built for Claude
-    Code: "I want you to also apply to every other harness. All should work the same way with
-    ak."  One with an empty list and no name or another model's name, one without
+    type than a string read as none; the owner, 26 Nov 2026, of unparking: "I want you to also
+    apply to every other harness. All should work the same way with ak."  One with an empty list
+    and no name or another model's name, one without
     `exhausted_meters` (made before marks named any), or one naming a meter the reading no
     longer holds can be another model's refusal, of which this answer says nothing, so it
     stays; a list naming meters is judged by its meters alone, and one a meter showed stays
