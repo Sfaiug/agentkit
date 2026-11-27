@@ -32,7 +32,9 @@ class FixOnTip(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
-        self.rig = Rig(self.home, "widgets")
+        # its suite is no check below: a run that does not land is refused the one that is
+        self.rig = Rig(self.home, "widgets", files={
+            "AGENTS.md": "---\ntests: test -e .keep\nhealth: none\nusers: none\n---\n"})
         akconfig.write(self.home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
         self.fakes = fakeadapter.install(self.home, claude="blocked", codex="pass")
 

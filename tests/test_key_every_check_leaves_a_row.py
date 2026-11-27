@@ -27,7 +27,7 @@ from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 import test_key_round_checks_on_helper as on_helper
 
-CHECKS = ("test -f retry.txt", "true")
+CHECKS = ("test -f retry.txt", "test -d .")
 OLD = ("suite_cpu_seconds", "suite_wall_seconds", "suite_peak_mb", "suite_repo")
 # a finding proven on the first round's commit, which the fixer fixes in the second
 FIX = "test -f fixed.txt"
@@ -181,7 +181,7 @@ class ACheckThatNeverReturns(Rows, unittest.TestCase):
 class OnTheSuiteHelper(Rows, unittest.TestCase):
     """A round's list goes to the suite helper as one shell, and a suite's pieces each go there,
     red there, then run here."""
-    listed = (on_helper.HERE_ONLY, "true")
+    listed = (on_helper.HERE_ONLY, "test -d .")
     sharded = f': "$AK_SHARD"; {on_helper.HERE_ONLY}'
 
     @classmethod

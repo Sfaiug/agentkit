@@ -63,13 +63,13 @@ class SettledRuns(unittest.TestCase):
         cls.gh = GitHub(home)
         cls.rig = Rig(home, "app")
         cls.seat = Seat(home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]},
-                        planned=("true",))
+                        planned=("true", "test -f web.txt"))
         cls.seat_says("orch", "project", str(cls.rig.path))
         cls.launch("Add retry file", ["work"], ["fail"])
         cls.launch("Fix the docs", [{"final": "Not needed.",
                                      "hand_in": [["not-needed", "it passes already"]]}], ["pass"],
                    body=FIX + "\n")
-        cls.launch("Add web file", [work("web.txt")], ["pass"], "--no-merge")
+        cls.launch("Add web file", [work("web.txt")], ["pass"], "--no-merge", check="test -f web.txt")
         cls.stopped()
         # The final plan names the checkout so its merge can tick the line.
         home.write(".agentkit/state/plan-acme.md", "")

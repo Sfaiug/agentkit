@@ -55,8 +55,10 @@ class SuiteRun:
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
+        # the project declares no suite: the round's check below would be it, and a run that
+        # does not land is refused the line that is its suite
         cls.rig = Rig(cls.home, cls.repo, files={
-            "AGENTS.md": f"---\nhealth: none\ntests: {cls.suite}\n---\n# widgets\n", "suite.py": cls.runner,
+            "AGENTS.md": "---\nhealth: none\ntests: none\n---\n# widgets\n", "suite.py": cls.runner,
             ".gitignore": ".web-seen\n", **cls.tests})
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])

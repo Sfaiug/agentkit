@@ -47,7 +47,7 @@ class DoneWaitsForTheRules(unittest.TestCase):
                   "final": "## Summary\nFixed the work."}
         fakes = fakeadapter.install(home, claude=["work", worker] if fixer else worker,
                                    codex=["fail", "pass"] if fixer else "pass")
-        task = taskfile.write(home, rig.path, front=front, done_when=("true",))
+        task = taskfile.write(home, rig.path, front=front, done_when=("test -f widget.py",))
         done = home.ak("run", str(task), "--no-merge", timeout=300)
         run_dir = taskfile.only_run(home)
         turn = Path(fakes["claude"].runs()[-1]["argv"][4])

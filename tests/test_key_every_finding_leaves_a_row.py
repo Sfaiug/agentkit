@@ -65,7 +65,7 @@ class EveryFindingLeavesARow(unittest.TestCase):
                                           "final": "## Summary\nput base back",
                                           "hand_in": FIX["hand_in"]})
         cls.fakes["codex"].behave(REVIEW, CONCEDE)
-        cls.reset = cls.launch("Put base back", OWNERS, done_when=("true",))
+        cls.reset = cls.launch("Put base back", OWNERS, done_when=("test -f legacy.txt",))
         cls.fakes["claude"].behave("work")
         cls.fakes["codex"].behave("fail")
         cls.budget = cls.launch("Add spent file", OWNERS, {"rounds": 1})
