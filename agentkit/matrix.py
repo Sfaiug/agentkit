@@ -786,6 +786,10 @@ def main(argv):
     if flags - {"--json", "--refresh"} or flags == {"--refresh"}:
         raise config.Error(f"usage: ak models [--json] [--refresh]  (got {argv!r})")
     cfg = config.load()
+    if "--json" in flags:
+        # first, as the boards may take a while to answer: the seat and the runs read next are
+        # as they stand once they did
+        _, rows = refresh(cfg, refresh="--refresh" in flags)
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     from . import own       # here, not at the top: the boards and the screen need no database
     runs, plans, paid = counted(cfg)
@@ -795,7 +799,6 @@ def main(argv):
         # that we assess our decision on benchmark data at all"
         print("\n".join(own.lines(mine, cfg, terminal.layout_width(), paid)))
         return 0
-    _, rows = refresh(cfg, refresh="--refresh" in flags)
     logins, shares = _task_usage(cfg)
     found = answer(rows, compared(cfg), cfg=cfg, task_usage=(logins, shares))
 

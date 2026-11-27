@@ -255,7 +255,7 @@ var purposes = map[string]string{
 	"hand-in":   "hand in review evidence or close a worker turn",
 	"attach":    "the menu",
 	"usage":     "show provider usage and worker pick order",
-	"models":    "score every model and effort per role from the public boards, recommend one per role",
+	"models":    "show each role's models by the tasks they did with the team now",
 	"browser":   "inspect the shared browser, sign in, register MCP tools, or install the stack",
 	"update":    "upgrade harnesses and verify with acceptance gates",
 	"watch":     "check PRs and stalled sessions",
