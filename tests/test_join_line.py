@@ -312,7 +312,7 @@ class JoinLine(Sandbox):
         task = self.directory / "task.md"
         task.write_text(f"---\nrepo: {self.wt}\n---\n# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
 
-        def prepare(directory, _opts, log, _cfg, **_kw):
+        def preflight(directory, _opts, log):
             log("Preflight already shown")
             record.save_state(directory, {**self.saved(), "run_id": directory.name, "pid": None})
 
@@ -324,7 +324,7 @@ class JoinLine(Sandbox):
 
         with patch.object(sys, "argv", [str(REPO / "bin" / "ak")]), \
                 patch.object(run, "already_under_way", return_value=[]), \
-                patch.object(run, "prepare", side_effect=prepare), \
+                patch.object(run, "preflight", side_effect=preflight), \
                 patch.object(run, "spawn_bg", side_effect=finish_now) as spawn, \
                 patch.object(run, "place_here", side_effect=AssertionError("parent scope")), \
                 redirect_stdout(io.StringIO()) as shown:

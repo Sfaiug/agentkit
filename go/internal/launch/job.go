@@ -54,9 +54,6 @@ func Job(paths []string, values map[string]string, flags map[string]bool, out io
 		if l == nil {
 			return code, why, err
 		}
-		if seated != "" && l.line == nil && l.reason == "" {
-			return 2, missingPlanLine(path), nil
-		}
 		if l.reason != "" || parks(l) {
 			return 0, "", ErrPython
 		}
@@ -78,7 +75,11 @@ func Job(paths []string, values map[string]string, flags map[string]bool, out io
 	if value, given := values["--parallel"]; given {
 		asked, _ = strconv.Atoi(value)
 	}
-	if err := j.create(tasks, asked); err != nil {
+	err := publishLaunch(tasks, func() error { return j.create(tasks, asked) })
+	if refused, ok := err.(*refusedOutright); ok {
+		return 2, refused.why, nil
+	}
+	if err != nil {
 		return 0, "", err
 	}
 	if flags["--bg"] {

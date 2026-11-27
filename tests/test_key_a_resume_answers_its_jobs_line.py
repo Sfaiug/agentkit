@@ -43,21 +43,22 @@ class AResumeAnswersItsJobsLine(unittest.TestCase):
         self.rig = Rig(home, "widget")
         GitHub(home)
         # mid-turn throughout: the job's line has to wait on its record for the next prompt
-        self.seat = Seat(home, "acme", cwd=self.rig.path, planned=True,
+        self.seat = Seat(home, "acme", cwd=self.rig.path, planned=("test -f a.txt", "test -f b.txt"),
                          screen="claude-working-pane.txt",
                          record={"workers": ["opus"], "reviewers": ["astra"]})
         # each review finds the fixture's defect in the task's one round; each turn holds
         # until the seat waits on the job
         self.fakes = fakeadapter.install(home, claude="work", codex="fail")
         self.waited = self.fakes["claude"].dir / "waited"
-        self.fakes["claude"].behave({**fakeadapter.WORK, "sh": (
+        self.fakes["claude"].behave({**fakeadapter.WORK, "write": {**fakeadapter.WORK["write"],
+                                    "a.txt": "a", "b.txt": "b"}, "sh": (
             f"for i in $(seq 1200); do [ -f {shlex.quote(str(self.waited))} ] && break; "
             "sleep .1; done")})
 
     def launch(self, *flags, names="ab"):
         """The seat launches the tasks as a job and waits on it, which then fails."""
         tasks = [taskfile.write(self.home, self.rig.path, f"Add {name}", name=name,
-                                front={"rounds": 1}) for name in names]
+                                front={"rounds": 1}, done_when=(f"test -f {name}.txt",)) for name in names]
         done = self.home.ak("run", *map(str, tasks), *flags, "--bg",
                             env={"AGENTKIT_SESSION": self.seat.name})
         self.assertEqual(done.code, 0, done.out + done.err)

@@ -76,9 +76,13 @@ func seatJobHome(t *testing.T) string {
 	t.Setenv("AK_MAX_RUNS", "0") // a job a gate decides is Python's
 	t.Setenv("AK_TEST_DONE", "fail")
 	t.Setenv("AGENTKIT_SESSION", "acme")
-	write(t, filepath.Join(home, ".agentkit", "state", "plan-acme.md"), "- [ ] Fix the API · check: `true` · acme · written 2026-10-23 09:00\n")
+	write(t, filepath.Join(home, ".agentkit", "state", "plan-acme.md"), "- [ ] Fix the API · check: `test -f api` · acme · written 2026-10-23 09:00\n"+
+		"- [ ] Fix the DB · check: `test -f db` · acme · written 2026-10-23 09:00\n")
 	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), `{"orchestrator": "opus", "workers": ["opus"], `+
 		`"cwd": "`+home+`", "created": 1799000000, "conversation": "conv-acme", "id_source": "launcher", "resumable": true}`)
+	for _, harness := range []string{"claude", "codex"} {
+		write(t, filepath.Join(home, "bin", harness), "#!/bin/sh\n")
+	}
 	write(t, filepath.Join(home, "bin", "tmux"), "#!/bin/sh\nexit 1\n")
 	t.Setenv("PATH", filepath.Join(home, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return home
@@ -89,7 +93,7 @@ func jobTasks(t *testing.T, home string) []string {
 	var paths []string
 	for _, name := range []string{"api", "db"} {
 		path := filepath.Join(home, "tasks", "fix-"+name+".md")
-		write(t, path, "---\nrepo: none\n---\n# Fix the "+name+"\n\n## Done when\n```bash\ntrue\n```\n")
+		write(t, path, "---\nrepo: none\n---\n# Fix the "+name+"\n\n## Done when\n```bash\ntest -f "+name+"\n```\n")
 		paths = append(paths, path)
 	}
 	return paths

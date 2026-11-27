@@ -118,6 +118,8 @@ func validateRun(args []string) string {
 	} else if len(parsed.words) == 0 {
 		return runUsage
 	}
+	seat, _, _ := launch.Seat()
+	taken := launch.ClaimedPlanLines(seat)
 	for _, flag := range []string{"--rounds", "--parallel"} {
 		if value, ok := parsed.values[flag]; ok && !positive(value) {
 			return fmt.Sprintf("%s must be a positive integer (got %s)", flag, commandhelp.Quote(value))
@@ -132,7 +134,7 @@ func validateRun(args []string) string {
 			budget, err := launch.Budget(path)
 			problem := launch.RoundsRefusal(parsed.values["--rounds"], budget, err)
 			if problem == "" {
-				problem = launch.SeatTaskRefusal(path, parsed.flags, len(parsed.words) > 1)
+				problem = launch.SeatTasksRefusal(seat, path, parsed.flags, len(parsed.words) > 1, taken)
 			}
 			if problem != "" {
 				return problem

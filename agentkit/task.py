@@ -36,13 +36,13 @@ UNCLOSED_HEREDOC = re.compile(r"^[^:\n]+: (?:line \d+: )?warning: here-document 
                               r"delimited by end-of-file", re.M)
 
 
-def front_matter(path):
+def front_matter(path, text=None):
     """(pairs, body): each front-matter `key: value` in file order, and the text after it.
 
     A key may repeat, so `files:` keeps every line; a `#` starts a comment.
     Unknown keys, lines that are not `key: value` and missing closing lines are task errors.
     """
-    text = path.read_text()
+    text = path.read_text() if text is None else text
     match = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
     if not match and text.startswith("---\n"):
         raise config.Error(f"{path}: front matter needs a closing --- line")
@@ -62,8 +62,8 @@ def front_matter(path):
     return pairs, match.group(2) if match else text
 
 
-def parse_task(path):
-    pairs, body = front_matter(path)
+def parse_task(path, text=None):
+    pairs, body = front_matter(path, text)
     decided(body)
     title = next((l[2:].strip() for l in body.splitlines() if l.startswith("# ")), path.stem)
     return dict(pairs), body, title

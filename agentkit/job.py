@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import (box, config, deliver, gitcall, handback, host, notify, orch, retention, run,
+from . import (box, config, deliver, gate, gitcall, handback, host, notify, orch, retention, run,
                staffing, task as taskfile, transitions, turns, watch)
 from . import land, record
 
@@ -265,6 +265,18 @@ def job_create(cfg, task_paths, opts, parallel, *, plan_lines=None):
     run.check_seat_queue(1 if opts.get("--in-order") else len(infos))
     seat = config.current_session()
     seat = config.resolve_session(seat) if seat else seat
+    with gate.admission():
+        if plan_lines:
+            taken = run.claimed_plan_lines(seat)
+            for info in infos:
+                line = run.claim_plan_line(seat, info["path"], info["cmds"], taken)
+                if not line:
+                    raise config.Error(run.missing_plan_line(info["path"]))
+                plan_lines[info["path"]] = line
+        return write_job(infos, seat, opts, parallel, plan_lines or {})
+
+
+def write_job(infos, seat, opts, parallel, plan_lines):
     job_dir = job_make_id(infos[0]["title"])
     job_dir.mkdir(parents=True)
     (job_dir / "log.txt").touch()
@@ -276,7 +288,7 @@ def job_create(cfg, task_paths, opts, parallel, *, plan_lines=None):
            "tasks": [{"name": info["name"], "title": info["title"], "state": "queued",
                       "run_id": None, "executor": None, "reviewer": None,
                       "started_at": None, "finished_at": None, "task_file": str(info["path"]),
-                      "plan_line": (plan_lines or {}).get(info["path"])}
+                      "plan_line": plan_lines.get(info["path"])}
                      for info in infos]}
     save_job(job_dir, job)
     return job_dir, job

@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import (box, command_help, config, gate, gc, gitcall, history, host, job as jobs,
                land as landing, orch, plan, record as run_record, status, stop, task as taskfile,
-               turns, usage, versions, waiter, watch, worker, worktrees)
+               transitions, turns, usage, versions, waiter, watch, worker, worktrees)
 from .deliver import (GITHUB_RETRIES, MERGE_METHODS, do_merge, end_on_dependency,
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
     push_pr_branch, release_line)
@@ -689,6 +689,34 @@ def seat_refusal(opts, flags):
     return None
 
 
+def claimed_plan_lines(seat):
+    if not seat:
+        return {}
+    seat = config.resolve_session(seat)
+    taken = {state["plan_line"]: directory.name for directory, state in run_record.runs_now()
+             if state.get("plan_line") and state.get("state") not in (*run_record.ENDED, "exhausted")
+             and run_session(state) == seat and transitions.going(state)}
+    for directory in jobs.job_dirs():
+        job = jobs.read_job(directory) or {}
+        if job.get("finished_at") or run_session({"session": job.get("seat")}) != seat:
+            continue
+        for task in job.get("tasks") or ():
+            if isinstance(task, dict) and task.get("plan_line") and task.get("state") not in jobs.JOB_TERMINAL:
+                taken[task["plan_line"]] = task.get("name") or directory.name
+    return taken
+
+
+def claim_plan_line(seat, path, cmds, taken):
+    line = plan.served_line(seat, cmds, exclude=taken)
+    if line in taken:
+        raise config.Error(f"{path.name}: {taken[line]} already serves {line}; add a separate open "
+                           'plan line with ak plan add "<outcome>" --check \'<focused-check>\' '
+                           "and put that same check in ## Done when")
+    if line:
+        taken[line] = path.name
+    return line
+
+
 def served_line_refusal(task_path, cmds):
     if plan.served_line(config.current_session(), cmds):
         return None
@@ -1233,9 +1261,10 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
     The task file it was launched from goes on too, because the run keeps only a copy:
     where the file lives is what files a scratch run's seat under a project (`run_project`).
 
-    Returns why another run on its pull request refuses the launch, or None.
+    Returns its directory and any refusal for another run on its pull request.
     """
-    receipt = (run_record.read_state(run_dir) or {}) if receipt is None else receipt
+    if receipt is None:
+        receipt = (run_record.read_state(run_dir) or {}) if run_dir else {}
     # launched by the tick for a seat: the receipt says whose, and which lists, and no slot
     # is reserved before the launch
     bound = seat_launch(receipt)
@@ -1250,12 +1279,21 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
     limit = config.max_runs()
     url = (opts or {}).get("--review-pr")
     plan_line = receipt.get("plan_line")
-    if (task_file is not None and "plan_line" not in receipt and from_seat() and not bound and not url
-            and run_kind(receipt) == "task"):
-        task_path = run_dir / "task.md"
-        _, body, _ = taskfile.parse_task(task_path)
-        plan_line = plan.served_line(session_at_launch, taskfile.done_when(body, task_path))
+    path = run_dir / "task.md" if run_dir else task_file
+    match = (task_file and "plan_line" not in receipt and from_seat() and not bound
+             and not url and run_kind(receipt) == "task")
+    if match or not run_dir:
+        text = path.read_text()
+        _, body, title = taskfile.parse_task(path, text)
     with gate.admission():
+        if match:
+            cmds = taskfile.done_when(body, path)
+            plan_line = claim_plan_line(session_at_launch, Path(task_file), cmds, claimed_plan_lines(session_at_launch))
+            if run_dir is None and not plan_line and len(taskfile.group_commands(cmds)[0]) <= taskfile.MAX_CHECKS:
+                raise config.Error(missing_plan_line(task_file))
+        if run_dir is None:
+            run_dir = jobs.job_allocate_run_dir(title)
+            (run_dir / "task.md").write_text(text)
         # two runs on one PR both land it, and the second fails on a head the first moved: read
         # under the lock its receipt is written in, so of two launches at once the second sees
         # the first
@@ -1290,7 +1328,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         run_record.save_state(run_dir, state)
     history_start(state)
     redress_seat(session_at_launch)   # the seat's bar says it from the start
-    return (f"run {going} on {url} has not ended; "
+    return run_dir, (f"run {going} on {url} has not ended; "
             f"`ak wait {going}`, then launch again if it is still needed") if going else None
 
 
@@ -1397,7 +1435,9 @@ def launch_policy(task_path=None, task_file=None, pr=None):
 
 def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None,
             printed=False):
-    taken = capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
+    fresh = run_dir is None
+    run_dir, taken = capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
+    log = log or logger(run_dir)
     try:
         if taken:
             raise config.Error(taken)
@@ -1405,6 +1445,11 @@ def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=N
         with run_record.record(run_dir) as state:
             state["policy"] = numbers
         preflight(run_dir, opts, log)
+    except run_record.StopRequested:
+        if not fresh:
+            raise
+        print(stop.stop_line(run_dir.name, None, False))
+        return None
     except (Stopped, config.Error, OSError) as exc:
         # The launch receipt is already visible to `r`; a launch refused at its receipt (another
         # run on its PR) or in preflight must not leave it queued forever, or lose the seat it
@@ -1414,6 +1459,7 @@ def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=N
         # did nothing, so relaunch is its recovery.
         refused(run_dir, exc, log, cfg, printed)
         raise
+    return run_dir
 
 
 class Refused(config.Error):
@@ -3382,6 +3428,8 @@ def main(argv):
         raise config.Error(f"--rounds must be a positive integer (got {opts['--rounds']!r})")
     queued_child = os.environ.get(config.RUN_DIR_ENV)
     queued_child = queued_child if queued_child and queued(Path(queued_child)) else None
+    seat = config.current_session() if positional and not queued_child and from_seat() else None
+    taken = claimed_plan_lines(seat)
     plan_lines = {}
     # a launch's own child holds what its launch read: nothing refuses it for a line landed since
     for task in positional if not queued_child else ():
@@ -3391,15 +3439,14 @@ def main(argv):
                    if opts["--rounds"] else None)
         # a seat's task carries the owner's answer into AGENTS.md, read once launch_policy has
         # resolved the clone's default branch; no checkout, no file to read
-        seat_launching = from_seat()
-        checkout = launch_checkout(task) if not refusal and seat_launching else None
+        checkout = launch_checkout(task) if not refusal and seat else None
         if checkout and not re.search(r"\busers: (none|real)\b", path.read_text()):
             refusal = users_refusal(checkout, config.RULES_REF,
                                     "Put the chosen line in the task, which adds it to AGENTS.md.")
-        if not refusal and seat_launching and path.is_file():
+        if not refusal and seat and path.is_file():
             meta, body, _ = taskfile.parse_task(path)
             cmds = taskfile.done_when(body, path)
-            line = plan.served_line(config.current_session(), cmds)
+            line = claim_plan_line(seat, path, cmds, taken)
             if line:
                 plan_lines[path.resolve()] = line
             elif len(taskfile.group_commands(cmds)[0]) <= taskfile.MAX_CHECKS:
@@ -3514,21 +3561,8 @@ def main(argv):
                 return 2
         require_project_contract(launch_checkout(task_path))
         check_seat_queue(1)
-        run_id = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
-        run_dir = config.RUNS / run_id
-        n = 1
-        while run_dir.exists():
-            n += 1
-            run_dir = config.RUNS / f"{run_id}-{n}"
-        run_dir.mkdir(parents=True)
-        (run_dir / "task.md").write_text(task_path.read_text())
-        (run_dir / "log.txt").touch()
-        try:
-            prepare(run_dir, opts, logger(run_dir), cfg, task_file=task_path, printed=True)
-        except run_record.StopRequested:
-            # A stop landed during preflight: the receipt already says so, and the
-            # stopper printed the line -- this end names it and stands down alike.
-            print(stop.stop_line(run_dir.name, None, False))
+        run_dir = prepare(None, opts, None, cfg, task_file=task_path, printed=True)
+        if run_dir is None:
             return 1
         if opts["--bg"]:
             try:

@@ -98,6 +98,9 @@ func (l launcher) launch(path, text string, values map[string]string, flags map[
 	}
 	defer at.place.admitted.release()
 	log, unstopped, err := at.make(out)
+	if refused, ok := err.(*refusedOutright); ok {
+		return "", 2, refused.why, nil
+	}
 	if err != nil {
 		return "", 0, "", err
 	}
@@ -146,7 +149,7 @@ func (l launcher) judge(path, text string, values map[string]string, flags map[s
 	}
 	if jobTask != nil && jobTask.Has("plan_line") {
 		at.line = jobTask.Get("plan_line") // an earlier task may already have ticked it
-	} else if at.line, err = servedLine(l.seat, cmds); err != nil {
+	} else if at.line, err = servedLine(l.seat, path, cmds, nil); err != nil {
 		return nil, 0, "", err
 	}
 	at.reason, at.warning, at.place, err = l.preflight(meta, cmds, path, filepath.Join(at.dir, "task.md"), at.named, values, flags, at.line)
@@ -167,24 +170,30 @@ func (l launcher) judge(path, text string, values map[string]string, flags map[s
 func (at *launching) make(out io.Writer) (func(string) error, func(func(*run.Object)) error, error) {
 	log, unstopped := logger(at.dir, out), guarded(at.dir, out)
 	title := task.Title(at.text, "task")
+	if err := publishLaunch([]*launching{at}, at.create); err != nil {
+		return nil, nil, err
+	}
+	recorded(at.dir)
+	seat.Redress(at.seat)
+	return log, unstopped, unstopped(func(record *run.Object) { record.Set("title", title) })
+}
+
+func (at *launching) create() error {
 	for _, step := range []func() error{
-		config.EnsureDirs,
 		at.write,
 		func() error { return os.Mkdir(at.dir, 0o777) },
 		func() error { return os.WriteFile(filepath.Join(at.dir, "task.md"), []byte(at.text), 0o666) },
 		func() error { return os.WriteFile(filepath.Join(at.dir, "log.txt"), nil, 0o666) },
-		func() error {
-			return receive(at.dir, at.receipt(at.dir, at.path, at.values, at.flags, at.line), at.place.admitted)
-		},
-		func() error { recorded(at.dir); return nil },
-		func() error { seat.Redress(at.seat); return nil }, // the seat's bar says it from the start
-		func() error { return unstopped(func(record *run.Object) { record.Set("title", title) }) },
 	} {
 		if err := step(); err != nil {
-			return nil, nil, err
+			return err
 		}
 	}
-	return log, unstopped, nil
+	record := at.receipt(at.dir, at.path, at.values, at.flags, at.line)
+	if at.place.admitted != nil {
+		return at.place.admitted.claim(at.dir, record)
+	}
+	return run.Create(at.dir, record)
 }
 
 // receipt is the launch's first record: what `ak run` records, the plan line it serves among it,
@@ -605,18 +614,37 @@ func slotPoll() (float64, bool) {
 	return poll, err == nil && plainDecimal.MatchString(text)
 }
 
-// receive writes the launch's receipt under the slots lock: in the hold its admission took, claiming
-// the slot it was let into, else in one of its own.
-func receive(dir string, record *run.Object, admitted *admission) error {
-	if admitted != nil {
-		return admitted.claim(dir, record)
-	}
-	slots, err := holdSlots()
-	if err != nil {
+// publishLaunch assigns free lines and writes the run or job receipt in the same admission.
+func publishLaunch(tasks []*launching, write func() error) error {
+	first := tasks[0]
+	if err := config.EnsureDirs(); err != nil {
 		return err
 	}
-	defer slots.Close()
-	return run.Create(dir, record)
+	if first.place.admitted == nil {
+		slots, err := holdSlots()
+		if err != nil {
+			return err
+		}
+		defer slots.Close()
+	}
+	// A job's dequeued task already owns its line, even if an earlier merge ticked it.
+	if first.seat != "" && first.origin == nil && (first.job == nil || first.job.receipt == nil) {
+		taken := ClaimedPlanLines(first.seat)
+		if taken == nil {
+			return ErrPython
+		}
+		for _, t := range tasks {
+			line, err := servedLine(t.seat, t.path, t.cmds, taken)
+			if err != nil {
+				return err
+			}
+			t.line = line
+			if line == nil && t.reason == "" {
+				return &refusedOutright{missingPlanLine(t.path)}
+			}
+		}
+	}
+	return write()
 }
 
 // sink is the notify sink a launch is under, which keeps it out of history.

@@ -60,7 +60,8 @@ class HeldFixFirst(unittest.TestCase):
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude="pass", codex="pass")
         cls.seat = Seat(home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]},
-                        planned=("true",))
+                        planned=(f"test -f {name}" for name in ("fix-main", "something-else",
+                                                               "fix-main-again", "one-more")))
         # the install: on main, with the held commit fetched but not in it
         cls.held = cls.rig.branch("held", {"api.py": "broken\n"})
         cls.install = home.path / "agentkit"
@@ -115,7 +116,7 @@ class HeldFixFirst(unittest.TestCase):
     @classmethod
     def task(cls, title):
         name, code = cls.launch(str(taskfile.write(cls.home, cls.rig.path, title,
-                                                   done_when=("true",))))
+                                                   done_when=(f"test -f {taskfile.slug(title)}",))))
         assert code == 0, name
         return name
 
