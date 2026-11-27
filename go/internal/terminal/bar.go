@@ -13,6 +13,13 @@ func RGBs(words ...string) []string {
 	return said
 }
 
+// RGBFaded is word's colour in the shades kept, own and amount of the way to background (or toward
+// text where negative), as `#rrggbb`, the shades kept read once for both (statusbar.others).
+func RGBFaded(word string, amount float64) (string, string) {
+	s := Screen{theme: kept()}
+	return "#" + s.colour(word), s.faded(word, amount, "background")
+}
+
 // Background is the environment variable Ctrl-b m hands its popup's menu the colour kept in, where
 // the look reads on it (InLook), as Python's terminal.BACKGROUND_ENV: the menu draws in the look
 // there (Keyboard.Sense), never reading the colour kept itself, so frame and menu are of one read.

@@ -13,6 +13,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
+	"agentkit/internal/motion"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
@@ -21,12 +22,15 @@ import (
 // The seat's status bar, as agentkit/statusbar.py writes it: its text is data in the session's own
 // options, and two fixed formats draw them, so each client picks what fits its own width.
 const (
-	barHit  = "@ak_hit"
-	barNeed = "@ak_need"
-	barFold = "@ak_fold"
-	barKey  = "@ak_key"
-	barTop  = "@ak_top"
-	barWhy  = "@ak_why"
+	barHit     = "@ak_hit"
+	barNeed    = "@ak_need"
+	barFold    = "@ak_fold"
+	barNeedLit = "@ak_need_lit"
+	barFoldLit = "@ak_fold_lit"
+	barNews    = "@ak_news"
+	barKey     = "@ak_key"
+	barTop     = "@ak_top"
+	barWhy     = "@ak_why"
 	// where the pointer is: its cells counted from the client's right edge, the right end's own edge
 	barAt = "#{e|-:#{client_width},#{mouse_x}}"
 )
@@ -50,15 +54,21 @@ func barCut(option, room string) string {
 	return "#{?#{e|>:" + room + ",0},#{=/" + room + "/…:" + option + "}#[default],}"
 }
 
+// barEndFormat is that right end, lit while barNews is set on the server (statusbar._end).
+func barEndFormat(option string) string {
+	lit := map[string]string{barNeed: barNeedLit, barFold: barFoldLit}[option]
+	return "#{?#{" + barNews + "},#{" + lit + "},#{" + option + "}}"
+}
+
 // barLineOne is the widest progress line beside who else needs you that fits the client, drawn
 // whole, then beside its short count; else the narrowest cut a space short of that.
 func barLineOne() string {
 	room := "#{e|-:#{client_width},#{e|+:#{w:" + barFold + "},2}}"
-	found := "#[align=left]" + barCut(barTops[len(barTops)-1], room) + " #[align=right]#{" + barFold + "}"
+	found := "#[align=left]" + barCut(barTops[len(barTops)-1], room) + " #[align=right]" + barEndFormat(barFold)
 	for _, right := range []string{barFold, barNeed} {
 		for _, left := range slices.Backward(barTops) {
 			fits := "#{e|<=:#{e|+:#{w:" + left + "},#{e|+:#{w:" + right + "},2}},#{client_width}}"
-			whole := "#[align=left]#{" + left + "} #[align=right]#{" + right + "}"
+			whole := "#[align=left]#{" + left + "} #[align=right]" + barEndFormat(right)
 			found = "#{?" + fits + "," + whole + "," + found + "}"
 		}
 	}
@@ -387,9 +397,9 @@ func barSeats(state string, listed []barRow) (found []barRow) {
 }
 
 // barOthers is the right end of that seat's line one: how many other seats need you, the same
-// short for a client too narrow for both it and the name, and the format that turns the pointer on
-// it into the first such seat's session id; or nothing.
-func barOthers(found []barRow, name string) (string, string, string) {
+// short for a client too narrow for both it and the name, each again in the lit tone, and the
+// format that turns the pointer on it into the first such seat's session id; or nothing.
+func barOthers(found []barRow, name string) (string, string, string, string, string) {
 	var needs []string
 	for _, row := range found {
 		if row.name != name && row.word == "needs you" {
@@ -397,15 +407,16 @@ func barOthers(found []barRow, name string) (string, string, string) {
 		}
 	}
 	if len(needs) == 0 {
-		return "", "", ""
+		return "", "", "", "", ""
 	}
 	said, short := fmt.Sprintf("! %d other seats need you", len(needs)), fmt.Sprintf("! %d need you", len(needs))
 	if len(needs) == 1 {
 		said, short = "! 1 other seat needs you", "! 1 needs you"
 	}
-	end := func(text string) string {
-		return "#[range=right]#[fg=#" + terminal.RGB("needs you") + ",bold]" + tmuxText(text) + "#[default]#[norange] "
+	own, lit := terminal.RGBFaded("needs you", -motion.Brighter)
+	end := func(text, rgb string) string {
+		return "#[range=right]#[fg=" + rgb + ",bold]" + tmuxText(text) + "#[default]#[norange] "
 	}
 	hit := fmt.Sprintf("#{?#{&&:#{e|>:%s,1},#{e|<=:%s,%d}},%s,}", barAt, barAt, terminal.Cells(said)+1, needs[0])
-	return end(said), end(short), hit
+	return end(said, own), end(short, own), end(said, lit), end(short, lit), hit
 }

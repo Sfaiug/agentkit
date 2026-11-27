@@ -93,9 +93,9 @@ class OtherSeats(Sandbox):
         found = statusbar.seats()
         self.assertEqual(found[1], ("$1", "orbit-proxies", "needs you"))
         # working and done seats are no one's business on another bar, nor a seat itself
-        self.assertFalse(any(statusbar.others(found, "orbit-proxies").values()))
-        self.assertFalse(any(statusbar.others([("$0", "fix-api", "needs you")],
-                                              "fix-api").values()))
+        empty = dict.fromkeys((*statusbar.LIT, *statusbar.LIT.values(), statusbar.HIT), "")
+        self.assertEqual(statusbar.others(found, "orbit-proxies"), empty)
+        self.assertEqual(statusbar.others([("$0", "fix-api", "needs you")], "fix-api"), empty)
 
     def test_b_two_are_one_count_and_the_click_goes_to_the_first(self):
         found = [("$4", "a#1", "needs you"), ("$5", "b%", "needs you"), ("$6", "me", "done")]

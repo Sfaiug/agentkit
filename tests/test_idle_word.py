@@ -51,7 +51,9 @@ class IdleWord(unittest.TestCase):
         with patch.object(terminal, "utf8", return_value=True):
             said, folded = (statusbar.others(found, "acme-b")[end]
                             for end in (statusbar.NEED, statusbar.FOLD))
-            self.assertFalse(any(statusbar.others(found[:3], "acme-b").values()))
+            self.assertEqual(
+                statusbar.others(found[:3], "acme-b"),
+                dict.fromkeys((*statusbar.LIT, *statusbar.LIT.values(), statusbar.HIT), ""))
         self.assertIn("1 other seat needs you", said)
         self.assertNotIn("idle", said + folded)
 
