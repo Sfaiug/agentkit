@@ -77,5 +77,55 @@ class AnAnsweredTurnUnparksItsLogin(Unparking):
         self.assertEqual(self.stop(seat, ANSWER).out, unmarked.out)
 
 
+class GrokBuildAnsweredTurnUnparksItsLogin(Unparking):
+    """Grok Build keeps its turns' errors in updates.jsonl, so its Stop unparks as Claude's does."""
+
+    HARNESS, PROVIDER, MODEL, SCREEN = "grokbuild", "xai", "grok", "grok-prompt-pane.txt"
+    WORDS = "The api is fixed and its tests pass."
+
+    def completed(self, seat, stop_reason="end_turn", **extra):
+        return {"timestamp": 1795726461, "method": "_x.ai/session/update", "params": {
+            "sessionId": seat.record["conversation"],
+            "update": {"sessionUpdate": "turn_completed", "stop_reason": stop_reason, **extra}}}
+
+    def began(self, name="acme"):
+        self.mark("default")
+        self.mark("second")
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+        seat = self.seat(name)
+        self.prompt(seat)
+        return seat
+
+    def test_the_turn_its_login_answered_unparks_that_login_alone(self):
+        seat = self.began()
+        self.stop(seat, self.completed(seat), lastAssistantMessage=self.WORDS)
+        self.assertEqual(self.parked(), {"default": True, "second": False})
+
+    def test_a_turn_recorded_ending_on_an_error_unparks_nothing(self):
+        seat = self.began()
+        self.stop(seat, self.completed(seat, stop_reason="error",
+                                       agent_result="API error (status 402 Payment Required): "
+                                                    "usage_limit_reached"),
+                  lastAssistantMessage=self.WORDS)
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+
+    def test_its_stop_failure_unparks_nothing(self):
+        seat = self.began()
+        self.stop(seat, event="StopFailure", error="rate_limit", lastAssistantMessage=self.WORDS)
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+
+    def test_a_stop_without_a_record_unparks_nothing(self):
+        seat = self.began()
+        self.updates(seat).unlink()
+        self.stop(seat, lastAssistantMessage=self.WORDS)
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+
+    def test_a_stop_heard_on_the_usual_login_unparks_nothing(self):
+        seat = self.began()
+        self.stop(seat, self.completed(seat), env={"AGENTKIT_ACCOUNT": ""},
+                  lastAssistantMessage=self.WORDS)
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+
+
 if __name__ == "__main__":
     unittest.main()

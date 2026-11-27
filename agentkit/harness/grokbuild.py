@@ -256,6 +256,44 @@ def said(record, cwd, conversation):
     return [{"who": who, "text": message["text"]}
             for who, message in messages(record, cwd, conversation)]
 
+
+def error(record, cwd, conversation):
+    """The error Grok Build recorded as the end of that session's last turn, "" where it ended
+    otherwise or the owner's words stand after it, or None where the session has no
+    updates.jsonl.
+
+    Grok Build ends every turn in a `turn_completed` update whose `stop_reason` says how; one
+    that failed holds `stop_reason: "error"` and the message in `agent_result`.  A
+    `user_message_chunk` after it is the conversation going on.
+    """
+    from . import last_entry
+
+    def pick(entry):
+        params = entry.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if not isinstance(update, dict) or params.get("sessionId") != conversation:
+            return False
+        kind = update.get("sessionUpdate")
+        if entry.get("method") == "_x.ai/session/update" and kind == "turn_completed":
+            return True
+        meta = update.get("_meta")
+        return (entry.get("method") == "session/update" and kind == "user_message_chunk"
+                and not (isinstance(meta, dict) and meta.get("hostTurn")))
+
+    path = read_by(record, cwd, conversation)
+    if not path:
+        return None
+    try:
+        entry = last_entry(path, pick)
+    except FileNotFoundError:
+        return None
+    update = entry["params"]["update"] if entry else {}
+    if update.get("sessionUpdate") != "turn_completed" or update.get("stop_reason") != "error":
+        return ""
+    result = update.get("agent_result")
+    return result if isinstance(result, str) else ""
+
+
 def opened(cwd, conversation):
     """Has Grok written that conversation down yet, where it keeps them?
 

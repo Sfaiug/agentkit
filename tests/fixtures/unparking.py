@@ -13,6 +13,7 @@ from pathlib import Path
 import sys
 import time
 import unittest
+from urllib.parse import quote
 
 from . import akconfig, fakeadapter
 from .akbin import REAL_TMUX, Home
@@ -70,9 +71,29 @@ class Unparking(unittest.TestCase):
         return Seat(self.home, name, model=self.MODEL, screen=self.SCREEN,
                     record={"account": "second"}, planned=True)
 
+    def updates(self, seat):
+        """Where Grok Build keeps `seat`'s durable UI record (`updates.jsonl`)."""
+        return (self.home.path / ".grok/sessions" / quote(str(seat.cwd), safe="")
+                / seat.record["conversation"] / "updates.jsonl")
+
     def prompt(self, seat):
         if self.HARNESS == "claude":
             fired = self.hooks.prompt("fix the api", seat, env=SECOND, finished=True)
+        elif self.HARNESS == "grokbuild":
+            path = self.updates(seat)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as kept:
+                kept.write(json.dumps({
+                    "timestamp": int(time.time()), "method": "session/update",
+                    "params": {"sessionId": seat.record["conversation"], "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "fix the api"}}}}) + "\n")
+            fired = self.hooks.fire("UserPromptSubmit", {"prompt": "fix the api"},
+                                    seat=seat.name, pane=seat, env=SECOND, finished=True)
+        elif self.HARNESS == "antigravity":
+            fired = self.hooks.fire("PreInvocation", {"invocationNum": 0,
+                                                      "lastUserInput": "fix the api"},
+                                    seat=seat.name, pane=seat, env=SECOND, finished=True)
         else:
             fired = self.hooks.fire("UserPromptSubmit", {"prompt": "fix the api"},
                                     seat=seat.name, pane=seat, env=SECOND, finished=True)
@@ -88,6 +109,14 @@ class Unparking(unittest.TestCase):
                 kept.write(b"".join((line if isinstance(line, bytes) else json.dumps(line).encode())
                                     + b"\n" for line in said))
             payload = {"background_tasks": [], "transcript_path": str(path), **payload}
+        elif self.HARNESS == "grokbuild":
+            if said:
+                path = self.updates(seat)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("ab") as kept:
+                    kept.write(b"".join(
+                        (line if isinstance(line, bytes) else json.dumps(line).encode()) + b"\n"
+                        for line in said))
         else:
             assert not said, f"{self.HARNESS} keeps no conversation lines here"
         fired = self.hooks.fire(event, payload, seat=seat.name, pane=seat, env=env, finished=True)

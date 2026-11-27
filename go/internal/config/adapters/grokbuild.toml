@@ -294,7 +294,9 @@ none = ["responding…", "ctrl+c:cancel"]
 # quota hands the turn over and parks the provider, and a busy or unavailable service is
 # transient -- the worker answers by typing `continue`, resuming the same session, never by
 # handing the round over.  A spent SuperGrok week is a 402 with no events: `grok -p` exits 1
-# with only the `usage balance exhausted` stderr.
+# with only the `usage balance exhausted` stderr; in a seat's `updates.jsonl`, Grok Build
+# prefixes a 402 with `402 Payment Required` and a spent free allowance's 429 with
+# `subscription:free-usage-exhausted`.
 [stall]
 terminal = "result"
 signatures = ["You've hit the rate limit", "Rate limited", "quota exceeded",
@@ -303,8 +305,9 @@ refusals = ["rate limit", "Rate limited", "quota exceeded", "too many requests",
   "usage balance exhausted", "Service unavailable",
   "The service is busy",
   "500", "502", "503", "504", "Internal server error", "overloaded", "529", "at capacity"]
-quotas = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
-  "usage balance exhausted", "usage limit", "insufficient_quota", "insufficient quota"]
+quotas = ["rate limit", "Rate limited", "quota exceeded", "subscription:free-usage-exhausted",
+  "too many requests", "429", "usage balance exhausted", "402 Payment Required",
+  "usage limit", "insufficient_quota", "insufficient quota"]
 
 # Its login screen, in its own words: the session token in ~/.grok/auth.json went stale.
 [auth]

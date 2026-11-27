@@ -39,6 +39,7 @@ import os
 from pathlib import Path
 import re
 import select
+import shlex
 
 from .akbin import AK, Done
 
@@ -65,6 +66,14 @@ class Hooks:
 
     def __init__(self, home, harness="claude"):
         self.home, self.harness = home, harness
+        if harness == "antigravity":
+            # agy's hooks are written per launch into its agent dir, never by `hooks`.
+            self.installed = adapter(home, "antigravity", "interactive", "gemini-3.8-flash", "high")
+            assert self.installed.code == 0, f"antigravity interactive: {self.installed.err}"
+            words = shlex.split(self.installed.out)
+            self.file = Path(words[words.index("--add-dir") + 1]) / ".agents/hooks.json"
+            assert self.settings.get("agentkit"), f"antigravity wrote no hooks in {self.file}"
+            return
         self.file = home.path / FILES[harness]
         self.installed = install(home, harness)
         assert self.installed.code == 0, f"{harness} hooks: {self.installed.err}"
@@ -78,6 +87,9 @@ class Hooks:
     def commands(self, event, tool=None):
         """Each command registered for the event, in order; with `tool`, only those whose
         matcher takes that tool, as the harness picks them."""
+        if self.harness == "antigravity":
+            entries = (self.settings.get("agentkit") or {}).get(event) or []
+            return [entry["command"] for entry in entries if entry.get("type") == "command"]
         groups = (self.settings.get("hooks") or {}).get(event) or []
         return [entry["command"] for group in groups
                 if tool is None or _matches(group.get("matcher"), tool)
