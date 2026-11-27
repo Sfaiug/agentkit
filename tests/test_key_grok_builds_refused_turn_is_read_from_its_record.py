@@ -123,11 +123,20 @@ class GrokBuildsRefusedTurnIsReadFromItsRecord(unittest.TestCase):
         cwd.mkdir(parents=True)
         # No updates.jsonl -> None.
         self.assertIsNone(self.plugin_error(cwd))
-        # Refused turn -> agent_result.
+        # Refused turn -> agent_result, verbatim (trailing whitespace preserved).
         write_updates(self.home, cwd, SESSION, refused_rows())
         self.assertEqual(self.plugin_error(cwd), REFUSAL_402)
-        # A newer user_message_chunk after it -> "".
+        verbatim = "API error (status 400 Bad Request): malformed request  \n"
+        write_updates(self.home, cwd, SESSION, refused_rows(verbatim, http_status=400))
+        self.assertEqual(self.plugin_error(cwd), verbatim)
+        # A newer user_message_chunk after it -> "", including owner shell input.
         write_updates(self.home, cwd, SESSION, [*refused_rows(), user_row("try again")])
+        self.assertEqual(self.plugin_error(cwd), "")
+        shell = {"timestamp": 1795726462, "method": "session/update",
+                 "params": {"sessionId": SESSION, "update": {
+                     "sessionUpdate": "user_message_chunk",
+                     "content": {"type": "text", "text": "ls", "_meta": {"bashCommand": "ls"}}}}}
+        write_updates(self.home, cwd, SESSION, [*refused_rows(), shell])
         self.assertEqual(self.plugin_error(cwd), "")
         # A turn_completed with another stop_reason -> "".
         ended = {"timestamp": 1795726465, "method": "_x.ai/session/update",

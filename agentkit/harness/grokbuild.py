@@ -277,12 +277,8 @@ def error(record, cwd, conversation):
         if entry.get("method") == "_x.ai/session/update" and kind == "turn_completed":
             return True
         meta = update.get("_meta")
-        content = update.get("content")
-        content_meta = content.get("_meta") if isinstance(content, dict) else None
         return (entry.get("method") == "session/update" and kind == "user_message_chunk"
-                and not (isinstance(meta, dict) and meta.get("hostTurn"))
-                and not (isinstance(content_meta, dict)
-                         and content_meta.get("bashCommand") is not None))
+                and not (isinstance(meta, dict) and meta.get("hostTurn")))
 
     path = read_by(record, cwd, conversation)
     if not path:
@@ -295,7 +291,7 @@ def error(record, cwd, conversation):
     if update.get("sessionUpdate") != "turn_completed" or update.get("stop_reason") != "error":
         return ""
     result = update.get("agent_result")
-    return result.strip() if isinstance(result, str) else ""
+    return result if isinstance(result, str) else ""
 
 
 def opened(cwd, conversation):
