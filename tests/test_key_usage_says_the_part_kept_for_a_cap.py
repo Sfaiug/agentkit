@@ -43,10 +43,10 @@ def card_rows(out, heading):
 
 
 class UsageSaysThePartKeptForACap(unittest.TestCase):
-    def usage(self, logins, *, clock_offset=0, now=None):
+    def usage(self, logins, *, clock_offset=0, now=None, scope="Fable"):
         """(card text, wide text, `--json` payload) for `logins`, {account: (week_used, cap_held,
-        cap_resets_offset)} where `cap_resets_offset` is seconds from `now`; `AK_USAGE_CLOCK`
-        stands at `now + clock_offset`."""
+        cap_resets_offset[, week_resets_offset])} where offsets are seconds from `now`;
+        `AK_USAGE_CLOCK` stands at `now + clock_offset`."""
         with Home() as home:
             meters.install(home)
             now = int(time.time()) if now is None else now
@@ -55,14 +55,18 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
             akconfig.write(home, MODELS, providers={"acme": {"mode": "subscription",
                                                              **accounts_cfg}})
 
-            def reading(week_used, held, resets_offset):
-                week = {"name": "weekly_all", "used": week_used, "window_secs": meters.WEEK,
-                        "resets_at": now + 3 * 86400, "elapsed": 57}
-                cap = {"name": "weekly_scoped", "scope": "Fable", "used": 20,
+            def reading(week_used, held, resets_offset, week_offset=3 * 86400):
+                cap = {"name": "weekly_scoped", "scope": scope, "used": 20,
                        "window_secs": meters.WEEK, "resets_at": now + resets_offset, "elapsed": 57}
                 if held is not None:
                     cap["held"] = held
-                return {"provider": "acme", "resets": 0, "meters": [week, cap]}
+                found = []
+                if week_used is not None:
+                    found.append({"name": "weekly_all", "used": week_used,
+                                  "window_secs": meters.WEEK, "resets_at": now + week_offset,
+                                  "elapsed": 57})
+                found.append(cap)
+                return {"provider": "acme", "resets": 0, "meters": found}
 
             built = {account: reading(*spec) for account, spec in logins.items()}
             prov = ({**built["default"], "accounts": built}
@@ -101,13 +105,30 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
         self.assertEqual(wide_lines[first_at].index("42%"), wide_lines[first_at + 1].index("3%"))
         self.assertEqual(second_at, first_at + 2)
         self.assertFalse(wide_lines[second_at + 1].startswith("  kept for"))
+        # a long scope still aligns under `left` in the table and never breaks values at 40 cols
+        long_scope = "Experimental Reasoning Model"
+        long_card, long_wide, _ = self.usage({"default": (58, 3, 3 * 86400),
+                                              "second": (40, None, 3 * 86400)}, scope=long_scope)
+        self.assertEqual(long_wide.splitlines()[0].index("left"),
+                         next(line for line in long_wide.splitlines()
+                              if f"kept for {long_scope}" in line).index("3%"))
+        first_card, second_card = long_card.split("\n\n", 2)[:2]
+        self.assertIn("  left          42%", first_card.splitlines())
+        self.assertIn("  left          60%", second_card.splitlines())
+        for line in long_card.splitlines():
+            self.assertLessEqual(len(line), 40, line)
+            self.assertEqual(line, line.rstrip(), repr(line))
 
     def test_holding_nothing_and_an_ended_cap_window_show_todays_rows(self):
-        # Cap window ends at +50s (still future to collect's real clock, past AK_USAGE_CLOCK at +100s)
+        # Ended windows stop at +50s (future to collect's real clock, past AK_USAGE_CLOCK at +100s)
         card, wide, _ = self.usage({"default": (58, None, 3 * 86400),
                                     "second": (40, 0, 3 * 86400),
-                                    "third": (70, 3, 50)}, clock_offset=100)
-        for label, left in (("Acme I ", "42%"), ("Acme II ", "60%"), ("Acme III ", "30%")):
+                                    "third": (70, 3, 50),
+                                    "fourth": (100, 3, 3 * 86400),
+                                    "fifth": (58, 3, 3 * 86400, 50),
+                                    "sixth": (None, 3, 3 * 86400)}, clock_offset=100)
+        for label, left in (("Acme I ", "42%"), ("Acme II ", "60%"), ("Acme III ", "30%"),
+                            ("Acme IV ", "0%"), ("Acme V ", "42%"), ("Acme VI ", "80%")):
             rows = card_rows(card, label)
             self.assertEqual(tuple(name for name, _ in rows), STANDARD_LABELS, label)
             self.assertEqual(rows[0], ("left", left), label)
