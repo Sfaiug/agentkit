@@ -2135,11 +2135,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             moves.append((("born",), True, None, False))
         if at:            # the card `x` asks on: its news touched as it is asked (`asking`)
             moves.append((("asked",), True, None, False))
-        # each meter's (left, said), by its subscription, while drawn as a grid (None without
-        # one, so a draw with no grid changes at once)
+        # each meter's (left, said), by its subscription, and the whole grid's cells, while drawn
+        # as a grid (None without one, so a draw with no grid at this width changes at once)
         readings = [(("usage", subscription(row)), cell[2:] if grid else None)
                     for row, cell in zip(rows, cells)]
-        news = clock.look({key: shown for key, shown, _, _ in moves} | dict(readings))
+        news = clock.look({key: shown for key, shown, _, _ in moves} | dict(readings)
+                          | {("usage",): tuple(cells) if grid else None})
 
         def line(name, moving, counted=None):
             row, span = bars[name]
@@ -2193,17 +2194,17 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         # it gliding, and `Clock.settle`/`Clock.forget` ending it; where motion is off nothing
         # glides (`clock.start`).
         moment = motion.moment()
+        prev = news.get(("usage",), (None, None))[1]
         glides = {}
-        if grid:
-            before_cells = []
-            for n, ((key, shown), cell) in enumerate(zip(readings, cells)):
+        if (grid and prev and usage_lines(
+                cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev)):
+            for n, (key, shown) in enumerate(readings):
                 since, before = news.get(key, (None, None))
-                active = since is not None and since + motion.GLIDE > moment
-                before_cells.append((*cell[:2], *before) if active and before else cell)
-                if active and shown and shown[0] and before and (before[0] or before[1][:1] != "—"):
-                    glides[n] = since, before
-            if glides and not usage_lines(cfg, layout, rows=rows, ending=ending, cells=before_cells):
-                glides = {}
+                if (shown and shown[0] and before and (before[0] or before[1][:1] != "—")
+                        and since + motion.GLIDE > moment):
+                    start = [*cells[:n], (*cells[n][:2], *before), *cells[n + 1:]]
+                    if usage_lines(cfg, layout, rows=rows, ending=ending, cells=start):
+                        glides[n] = since, before
         if glides:
             until = max(since for since, _ in glides.values()) + motion.GLIDE
 
