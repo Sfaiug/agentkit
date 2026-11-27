@@ -24,10 +24,9 @@ class OnePlanLinePerTask(SeatLaunch):
 
         self.fakes["claude"].behave({**fakeadapter.WORK, "sh": "sleep 180"})
         api, ui = (task(name, done_when=(SHARED,)) for name in ("Fix API", "Fix UI"))
-        jobs = self.home.path / ".agentkit/jobs"
         for flags in (("--in-order",), ("--parallel", "2")):
             refused(launch(api, ui, *flags), ui)
-            self.assertEqual([*jobs.glob("*"), *taskfile.runs(self.home)], [])
+            self.assertEqual([*self.home.path.glob(".agentkit/jobs/*"), *taskfile.runs(self.home)], [])
 
         with ThreadPoolExecutor(2) as pool:
             attempts = list(zip(pool.map(launch, (api, ui)), (api, ui)))
@@ -37,7 +36,7 @@ class OnePlanLinePerTask(SeatLaunch):
         first = taskfile.only_run(self.home)
         done = launch(task("Publish page", done_when=(SHARED, PAGE)), self.web, "--in-order")
         self.assertEqual(done.code, 0, done.out + done.err)
-        receipt, = jobs.glob("*/job.json")
+        receipt, = self.home.path.glob(".agentkit/jobs/*/job.json")
         lines = [t["plan_line"].split(" · written ")[0] for t in json.loads(receipt.read_text())["tasks"]]
         self.assertEqual(lines, [PAGE, WEB])
         refused(launch(self.web), self.web, WEB)
