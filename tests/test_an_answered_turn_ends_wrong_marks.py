@@ -1,6 +1,6 @@
 """A turn answered on a login ends the refusals parked there that no meter showed, made before
-the turn began, that name meters all gating the turn's model or were made without a model;
-every other mark stays.
+the turn began, that name meters all gating the turn's model, were made without a model, or
+name the turn's model where no meter gated it; every other mark stays.
 
 Fake meters in a temporary HOME: nothing here reaches a real usage endpoint or a real
 credential.  Provider names are invented.
@@ -131,6 +131,7 @@ class AnsweredTurnEndsWrongMarks(unittest.TestCase):
     def test_a_refusal_made_without_a_model_goes(self):
         self.refuse("second", None, NOW)
         self.assertIsNone(self.login("second")["exhausted_meters"])
+        self.assertNotIn("exhausted_model", self.login("second"))
         self.assertTrue(usage.answered(self.cfg, "acme", "second", "one", self.now + 10))
         self.assertEqual(self.made(self.login("second")), [])
 
@@ -142,11 +143,68 @@ class AnsweredTurnEndsWrongMarks(unittest.TestCase):
         self.assert_stays()
         self.assertTrue(usage.model_exhausted(self.cfg, "two", {"acme": self.login("second")})[0])
 
+    def test_a_refusal_no_meter_can_hold_goes_by_its_model(self):
+        for meters in ([], [{**m, "scope": "one"} for m in self.week("weekly_one")]):
+            with self.subTest(meters=bool(meters)):
+                for path in config.STATE.iterdir():
+                    path.unlink()
+                self.meters["acme", "second"] = meters
+                self.refuse("second", "two", NOW)
+                mark = self.login("second")
+                self.assertEqual(mark["exhausted_meters"], [])
+                self.assertEqual(mark["exhausted_model"], "two")
+                # another model of the same provider leaves it, and so does a turn begun before it
+                self.assert_stays("one")
+                self.assertFalse(usage.answered(self.cfg, "acme", "second", "two", NOW - 1))
+                self.assertTrue(usage.answered(self.cfg, "acme", "second", "two", NOW + 10))
+                self.assertEqual(self.made(self.login("second")), [])
+                self.assertNotIn("exhausted_model", self.login("second"))
+
+    def test_a_refusal_with_an_empty_list_and_no_or_non_string_model_stays(self):
+        self.meters["acme", "second"] = []
+        self.refuse("second", "two", NOW)
+        cache = config.STATE / "usage.json"
+        for value in ("absent", None, 123, True, ["two"], {"name": "two"}):
+            with self.subTest(exhausted_model=value):
+                held = json.loads(cache.read_text())
+                record = held["providers"]["acme"]["accounts"]["second"]
+                if value == "absent":
+                    record.pop("exhausted_model", None)
+                else:
+                    record["exhausted_model"] = value
+                cache.write_text(json.dumps(held))
+                self.assert_stays("two")
+
+    def test_a_refusal_with_a_gating_meter_holds_no_model_name(self):
+        self.refuse("second", "one", NOW)
+        self.assertNotIn("exhausted_model", self.login("second"))
+        # a list naming meters is judged by its meters alone, whatever `exhausted_model` holds
+        cache = config.STATE / "usage.json"
+        held = json.loads(cache.read_text())
+        held["providers"]["acme"]["accounts"]["second"]["exhausted_meters"] = [["weekly_two", None]]
+        held["providers"]["acme"]["accounts"]["second"]["exhausted_model"] = "one"
+        cache.write_text(json.dumps(held))
+        self.assert_stays("one")
+
+    def test_two_meterless_refusals_keep_each_models_name(self):
+        self.meters["acme", "second"] = []
+        self.refuse("second", "one", NOW)
+        self.refuse("second", "two", NOW + 10)
+        self.assertTrue(usage.answered(self.cfg, "acme", "second", "two", NOW + 20))
+        self.assertEqual(self.made(self.login("second")), [NOW])
+        self.assertEqual(self.login("second")["exhausted_model"], "one")
+        self.assertTrue(usage.answered(self.cfg, "acme", "second", "one", NOW + 20))
+        self.assertEqual(self.made(self.login("second")), [])
+        self.assertNotIn("exhausted_model", self.login("second"))
+
     def test_a_refusal_made_before_marks_named_meters_stays(self):
         self.refuse("second", "one", NOW)
         cache = config.STATE / "usage.json"
         held = json.loads(cache.read_text())
         del held["providers"]["acme"]["accounts"]["second"]["exhausted_meters"]
+        cache.write_text(json.dumps(held))
+        self.assert_stays()
+        held["providers"]["acme"]["accounts"]["second"]["exhausted_model"] = "one"
         cache.write_text(json.dumps(held))
         self.assert_stays()
 

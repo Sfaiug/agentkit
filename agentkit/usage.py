@@ -739,7 +739,7 @@ def _gate_flags(providers, now, cfg, provider=None):
 _WRITES = itertools.count()   # a temporary name of each writer's own; see `_write`
 EARLIER = "exhausted_earlier"     # the refusals in force beside the newest, each its own fields
 MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_used", "exhausted_by",
-        "exhausted_meters", EARLIER)
+        "exhausted_meters", "exhausted_model", EARLIER)
 SCOPED = "scoped_resets"    # {scope: {"spent_at", "names"}}: the last reset of each one cap
 
 
@@ -1272,9 +1272,11 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
     come from (`exhausted_meters`): that one, or with none showing it, every meter gating
     `model`.  It parks only the models those all gate (`_parks`), so a refusal of Fable's own
     cap leaves Opus to its meters.  A mark made without a model records None, and parks every
-    model.  So does the empty list of a model none of whose meters the reading holds, but that
-    is one model's refusal, and which the list does not say: a turn answered since ends the
-    first alone (`answered`).
+    model.  Where the reading holds no meter gating `model` -- as on a meterless provider --
+    the list is empty, parking every model as well, and the mark records `model` itself
+    (`exhausted_model`) so a turn of that model answered since can end it (`answered`).  The
+    owner, 26 Nov 2026, of unparking: "I want you to also apply to every other harness. All
+    should work the same way with ak."
     """
     now = time.time()
     try:
@@ -1315,7 +1317,9 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
                                           "exhausted_used": levels, "exhausted_by": by,
-                                          "exhausted_meters": named if model else None})
+                                          "exhausted_meters": named if model else None,
+                                          **({"exhausted_model": model}
+                                             if model and not named else {})})
     return float(until)
 
 
@@ -1323,8 +1327,9 @@ def answered(cfg, provider, account, model, at):
     """A turn of `model`, begun at `at`, was answered on `account`, that login of `provider`:
     each refusal parked there that no meter showed, made before `at`, whose every meter it can
     have come from (`exhausted_meters`) gates `model` in that login's reading, was wrong, and
-    goes; one made without a model, which records None there, goes as one naming this model's
-    meters does.  Returns whether one went.
+    goes; one made without a model (None there) goes as one naming this model's meters does,
+    and one whose list is empty goes where its `exhausted_model` is `model`.  Returns whether
+    one went.
 
     Nothing else ends such a mark before its time, right or wrong.  On 19 Nov 2026 a login 25%
     used was parked for another login's refusal, and through that hour twenty seats waited for
@@ -1336,16 +1341,20 @@ def answered(cfg, provider, account, model, at):
     refusal written meanwhile is seen.  A mark made without a model is of no model in
     particular: it says the login refuses whatever is asked of it, so the answer shows it as
     wrong as one naming this model's meters: asked on 26 Nov 2026 whether to leave such a mark
-    alone, as no caller makes one today, the owner said "Build it".  One naming no meter
-    otherwise -- its list empty, as of a model none of whose meters the reading then held, or
-    not there, as before marks named any -- or a meter the reading no longer holds names whose
-    it was nowhere (`_parks`): it can be another model's refusal, of which this answer says
-    nothing, so it stays, as does one a meter showed (`_fresh_window` ends it).  What the
-    change raises -- a model config.toml no longer has, a config.toml that cannot be read, a
-    reading of another shape -- is the caller's, and the file is then as it was: the caller's
-    copy of the config standing in (`_on_disk`), or a reading of another shape read as an
-    empty one, would unpark on what nobody can say gates `model`.  So the reading is read as
-    stored, absent the only empty one.
+    alone, as no caller makes one today, the owner said "Build it".  A mark whose list is empty
+    because the reading held no meter gating its model -- as on a meterless provider -- carries
+    that model's name (`exhausted_model`) and goes when that model answers, a name of another
+    type than a string read as none; the owner, 26 Nov 2026, of unparking: "I want you to also
+    apply to every other harness. All should work the same way with ak."  One with an empty list
+    and no name or another model's name, one without
+    `exhausted_meters` (made before marks named any), or one naming a meter the reading no
+    longer holds can be another model's refusal, of which this answer says nothing, so it
+    stays; a list naming meters is judged by its meters alone, and one a meter showed stays
+    (`_fresh_window` ends it).  What the change raises -- a model config.toml no longer has, a
+    config.toml that cannot be read, a reading of another shape -- is the caller's, and the
+    file is then as it was: the caller's copy of the config standing in (`_on_disk`), or a
+    reading of another shape read as an empty one, would unpark on what nobody can say gates
+    `model`.  So the reading is read as stored, absent the only empty one.
     """
     def change(providers, _):
         here = _config_now(cfg)
@@ -1356,11 +1365,19 @@ def answered(cfg, provider, account, model, at):
         gating = [_identity(m) for m in _gating_meters(here, model, reading)[0]]
 
         def wrong(mark):
-            # a mark holding no `exhausted_meters` reads as the empty list: neither says whose
-            made, named = _number(mark.get("exhausted_at")), mark.get("exhausted_meters", [])
-            return (mark.get("exhausted_by") is None and made is not None and made < at
-                    and (named is None or isinstance(named, list) and named
-                         and all(r in gating for r in named)))
+            made = _number(mark.get("exhausted_at"))
+            if (mark.get("exhausted_by") is not None or made is None or not made < at
+                    or "exhausted_meters" not in mark):
+                return False
+            named = mark["exhausted_meters"]
+            if named is None:
+                return True
+            if not isinstance(named, list):
+                return False
+            if named:
+                return all(r in gating for r in named)
+            who = mark.get("exhausted_model")
+            return isinstance(who, str) and who == model
 
         marks = _marks(record)
         kept = [mark for mark in marks if not wrong(mark)]

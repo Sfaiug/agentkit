@@ -123,9 +123,10 @@ class LimitInAnyWords(unittest.TestCase):
         self.assertEqual(self.words({"answered": (ANSWER, FINISHED)}), {"answered": "done"})
 
     def test_out_of_usage_is_for_a_seat_with_something_to_continue(self):
-        # Two ticks, so that each is looked at once the refusal has spent the subscription.
-        self.assertEqual(self.words({"refused": (TYPED, FINISHED), "finished": (ANSWER, FINISHED),
-                                     "owing": (ANSWER, OWING)}, ticks=2),
+        # The answered seats end their turns before the refusal spends the subscription (a turn
+        # answered after it would unpark it); two ticks so each is looked at once it is spent.
+        self.assertEqual(self.words({"finished": (ANSWER, FINISHED), "owing": (ANSWER, OWING),
+                                     "refused": (TYPED, FINISHED)}, ticks=2),
                          {"refused": "out of usage", "finished": "done", "owing": "out of usage"})
 
 

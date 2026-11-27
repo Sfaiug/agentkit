@@ -12,7 +12,8 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.unparking import SECOND, Unparking
+from fixtures import akconfig
+from fixtures.unparking import LOGINS, SECOND, Unparking
 
 ANSWER = {"type": "assistant", "message": {"role": "assistant", "content": [
     {"type": "text", "text": "The api is fixed and its tests pass."}]}}
@@ -52,6 +53,29 @@ class AnAnsweredTurnUnparksItsLogin(Unparking):
         self.prompt(seat)
         self.stop(seat, ANSWER)
         self.assertEqual(self.parked(), {"default": True, "second": False})
+
+    def test_a_refusal_no_meter_can_hold_unparks_only_on_its_model(self):
+        akconfig.write(self.home, {"opus": "claude", "other": "claude"}, providers={
+            "anthropic": {"mode": "subscription", "accounts": LOGINS}})
+        snapshot = self.home.path / ".agentkit/state/usage.json"
+        held = json.loads(snapshot.read_text())
+        provider = held["providers"]["anthropic"]
+        for record in (provider, *provider["accounts"].values()):
+            record["meters"] = []
+            record["none"] = True
+        snapshot.write_text(json.dumps(held))
+        self.mark("default")
+        self.mark("second")
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+        seat = self.seat("acme")
+        self.prompt(seat)
+        self.stop(seat, ANSWER)
+        self.assertEqual(self.parked(), {"default": True, "second": False})
+        self.mark("second", model="other")
+        self.assertEqual(self.parked(), {"default": True, "second": True})
+        self.prompt(seat)
+        self.stop(seat, ANSWER)
+        self.assertEqual(self.parked(), {"default": True, "second": True})
 
     def test_a_stop_heard_on_the_usual_login_unparks_nothing(self):
         self.answered(env={"AGENTKIT_ACCOUNT": ""})
