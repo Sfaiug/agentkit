@@ -302,6 +302,37 @@ class UnlistedModelLab(Sandbox):
             self.assertEqual(staffing.lab(self.cfg, "def_b", []), "openai")
             self.assertEqual(staffing.pair_tier(self.cfg, "def_a", "def_b", []), 0)
 
+    def test_a_default_model_is_no_other_lab_than_a_sibling_on_its_harness_and_provider(self):
+        self.cfg["providers"]["beta"] = {}
+        self.cfg["models"].update({
+            "nova_dune": {"harness": "claude", "model": "claude-nova-2", "effort": "high",
+                          "provider": "dune"},
+            "mist": {"harness": "claude", "model": "default", "effort": "high",
+                     "provider": "dune"},
+            "mist_beta": {"harness": "claude", "model": "default", "effort": "high",
+                          "provider": "beta"},
+            "mist_other_harness": {"harness": "opencode", "model": "default", "effort": "high",
+                                   "provider": "dune"},
+            "other": {"harness": "claude", "model": "claudette-1", "effort": "high",
+                      "provider": "dune"},
+        })
+        self.assertEqual(staffing.lab(self.cfg, "nova_dune", []), "anthropic")
+        self.assertEqual(staffing.lab(self.cfg, "mist", []), "dune")
+        self.assertEqual(staffing.pair_tier(self.cfg, "nova_dune", "mist", []), 1)
+        self.assertEqual(staffing.pair_tier(self.cfg, "mist", "nova_dune", []), 1)
+        with patch.object(config, "manifests", return_value=[("claude", {"family": "Claude"})]):
+            self.assertEqual(staffing.lab(self.cfg, "nova_dune", []), "Claude")
+            self.assertEqual(staffing.pair_tier(self.cfg, "nova_dune", "mist", []), 1)
+            self.assertEqual(staffing.pair_tier(self.cfg, "mist", "nova_dune", []), 1)
+        self.assertEqual(staffing.pair_tier(self.cfg, "nova_dune", "mist_beta", []), 0)
+        self.assertEqual(staffing.pair_tier(self.cfg, "nova", "mist", []), 0)
+        self.assertEqual(staffing.pair_tier(self.cfg, "nova_dune", "mist_other_harness", []), 0)
+        self.assertEqual(staffing.pair_tier(self.cfg, "nova_dune", "other", []), 0)
+        held = [{"release": "mist-1", "name": "Mist 1", "board_name": "Mist 1",
+                 "maker": "Dune", "effort": "high", "values": {},
+                 "yours": [{"harness": "claude", "model": "default"}]}]
+        self.assertEqual(staffing.pair_tier(self.cfg, "nova_dune", "mist", held), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
