@@ -662,12 +662,16 @@ def load():
         # a maker written twice would be two rows of the company list the keys cannot tell apart
         if named is not None:
             cfg[key] = list(dict.fromkeys(named))
-    # checked here rather than importing money, which usage probes do not carry; neither error
+    # checked here rather than importing money, which usage probes do not carry; no error here
     # prints the value, since a newline would span lines and a huge int has no repr
     if not isinstance(cfg.get("money", {}), dict):
         raise Error(f"{held('money')}: [money] must be a table")
     if cfg.get("money", {}).get("currency", "USD") not in ("USD", "EUR"):
         raise Error(f'{held("money")}: [money] currency must be "USD" or "EUR"')
+    vat = cfg.get("money", {}).get("vat", 0)
+    if not ((type(vat) is int or (isinstance(vat, float) and math.isfinite(vat)))
+            and 0 <= vat <= 100):
+        raise Error(f"{held('money')}: [money] vat must be a number from 0 to 100")
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")

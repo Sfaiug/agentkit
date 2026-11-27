@@ -2,8 +2,10 @@
 currency, provider and plan under `[money.paid.<currency>.<provider>]`; else the `price` on its
 provider's table in the config where it is one number (the owner's own word in what they pay in);
 else the plan's list price before tax on the manifest table of that currency (`TABLES`) of the
-harness that asks the provider's logins.  No price is ever converted from another currency: a plan
-none of these holds in that currency has none.
+harness that asks the provider's logins, with `[money] vat` percent added to the cent (a half
+cent up).  What the config says you pay (`[money.paid]` and a provider's own `price`) is left as
+written.  No price is ever converted from another currency: a plan none of these holds in that
+currency has none.
 """
 
 import decimal
@@ -21,6 +23,11 @@ MAX_PRICE = 1_000_000
 def currency(cfg):
     """`[money] currency` of `cfg`, USD where it names none; config.load refuses any other."""
     return cfg.get("money", {}).get("currency", "USD")
+
+
+def vat(cfg):
+    """`[money] vat` of `cfg`, 0 where it names none; config.load refuses any other."""
+    return cfg.get("money", {}).get("vat", 0)
 
 
 def typed(cfg, provider, plan, paid="USD"):
@@ -47,7 +54,8 @@ def price(cfg, provider, plan, paid="USD"):
     """What one login of `provider` on `plan` costs a month in `paid`, or None: the price kept
     for it in `paid` (`typed`), else the provider's own numeric `price` in `cfg` (never a `price`
     table by login, as usage is kept by plan), else the plan's list price in `paid` on the
-    manifest of the harness that asks its logins."""
+    manifest of the harness that asks its logins, with `[money] vat` percent added to the cent, a
+    half cent up."""
     given = typed(cfg, provider, plan, paid)
     if given is not None:
         return given
@@ -56,7 +64,15 @@ def price(cfg, provider, plan, paid="USD"):
     if own is not None:
         return own
     listed = config.manifest(logins.harness(cfg, provider)).get(TABLES[paid])
-    return _price(listed.get(plan)) if isinstance(listed, dict) else None
+    found = _price(listed.get(plan)) if isinstance(listed, dict) else None
+    rate = vat(cfg)
+    if found is None or not rate:
+        return found
+    with decimal.localcontext() as ctx:
+        ctx.prec = 60
+        total = (decimal.Decimal(str(found)) * (100 + decimal.Decimal(str(rate))) / 100).quantize(
+            decimal.Decimal("0.01"), rounding=decimal.ROUND_HALF_UP)
+    return int(total) if total == total.to_integral_value() else float(total)
 
 
 def month(cfg, plans):
