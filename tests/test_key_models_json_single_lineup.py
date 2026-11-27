@@ -3,9 +3,9 @@
 into an empty front.
 
 Black-box: the program `AK_BIN` names, run from outside (tests/fixtures/akbin.py) on boards from
-tests/test_key_models_answer.py, with `state/matrix.json` served through a FIFO that hands two
-distinct valid lineups to consecutive reads; judged by the JSON output and exit code.  Fails
-against /bin/false.
+tests/test_key_models_answer.py, with `state/matrix.json` starting as a FIFO whose writer
+replaces the path with a second valid lineup before delivering the first and closing; judged by
+the JSON output and exit code.  Fails against /bin/false.
 """
 
 import json
@@ -60,22 +60,23 @@ class ModelsJsonSingleLineup(unittest.TestCase):
         stop = threading.Event()
 
         def serve():
-            for payload in (first, second):
+            if stop.is_set():
+                return
+            fd = os.open(keep, os.O_WRONLY)
+            try:
                 if stop.is_set():
                     return
-                fd = os.open(matrix_path, os.O_WRONLY)
-                try:
-                    if stop.is_set():
-                        return
-                    with os.fdopen(fd, "wb", closefd=False) as out:
-                        out.write(payload)
-                except BrokenPipeError:
-                    return
-                finally:
-                    os.close(fd)
-            tmp = matrix_path.with_suffix(".next")
-            tmp.write_bytes(second)
-            tmp.replace(matrix_path)
+                # Replace the path before delivering `first` + EOF so any later open reads `second`
+                # while this open can never receive anything beyond `first`.
+                tmp = matrix_path.with_suffix(".next")
+                tmp.write_bytes(second)
+                tmp.replace(matrix_path)
+                with os.fdopen(fd, "wb", closefd=False) as out:
+                    out.write(first)
+            except BrokenPipeError:
+                return
+            finally:
+                os.close(fd)
 
         thread = threading.Thread(target=serve, daemon=True)
         thread.start()
