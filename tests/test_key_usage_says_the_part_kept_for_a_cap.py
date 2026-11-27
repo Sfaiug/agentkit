@@ -81,9 +81,13 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
             return card.out, table.out, json.loads(data.out)
 
     def test_a_login_whose_cap_holds_three_shows_the_row_under_left(self):
+        now = int(time.time())
+        anvil_cap = ({"name": "weekly_anvil", "scope": "Anvil", "used": 20, "held": 3,
+                      "window_secs": meters.WEEK, "resets_at": now + 3 * 86400, "elapsed": 57},)
         card, wide, _ = self.usage({"default": (58, 3, 3 * 86400),
                                     "second": (40, None, 3 * 86400),
-                                    "third": (98, 3, 3 * 86400)})
+                                    "third": (98, 3, 3 * 86400),
+                                    "fourth": (96, 3, 3 * 86400, 3 * 86400, anvil_cap)}, now=now)
         rows = card_rows(card, "Acme I ")
         self.assertEqual(rows[:2], [("left", "42%"), ("kept for Fable", "3%")])
         self.assertEqual(tuple(label for label, _ in rows),
@@ -91,9 +95,15 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
         second_rows = card_rows(card, "Acme II ")
         self.assertEqual(tuple(label for label, _ in second_rows), STANDARD_LABELS)
         self.assertEqual(second_rows[0], ("left", "60%"))
-        # bounded by what is left: 2% left with 3 held keeps at most 2%
+        # bounded by what is left: 2% left with 3 held keeps 2%; two caps on 4% left keep 4% total
         self.assertEqual(card_rows(card, "Acme III ")[:2],
                          [("left", "2%"), ("kept for Fable", "2%")])
+        fourth_lines = card.split("\n\n")[3].splitlines()
+        fourth_left = next(i for i, line in enumerate(fourth_lines) if line.startswith("  left "))
+        self.assertEqual(fourth_lines[fourth_left].split()[-1], "4%")
+        self.assertEqual(fourth_lines[fourth_left + 1], "  kept for Fable and Anvil")
+        self.assertEqual(fourth_lines[fourth_left].index("4%"),
+                         fourth_lines[fourth_left + 2].index("4%"))
         card_lines = card.splitlines()
         left_lines = [line for line in card_lines if line.startswith("  left ")]
         kept_line = next(line for line in card_lines if line.startswith("  kept for Fable "))
@@ -116,13 +126,21 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
         long_card, long_wide, _ = self.usage({"default": (58, 3, 3 * 86400),
                                               "second": (40, None, 3 * 86400)},
                                              scope=long_scope, wide={"COLUMNS": "120"})
+        long_lines = long_wide.splitlines()
         self.assertTrue(long_wide.startswith("provider "))
         self.assertEqual(meters.cell(long_wide, "Acme II", "left"), "60%")
-        self.assertEqual(long_wide.splitlines()[0].index("left"),
-                         next(line for line in long_wide.splitlines() if line.strip() == "3%"
-                              or f"kept for {long_scope}" in line and "3%" in line).index("3%"))
+        long_first = next(i for i, line in enumerate(long_lines) if line.startswith("Acme I "))
+        self.assertTrue(long_lines[long_first + 1].startswith(f"  kept for {long_scope}"))
+        value_line = (long_lines[long_first + 1] if "3%" in long_lines[long_first + 1]
+                      else long_lines[long_first + 2])
+        self.assertEqual(long_lines[0].index("left"), value_line.index("3%"))
         first_card, second_card = long_card.split("\n\n", 2)[:2]
-        self.assertIn("  left          42%", first_card.splitlines())
+        first_lines = first_card.splitlines()
+        self.assertEqual(first_lines[1:4], [
+            "  left          42%",
+            f"  kept for {long_scope}",
+            "                3%",
+        ])
         self.assertIn("  left          60%", second_card.splitlines())
         for line in long_card.splitlines():
             self.assertLessEqual(len(line), 40, line)

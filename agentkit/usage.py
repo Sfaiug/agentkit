@@ -1691,28 +1691,21 @@ def _gating_meters(cfg, name, providers):
     return [m for m in meters if m.get("scope") or m["name"] not in claimed], PROVIDER_METERS
 
 
-def _holding(week, caps, now):
-    """The caps among `caps` holding a positive part of `week`, a shared week with room left,
-    whose window has not ended."""
-    used = _number(week.get("used")) if isinstance(week, dict) else None
-    if used is None or used >= 100:
-        return []
-    return [cap for cap in (caps if isinstance(caps, list) else ())
-            if isinstance(cap, dict) and _text(cap.get("scope"))
-            and (_number(cap.get("held")) or 0) > 0 and not _past(cap, now)]
-
-
-def _leaving(week, caps):
+def _leaving(week, caps, now=None):
     """`week`, a login's shared week, as a model none of `caps` gates reads it: used as well by
     the points of it each holds for its own model (`held`), at most 100, with `read`, what it
     read, and `held_for`, whose that part is; as read where they hold none.  A copy, so no
     reading changes: the held part decides what a model may spend, never what a meter says."""
-    # a cap whose window has rolled over holds nothing it read
-    holding = _holding(week, caps, time.time())
-    if not holding:
+    now = time.time() if now is None else now   # a cap whose window has rolled over holds nothing
+    used = _number(week.get("used")) if isinstance(week, dict) else None
+    holding = [cap for cap in (caps if isinstance(caps, list) else ())
+               if isinstance(cap, dict) and _text(cap.get("scope"))
+               and (_number(cap.get("held")) or 0) > 0 and not _past(cap, now)]
+    if not holding or used is None or used >= 100:
         return week
-    return {**week, "used": min(100, week["used"] + sum(cap["held"] for cap in holding)),
-            "read": week["used"], "held_for": " and ".join(str(cap["scope"]) for cap in holding)}
+    return {**week, "used": min(100, used + sum(cap["held"] for cap in holding)),
+            "read": week["used"],
+            "held_for": " and ".join(dict.fromkeys(str(cap["scope"]) for cap in holding))}
 
 
 def unheld(providers):
@@ -2469,14 +2462,15 @@ def review_pair(cfg, providers):
 
 
 def _kept_rows(cfg, name, prov, now):
-    """(label, pct) rows under `left` for caps holding a part of what this login's shared week
-    has left, bounded by what is left; empty where `left` is not that week or nothing is held."""
+    """[(label, pct)] under `left` for the part of this login's shared week `_leaving` holds for
+    caps, empty where `left` is not that week or nothing is held."""
     shared = shared_week(cfg, name, prov, now)
     if shared is None or shared is not _holding_week(prov.get("meters"), now):
         return []
-    room = _left(shared.get("used"))
-    return [(terminal.plain(f"kept for {cap['scope']}"), _pct(min(room, _number(cap["held"]))))
-            for cap in _holding(shared, prov.get("meters"), now)]
+    held = _leaving(shared, prov.get("meters"), now)
+    if "held_for" not in held:
+        return []
+    return [(terminal.plain(f"kept for {held['held_for']}"), _pct(held["used"] - held["read"]))]
 
 
 def render(cfg, providers, order, *, repo=None):
