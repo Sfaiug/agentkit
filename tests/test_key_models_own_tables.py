@@ -119,13 +119,13 @@ def home_of(teams, reviewed=reviews, findings=None):
     return home
 
 
-def used_home(reviewed=0):
+def used_home(*second):
     """A Home of MODELS whose team now's 20 tasks all went live, having taken, on plans priced as
     tests/test_key_models_json_money.py prices them and recorded as
     tests/test_key_models_json_run_usage.py records them: nova orchestrating 7 points of Max 20x
     ($200, 180 euros), bolt building 12 of ChatGPT's Pro ($200, no euro price) and 4 of its $500
-    plan, crux reviewing none; or the 4 split by tokens with crux reviewing there `reviewed` times
-    the tokens bolt built."""
+    plan, crux reviewing none; or the 4 split evenly between turns of 100,000 tokens each in the
+    roles `second` names."""
     home = home_of([("now", 20, 20, {})])
     logins = {"anthropic": ["default"], "openai": ["default", "second"]}
     week = {"name": "weekly", "used": 50, "window_secs": 7 * DAY, "resets_at": NOW + DAY}
@@ -142,13 +142,13 @@ def used_home(reviewed=0):
         "seat_usage": [("claude:event-0", THEN - 45 * HOUR, 100_000, "default", "nova-7", "nova",
                         "high")],
         "turn_usage": []}
-    for account, role, tokens in (("default", "executor", 1), ("second", "executor", 1),
-                                  *[("second", "reviewer", reviewed)] * bool(reviewed)):
-        turn = home.path / f".agentkit/runs/fix-now-0/round-1/{role}-{account}"
+    turns = [("default", "executor"), *(("second", role) for role in second or ["executor"])]
+    for n, (account, role) in enumerate(turns):
+        turn = home.path / f".agentkit/runs/fix-now-0/round-1/{role}-{n}"
         turn.mkdir(parents=True)
         (turn / "harness").write_text("codex")
         rows["turn_usage"].append(("fix-now-0", role, str(turn), account, "bolt-3",
-                                   THEN - 45 * HOUR, tokens * 100_000, 0, 0, 0))
+                                   THEN - 45 * HOUR, 100_000, 0, 0, 0))
     with closing(sqlite3.connect(home.path / ".agentkit/history.db")) as db, db:
         for table, items in rows.items():
             db.execute(f"CREATE TABLE {table} ({TABLES[table]})")
@@ -269,7 +269,7 @@ class ModelsOwnTables(unittest.TestCase):
         # the cent; the sum is the cents shown, though all of it, $0.669..., would read $0.67
         spent = ["$0.66 per task live:", "orchestrating $0.16,", "building $0.33,",
                  "reviewing $0.17"]
-        with used_home(reviewed=3) as home:
+        with used_home("executor", *["reviewer"] * 3) as home:
             self.assertEqual(self.priced(home=home)[:2], [f"{USED_TEAM}, {spent[0]}",
                                                           " ".join(spent[1:])])
             # on 40 cells it breaks between its clauses
