@@ -169,8 +169,12 @@ interactive)
   status=$(jq -c '.statusLine | objects | select(.command | strings | length > 0)' \
               "${TOKEN%/*}/settings.json" 2>/dev/null) || status=
   script=$(printf '%q' "$REPO/hooks/claude-status.sh")
-  settings=$(jq -cn --arg model "$model" --argjson status "${status:-null}" --arg script "$script" '
-    {model: $model, showFeedbackSurvey: false,
+  # The seat trusts the folder it opens in, as a Claude or a Codex seat does: agy asks "Do you
+  # trust the contents of this project?" of a folder its login has not seen, and a seat left at
+  # that question takes no line of ak's.  For this launch alone, like `model` (agy 1.5.18).
+  settings=$(jq -cn --arg model "$model" --argjson status "${status:-null}" --arg script "$script" \
+                --arg here "$(pwd -P)" '
+    {model: $model, showFeedbackSurvey: false, trustedWorkspaces: [$here],
      statusLine: (if $status then $status | .command = ($script + " | { " + .command + "\n}")
                   else {type: "command", command: ($script + " >/dev/null")} end)}') || exit 2
   # The orchestrator rulebook this launch is handed.  agy 1.2.9 takes no system-prompt or
