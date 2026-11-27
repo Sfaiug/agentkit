@@ -136,6 +136,25 @@ def fetch_branches(repo):
     return fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
 
 
+def unlanded_suite_refusal(cmds, repo, target, *, landing):
+    """Why a repository's run that does not land cannot start with a done-when line that is its
+    target's suite (`gitcall.is_suite`), or None: it would run the suite in every round before
+    its review, and the suite runs once, at landing (the owner, 10 Nov 2026).  The suite is the
+    one origin declares now, its branches fetched as the loop fetches them; where origin does
+    not answer, the one the clone last fetched."""
+    if landing or repo is None:
+        return None
+    try:
+        fetch_branches(repo)
+    except Stopped:
+        pass
+    suite = gitcall.declared_suite(repo, target) or ""
+    line = next((cmd for cmd in cmds if gitcall.is_suite(cmd, suite)), None)
+    return line and (f"done-when line `{line}` is {repo.name}'s whole-suite `tests:` command, "
+                     "which ak runs once, at landing, and --no-merge has no landing. "
+                     "Write a focused check instead.")
+
+
 def require_checkout(state, *, blocking=True):
     """Ensure git knows a resumed run's checkout before waiting or working in it.
 
@@ -1559,8 +1578,7 @@ def preflight(run_dir, opts, log):
         every, once = taskfile.group_commands(round_commands(
             cmds, repo, target, scratch=repo is None, landing=not opts["--no-merge"]))
         refusal = (taskfile.checks_refusal(every)
-                   or gitcall.unlanded_suite_refusal(cmds, repo, target,
-                                                     landing=not opts["--no-merge"])
+                   or unlanded_suite_refusal(cmds, repo, target, landing=not opts["--no-merge"])
                    or from_refusal(run_dir / "task.md", (meta.get("from") or "").strip(), repo,
                                    opts["--no-worktree"]))
         if not refusal and not state.get("job_id") and from_seat() and run_kind(state) == "task":

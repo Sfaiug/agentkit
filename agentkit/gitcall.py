@@ -475,7 +475,8 @@ def declared_suite(wt, target=None, *, ref=None):
     A change cannot loosen its own landing checks; its line applies after it merges.
     """
     if not ref and target:
-        ref = target if target.startswith("origin/") else f"origin/{target}"
+        # however the task spells the branch: bare, `origin/<branch>` or a ref's full name
+        ref = "origin/" + re.sub(r"^(refs/(heads|remotes/origin)|origin)/", "", target)
     suite = declared_at(wt, ref, "tests") if ref else None
     if suite is None:
         suite = declared(wt, "tests")
@@ -517,17 +518,58 @@ def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
     return kept + [f"{suite}  # once"]
 
 
-def unlanded_suite_refusal(cmds, wt, target, *, landing):
-    """One sentence when a done-when line of a repository's run that does not land is the
-    target's suite or its bare first command, else None: such a run would run it in every
-    round before its review, and the suite runs once, at landing (the owner, 10 Nov 2026)."""
-    targets = set() if landing or wt is None else suite_commands(declared_suite(wt, target))
-    for bare in (taskfile.split_once(cmd)[0] for cmd in cmds):
-        if " ".join(bare.split()) in targets:
-            return (f"done-when line `{bare}` is {Path(wt).name}'s whole-suite `tests:` command, "
-                    "which ak runs once, at landing, and --no-merge has no landing. "
-                    "Write a focused check instead.")
-    return None
+# what opens a quote or a bracket, and what closes it
+CLOSES = {"'": "'", "$'": "'", '"': '"', "`": "`", "(": ")", "$(": ")", "<(": ")", ">(": ")",
+          "${": "}"}
+SEPARATOR = re.compile(r"[ \t]+|;;&?|;&|&&|&>>?|\|[|&]|<<[<-]?|<[&>]|>[>&|]|[|&;<>]")
+DESCRIPTOR = re.compile(r"\d+|\{\w+\}")     # what a redirection may name before its `<` or `>`
+
+
+def shell_words(line):
+    """`line`'s words as the shell splits them, so that two lines of the same words are one
+    command however each is spaced: blanks and a comment are dropped, and each operator (`|`,
+    `&&`, `;`, `>>`) is a word of its own, with the descriptor its redirection names (`2>`).
+    What a quote or a bracket (`CLOSES`) holds stays as written, blanks and all: a backslash
+    escapes there but in `'...'`, a bracket holds further quotes and brackets, and `"..."`
+    holds `$(...)`, `${...}` and backquotes."""
+    words, nest, start, i = [], [], 0, 0
+    while i < len(line):
+        top = nest[-1] if nest else ""
+        opens = (() if top in ("'", "$'", "`") else ("$(", "${", "`") if top == '"'
+                 else tuple(CLOSES))
+        end = i + 1
+        if line[i] == "\\" and top != "'":
+            end += 1                                    # with the character it escapes
+        elif top and line[i] == CLOSES[top]:
+            nest.pop()
+        elif line.startswith(opens, i):
+            nest.append(next(opener for opener in opens if line.startswith(opener, i)))
+            end = i + len(nest[-1])
+        elif nest:
+            pass                                        # as written
+        elif line[i] == "#" and start == i:
+            break
+        elif line[i] in " \t|&;<>":
+            end = SEPARATOR.match(line, i).end()        # blanks, or one operator
+            cut = start if line[i] in "<>" and DESCRIPTOR.fullmatch(line, start, i) else i
+            words += [line[start:cut], line[cut:end].strip()]
+            start = end
+        i = end
+    return [word for word in words + [line[start:i]] if word]
+
+
+def is_suite(line, suite):
+    """Whether `line` is the declared `suite`, or the suite before its output plumbing, word for
+    word (`shell_words`): before its first `2>&1` or pipe, where no `&&`, `||`, `;` or `&` follows
+    that.  Stricter than `with_suite`, whose line only moves to the landing: a refusal must take
+    no focused check for the suite, and a command the suite joins to others with `&&`, `||`, `;`
+    or `&` is a part of it."""
+    words, whole = shell_words(line), shell_words(suite)
+    cut = next((i for i, word in enumerate(whole)
+                if word in ("|", "|&") or whole[i:i + 2] == ["2>&", "1"]), len(whole))
+    if {"&&", "||", ";", "&"} & set(whole[cut:]):
+        cut = len(whole)
+    return bool(words) and words in (whole, whole[:cut])
 
 
 def round_commands(cmds, wt, target, *, scratch, landing):
