@@ -9,6 +9,7 @@ currency has none.
 """
 
 import decimal
+import math
 import re
 
 from . import config, logins
@@ -74,9 +75,9 @@ def _with_vat(found, rate):
     """`found` with `rate` percent added, rounded to the cent (a half cent up), int where whole
     else float.  Exact in decimal integers so neither a manifest price nor a written rate near a
     half-cent boundary ever crosses it."""
-    _, f_coeff, f_ndigits, f_exp = config.parse_decimal(found)
+    f_sign, f_coeff, f_ndigits, f_exp = config.parse_decimal(found)
     _, r_coeff, r_ndigits, r_exp = config.parse_decimal(rate)
-    if f_coeff == 0:
+    if f_coeff == 0 or f_sign < 0:
         return 0
     f_mag = f_ndigits - 1 + f_exp
     if f_mag < -3:      # under $0.001, even +100% is under 0.2 cents
@@ -107,4 +108,9 @@ def month(cfg, plans):
 def _price(value, *, positive=False):
     """`value`, as the table holds it, when it is a finite number (no boolean) up to MAX_PRICE,
     at least 0 or above 0 with `positive`, else None."""
-    return value if config.in_power10(value, 6, positive=positive) else None
+    ok = (lambda n: 0 < n <= MAX_PRICE) if positive else (lambda n: 0 <= n <= MAX_PRICE)
+    if type(value) is int:
+        return value if ok(value) else None
+    if isinstance(value, float) and math.isfinite(value) and ok(value):
+        return value
+    return None

@@ -476,16 +476,16 @@ def parse_decimal(value):
     return sign, coeff, len(trimmed), exp_val - len(frac) + trailing
 
 
-def in_power10(value, power, *, positive=False):
-    """Whether `value` is a finite non-boolean number at most `10**power` (above 0 with
-    `positive`, else at least 0), judged on its exact decimal literal when `ExactFloat`."""
+def in_power10(value, power):
+    """Whether `value` is a finite non-boolean number from 0 to `10**power`, judged on its exact
+    decimal literal when `ExactFloat`."""
     if type(value) is int:
-        return (0 < value <= 10 ** power) if positive else (0 <= value <= 10 ** power)
+        return 0 <= value <= 10 ** power
     parsed = parse_decimal(value)
     if parsed is None:
         return False
     sign, coeff, ndigits, exp10 = parsed
-    if sign < 0 or (positive and coeff == 0):
+    if sign < 0:
         return False
     if coeff == 0:
         return True
