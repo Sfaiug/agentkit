@@ -88,7 +88,7 @@ func TestEveryManifestPatternMatchesAsPythonsDoes(t *testing.T) {
 			for _, part := range parts {
 				if at := compiled.Find(part.text); at != nil {
 					span := [2]int{utf8.RuneCountInString(part.text[:at.Start]), utf8.RuneCountInString(part.text[:at.End])}
-					found = append(found, match{name, part.row, span, groups(compiled, at)})
+					found = append(found, match{name, part.row, span, groups(compiled, part.text, at)})
 				}
 			}
 			if !reflect.DeepEqual(found, want[name]) {
@@ -111,12 +111,14 @@ func TestEveryManifestPatternMatchesAsPythonsDoes(t *testing.T) {
 	}
 }
 
-// groups is each named group of the pattern and what it took in that match, nil for none.
-func groups(compiled *Regexp, at *Match) map[string]*string {
+// groups is each named group of the pattern and what it took of the text in that match, nil for
+// none.
+func groups(compiled *Regexp, text string, at *Match) map[string]*string {
 	named := map[string]*string{}
 	for _, name := range compiled.engine.GetGroupNames() {
 		if _, numbered := strconv.Atoi(name); numbered != nil {
-			if taken, ok := at.Group(name); ok {
+			if start, end, ok := at.Group(name); ok {
+				taken := text[start:end]
 				named[name] = &taken
 			} else {
 				named[name] = nil

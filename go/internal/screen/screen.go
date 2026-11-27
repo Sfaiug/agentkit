@@ -197,24 +197,29 @@ func (r *Rules) Read(pane string) Reading {
 	raws, lines = r.withoutTray(raws, lines)
 	newest := r.newestRow(raws, lines)
 	reach := r.reach(pane, raws)
-	bright := r.brightRows(raws)
 	for _, each := range r.rules {
-		region, rows, brights := lastOf(lines, each.lines), lastOf(raws, each.lines), lastOf(bright, each.lines)
+		region, rows := lastOf(lines, each.lines), lastOf(raws, each.lines)
 		if each.id == "prompt.draft" || each.id == "prompt.suggestion" {
 			if found, ok := r.atComposer(each, rows, region, reach); ok {
 				return found
 			}
 			continue
 		}
-		// a row reads as drawn; at an empty prompt also with its faint or muted hint blanked, so
-		// the composer's mark still reads, though never a composer scrolled past its height
-		hinted := each.atComposer && each.state == "at_prompt"
+		// a row reads as drawn; at a composer holding nothing also with its faint or muted hint
+		// blanked, so its mark still reads, though never on a scroll marker's row
+		var brights []string
+		if each.atComposer && each.state == "at_prompt" && each.row != nil {
+			if held, found := r.ComposerDraft(tail); found && held == "" {
+				brights = lastOf(r.brightRows(raws), each.lines)
+			}
+		}
 		var drawn []string
 		together := make([]string, len(rows))
 		for at, raw := range rows {
 			together[at] = strings.TrimRightFunc(strip(raw), config.Space)
-			if each.row != nil && (each.row.MatchString(together[at]) || hinted &&
-				(r.scrolled == nil || !r.scrolled.MatchString(together[at])) && each.row.MatchString(brights[at])) {
+			if each.row != nil && (each.row.MatchString(together[at]) || brights != nil &&
+				(r.scrolled == nil || !r.scrolled.MatchString(together[at])) &&
+				each.row.MatchString(strings.TrimRightFunc(brights[at], config.Space))) {
 				drawn = append(drawn, region[at])
 			}
 		}

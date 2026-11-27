@@ -83,19 +83,25 @@ func TestTheComposerTellsTypedTextFromASuggestion(t *testing.T) {
 	}
 }
 
-// A hint in a colour the manifest names faint, a 256-colour one or the terminal theme's `90`, is an
-// empty composer; text in the terminal's own colour is typed, and so is a scroll marker.
+// A composer holding only a hint in a colour the manifest names faint, a 256-colour one or the
+// terminal theme's `90`, is empty; text in the terminal's own colour is typed, under the hint or
+// under a muted row above the composer too, and a scroll marker says text is there.
 func TestAMutedHintIsAnEmptyComposer(t *testing.T) {
 	read := rulesOf(t, "antigravity")
 	rule, mark := "\x1b[38;5;239m"+strings.Repeat("─", 80), "\x1b[38;5;111m>\x1b[39m "
-	for row, want := range map[string]string{
-		mark + "\x1b[38;5;103mAuto mode: edits & safe commands auto-approved\x1b[39m": "prompt.composer",
-		mark + "\x1b[90mAuto mode: edits & safe commands auto-approved\x1b[39m":       "prompt.composer",
-		mark + "tell me more":                         "draft.typed",
-		mark + "\x1b[38;5;103m↑ 2 more lines\x1b[39m": "draft.typed",
+	hint := mark + "\x1b[38;5;103mAuto mode: edits & safe commands\x1b[39m"
+	framed := func(rows string) string { return rule + "\n" + rows + "\n" + rule }
+	for _, each := range []struct{ pane, rule, held string }{
+		{framed(hint), "prompt.composer", ""},
+		{framed(mark + "\x1b[90mAuto mode: edits & safe commands\x1b[39m"), "prompt.composer", ""},
+		{framed(mark + "tell me more"), "draft.typed", "tellmemore"},
+		{framed(mark + "\x1b[38;5;103m↑ 2 more lines\x1b[39m"), "draft.typed", ""},
+		{framed(hint + "\n  owner draft"), "draft.typed", "ownerdraft"},
+		{hint + "\n" + framed(mark+"owner draft"), "draft.typed", "ownerdraft"},
 	} {
-		if got := read.Read(rule + "\n" + row + "\n" + rule); got.Rule != want {
-			t.Errorf("%q: %+v, not %s", row, got, want)
+		held, _ := read.ComposerDraft(each.pane)
+		if got := read.Read(each.pane); got.Rule != each.rule || held != each.held {
+			t.Errorf("%q: %+v holding %q, not %s holding %q", each.pane, got, held, each.rule, each.held)
 		}
 	}
 }
