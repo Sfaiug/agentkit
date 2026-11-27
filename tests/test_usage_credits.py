@@ -165,6 +165,50 @@ class Picks(unittest.TestCase):
         self.assertEqual(orch.account_order(self.cfg, "astra", readings, first="second"),
                          ["default", "second"])
 
+    def test_credits_never_pay_for_the_part_of_a_week_held_for_a_cap(self):
+        # an Opus turn on 60% used and 40 held for Fable would spend that part, credits or not;
+        # a seat on Opus reads the week as read
+        providers = self.read(None, anthropic=60)
+        providers["anthropic"]["credits"] = 12
+        providers["anthropic"]["meters"].append(
+            {**self.meter(20, "weekly_scoped"), "scope": "Fable", "held": 40})
+        self.assertFalse(usage.on_credits(self.cfg, "opus", providers))
+        self.assertEqual(usage.model_exhausted(self.cfg, "opus", providers),
+                         (True, "weekly_all 60% used, the rest held for Fable"))
+        self.assertNotIn("opus", self.order(providers))
+        self.cfg["defaults"]["orchestrator"] = "opus"
+        self.assertEqual(orch.choose(self.cfg, providers)[0], "opus")
+
+    def test_a_seat_reads_its_login_as_read_beside_a_spare_on_credits(self):
+        # the usual login 60% used and 40 held for Fable, a spare's week spent on credits: the
+        # seat reads the usual login as read, and stays on Opus
+        self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]
+        self.cfg["defaults"]["orchestrator"] = "opus"
+
+        def login(credits, *meters):
+            return {"provider": "anthropic", "resets": 0, "error": None, "credits": credits,
+                    "meters": list(meters)}
+        usual = login(12, self.meter(60, "weekly_all"),
+                      {**self.meter(20, "weekly_scoped"), "scope": "Fable", "held": 40})
+        providers = {**self.read(None), **usage._gate_flags({"anthropic": {"accounts": {
+            "default": usual, "second": login(18, self.meter(100, "weekly_all"))}}},
+            self.now, self.cfg)}
+        with patch.object(usage, "_on_disk", return_value=self.cfg):
+            self.assertEqual(usage.model_spent(self.cfg, "opus", providers),
+                             (False, "weekly_all 60% used < 100"))
+            self.assertEqual(orch.choose(self.cfg, providers)[0], "opus")
+
+    def test_a_bad_reading_beside_a_login_leaves_it_as_read(self):
+        # a seat reads every provider as read: a meter of another that is no reading stays the
+        # bad reading it is there, and Opus is picked and seated as ever
+        providers = {**self.read(None), "meta": {"meters": [None]}}
+        self.cfg["defaults"]["orchestrator"] = "opus"
+        self.assertEqual(usage.model_spent(self.cfg, "opus", providers),
+                         (False, "weekly_all 40% used < 100"))
+        self.assertEqual(orch.choose(self.cfg, providers)[0], "opus")
+        with patch.object(config, "active_session", return_value=None):
+            self.assertEqual(usage.pick_order(self.cfg, providers, ["opus"], quiet=True), ["opus"])
+
     def test_a_seat_takes_a_model_on_credits_only_after_every_window(self):
         providers = self.read(62469.67)
         model, why = orch.choose(self.cfg, providers)

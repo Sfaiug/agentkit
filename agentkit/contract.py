@@ -87,14 +87,15 @@ def unavailable(harness, seat=False, provider=None, account=None):
 
 def spent_until(cfg, model, snapshot, host_home):
     provider = config.model(cfg, model)["provider"]
-    read = providers(cfg, snapshot)
+    # only a full window refuses a check's turn: a part of a week held for a cap is ak's own
+    read = usage.unheld(providers(cfg, snapshot))
     record = read.get(provider, {})
     if not usage.model_exhausted(cfg, model, read)[0]:
         if record.get("meters"):
             return ""
         # An empty sandbox read shares the host's cadence, so borrow only the same login's
         # cache, dropping windows already reset. Another subscription cannot answer for it.
-        read = providers(cfg, Path(host_home) / ".agentkit/state/usage.json")
+        read = usage.unheld(providers(cfg, Path(host_home) / ".agentkit/state/usage.json"))
         record = usage._without_past(read.get(provider, {}), time.time(), "the host cache")
         read[provider] = record
         if not usage.model_exhausted(cfg, model, read)[0]:

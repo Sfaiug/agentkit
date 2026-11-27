@@ -27,6 +27,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from agentkit import contract  # noqa: E402
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 CHECK_1 = SMOKE[SMOKE.index("# --- 1: usage"):SMOKE.index("# --- 2:")]
@@ -647,6 +648,15 @@ class GateTolerance(unittest.TestCase):
         self.assertIn("DECISION: skip", result.stdout)
         self.assertNotIn("FAIL", result.stdout)
         self.assertEqual(self.probes("codex"), [])
+
+    def test_a_part_of_a_week_held_for_a_cap_spends_no_window_a_check_needs(self):
+        # 60% of Claude's week used and 40 of it held for Fable: no window refuses Opus's turn
+        week = {"name": "weekly_all", "used": 60, "resets_at": FAR_FUTURE, "window_secs": 604800}
+        cap = {**week, "name": "weekly_scoped", "used": 20, "scope": "Fable", "held": 40}
+        snapshot = self.root / "usage-real.json"
+        snapshot.write_text(json.dumps({"providers": {"anthropic": {"meters": [week, cap]}}}))
+        cfg = tomllib.loads((REPO / "config.default.toml").read_text())
+        self.assertEqual(contract.spent_until(cfg, "opus", snapshot, self.root), "")
 
     def test_held_sandbox_read_with_no_host_cache_still_attempts(self):
         # Unknown usage cannot justify skipping a real call: with no host cache to

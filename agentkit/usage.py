@@ -1646,6 +1646,11 @@ def _gating_meters(cfg, name, providers):
     `scope`, the model's whose `meter` claims it.  Of the rest, a model naming a `meter` is
     gated by that one, the shared weekly_all and the 5h session window, which every model of
     the subscription runs inside; any other model by all of them.  Read where `_read` reads it.
+
+    The shared week a cap's hold is in points of (`_holding_week`) reads as used by the part of
+    it held for each cap of another model (`_leaving`): Opus turns had taken the part of the
+    week Fable's cap needed, and on seven of eleven weeks to 26 Nov 2026 a login's week ended
+    at 0% left with 33% to 95% of Fable's cap unspent.
     """
     providers = _read(cfg, name, providers)
     entry = config.model(cfg, name)
@@ -1654,8 +1659,11 @@ def _gating_meters(cfg, name, providers):
         return set(re.findall(r"[^\W_]+", str(text).lower()))
 
     own = words(entry["model"]) | words(config.model_name(cfg, name))
-    meters = [m for m in providers.get(entry["provider"], {}).get("meters", [])
-              if not m.get("scope") or words(m["scope"]) <= own]
+    every = providers.get(entry["provider"], {}).get("meters", [])
+    meters = [m for m in every if not m.get("scope") or words(m["scope"]) <= own]
+    week = _holding_week(meters)
+    meters = [_leaving(m, [cap for cap in every if cap not in meters]) if m is week else m
+              for m in meters]
     want = entry.get("meter")
     if want:
         return [m for m in meters if m["name"] in (want, "weekly_all")
@@ -1663,6 +1671,41 @@ def _gating_meters(cfg, name, providers):
     claimed = {e["meter"] for n, e in cfg["models"].items()
                if n != name and e.get("meter") and e["provider"] == entry["provider"]}
     return [m for m in meters if m.get("scope") or m["name"] not in claimed], PROVIDER_METERS
+
+
+def _leaving(week, caps):
+    """`week`, a login's shared week, as a model none of `caps` gates reads it: used as well by
+    the points of it each holds for its own model (`held`), at most 100, with `read`, what it
+    read, and `held_for`, whose that part is; as read where they hold none.  A copy, so no
+    reading changes: the held part decides what a model may spend, never what a meter says."""
+    now = time.time()     # a cap whose window has rolled over holds nothing it read
+    holding = [cap for cap in caps if (_number(cap.get("held")) or 0) > 0 and not _past(cap, now)]
+    used = _number(week.get("used"))
+    if not holding or used is None or used >= 100:
+        return week
+    return {**week, "used": min(100, used + sum(cap["held"] for cap in holding)),
+            "read": week["used"], "held_for": " and ".join(str(cap["scope"]) for cap in holding)}
+
+
+def unheld(providers):
+    """`providers` as they are read, each login's too: no cap holding a part of its week
+    (`held`).  How a seat reads them, which the held part neither refuses nor moves -- the
+    owner, 12 Nov 2026: "Regardless of remaining usage I want to be able to switch model and
+    effort of any role" -- and wherever the provider alone decides: its credits, its refusal."""
+    def bare(reading):     # a provider, a login or a meter; whatever else, a bad reading as it is
+        if not isinstance(reading, dict):
+            return reading
+        meters, logins = reading.get("meters"), reading.get("accounts")
+        return {**{k: v for k, v in reading.items() if k != "held"},
+                **({"meters": [bare(m) for m in meters]} if isinstance(meters, list) else {}),
+                **({"accounts": {account: bare(login) for account, login in logins.items()}}
+                   if isinstance(logins, dict) else {})}
+    return {name: bare(prov) for name, prov in providers.items()}
+
+
+def _seen(meter):
+    """What `meter` read: the week as read where a model reads it with a part held (`_leaving`)."""
+    return meter.get("read", meter.get("used", 0))
 
 
 def _identity(meter):
@@ -1712,7 +1755,7 @@ def model_pace(cfg, name, providers):
     if not paces:
         return None, label
     worst = max(meters, key=lambda m: (m.get("pace") is not None, m.get("pace") or 0.0))
-    detail = label if label == PROVIDER_METERS else f"{label} {worst['used']}%"
+    detail = label if label == PROVIDER_METERS else f"{label} {_seen(worst)}%"
     return max(paces), detail
 
 
@@ -1865,12 +1908,13 @@ def credits_note(prov):
 
 
 def on_credits(cfg, name, providers):
-    """Whether this model runs on its provider's credits: a meter gating it is spent.
+    """Whether this model runs on its provider's credits: a meter gating it, as read (`unheld`),
+    is spent.  The provider spends them only past a full window, never for a part held.
 
     Credits cost money and the subscription is already paid, so every pick puts such a model
     after every model with a window left; it is spent only once the credits are gone too.
     """
-    providers = _read(cfg, name, providers)
+    providers = _read(cfg, name, unheld(providers))
     prov = providers.get(config.model(cfg, name)["provider"])
     return bool(credits_left(prov)) and any(m.get("used", 0) >= 100
                                             for m in _gating_meters(cfg, name, providers)[0])
@@ -1903,6 +1947,9 @@ def model_exhausted(cfg, name, providers):
 
     Tier B requires a later probe before spending a full meter again, even without a reset
     timestamp. Tier A retains its existing cached flags in `model_spent`.
+
+    Credits left keep it out of usage only past a meter that read 100% (`on_credits`): one that
+    only the part of the week held for another model's cap fills spends that part, credits or not.
     """
     providers = _worker_reading(cfg, name, providers)
     meters, _ = _gating_meters(cfg, name, providers)
@@ -1914,9 +1961,13 @@ def model_exhausted(cfg, name, providers):
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(max(parking)))
         return True, f"{provider} ran dry; nothing is picked on it until {when}"
     spent = [m for m in meters if m["used"] >= 100]
-    if not spent or credits_left(prov):
+    full = [m for m in spent if _seen(m) >= 100]
+    if not spent or full and credits_left(prov):
         return False, None
-    worst = max(spent, key=lambda m: m["used"])
+    if not full:     # the shared week, which only the part held for a cap fills (`_leaving`)
+        week = spent[0]
+        return True, f"{week['name']} {week['read']}% used, the rest held for {week['held_for']}"
+    worst = max(full, key=lambda m: m["used"])
     return True, f"{worst['name']} {worst['used']}% used >= 100"
 
 
@@ -1939,8 +1990,9 @@ def model_low(cfg, name, providers):
 def spent_meter(cfg, name, providers):
     """The worst meter gating this model that reads 100% used, or None: what the new-session
     screen calls spent.  Unlike `model_spent`, a meter whose reset nobody knows counts too --
-    the screen only declines to choose the model for him, and says when it resets if it can."""
-    providers = _read(cfg, name, providers)
+    the screen only declines to choose the model for him, and says when it resets if it can.
+    As `model_spent`, it reads them as read (`unheld`): a part held refuses no seat."""
+    providers = _read(cfg, name, unheld(providers))
     if on_credits(cfg, name, providers):
         return None
     spent = [m for m in _gating_meters(cfg, name, providers)[0] if m.get("used", 0) >= 100]
@@ -1964,9 +2016,10 @@ def model_spent(cfg, name, providers):
     """(spent, why) for the orchestrator choice: this model has nothing left to spend at all.
 
     The meters gating the model, the used side only -- that choice does not read pace, because
-    being ahead of pace is not a reason to refuse the seat the user works from.
+    being ahead of pace is not a reason to refuse the seat the user works from -- as read
+    (`unheld`), off the login a seat reads: a part held for another model's cap refuses no seat.
     """
-    providers = _read(cfg, name, providers)
+    providers = _read(cfg, name, unheld(providers))
     watched, label = _gating_meters(cfg, name, providers)
     spent = [m for m in watched if m.get("tier_a_exhausted", m.get("exhausted"))]
     left = credits_note(providers.get(config.model(cfg, name)["provider"]))
@@ -2294,7 +2347,7 @@ def _rate(meter):
     elapsed, window = _number(meter.get("elapsed")), _number(meter.get("window_secs"))
     if elapsed is None or window is None or elapsed <= 0 or window <= 0:
         return None
-    return meter["used"] / (elapsed / 100.0 * window / 3600.0)
+    return _seen(meter) / (elapsed / 100.0 * window / 3600.0)
 
 
 def outlook(prov):
