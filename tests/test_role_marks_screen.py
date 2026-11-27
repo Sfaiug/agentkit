@@ -78,6 +78,7 @@ class RoleMarks(Sandbox):
         self.cfg["defaults"]["reviewers"] = ["astra"]
         before = copy.deepcopy(self.cfg)
         with patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
+                patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "launch"), patch.object(orch.shutil, "which", return_value="fake"), \
                 patch.object(orch, "refuse_held"), patch.object(orch, "alias_names", return_value=set()):
             orch.create(self.cfg, "fix-api", self.root, unnamed=True,
@@ -91,6 +92,7 @@ class RoleMarks(Sandbox):
         path = config.HOME / config.CONFIG_NAME
         path.write_text("max_runs = 3\nmax_gates = 2\nrun_memory_max_mb = 512\n")
         with patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
+                patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "launch"), patch.object(orch.shutil, "which", return_value="fake"), \
                 patch.object(orch, "refuse_held"), patch.object(orch, "alias_names", return_value=set()):
             orch.create(config.load(), "fix-api", self.root, unnamed=True,

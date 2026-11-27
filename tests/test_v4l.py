@@ -347,6 +347,7 @@ class Babysitter(unittest.TestCase):
                 with patch.object(orch.usage, "collect", return_value={}), \
                      patch.object(orch, "select", return_value=("opus", "fixture", ["astra"])), \
                      patch.object(orch, "fresh_command", return_value=(["false"], "fresh-id")), \
+                     patch.object(config, "harness_present", return_value=True), \
                      patch.object(orch, "seat_cwd", return_value=self.root), \
                      patch.object(orch, "launch"), redirect_stdout(io.StringIO()):
                     if creator == "create":

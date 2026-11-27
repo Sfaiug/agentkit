@@ -225,6 +225,7 @@ class ForeignSessions(unittest.TestCase):
         self.card("atoll")
         selection = ({}, ("fable", "", ["opus"]))
         with patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
+                patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "launch") as launch, redirect_stdout(io.StringIO()):
             orch.create(self.cfg, "atoll", self.root, selection=selection, dry_run=True)
             self.assertTrue(config.card_path("atoll").exists())   # a preview drops nothing

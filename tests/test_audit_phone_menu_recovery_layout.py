@@ -177,6 +177,7 @@ class Picker(Sandbox):
                           (sys.stdout.write(prompt), next(answers))[1]), \
                 patch.object(orch, "sessions", return_value=[]), \
                 patch.object(orch.usage, "collect", return_value={}), \
+                patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "launch"), patch.object(menu, "open_session"), \
                 patch.object(orch, "CHARACTERS", ("new",)), redirect_stdout(io.StringIO()):
             self.assertEqual(menu.new_session(self.cfg, dry_run=False), "new")

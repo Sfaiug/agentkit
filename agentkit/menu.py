@@ -2377,6 +2377,8 @@ def new_session(cfg, dry_run, keyboard=None, found=None):
         taken = orch.taken_names()        # its name is chosen now: the questions may have waited
         name = orch.character_name(taken)
     if dry_run:
+        orch.refuse_name(name, taken)         # a preview refuses what `orch.create` would
+        orch.refuse_start(cfg, selected[0], providers, True)
         reviewers = cfg["defaults"].get("reviewers")
         print(f"would start {name}: {selected[0]}, workers {' '.join(selected[2])}"
               + (f", reviewers {' '.join(reviewers)}" if reviewers is not None else ""))
@@ -2508,6 +2510,9 @@ def start_born(born, dry_run, give):
             if born["name"] not in taken else orch.character_name(taken))
     selected = born["selected"]
     if dry_run:
+        orch.refuse_name(name, taken)         # as `orch.create` would
+        orch.refuse_start(born["cfg"], selected["orchestrator"],
+                          born.get("providers") or {}, True)
         print(f"would start {name}: {selected['orchestrator']}, workers "
               f"{' '.join(selected['workers'])}, reviewers {' '.join(selected['reviewers'])}")
     elif orch.create(born["cfg"], name, orch.seat_cwd(), prompting=True,

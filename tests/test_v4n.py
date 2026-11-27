@@ -113,6 +113,7 @@ class LaunchAndCache(Sandbox):
     def test_names_normalize_on_creation_lookup_and_rename(self):
         with patch.object(orch, "alias_names", return_value=set()), \
                 patch.object(usage, "collect", return_value={}), \
+                patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "launch"), redirect_stdout(io.StringIO()):
             orch.create(self.cfg, "  My   Seat\t ", self.root, forced="astra", forced_workers="opus")
         self.assertTrue(config.session_path("my-seat").exists())

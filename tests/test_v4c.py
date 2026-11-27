@@ -668,7 +668,8 @@ esac
                             for line in said.splitlines()), said)
 
     def adapters(self, cannot_pin=()):
-        """A fake adapter for every harness, and $AGENTKIT_ADAPTER_DIR pointing at them.
+        """A fake adapter for every harness, its program taken as installed whatever the host
+        has, and $AGENTKIT_ADAPTER_DIR pointing at them.
 
         `interactive` writes down the arguments it was given and prints a command; a harness
         named in `cannot_pin` answers CANNOT_PIN when asked for a new conversation, the way the
@@ -692,6 +693,7 @@ esac
             path.chmod(0o755)
         self.stack.enter_context(patch.dict(os.environ,
                                             {config.ADAPTER_DIR_ENV: str(root)}))
+        self.stack.enter_context(patch.object(config, "harness_present", return_value=True))
         return root
 
     def test_a_seat_is_launched_with_the_conversation_it_owns(self):

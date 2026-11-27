@@ -177,6 +177,7 @@ class Row(unittest.TestCase):
                 patch.object(orch, "CHARACTERS", ("new",)), \
                 patch.object(orch, "alias_names", lambda names=None: set()), \
                 patch.object(orch, "held_names", set), \
+                patch.object(orch, "refuse_start", lambda *_args, **_kw: None), \
                 patch.object(menu, "open_session", lambda *_args: None), \
                 redirect_stdout(printed):
             self.assertEqual(menu.start_born(born, dry_run=True, give=lambda: None), "new-2")
