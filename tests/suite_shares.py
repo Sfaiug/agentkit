@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -330,12 +331,15 @@ def smoke_share(path, left=()):
 
 
 def docker_answers():
-    """Whether `timeout -k 5 20 docker info` exits 0: check 52 installs this commit in docker."""
+    """Whether `docker` and `timeout` are on PATH and `timeout -k 5 20 docker info` exits 0:
+    check 52 installs this commit in docker."""
+    if not (shutil.which("docker") and shutil.which("timeout")):
+        return False
     try:
         return subprocess.run(["timeout", "-k", "5", "20", "docker", "info"],
                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL).returncode == 0
-    except OSError:     # no `timeout` to run
+    except OSError:     # one that cannot be run
         return False
 
 

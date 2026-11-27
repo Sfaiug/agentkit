@@ -80,9 +80,10 @@ class LiveCheckWithoutModelCalls(unittest.TestCase):
         stub += "# --- shared result ---\nfinish\n"
         (root / "tests/smoke.sh").write_text(stub)
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AK_", "AGENTKIT_"))}
-        # a host where `timeout -k 5 20 docker info` exits 0, whose live run holds check 52
-        (root / "timeout").write_text("#!/bin/sh\n")
-        (root / "timeout").chmod(0o755)
+        # a host where docker answers (`timeout -k 5 20 docker info` exits 0) runs check 52 too
+        for fake in ("docker", "timeout"):
+            (root / fake).write_text("#!/bin/sh\n")
+            (root / fake).chmod(0o755)
         env.update(HOME=str(root), PATH=f"{root}:{env['PATH']}", AGENTKIT_ACCEPTANCE_REQUIRED="1")
         ran = {}
         for asked in ({"AK_LIVE_NO_MODEL_CALLS": "1"}, {}):
