@@ -284,7 +284,15 @@ interactive)
   # once a conversation has a turn: its rows sit beside the footer's and the transcript's, the
   # screen read as no rule's, and ak typed no line into that seat (27 Nov 2026).  This launch
   # hides it: OpenCode lays the setting over the owner's cli.json, which ak does not write.
-  cli="OPENCODE_CLI_CONFIG_CONTENT='{\"session\":{\"sidebar\":\"hide\"}}'"
+  # The variable is the owner's to set too, so the setting is laid the same way, key by key,
+  # over the JSON object this launch was started with in it; any other value gives way.
+  # OpenCode (2.4.2) drops the variable whole for one setting in it that it refuses, the
+  # sidebar's with the owner's.  ASCII out, as the rulebook's document, for %q.  `[launch]
+  # seat_env` names it, so nothing ak starts under the seat is handed it.
+  hide='{"session":{"sidebar":"hide"}}'
+  cli=$(jq -acen --argjson own "${OPENCODE_CLI_CONFIG_CONTENT:-null}" --argjson hide "$hide" \
+      '$own | objects * $hide' 2>/dev/null) || cli=$hide
+  cli=$(printf 'OPENCODE_CLI_CONFIG_CONTENT=%q' "$cli")
   # The pane does not inherit the adapter's fallback PATH.
   printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %s %s%s %s--standalone --auto%s\n' \
       "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$cli" "$rules" "'${binary//$sq/$sq\\$sq$sq}'" "$resume" "$first" ;;

@@ -36,10 +36,11 @@ latest = ["curl", "-fsSL", "https://opencode.ai/update/api/latest/cli/npm"]
 # `interactive` in adapters/opencode.sh), and everything a seat starts inherits its
 # environment: a worker, a done-when command or another harness launched from that seat would
 # be handed the orchestrator's rules and refuse its own work.  Named here, the core drops it
-# from every child environment it builds -- config.seat_env_names().  The launch's receipt
-# (agentkit/harness/opencode.py) is the seat's alone the same way.
+# from every child environment it builds -- config.seat_env_names().  The sidebar that launch
+# hides for ak to read the seat's screen (OPENCODE_CLI_CONFIG_CONTENT) and the launch's receipt
+# (agentkit/harness/opencode.py) are the seat's alone the same way.
 [launch]
-seat_env = ["OPENCODE_CONFIG_CONTENT", "AGENTKIT_OPENCODE_RECEIPT"]
+seat_env = ["OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT", "AGENTKIT_OPENCODE_RECEIPT"]
 # `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
 first_prompt = true
 
