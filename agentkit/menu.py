@@ -2137,6 +2137,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             moves.append((("asked",), True, None, False))
         # each meter's (left, said), by its subscription, and the whole grid's cells, while drawn
         # as a grid (None without one, so a draw with no grid at this width changes at once)
+        prev = clock.seen and clock.seen.get(("usage",), (None,))[0]
         readings = [(("usage", subscription(row)), cell[2:] if grid else None)
                     for row, cell in zip(rows, cells)]
         news = clock.look({key: shown for key, shown, _, _ in moves} | dict(readings)
@@ -2192,19 +2193,23 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         # from the reading the draw before was gliding to, a draw at a new width before a resize
         # is noticed gliding on at that width where both draws have a grid there, arrows leaving
         # it gliding, and `Clock.settle`/`Clock.forget` ending it; where motion is off nothing
-        # glides (`clock.start`).
+        # glides (`clock.start`).  A meter this draw shows at once is settled in `seen` so a
+        # later draw never revives a change it already jumped to.
         moment = motion.moment()
-        prev = news.get(("usage",), (None, None))[1]
         glides = {}
-        if (grid and prev and usage_lines(
+        if (grid and prev and motion.movable() and usage_lines(
                 cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev)):
             for n, (key, shown) in enumerate(readings):
                 since, before = news.get(key, (None, None))
                 if (shown and shown[0] and before and (before[0] or before[1][:1] != "—")
                         and since + motion.GLIDE > moment):
-                    start = [*cells[:n], (*cells[n][:2], *before), *cells[n + 1:]]
-                    if usage_lines(cfg, layout, rows=rows, ending=ending, cells=start):
+                    at_now = meter_at(shown[0], since, before, moment)
+                    probe = [*cells[:n], (*cells[n][:2], *at_now), *cells[n + 1:]]
+                    if usage_lines(cfg, layout, rows=rows, ending=ending, cells=probe):
                         glides[n] = since, before
+        for n, (key, shown) in enumerate(readings):
+            if n not in glides and key in news:
+                clock.seen[key] = (shown, None, None)
         if glides:
             until = max(since for since, _ in glides.values()) + motion.GLIDE
 
