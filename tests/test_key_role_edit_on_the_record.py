@@ -16,6 +16,7 @@ record as ak writes one.  Judged by the seat's record and the screen.  Fails aga
 
 import fcntl
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -156,24 +157,25 @@ class RoleEditOnTheRecord(unittest.TestCase):
                 self.assertEqual(record["efforts"]["step"][effort[field]], "medium")
 
     def test_a_save_since_outlasts_a_write_under_way(self):
-        # an ak writing the record as the save writes it, as an earlier screen's tick adds the
-        # `repo` a record the test wrote lacks: one under way read it before and writes it after,
-        # and none is where the save holds the record's lock
+        # an ak tick under way as the save comes, as an earlier screen's adds the `repo` a record
+        # the test wrote lacks: it holds the record's lock from reading the record to writing it
+        # back, so a save asking for that lock is written after it, and one that does not, before
         self.since(self.seat.record)
-        write = self.home.write
+        read, flock, ticked = self.record(), fcntl.flock, []
 
-        def under_way(relative, data, **kw):
-            with self.lock.open("a") as lock:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    return write(relative, data, **kw)
-                read = self.record()
-                written = write(relative, data, **kw)
-                write(self.path, {**read, "repo": None})
-                return written
-        with patch.object(self.home, "write", under_way):
-            self.since({**self.seat.record, "workers": ["top"]})
+        def tick():
+            ticked.append(self.home.write(self.path, {**read, "repo": None}))
+
+        def asked(file, operation):
+            held = os.fstat(file if isinstance(file, int) else file.fileno())
+            if (operation == fcntl.LOCK_EX and not ticked
+                    and os.path.samestat(held, self.lock.stat())):
+                tick()
+            return flock(file, operation)
+        with patch.object(fcntl, "flock", asked):
+            self.since({**read, "workers": ["top"]})
+        if not ticked:
+            tick()
         self.assertEqual(self.record()["workers"], ["top"])
 
     def test_a_flip_keeps_both_roles_marks_saved_since(self):
