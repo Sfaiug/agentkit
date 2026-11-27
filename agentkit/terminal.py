@@ -1627,7 +1627,7 @@ def relight(spots=None):
     left where it was: what a question typed on that screen (`field`) draws over it, or a list
     asked on it (`choose`), its own `spots` read with the screen's."""
     before = _PAINTED
-    rows = "".join(f"\033[{row};1H{_cleared(line)}" for row, (line, was) in enumerate(zip(
+    rows = "".join(f"\033[{row};1H{cleared(line)}" for row, (line, was) in enumerate(zip(
         lit(_SHOWN, _SPOTS if spots is None else spots), before), 1) if line != was)
     over(f"\0337{rows}\0338" if rows else "")
 
@@ -1640,8 +1640,8 @@ def counting(word, done, total):
     Read a line at a time, nothing is said."""
     if taken():
         name = " · ".join(filter(None, (_UP_OF and _UP_OF[0], f"{word} {done + 1} of {total}")))
-        over(f"\0337\033[1;1H{_cleared(header_line(name, time.strftime('%H:%M')))}"
-             f"\033[2;1H{_cleared(rule_line(filled=done / total))}\0338")
+        over(f"\0337\033[1;1H{cleared(header_line(name, time.strftime('%H:%M')))}"
+             f"\033[2;1H{cleared(rule_line(filled=done / total))}\0338")
 
 
 def doing(job, titled=True):
@@ -1653,11 +1653,11 @@ def doing(job, titled=True):
     row free fills that row, and no newline under it scrolls the header away."""
     rows = on_screen()
     lines = [header_line(job, time.strftime("%H:%M")), *(rows[1:] if titled else rows)]
-    over("".join(f"\033[{row};1H{_cleared(line)}" for row, line in _starts(lines).items())
+    over("".join(f"\033[{row};1H{cleared(line)}" for row, line in _starts(lines).items())
          + (f"\033[{len(lines) + 1};1H\033[J" if len(lines) < height() else ""))
 
 
-def _cleared(line):
+def cleared(line):
     """`line`, then its row's tail cleared, so no cell that is text before and after is ever blank
     between.  A line ending on the last column gets no clear: it leaves the cursor on that column,
     and a clear there erases it -- the clock's last digit on a terminal no wider than the layout."""
@@ -1684,7 +1684,7 @@ def _starts(rows):
 
 def _differing(rows):
     """Those of `rows`, (row, line) each, the terminal does not hold as it is, each addressed."""
-    return "".join(f"\033[{row};1H{_cleared(line)}" for row, line in rows
+    return "".join(f"\033[{row};1H{cleared(line)}" for row, line in rows
                    if not _UP or row > len(_UP) or line != _UP[row - 1])
 
 
@@ -1716,7 +1716,7 @@ def written(lines, frame="", rising=False, screen=None):
     if (rising or not _UP or screen != _UP_OF or len(lines) >= height()
             or time.monotonic() >= _WHOLE + TICK):
         _WHOLE, text = time.monotonic(), "\033[H" + "".join(
-            _cleared(line) + "\n" for line in (() if rising else starts.values())) + "\033[J"
+            cleared(line) + "\n" for line in (() if rising else starts.values())) + "\033[J"
     else:
         text = _differing(starts.items())
         text += f"\033[{len(lines) + 1};1H\033[J" if text or len(lines) < len(_UP) else ""
