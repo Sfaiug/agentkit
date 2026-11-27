@@ -173,30 +173,35 @@ def faded(word, amount, ground="background"):
 
 def fade(text, amount):
     """`text` as a draw wrote it, every colour in it -- and the foreground its plain cells take,
-    the one `faded` lights toward -- `amount` (0 to 1) of the way to the background: a popup's
-    content coming up out of it (`motion.Clock.rise`).  Where colour cannot move it is as it is.
+    the one `faded` lights toward -- `amount` (0 to 1) of the way to the background each cell
+    sets, the screen's where it sets none, that background as it is: a popup's content coming
+    up out of it (`motion.Clock.rise`), and a label on the highlight out of the highlight.
+    Where colour cannot move it is as it is.
     """
     depth = colour_depth()
     if amount <= 0 or depth <= 8:
         return text
-    back, fore = bytes.fromhex(colour("background")), bytes.fromhex(colour("text"))
+    unset = {38: bytes.fromhex(colour("text")), 48: bytes.fromhex(colour("background"))}
+    inks = dict(unset)      # the text's colour (38) and the background's (48) so far
 
-    def tone(rgb):
-        mixed = [round(c * (1 - amount) + b * amount) for c, b in zip(rgb or fore, back)]
+    def tone():
+        mixed = [round(c * (1 - amount) + b * amount) for c, b in zip(inks[38], inks[48])]
         return f"\033[{ink(bytes(mixed).hex())}m"
 
-    out, rgb, at = tone(None), None, 0
+    out, at = tone(), 0
     for code in _SGR.finditer(text):
-        # the colour this code leaves, read back from what `styled` and `highlight` write
+        # the colours this code leaves, as `styled`, `highlight` and `backed` write them
         parts = [int(part or 0) for part in code.group(1).split(";")]
         while parts:
             first = parts.pop(0)
-            if first in (0, 39):
-                rgb = None
+            if first == 0:
+                inks = dict(unset)
+            elif first in (39, 49):
+                inks[first - 1] = unset[first - 1]
             elif first in (38, 48) and parts[:1] == [2]:
-                # a background's channels are read past whole: a 0 among them is no reset
-                rgb, parts = (parts[1:4] if first == 38 else rgb), parts[4:]
-        out += text[at:code.end()] + tone(rgb)
+                # its channels are read past whole: a 0 among them is no reset
+                inks[first], parts = parts[1:4], parts[4:]
+        out += text[at:code.end()] + tone()
         at = code.end()
     return out + text[at:] + "\033[0m"
 

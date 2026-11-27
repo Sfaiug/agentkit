@@ -106,13 +106,14 @@ class PageComesUp(Sandbox):
         self.time.now += motion.FADE                    # the draw ran the fade's length
         self.assertEqual(rows(clock.frame())[3], terminal.fade("fix-api", 1))
 
-    def test_a_cell_on_a_background_comes_up_from_its_own_colour(self):
+    def test_a_cell_on_a_background_comes_up_out_of_it_from_its_own_colour(self):
         # a glow's background with no blue, as `needs you`'s has: its 0 is a channel, no reset
         word = terminal.styled("x", "needs you")
         with patch.object(terminal, "THEME", terminal.BLACK):
             tones = [re.findall(r"\x1b\[(38;2;[\d;]+)mx", terminal.fade(line, 0.5))
                      for line in (word, terminal.backed(word, "403000", 1, 1))]
-        self.assertEqual(tones, [["38;2;108;73;0"]] * 2)     # #d79200 half way to black
+        # #d79200 half way to black, and to #403000
+        self.assertEqual(tones, [["38;2;108;73;0"], ["38;2;140;97;0"]])
 
     def test_past_comes_up_under_its_header_as_it_opens(self):
         seat = {"name": "fix-api", "repo": None, "path": "/", "created": 9000, "closed": 9500}
