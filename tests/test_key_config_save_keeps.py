@@ -4,14 +4,16 @@ leaves the file as it was.
 Creating a seat records the models it started with as `[defaults]`, what the next `n` starts
 from, and that write is of the whole file.  config.toml is the owner's, and other programs read
 and write it too: a key ak does not know must come back with the same value, whatever its TOML
-shape (a quoted key, a date, a float, an empty array, a nested table, an array of tables), or
-one seat's creation silently loses a setting.  A value ak cannot write back must cost only the
-remembered defaults, never the file or the seat.  Black-box: `ak orch NAME --model --workers`
-runs from a terminal through tests/fixtures/akbin.py on a fake harness, and the file is judged
-by what it parses to, not by how ak spelled it.
+shape (a quoted key, a date, a float, infinity, a nan and its sign, an empty array, a nested
+table, an array of tables, one mixing tables and values, a DEL in a string), or one seat's
+creation silently loses a setting.  A value ak cannot write back must cost only the remembered
+defaults, never the file or the seat.  Black-box: `ak orch NAME --model --workers` runs from a
+terminal through tests/fixtures/akbin.py on a fake harness, and the file is judged by what it
+parses to, not by how ak spelled it.
 """
 
 import stat
+import struct
 import sys
 from pathlib import Path
 import tomllib
@@ -61,9 +63,16 @@ a = 1
 [extra.inner]
 b = 2
 ''')
-# TOML allows nan, but today's writer writes only finite numbers: the one value a test can put
-# in the file that ak reads and cannot write back.
-UNWRITABLE = "weird = nan\n" + DEFAULTS + TABLES.format(one="", provider="")
+# A provider that is no table: the one value a test can put in the file that ak reads and
+# cannot write back, as the writer orders each provider's keys.
+UNWRITABLE = DEFAULTS + TABLES.format(one="", provider="") + "\n[providers]\nweird = 1\n"
+# What tomllib reads that repr, json.dumps or [[tables]] alone would not write back as read.
+ODD = DEFAULTS + TABLES.format(one="", provider="") + '''
+[extra]
+far = -inf
+lost = -nan
+mixed = [{"\\u007f" = "\\u007f"}, 1]
+'''
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -86,6 +95,14 @@ class SaveKeeps(unittest.TestCase):
         self.assertEqual(saved.pop("defaults"), {"orchestrator": "two", "workers": ["one"]})
         given.pop("defaults")
         self.assertEqual(saved, given)
+
+    def test_infinity_nan_del_and_a_mixed_array_come_back(self):
+        self.home.write(CONFIG, ODD)
+        self.create()
+        bits = lambda token: struct.pack("<d", float(token))     # a nan equals itself, signed
+        saved = tomllib.loads((self.home.path / CONFIG).read_text(), parse_float=bits)
+        self.assertEqual(saved["defaults"], {"orchestrator": "two", "workers": ["one"]})
+        self.assertEqual(saved["extra"], tomllib.loads(ODD, parse_float=bits)["extra"])
 
     def test_a_value_ak_cannot_write_back_leaves_the_file_and_the_seat_still_opens(self):
         path = self.home.write(CONFIG, UNWRITABLE)
