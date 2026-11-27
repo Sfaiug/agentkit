@@ -2,13 +2,15 @@
 
 Black-box through AK_BIN and Line's fake suites (tests/fixtures/akline.py).  A live member is a
 process of this test's, recorded as `ak run` records itself, and inactive once the test ends it.
-A wake is read from what the woken run leaves once every run the pass woke has ended: the line
-its `ak run resume`, refused at once, writes to the run's log.txt.  A rejoin is the woken run's
-own act, which the test plays between landings.
+Each resume writes its refusal to a full pipe at log.txt. It stays alive until the pass ends,
+so the lander cannot legitimately wake a head again because its resume already exited.
+A rejoin is the woken run's own act, which the test plays between landings.
 """
 
-from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+import fcntl
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -26,10 +28,17 @@ class LandingLineNeverWaits(unittest.TestCase):
     def setUp(self):
         self.line = Line({"t/ok.sh": "true\n"})
         self.addCleanup(self.line.close)
+        self.logs = {}
 
     def member(self):
         n = len(self.line.members) + 1
         self.line.member({f"member-{n}.txt": f"{n}\n"})
+        member = self.line.members[-1]
+        os.mkfifo(member / "log.txt")
+        pipe = open(member / "log.txt", "r+b", buffering=0)
+        self.addCleanup(pipe.close)
+        os.set_blocking(pipe.fileno(), False)
+        self.logs[member.name] = pipe, fcntl.fcntl(pipe, fcntl.F_GETPIPE_SZ)
         return n
 
     def write(self, n, **changes):
@@ -58,20 +67,34 @@ class LandingLineNeverWaits(unittest.TestCase):
         its verdict spent."""
         self.write(n, waiting_on={key: self.line.verdict(n)[key] for key in ("line", "joined")})
 
-    def wakes(self):
-        return Counter({member.name: len((member / "log.txt").read_text().splitlines())
-                        for member in self.line.members if (member / "log.txt").exists()})
-
     def land(self):
-        """One lander pass, and the members it woke, by name."""
-        before = self.wakes()
-        done = self.line.land()
+        """One lander pass, and one name for every resume that wrote to a member's log."""
+        for pipe, size in self.logs.values():
+            self.assertEqual(pipe.write(bytes(size)), size)
+
+        # Each pass replaces its receipt on entry and exit. Hold the previous inode so even
+        # a pass that ends before the first read is distinguishable from its predecessor.
+        receipt = (self.line.members[0].parent / self.line.line).with_suffix(".passes")
+        with receipt.open("ab") as previous, ThreadPoolExecutor(1) as pool:
+            landing = pool.submit(self.line.land)
+            try:
+                while not landing.done():
+                    with receipt.open() as current:
+                        if (not os.path.sameopenfile(current.fileno(), previous.fileno())
+                                and "started" not in json.load(current)):
+                            break
+                    time.sleep(0.1)
+            finally:
+                for pipe, size in self.logs.values():
+                    pipe.read(size)
+            done = landing.result()
         self.assertEqual(done.code, 0, done.out + done.err)
         deadline = time.monotonic() + SETTLE
         while _strays(self.line.home.root, self.line.home.tmux_dir):
             self.assertLess(time.monotonic(), deadline, "a woken run is still running")
             time.sleep(0.1)
-        return sorted((self.wakes() - before).elements())
+        return sorted(name for name, (pipe, _) in self.logs.items()
+                      for _ in (pipe.read() or b"").splitlines())
 
     def test_an_active_head_is_skipped_and_keeps_its_place_when_ready(self):
         for _ in range(3):
