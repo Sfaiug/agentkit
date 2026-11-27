@@ -148,7 +148,7 @@ func (r *Rules) ruledComposer(rows []string) (int, int) {
 // none empty: bright text only, and a box's edges, chrome on every row, left out.
 func (r *Rules) composerParts(raws, rows []string, at, stop int) []string {
 	boxed := strings.HasPrefix(rows[at], "│") && strings.HasSuffix(rows[at], "│")
-	bright := r.brightRows(raws)
+	bright := mapped(r.brightRows(raws), Plain)
 	first := bright[at]
 	if boxed {
 		first = strings.TrimRightFunc(strings.TrimSuffix(first, "│"), config.Space)
@@ -259,8 +259,11 @@ func (r *Rules) faintRuns(raw string, state faintState) ([]faintRun, faintState)
 			case 0, 27:
 				reversed = false
 			}
-			if code == 0 || code == 39 || code >= 30 && code <= 37 || code >= 90 && code <= 97 {
+			switch {
+			case code == 0 || code == 39:
 				state.muted = false
+			case code >= 30 && code <= 37 || code >= 90 && code <= 97:
+				state.muted = slices.Contains(r.faint, strconv.Itoa(code))
 			}
 		}
 		at = found[1]
@@ -268,9 +271,9 @@ func (r *Rules) faintRuns(raw string, state faintState) ([]faintRun, faintState)
 	return append(runs, faintRun{raw[at:], state.faint || state.muted, reversed}), state
 }
 
-// brightRows is each raw row as plain text, its faint text blanked: what is left is what was
-// typed, a suggestion drawn on after it none of it, nor the cursor's reversed cell on its first
-// letter.
+// brightRows is each raw row as drawn and right-stripped, its faint text blanked in place so every
+// character keeps its column: what is left is what was typed, a suggestion drawn on after it none
+// of it, nor the cursor's reversed cell on its first letter.
 func (r *Rules) brightRows(raws []string) []string {
 	state := faintState{}
 	return mapped(raws, func(raw string) string {
@@ -290,13 +293,13 @@ func (r *Rules) brightRows(raws []string) []string {
 		}
 		var row strings.Builder
 		for at, each := range runs {
+			text := strip(each.text)
 			if each.faint || under[at] {
-				row.WriteString(strings.Repeat(" ", utf8.RuneCountInString(each.text)))
-			} else {
-				row.WriteString(each.text)
+				text = strings.Repeat(" ", utf8.RuneCountInString(text))
 			}
+			row.WriteString(text)
 		}
-		return Plain(row.String())
+		return strings.TrimRightFunc(row.String(), config.Space)
 	})
 }
 

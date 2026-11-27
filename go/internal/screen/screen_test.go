@@ -1,18 +1,19 @@
 package screen
 
 import (
+	"strings"
 	"testing"
 
 	"agentkit/internal/config"
 )
 
-func claude(t *testing.T) *Rules {
+func rulesOf(t *testing.T, harness string) *Rules {
 	t.Helper()
-	chrome, err := config.Section("claude", "screen")
+	chrome, err := config.Section(harness, "screen")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rules, err := config.ScreenRules("claude")
+	rules, err := config.ScreenRules(harness)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,14 +63,14 @@ const (
 )
 
 func TestTheComposerRowReadsAfterPythonsStrip(t *testing.T) {
-	got := claude(t).Read(rule80 + "\n❯ \n" + rule80 + "\n" + foot)
+	got := rulesOf(t, "claude").Read(rule80 + "\n❯ \n" + rule80 + "\n" + foot)
 	if got.State != "at_prompt" || got.Rule != "prompt.composer" {
 		t.Fatalf("%+v", got)
 	}
 }
 
 func TestTheComposerTellsTypedTextFromASuggestion(t *testing.T) {
-	read := claude(t)
+	read := rulesOf(t, "claude")
 	for tail, want := range map[string]Reading{
 		rule80 + "\n❯ fix the build\n" + rule80 + "\n" + foot:                      {"draft", "prompt.draft", "fix the build"},
 		rule80 + "\n\x1b[2m❯ try this\x1b[0m\n" + rule80 + "\n" + foot:             {"at_prompt", "prompt.suggestion", "❯ try this"},
@@ -82,15 +83,32 @@ func TestTheComposerTellsTypedTextFromASuggestion(t *testing.T) {
 	}
 }
 
+// A hint in a colour the manifest names faint, a 256-colour one or the terminal theme's `90`, is an
+// empty composer; text in the terminal's own colour is typed, and so is a scroll marker.
+func TestAMutedHintIsAnEmptyComposer(t *testing.T) {
+	read := rulesOf(t, "antigravity")
+	rule, mark := "\x1b[38;5;239m"+strings.Repeat("─", 80), "\x1b[38;5;111m>\x1b[39m "
+	for row, want := range map[string]string{
+		mark + "\x1b[38;5;103mAuto mode: edits & safe commands auto-approved\x1b[39m": "prompt.composer",
+		mark + "\x1b[90mAuto mode: edits & safe commands auto-approved\x1b[39m":       "prompt.composer",
+		mark + "tell me more":                         "draft.typed",
+		mark + "\x1b[38;5;103m↑ 2 more lines\x1b[39m": "draft.typed",
+	} {
+		if got := read.Read(rule + "\n" + row + "\n" + rule); got.Rule != want {
+			t.Errorf("%q: %+v, not %s", row, got, want)
+		}
+	}
+}
+
 func TestAViewScrolledAwayReadsNothing(t *testing.T) {
 	tail := "● old words\n" + "Enter to select · ↑/↓ to navigate\nJump to bottom (ctrl+End) ↓\n" + rule80
-	if got := claude(t).Read(tail); got != (Reading{}) {
+	if got := rulesOf(t, "claude").Read(tail); got != (Reading{}) {
 		t.Fatalf("%+v", got)
 	}
 }
 
 func TestSaidLeavesOutTheChromeBelowWhatWasSaid(t *testing.T) {
-	said := claude(t).Said("● done\n" + rule80 + "\n❯ unsent words\n" + rule80 + "\n" + foot)
+	said := rulesOf(t, "claude").Said("● done\n" + rule80 + "\n❯ unsent words\n" + rule80 + "\n" + foot)
 	if len(said) != 1 || said[0] != "● done" {
 		t.Fatalf("%q", said)
 	}

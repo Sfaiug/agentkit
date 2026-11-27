@@ -197,19 +197,24 @@ func (r *Rules) Read(pane string) Reading {
 	raws, lines = r.withoutTray(raws, lines)
 	newest := r.newestRow(raws, lines)
 	reach := r.reach(pane, raws)
+	bright := r.brightRows(raws)
 	for _, each := range r.rules {
-		region, rows := lastOf(lines, each.lines), lastOf(raws, each.lines)
+		region, rows, brights := lastOf(lines, each.lines), lastOf(raws, each.lines), lastOf(bright, each.lines)
 		if each.id == "prompt.draft" || each.id == "prompt.suggestion" {
 			if found, ok := r.atComposer(each, rows, region, reach); ok {
 				return found
 			}
 			continue
 		}
+		// a row reads as drawn; at an empty prompt also with its faint or muted hint blanked, so
+		// the composer's mark still reads, though never a composer scrolled past its height
+		hinted := each.atComposer && each.state == "at_prompt"
 		var drawn []string
 		together := make([]string, len(rows))
 		for at, raw := range rows {
 			together[at] = strings.TrimRightFunc(strip(raw), config.Space)
-			if each.row != nil && each.row.MatchString(together[at]) {
+			if each.row != nil && (each.row.MatchString(together[at]) || hinted &&
+				(r.scrolled == nil || !r.scrolled.MatchString(together[at])) && each.row.MatchString(brights[at])) {
 				drawn = append(drawn, region[at])
 			}
 		}
