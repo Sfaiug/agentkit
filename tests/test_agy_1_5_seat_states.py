@@ -32,6 +32,7 @@ class AgySeatStates(unittest.TestCase):
                 ("⣯  Generating...", [composer()]),
                 ("⠋  Loading...", [tip, composer()]),
                 (SPINNER, ["▸ queued message", composer()]),
+                (SPINNER, ["▸ queued message", tip, composer()]),
                 (SPINNER, [tip, "  or collapse them.", "▸ first message", "  continued",
                            "▸ next message", composer(), tray]),
                 (SPINNER, [composer("> unsent draft")]),
@@ -60,7 +61,18 @@ class AgySeatStates(unittest.TestCase):
             with self.subTest(rows=rows):
                 self.assertEqual(watch.screen_state("antigravity", "\n".join(rows))[:2], expected)
 
-    def test_dialogs_and_chooser_take_precedence(self):
+    def test_spinner_rule_precedence(self):
+        ids = [rule["id"] for rule in watch.screen("antigravity")["rules"]]
+        spinner = ids.index("working.spinner")
+        asking = [name for name in ids if name.startswith("asking.")]
+        for name in (*asking, "draft.chooser", "working.cancel"):
+            self.assertIn(name, ids[:spinner])
+        for name in ("draft.typed", "prompt.composer"):
+            self.assertIn(name, ids[spinner + 1:])
+
+        tail = f"{SPINNER} (esc to cancel)\n{composer()}"
+        self.assertEqual(watch.screen_state("antigravity", tail)[:2], ("working", "working.cancel"))
+
         for name, expected in (("permission", ("asking", "asking.permission")),
                                ("question", ("asking", "asking.question")),
                                ("chooser", ("draft", "draft.chooser"))):
