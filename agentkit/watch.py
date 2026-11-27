@@ -759,7 +759,7 @@ def prompted_since(name, at):
 
 def continue_turns(cfg, log, accounts=False, names=None):
     """Continue rebooted seats or have them ask again, or (`accounts`) continue seats reopened
-    on another subscription; of `names` only, where given.
+    on another subscription; of `names` only, where given. Return seats observed taking a prompt.
 
     The mark goes on once the relaunch is back and comes off once the line has landed, so a
     send that failed -- or a tick killed in the warmup -- is tried again by the next tick,
@@ -778,6 +778,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
     till the prompt is stamped, or for MIDTURN_TRIES passes.
     """
     boot = boot_id()
+    prompted = set()
     for name in config.session_records() if names is None else names:
         mark = seat_read(name).get("midturn")
         if not isinstance(mark, dict) or bool(mark.get("account")) != accounts:
@@ -787,10 +788,12 @@ def continue_turns(cfg, log, accounts=False, names=None):
         session = orch.find(name) if mark.get("boot") == boot else None
         if mark.get("launched"):
             waited = (mark.get("tries") or 0) + 1
-            if (session and not session.get("exited") and not prompted_since(name, at)
-                    and waited < MIDTURN_TRIES):
-                replace_midturn(name, mark, {**mark, "tries": waited})
-                continue
+            if session and not session.get("exited"):
+                if prompted_since(name, at):
+                    prompted.add(name)
+                elif waited < MIDTURN_TRIES:
+                    replace_midturn(name, mark, {**mark, "tries": waited})
+                    continue
         elif session and not session.get("exited"):
             wait = at + INBOX_WARMUP - time.time()
             if wait > 0:
@@ -812,6 +815,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
                     return quiet == [False] or taken(held)
                 sent = type_into(session, line, log, stale, asked=True)
                 if sent:
+                    prompted.add(name)
                     log(f"told {name}: {line}")
                 elif taken(config.resolve_session(name)):
                     log(f"{name} was prompted or renamed since it came back: no line")
@@ -824,6 +828,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
                 else:
                     log(f"WARN {name}: its line did not land in {tries} tries")
         replace_midturn(config.resolve_session(name), mark)
+    return prompted
 
 
 def finish_own_lines(cfg, log):
@@ -3002,7 +3007,7 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
             break
         time.sleep(0.05)
     if hook_state(harness, hook_facts(name))[1] in failed:
-        settle_account(cfg, session, lambda _: None, records)
+        settle_account(cfg, session, note, records)
     # A limit menu drawn once another event's fact replaced the failed turn's stood until the
     # tick's pass, three minutes at most, the seat `needs you` (measured 22 Nov 2026).  The owner,
     # 19 Nov: "Should always pick stop and wait for limit to reset"; asked whether ak should check
@@ -3348,7 +3353,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     gone = any(session.get(key) for key in orch.CLOSED)
     # A seat waiting for its usage to come back was refused mid-turn: whatever its screen
     # shows, no turn is in flight until ak resumes it (3b).
-    waiting = None if gone or seat_closed_by_owner(name) else seat_read(name).get("usage_wait")
+    marks = {} if gone or seat_closed_by_owner(name) else seat_read(name)
+    waiting = marks.get("usage_wait")
     # One no limit cut off, its work done and live and nothing left to tell it, has nothing the
     # usage would continue, so it keeps its own word.  The owner, 2 Nov 2026: "Out of usage should
     # be when there is no more usage from the provider to continue."
@@ -3388,8 +3394,16 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # What ak moves in the seat besides what it waits on, each read at its own rung below.
     def turn():
         """2b. a turn in flight, which only a seat somebody is still in has a screen to show"""
-        flight, began = (_turn_in_flight(harness, found) if harness and not gone and not waiting
-                         else (False, None))
+        if not harness or gone or waiting:
+            return
+        flight, began = _turn_in_flight(harness, found)
+        # The relaunch supplied the first prompt even if the last look still shows
+        # the old composer. A subsequent hook or observed stop supersedes that launch.
+        mark = marks.get("midturn")
+        if not flight and isinstance(mark, dict) and mark.get("launched"):
+            began = _stamp(mark.get("at"))
+            flight = began is not None and began > max(_stamp(found.get("hooked_at")) or 0,
+                                                       _stamp(marks.get("stop_said_at")) or 0)
         if flight:
             long = (isinstance(began, (int, float)) and not isinstance(began, bool)
                     and at - began > TURN_SECS)
@@ -5652,7 +5666,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
     A seat's home is the account it opened on (the usual login for a record that names
     none), and an idle one comes home once it has room again. Without a proven conversation
     id the running pane is the only copy: wait for its own account, then continue in place.
-    A closed pane is never a request to start a turn.
+    A closed pane is never a request to start a turn. Report a relaunch out of a usage
+    wait as "relaunched": its replacement pane can still be drawing when the wait clears.
     """
     name = session["name"]
     record = config.session_records().get(name)
@@ -5823,8 +5838,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)
+        current_live = seat_read(name)
         if (seat_closed_by_owner(name) or config.session_records().get(name) != record
-                or seat_read(name).get("opened_at") != live.get("opened_at")
+                or current_live.get("opened_at") != live.get("opened_at")
+                or current_live.get("usage_wait") != waiting
                 or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)):
             return True
         if own_turn and target is not None:
@@ -5860,6 +5877,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
         if owned and target is not None and not field_empty(harness, pane):
             # The respawn would end the owner's text (5 and 12 Nov 2026): the first look at an
             # empty field moves the seat, its refusal left unparked for that look to act on.
+            if waiting and not waiting.get("field_deferred"):
+                log(f"{name}: usage is back; waiting for an empty input field before resuming")
+                seat_write(name, usage_wait={**waiting, "field_deferred": True})
             return True
         marked = None
         if parks:
@@ -5870,6 +5890,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
             seat_write(name, usage_refusal=observed)
         continuing = bool((waiting or {}).get("continue") or refusal
                           or flight and not own_turn or limit_ended(harness, name))
+        wait = {**(waiting or {"since": now}), "continue": continuing}
         if target is not None:
             try:
                 if owned:
@@ -5883,12 +5904,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
                 reason = f"{provider} account reopen failed: {exc}"
                 if not waiting or waiting["reason"] != reason:
                     log(f"WARN {name}: {reason}")
-                seat_write(name, usage_wait={"reason": reason,
-                                            "since": waiting["since"] if waiting else now,
-                                            "continue": continuing})
+                wait.pop("until", None)
+                seat_write(name, usage_wait={**wait, "reason": reason})
                 return True
             seat_write(name, usage_wait=None, usage_refusal=observed or None)
-            return True
+            return "relaunched" if owned else True
         # Each account needs all of this model's spent windows and parking refusals back, as read.
         # Scoped meters and refusals belonging to another model, and the part of a week held for
         # one, postpone no reset.
@@ -5911,9 +5931,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
         reason = f"{provider} out of usage until {when}"
         if not waiting:
             log(f"{name}: {reason}")
-        seat_write(name, usage_wait={"reason": reason, "until": until,
-                                    "since": waiting["since"] if waiting else now,
-                                    "continue": continuing})
+        seat_write(name, usage_wait={**wait, "reason": reason, "until": until})
         return True
 
 
@@ -5964,37 +5982,53 @@ def settle_account(cfg, session, log, records=None):
     with announcing(session["name"]):
         pane = pane_text(session)
         look_at(session, cfg=cfg, pane=pane)
-    seat_account(cfg, session, harness, provider, pane, False, log, records)
+    return seat_account(cfg, session, harness, provider, pane, False, log, records)
 
 
 def usage_waits(cfg, state, log):
     """Settle each seat waiting for usage again, on the reading the usage refresh has just made:
     seat health settled it on the one before, so a seat this one frees goes on in this tick, not
     the next.  One out of login (an `auth` stall) is left alone, as `health` leaves it."""
-    reopened = []
+    reopened = {}
     for session in orch.sessions():
         name = session["name"]
         if (seat_read(name).get("usage_wait")
                 and state["stalls"].get(name, {}).get("kind") != "auth"):
-            settle_account(cfg, session, log)
+            relaunched = settle_account(cfg, session, log) == "relaunched"
             if not seat_read(name).get("usage_wait"):
-                reopened.append(name)
+                reopened[name] = session, relaunched
     # ... and told to go on now where its harness took no first prompt: `switched turns`, which
     # tells seat health's, has run this tick, and no other mark may have a second try in it
-    continue_turns(cfg, log, accounts=True, names=reopened)
+    prompted = continue_turns(cfg, log, accounts=True, names=reopened)
+    if reopened:
+        records = _health_records()
+        for name, (session, relaunched) in reopened.items():
+            # The existing pane may have taken its retry key. A replacement pane may
+            # still be loading unless it has already accepted a prompt.
+            _announce_health(session, cfg, state, records, look=not relaunched or name in prompted)
+
+
+def _health_records(dry_run=False):
+    from . import menu as menu_mod   # here, not at the top: the menu draws without the tick
+    # one pass over run.json serves every live seat; a failed read is None, never a seat
+    # with no runs
+    try:
+        return menu_mod.run_records(cache=not dry_run)
+    except (config.Error, OSError, ValueError):
+        return None
+
+
+def _announce_health(session, cfg, state, records, harness=None, *, look=False):
+    announce_state(session, cfg=cfg, look=look, harness=harness,
+                   auth_out=state.get("auth_out") or {}, gh_out=state.get("gh_out") or {},
+                   token_out=state.get("worker_tokens"), stalls=state["stalls"], records=records)
 
 
 def health(cfg, state, dry_run, log):
     """One pass over the toolkit's seats: nudge the stalled ones, leave the working ones be."""
-    from . import menu as menu_mod   # here, not at the top: the menu draws without the tick
     poll_worker_token(state)   # each declared worker token, once a day: the ak screen says it
     stalls, seats = state["stalls"], orch.sessions()
-    # one pass over run.json serves every live seat; a failed read is None, never a seat
-    # with no runs
-    try:
-        records = menu_mod.run_records(cache=not dry_run)
-    except (config.Error, OSError, ValueError):
-        records = None
+    records = _health_records(dry_run)
     # The login each seat's runs wait on their owner for (`owed_login`), oldest first: the
     # harness, when it parked and what it said.  The seat that launched one has to read the
     # login it waits for even when it runs another harness itself, and the run is the whole of
@@ -6319,11 +6353,7 @@ def health(cfg, state, dry_run, log):
                 # decided on the seat's record as it stands under the lock, not on `live`: the
                 # pass wrote its own look there, and a look the seat's own hook has published
                 # since is newer -- and nothing captures the pane a second time
-                announce_state(session, cfg=cfg,
-                               harness=harness, auth_out=state.get("auth_out") or {},
-                               gh_out=state.get("gh_out") or {},
-                               token_out=state.get("worker_tokens"),
-                               stalls=state["stalls"], records=records)
+                _announce_health(session, cfg, state, records, harness)
 
 
 # --- silent runs: the tick recovers what the loop cannot --------------------
