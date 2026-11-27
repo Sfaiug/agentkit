@@ -65,13 +65,18 @@ class Machine(namedtuple("Machine", "name checks said")):
 
 def helpers():
     """Every machine ak may use but this one, as is one whose last answer named this host: a
-    stand-in that took over as home still lists itself; nor one whose last answer said it is on
-    battery, as a Mac's helper refuses work then and a Linux one's would drain it, until a check
-    finds it on power."""
+    stand-in that took over as home still lists itself; nor one on battery."""
     record, here = _record(), socket.gethostname()
     said = {name: record.get(name, {}).get("said") or {} for name in _listed()}
     return [name for name, last in said.items()
-            if last.get("name") != here and not (last.get("battery") and not last.get("power"))]
+            if last.get("name") != here and not on_battery(last)]
+
+
+def on_battery(said):
+    """Whether a machine's last answer `said` it runs on its battery: it takes no work until a
+    check finds it on power, as a Mac's helper refuses work then and a Linux one's would drain
+    it."""
+    return bool(said.get("battery") and not said.get("power"))
 
 
 def itself(cfg):

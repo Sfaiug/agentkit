@@ -6435,9 +6435,12 @@ def machines_value():
     return f"{count} machine{'' if count == 1 else 's'}"
 
 
-def machine_value(machine, cfg):
-    """What the tick last found, and the work this machine's marks allow."""
+def machine_value(machine, cfg, stand_in=None):
+    """What the tick last found, the work this machine's marks allow, then `stand_in`, its words
+    as the stand-in where it is one; another machine that answered on battery takes no work now
+    (machines.helpers), its row ending so in place of its work."""
     here, said = machine.name == machines.HERE, machine.said
+    also = [stand_in] if stand_in else []
     words = ["home" if here else machine.kind]
     if said:
         total, free = said["memory_mb"], said["free_mb"]
@@ -6453,9 +6456,11 @@ def machine_value(machine, cfg):
         busy = min(100, max(0, round(100 * said["load"] / max(1, said["cores"]))))
         used = machines._gb(total - free).removesuffix(" GB")
         words += [f"{busy}% busy · {used} of {machines._gb(total)} used"]
+        if not here and machines.on_battery(said):
+            return " · ".join([*words, *also, "on battery · no work until on power"])
     else:
         words += ["never answered"]
-    return " · ".join([*words, work_words(machine.name, cfg)])
+    return " · ".join([*words, work_words(machine.name, cfg), *also])
 
 
 def stand_in_value(age, takes, own=True):
@@ -6496,8 +6501,8 @@ def machine_hours(name):
 def config_machines(cfg):
     """Recorded machines; Enter opens each one's cap on runs at once (runs_row), the home's with
     how many sessions it carries at once under it (carried.value), another's under its work
-    marks.  Each machine that copies this one (standby.copies) is said at the end of the row of
-    the first listed machine but the home whose last reading names its host, one machine one
+    marks.  Each machine that copies this one (standby.copies) is said on the row of the first
+    listed machine but the home whose last reading names its host (machine_value), one machine one
     row, else under them on a row that opens nothing; why they cannot be read under the rows.
     Last, `+ add a machine` takes an ssh address, or with none typed finds those that ran the
     line making a new machine one it adds (machines.join_line, under its field; machines.found),
@@ -6620,10 +6625,10 @@ def config_machines(cfg):
             same = next((machine.name for machine in known if machine.name != machines.HERE
                          and (machine.said or {}).get("name") == host), None)
             if same:
-                joined[same] = f" · {stand_in_value(age, takes, own=False)}"
+                joined[same] = stand_in_value(age, takes, own=False)
             else:
                 apart.append((host, stand_in_value(age, takes), None))
-        rows = [(machine.name, machine_value(machine, cfg) + joined.get(machine.name, ""),
+        rows = [(machine.name, machine_value(machine, cfg, joined.get(machine.name)),
                  opens(machine.name)) for machine in known] + apart
         # a file that will not load closes the page, saying why on `c`; read last, so one
         # breaking under the reads above does too
