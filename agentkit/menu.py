@@ -6268,16 +6268,20 @@ def plan_rows(cfg):
     subscriptions` lists the logins (usage_rows), plans read as kept (usage.plan), so no
     provider is asked: named as that page names the provider (company_name), then the plan, or
     alone, `plan not read yet`, where the plan is not known; its price a month in the config's
-    currency (money.price, `amount`), else `no price in` the currency, its logins counted where
-    more than one; then `In all`, each price times its logins, the logins of a row with no
-    price `not counted`.  None where no login is configured."""
+    currency (money.price, `amount`), with `your price` when kept under `[money.paid]`
+    (money.typed), else `no price in` the currency, its logins counted where more than one; then
+    `In all`, each price times its logins, the logins of a row with no price `not counted`.  None
+    where no login is configured."""
     code, counts = money.currency(cfg), {}
     for provider, _, _, account in usage_rows(cfg):
         on = provider, usage.plan(provider, account)
         counts[on] = counts.get(on, 0) + 1
     rows, total, missed = [], 0, 0
     for (provider, on), count in counts.items():
-        price = None if on is None else money.price(cfg, provider, on, code)
+        yours = None if on is None else money.typed(cfg, provider, on, code)
+        price = (None if on is None
+                 else yours if yours is not None
+                 else money.price(cfg, provider, on, code))
         if price is None:
             missed += count
         else:
@@ -6285,8 +6289,10 @@ def plan_rows(cfg):
         said = ("plan not read yet" if on is None
                 else f"no price in {CURRENCY_NAMES[code]}" if price is None
                 else amount(code, price))
+        parts = [said, *(["your price"] if yours is not None else []),
+                 *([f"{count} logins"] if count > 1 else [])]
         rows.append((company_name(cfg, provider) + ("" if on is None else f" · {on}"),
-                     said + (f" · {count} logins" if count > 1 else ""), None))
+                     " · ".join(parts), None))
     if rows:
         rows.append(("In all", amount(code, total) + (
             f" · {missed} login{'s' if missed > 1 else ''} not counted" if missed else ""), None))

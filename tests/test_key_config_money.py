@@ -3,10 +3,10 @@
 to `€ euros` and back, each written to `[money] currency` at once.  Without UTF-8 the currency
 reads its ISO code for its sign: `USD US dollars`, `EUR euros`.  Under it a row each provider and
 plan the logins are on as kept, in the order `config · subscriptions` lists them: its price a
-month in that currency and its logins where more than one, else `no price in` it, or `plan not
-read yet` by its provider alone; then `In all`, each price times its logins, naming the logins
-it did not count.  Claude's Max 20x is $200 or 180 euros, Pro $20; ChatGPT's Plus $20 and no
-euro price.
+month in that currency (with `your price` where `[money.paid.<currency>.<provider>]` keeps one)
+and its logins where more than one, else `no price in` it, or `plan not read yet` by its provider
+alone; then `In all`, each price times its logins, naming the logins it did not count.  Claude's
+Max 20x is $200 or 180 euros, Pro $20; ChatGPT's Plus $20 and no euro price.
 
 The owner, 24 Nov 2026: "user should be able to choose euro or dollar"; "we want to know how
 much is the user paying per month".  Black-box: `AK_BIN`'s
@@ -72,12 +72,14 @@ class ConfigMoney(unittest.TestCase):
     def currency(self):
         return akconfig.read(self.home).get("money")
 
-    def plans(self, plans):
+    def plans(self, plans, money=None):
         """`config · money` opened, each login of `plans`, {provider: {account: plan}}, kept on its
-        plan, asked just now: listed in that order, and the providers' other logins none."""
+        plan, asked just now: listed in that order, and the providers' other logins none, with
+        `[money]` set to `money` where given."""
         akconfig.write(self.home, {"fable": "claude", "astra": "codex"}, providers={
             provider: {"mode": "subscription", "accounts": list(accounts)}
-            for provider, accounts in plans.items()})
+            for provider, accounts in plans.items()},
+            settings=None if money is None else {"money": money})
         self.home.write(".agentkit/state/logins.json", {provider: {
             account: {"email": None, "ends": None, "plan": plan, "checked_at": time.time()}
             for account, plan in accounts.items() if plan} for provider, accounts in plans.items()})
@@ -144,6 +146,33 @@ class ConfigMoney(unittest.TestCase):
                             ("Anthropic · pro", "$20 a month"),
                             ("OpenAI", "plan not read yet"),
                             ("In all", "$20 a month · 1 login not counted")))
+
+    def test_a_kept_price_reads_your_price_and_is_counted_in_all(self):
+        self.plans({"anthropic": {"default": "max 20x", "second": "max 20x"},
+                    "openai": {"default": "plus"}},
+                   money={"paid": {"USD": {"anthropic": {"max 20x": 175.5}}}})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("Anthropic · max 20x", "$175.50 a month · your price · 2 logins"),
+                            ("OpenAI · plus", "$20 a month"),
+                            ("In all", "$371 a month")))
+
+    def test_a_price_kept_in_euros_leaves_the_dollar_rows_as_they_were(self):
+        self.plans({"anthropic": {"default": "max 20x"}, "openai": {"default": "plus"}},
+                   money={"paid": {"EUR": {"openai": {"plus": 180}}}})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("Anthropic · max 20x", "$200 a month"),
+                            ("OpenAI · plus", "$20 a month"),
+                            ("In all", "$220 a month")))
+        self.term.keys("Space")
+        self.term.wait(page(("Currency", "€ euros"),
+                            ("Anthropic · max 20x", "€180 a month"),
+                            ("OpenAI · plus", "€180 a month · your price"),
+                            ("In all", "€360 a month")))
+        self.term.keys("Space")
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("Anthropic · max 20x", "$200 a month"),
+                            ("OpenAI · plus", "$20 a month"),
+                            ("In all", "$220 a month")))
 
 
 if __name__ == "__main__":

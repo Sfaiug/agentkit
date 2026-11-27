@@ -3,12 +3,14 @@
 "EUR", "USD" where it names none; any other, or a `money` that is no table, is refused as the
 config loads, exit 2 and one line.
 
-A plan's price is its provider's `price` in the config where that is one number (no boolean) from
-0 to 1,000,000, as written, the owner's own word in what they pay in; else the harness's list
-price for that plan before tax in that currency, null where it lists none, as no price is
-converted from another currency.  A `price` by login is not read: usage is kept by plan.  Claude's
-Pro is $20 or 18 euros, Max 5x $100 or 90 euros, Max 20x $200 or 180 euros; ChatGPT's Pro is $200
-and no euro price, the $500 plan a login names `promax` $500 or 429 euros.
+A plan's price is first what config.toml keeps for it in that currency
+(`[money.paid.<currency>.<provider>]`), above 0 up to 1,000,000; else its provider's `price` in
+the config where that is one number (no boolean) from 0 to 1,000,000, as written, the owner's own
+word in what they pay in; else the harness's list price for that plan before tax in that
+currency, null where it lists none, as no price is converted from another currency.  A `price` by
+login is not read: usage is kept by plan.  Claude's Pro is $20 or 18 euros, Max 5x $100 or 90
+euros, Max 20x $200 or 180 euros; ChatGPT's Pro is $200 and no euro price, the $500 plan a login
+names `promax` $500 or 429 euros.
 
 Black-box: the program `AK_BIN` names, the `claude` and `codex` harnesses being
 tests/fixtures/meters.py's script beside their shipped manifests, each login's readings written
@@ -46,20 +48,22 @@ class ModelsJsonMoney(WeekMeters):
             for provider, accounts in LOGINS.items()}})
         self.plans = dict(PLANS)
 
-    def configure(self, money=None, **providers):
-        """The config: `money` its `money` where given, and each provider's table given its keys
-        in `providers`."""
+    def configure(self, money=None, extra="", **providers):
+        """The config: `money` its `money` where given, `extra` TOML appended, and each provider's
+        table given its keys in `providers`."""
         akconfig.write(self.home, {"anvil": "claude", "bolt": "codex"},
                        providers={provider: {"mode": "subscription", "accounts": accounts,
                                              **providers.get(provider, {})}
                                   for provider, accounts in LOGINS.items()},
-                       settings=None if money is None else {"money": money})
+                       settings=None if money is None else {"money": money}, extra=extra)
 
-    def money(self, currency=None, **providers):
-        """`ak models --json`'s `money`, the config's `[money] currency` `currency` where given and
-        each provider's table given its keys in `providers`, each login of `self.plans` having
-        risen 10 points on its plan."""
-        self.configure(currency and {"currency": currency}, **providers)
+    def money(self, currency=None, paid=None, extra="", **providers):
+        """`ak models --json`'s `money`, the config's `[money] currency` `currency` and
+        `[money.paid]` `paid` where given, `extra` TOML appended, and each provider's table given
+        its keys in `providers`, each login of `self.plans` having risen 10 points on its plan."""
+        table = {**({"currency": currency} if currency else {}),
+                 **({"paid": paid} if paid is not None else {})}
+        self.configure(table or None, extra=extra, **providers)
         self.rows = {table: [] for table in TABLES}
         for (provider, account), plan in self.plans.items():
             self.read(50, 10, plan, account, provider)
@@ -114,6 +118,31 @@ class ModelsJsonMoney(WeekMeters):
         for currency, price in (("USD", 500), ("EUR", 429)):
             with self.subTest(currency):
                 self.assertEqual(self.money(currency)["month"]["openai"]["promax"], price)
+
+    def test_a_kept_price_wins_in_its_currency_over_provider_and_list_prices(self):
+        paid = {"EUR": {"anthropic": {"max 20x": 150, "team": 25.5}, "openai": {"pro": 190}}}
+        self.assertEqual(self.money("EUR", paid=paid, anthropic={"price": 175.5}),
+                         {"currency": "EUR", "month": {
+                             "anthropic": {"max 20x": 150, "team": 25.5},
+                             "openai": {"pro": 190}}})
+        self.assertEqual(self.money("USD", paid=paid, anthropic={"price": 175.5}),
+                         {"currency": "USD", "month": {
+                             "anthropic": {"max 20x": 175.5, "team": 175.5},
+                             "openai": {"pro": 200}}})
+
+    def test_a_kept_value_that_is_no_price_leaves_the_list_price(self):
+        listed = {"currency": "USD", "month": {
+            "anthropic": {"max 20x": 200, "team": None}, "openai": {"pro": 200}}}
+        for paid in (
+            {"USD": {"anthropic": {"max 20x": "180", "team": 0}, "openai": {"pro": True}}},
+            {"USD": {"anthropic": {"max 20x": -1, "team": 1_000_001}, "openai": {"pro": False}}},
+            "not-a-table",
+        ):
+            with self.subTest(paid=paid):
+                self.assertEqual(self.money("USD", paid=paid), listed)
+        self.assertEqual(
+            self.money(extra='[money.paid.USD.anthropic]\n"max 20x" = nan\nteam = inf\n'),
+            listed)
 
 
 if __name__ == "__main__":
