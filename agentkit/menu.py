@@ -6146,7 +6146,10 @@ def setting(cfg, page, table, read):
         except config.Error as exc:
             return f"{page}: {exc}"
         before = copy.deepcopy(cfg)
-        cfg[table] = changed
+        if changed:
+            cfg[table] = changed
+        else:
+            cfg.pop(table, None)
         return _saved(cfg, cfg, before)
     try:
         return read(cfg), "", write
@@ -6252,30 +6255,64 @@ def money_value(cfg):
 
 def config_money(cfg):
     """`Money`: `Currency`, the currency prices are in (config_page), Space switching it to the
-    next of money.TABLES, written to `[money]` in config.toml at once (setting); under it what
-    the logins pay a month in it (plan_rows)."""
+    next of money.TABLES, written to `[money]` in config.toml at once (setting); under it the
+    plans the logins were on when the page opened (usage_rows, usage.plan), their prices read
+    at each draw (plan_rows)."""
+    counts = {}
+    for provider, _, _, account in usage_rows(cfg):
+        on = provider, usage.plan(provider, account)
+        counts[on] = counts.get(on, 0) + 1
+
     def page():
         held, _, write = setting(cfg, "money", "money", money.currency)
         codes = list(money.TABLES)
         return [("Currency", money_value(cfg), ("mark", lambda: write(
-            "currency", codes[(codes.index(held) + 1) % len(codes)]))), *plan_rows(cfg)], ""
+            "currency", codes[(codes.index(held) + 1) % len(codes)]))),
+            *plan_rows(cfg, counts, write)], ""
     config_page("money", page)
 
 
-def plan_rows(cfg):
-    """Rows that only show each provider and plan a login is on now, in the order `config ·
-    subscriptions` lists the logins (usage_rows), plans read as kept (usage.plan), so no
-    provider is asked: named as that page names the provider (company_name), then the plan, or
-    alone, `plan not read yet`, where the plan is not known; its price a month in the config's
-    currency (money.price, `amount`), with `your price` when kept under `[money.paid]`
-    (money.typed), else `no price in` the currency, its logins counted where more than one; then
-    `In all`, each price times its logins, the logins of a row with no price `not counted`.  None
-    where no login is configured."""
-    code, counts = money.currency(cfg), {}
-    for provider, _, _, account in usage_rows(cfg):
-        on = provider, usage.plan(provider, account)
-        counts[on] = counts.get(on, 0) + 1
-    rows, total, missed = [], 0, 0
+def plan_rows(cfg, counts, write):
+    """One row per `(provider, plan)` in `counts`, named as `config · subscriptions` names the
+    provider (company_name), then the plan, or alone, `plan not read yet`, where the plan is not
+    known; its price a month in the config's currency (money.price, `amount`), with `your price`
+    when kept under `[money.paid]` (money.typed), else `no price in` the currency, its logins
+    counted where more than one.  Enter on a plan's row opens a field for what you pay a month
+    in that currency, written to `[money.paid.<currency>.<provider>]` at once through `write`,
+    or empty takes it out; a row with no plan stays one that only shows.  Then `In all`, each
+    price times its logins, the logins of a row with no price `not counted`.  None where
+    `counts` is empty."""
+    code, rows, total, missed = money.currency(cfg), [], 0, 0
+
+    def take(provider, plan):
+        def field(draw):
+            typed = terminal.field("    ", "a month · empty: the list price",
+                                   around=lambda line: draw([line]))
+            if typed is None or terminal.is_esc(typed):
+                return ""
+            value = money.parse(typed) if typed else None
+            if typed and value is None:
+                return "a price is a number like 180 or 180.50"
+            held = cfg.get("money", {}).get("paid") if isinstance(cfg.get("money"), dict) else None
+            if value is None:
+                if not (isinstance(held, dict) and isinstance(held.get(code), dict)
+                        and isinstance(held[code].get(provider), dict)
+                        and plan in held[code][provider]):
+                    return ""
+                updated = copy.deepcopy(held)
+                del updated[code][provider][plan]
+                if not updated[code][provider]:
+                    del updated[code][provider]
+                if not updated[code]:
+                    del updated[code]
+                return write("paid", updated or None)
+            updated = copy.deepcopy(held) if isinstance(held, dict) else {}
+            by_code = updated[code] if isinstance(updated.get(code), dict) else {}
+            by_provider = by_code[provider] if isinstance(by_code.get(provider), dict) else {}
+            updated[code], by_code[provider], by_provider[plan] = by_code, by_provider, value
+            return write("paid", updated)
+        return field
+
     for (provider, on), count in counts.items():
         yours = None if on is None else money.typed(cfg, provider, on, code)
         price = (None if on is None
@@ -6291,7 +6328,7 @@ def plan_rows(cfg):
         parts = [said, *(["your price"] if yours is not None else []),
                  *([f"{count} logins"] if count > 1 else [])]
         rows.append((company_name(cfg, provider) + ("" if on is None else f" · {on}"),
-                     " · ".join(parts), None))
+                     " · ".join(parts), None if on is None else take(provider, on)))
     if rows:
         rows.append(("In all", amount(code, total) + (
             f" · {missed} login{'s' if missed > 1 else ''} not counted" if missed else ""), None))
