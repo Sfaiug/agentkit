@@ -5079,6 +5079,8 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         # The adapter writes the rulebook while building its command, before the seat starts.
         extra["unnamed"] = True
         config.save_session(cfg, name, model, workers, extra)
+    elif not dry_run:
+        config.update_session(name, unnamed=None)
     try:
         # the record it is saved as once it opens, where none is saved yet: its project and its
         # marks, never those of a seat before it under its name
