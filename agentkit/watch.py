@@ -5655,7 +5655,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
     A seat's home is the account it opened on (the usual login for a record that names
     none), and an idle one comes home once it has room again. Without a proven conversation
     id the running pane is the only copy: wait for its own account, then continue in place.
-    A closed pane is never a request to start a turn.
+    A closed pane is never a request to start a turn. Report a relaunch out of a usage
+    wait as "relaunched": its replacement pane can still be drawing when the wait clears.
     """
     name = session["name"]
     record = config.session_records().get(name)
@@ -5896,7 +5897,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
                 seat_write(name, usage_wait={**wait, "reason": reason})
                 return True
             seat_write(name, usage_wait=None, usage_refusal=observed or None)
-            return True
+            return "relaunched" if owned else True
         # Each account needs all of this model's spent windows and parking refusals back, as read.
         # Scoped meters and refusals belonging to another model, and the part of a week held for
         # one, postpone no reset.
@@ -5970,7 +5971,7 @@ def settle_account(cfg, session, log, records=None):
     with announcing(session["name"]):
         pane = pane_text(session)
         look_at(session, cfg=cfg, pane=pane)
-    seat_account(cfg, session, harness, provider, pane, False, log, records)
+    return seat_account(cfg, session, harness, provider, pane, False, log, records)
 
 
 def usage_waits(cfg, state, log):
@@ -5982,18 +5983,18 @@ def usage_waits(cfg, state, log):
         name = session["name"]
         if (seat_read(name).get("usage_wait")
                 and state["stalls"].get(name, {}).get("kind") != "auth"):
-            settle_account(cfg, session, log)
+            relaunched = settle_account(cfg, session, log) == "relaunched"
             if not seat_read(name).get("usage_wait"):
-                reopened[name] = session
+                reopened[name] = session, relaunched
     # ... and told to go on now where its harness took no first prompt: `switched turns`, which
     # tells seat health's, has run this tick, and no other mark may have a second try in it
     typed = continue_turns(cfg, log, accounts=True, names=reopened)
     if reopened:
         records = _health_records()
-        for name, session in reopened.items():
-            # A typed line can start a turn after the last look. Other relaunched
-            # panes may still be drawing their first screen.
-            _announce_health(session, cfg, state, records, look=name in typed)
+        for name, (session, relaunched) in reopened.items():
+            # The existing pane may have taken its retry key. A replacement pane may
+            # still be loading unless it has already accepted a typed continuation.
+            _announce_health(session, cfg, state, records, look=not relaunched or name in typed)
 
 
 def _health_records(dry_run=False):

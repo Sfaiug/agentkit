@@ -49,13 +49,17 @@ def parked(home, harness, now, continuing=True):
                    '{"type":"user","message":{"role":"user","content":"fix the api"}}\n')
     elif harness == "grokbuild":
         home.write(f".grok/sessions/{quote(str(cwd), safe='')}/{sid}/chat_history.jsonl", "")
+    usage_wait(home, seat, harness, now, continuing, "working" if continuing else "at_prompt")
+    return seat
+
+
+def usage_wait(home, seat, harness, now, continuing, state):
     provider = akconfig.PROVIDER[harness]
-    home.write(f".agentkit/state/seat-{name}.json", {
-        "session": name, "word": "out of usage", "state": "working" if continuing else "at_prompt",
+    return home.write(f".agentkit/state/seat-{seat.name}.json", {
+        "session": seat.name, "word": "out of usage", "state": state,
         "began": now - 700, "since": now - 700, "usage_wait": {
             "reason": f"{provider} out of usage", "continue": continuing,
             "since": now - 600, "until": now + 10800}})
-    return seat
 
 
 def refill(home, fakes, now):
@@ -132,6 +136,23 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
                     state = json.loads(path.read_text())
                     self.assertIsNone(state["usage_wait"])
                     self.assertEqual(state["word"], "idle")
+
+    def test_a_turn_continued_in_its_existing_pane_publishes_working(self):
+        with Home() as home:
+            akconfig.write(home, ["spark"])
+            fakes = fakeadapter.install(home, muse="pass")
+            now = time.time()
+            seat = Seat(home, "fix-api", model="spark", screen="muse-prompt-pane.txt",
+                        asks={"continue": "muse-working-pane.txt"})
+            path = usage_wait(home, seat, "muse", now, continuing=True, state="at_prompt")
+            tick = refill(home, fakes, now)
+            self.assertEqual(tick.code, 0, tick.out + tick.err)
+            self.assertEqual(fakes["muse"].calls("interactive"), [])
+            self.assertEqual(seat.lines(), ["continue"])
+            self.assertIn("Thinking", seat.capture())
+            state = json.loads(path.read_text())
+            self.assertIsNone(state["usage_wait"])
+            self.assertEqual(state["word"], "working")
 
     def test_an_owned_seat_explains_its_wait_for_an_empty_field_once(self):
         with Home() as home:
