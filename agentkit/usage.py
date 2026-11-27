@@ -1956,6 +1956,14 @@ def model_budget(cfg, name, providers, now=None):
     return provider_budget({**prov, "meters": meters}, now)
 
 
+def parked_until(cfg, name, prov, now=None):
+    """The latest deadline of a refusal in force on `prov`, one login's reading, that parks
+    `name`, or None when none does."""
+    now = time.time() if now is None else now
+    return max((mark["exhausted_until"] for mark in _in_force(prov, _marks(prov), now)
+                if _parks(cfg, name, prov, mark)), default=None)
+
+
 def model_exhausted(cfg, name, providers):
     """(exhausted, why) for the meters gating this model: one of them reads 100% used.
 
@@ -1972,10 +1980,9 @@ def model_exhausted(cfg, name, providers):
     meters, _ = _gating_meters(cfg, name, providers)
     provider = config.model(cfg, name)["provider"]
     prov = providers.get(provider, {})
-    parking = [mark["exhausted_until"] for mark in _in_force(prov, _marks(prov), time.time())
-               if _parks(cfg, name, prov, mark)]
-    if parking:
-        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(max(parking)))
+    until = parked_until(cfg, name, prov)
+    if until is not None:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
         return True, f"{provider} ran dry; nothing is picked on it until {when}"
     spent = [m for m in meters if m["used"] >= 100]
     full = [m for m in spent if _seen(m) >= 100]

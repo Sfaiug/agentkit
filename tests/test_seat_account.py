@@ -684,6 +684,54 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.tick()
         self.assertEqual(watch.seat_read(NAME)["usage_wait"]["until"], self.now + 3600)
 
+    def test_reset_deadline_reads_only_refusals_parking_this_model_including_earlier_ones(self):
+        for label, earlier_opus, fable_offset, expected in (
+                ("other model refusal only", False, 86400, 1800),
+                ("other model refusal after an earlier refusal of this model", True, 3600, 7200)):
+            with self.subTest(label=label):
+                watch.seat_write(NAME, usage_wait=None, usage_refusal=None)
+                self.meters(60, 100)
+                reset, fable_reset = self.now + 1800, self.now + fable_offset
+
+                def readings(providers):
+                    logins = providers["anthropic"]["accounts"]
+                    logins["second"]["meters"][0]["resets_at"] = self.now + 172800
+                    logins["default"]["meters"].extend([
+                        usage._normalized({"name": "session", "used": 100,
+                                           "window_secs": usage.SESSION_SECS, "resets_at": reset},
+                                          self.now),
+                        {**usage._normalized({"name": "weekly_scoped", "used": 100,
+                                              "window_secs": 604800, "resets_at": fable_reset},
+                                             self.now),
+                         "scope": "Fable"}])
+                self.cached(readings)
+                if earlier_opus:
+                    usage.mark_exhausted(self.cfg, "anthropic", until=self.now + 7200,
+                                         account="default", model="opus")
+                usage.mark_exhausted(self.cfg, "anthropic", until=fable_reset,
+                                     account="default", model="fable")
+                self.tick()
+                self.assertEqual(watch.seat_read(NAME)["usage_wait"]["until"],
+                                 self.now + expected)
+
+    def test_live_refusal_beside_another_models_longer_refusal_advertises_its_own_deadline(self):
+        self.meters(60, 100)
+        reset, fable_reset = self.now + 1800, self.now + 86400
+
+        def readings(providers):
+            logins = providers["anthropic"]["accounts"]
+            logins["second"]["meters"][0]["resets_at"] = self.now + 172800
+            logins["default"]["meters"].append({**usage._normalized({
+                "name": "weekly_scoped", "used": 100, "window_secs": 604800,
+                "resets_at": fable_reset}, self.now), "scope": "Fable"})
+        self.cached(readings)
+        usage.mark_exhausted(self.cfg, "anthropic", until=fable_reset,
+                             account="default", model="fable")
+        self.pane = LIMIT
+        with patch.object(watch.turns, "try_again_at", return_value=reset):
+            self.tick()
+        self.assertEqual(watch.seat_read(NAME)["usage_wait"]["until"], reset)
+
     def test_new_seat_also_selects_accounts_using_its_own_model_meters(self):
         self.meters(30, 80)
         self.scoped_meters()

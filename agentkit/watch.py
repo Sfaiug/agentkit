@@ -5861,10 +5861,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
             # The respawn would end the owner's text (5 and 12 Nov 2026): the first look at an
             # empty field moves the seat, its refusal left unparked for that look to act on.
             return True
+        marked = None
         if parks:
-            until = usage.mark_exhausted(cfg, provider, until=until,
-                                         account=current if accounts else None, model=model)
-            readings[current] = {**readings.get(current, {}), "exhausted_until": until}
+            marked = usage.mark_exhausted(cfg, provider, until=until,
+                                          account=current if accounts else None, model=model)
         if refusal:
             observed = {"line": line, "at": now, "handled": True}
             seat_write(name, usage_refusal=observed)
@@ -5889,15 +5889,19 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
                 return True
             seat_write(name, usage_wait=None, usage_refusal=observed or None)
             return True
-        # Each account needs all of this model's spent windows back, as read. Scoped meters
-        # belonging to another model, and the part of a week held for one, postpone no reset.
+        # Each account needs all of this model's spent windows and parking refusals back, as read.
+        # Scoped meters and refusals belonging to another model, and the part of a week held for
+        # one, postpone no reset.
         resets = []
         for account in (accounts or [current]) if owned else [current]:
             reading = readings.get(account, {})
             meters, _ = usage._gating_meters(cfg, model, usage.unheld({provider: reading}))
             ends = [m.get("resets_at") for m in meters if m.get("used", 0) >= 100]
-            ends.append(reading.get("exhausted_until"))
-            ends = [end for end in ends if isinstance(end, (int, float)) and end > now]
+            ends.append(usage.parked_until(cfg, model, reading, now))
+            if account == current:
+                ends.append(marked)
+            ends = [end for end in ends
+                    if isinstance(end, (int, float)) and not isinstance(end, bool) and end > now]
             if ends:
                 resets.append(max(ends))
         until = min(resets) if resets else (waiting or {}).get("until", 0)
