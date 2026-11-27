@@ -355,7 +355,12 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
   done
   chosen=${installed:-$offered}
   if [ "$TTY" = 1 ] && [ -z "$installed" ] && [ -n "$offered" ]; then
-    read -r -p "Which subscription do you have ($names, or all)? [all] " answer || answer=""
+    # Ending input (Ctrl-D) chooses nothing, even after a name typed, where Enter takes [all]:
+    # an empty answer keeps the choice as it is, here emptied.  The newline ends the prompt's
+    # line, which EOF leaves open.
+    read -r -p "Which subscription do you have ($names, or all)? [all] " answer ||
+      { echo >&2; note "no answer; installing nothing -- run ./install.sh again to choose"
+        answer="" chosen=""; }
     # `read` trims the answer, and case folds as ASCII: a Turkish locale folds I to no i.  A
     # subscription's name is matched as typed; a program's, and `all`, with every ASCII space
     # removed, as they always were.

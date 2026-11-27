@@ -221,6 +221,16 @@ class InstallQuestion(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(len(self.calls()), 12)
 
+    def test_ending_input_installs_nothing(self):
+        # Ctrl-D, even after a name typed, ends input without a choice: Enter alone
+        # takes the default.
+        self.all_adapters()
+        for answer in ("\x04", "grok\x04\x04"):
+            rc, out = self.run_harnesses_pty(answer)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(self.calls(), [])
+            self.assertIn("no answer; installing nothing", out)
+
     def test_unknown_answer_installs_nothing(self):
         # A space inside a subscription's name makes it no name, and one that is not
         # ASCII any name.
