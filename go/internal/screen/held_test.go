@@ -4,25 +4,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"agentkit/internal/config"
 )
 
 // A command a harness moved to the background is held while its screen lists it under the
 // composer; the list gone holds nothing, and a footer too narrow to read says nothing either way.
 func TestHeldIsTheBackgroundListUnderTheComposer(t *testing.T) {
-	chrome, err := config.Section("antigravity", "screen")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rules, err := config.ScreenRules("antigravity")
-	if err != nil {
-		t.Fatal(err)
-	}
-	read, err := Compile(chrome, rules)
-	if err != nil {
-		t.Fatal(err)
-	}
+	read := rulesOf(t, "antigravity")
 	rule, footer := strings.Repeat("─", 40), "? for shortcuts              agentkit (GPT-OSS 120B (Medium))  /agents · 1 task(s) · /tasks"
 	for _, each := range []struct {
 		name, tail string
@@ -39,7 +26,7 @@ func TestHeldIsTheBackgroundListUnderTheComposer(t *testing.T) {
 			t.Errorf("%s: %q, %v", each.name, held, known)
 		}
 	}
-	if held, known := claude(t).Held("anything"); held != nil || known {
+	if held, known := rulesOf(t, "claude").Held("anything"); held != nil || known {
 		t.Error("a harness whose manifest reads none said what it holds")
 	}
 }

@@ -4,7 +4,8 @@ Before a conversation's first prompt agy 1.5 draws a mode hint in grey (`\x1b[90
 empty composer, and typed text in the terminal's own colour.  The colour, never the hint's words,
 tells them apart: a grey hint reads as empty (`watch.composer_draft` is `""`, and the seat takes
 an owed line as any empty composer does), the same words typed in the terminal's own colour read
-as a draft, and a plain capture with no colours reads as today.
+as a draft, a grey row hides no draft typed under it, and a plain capture with no colours reads as
+today.
 """
 
 import json
@@ -120,6 +121,13 @@ class FreshAgyComposerHint(unittest.TestCase):
             self.ask_many([("rows", pane), ("exact", pane), ("state", pane)]),
             [[row.strip() for row in rows], None,
              {"free": False, "state": "draft", "authority": "screen", "rule": "draft.typed"}])
+
+    def test_a_grey_row_hides_no_draft_typed_under_it(self):
+        draft = {"free": False, "state": "draft", "authority": "screen", "rule": "draft.typed"}
+        self.assertEqual(self.ask_many([
+            ("state", framed(f"{HINT_ROW}\n  acme draft")),
+            ("state", HINT_ROW + "\n" + framed(f"{PROMPT} acme draft")),
+        ]), [draft, draft])
 
     def test_fresh_plan_and_accept_edits_footers_are_free_at_prompt(self):
         labels, cases = [], []

@@ -205,11 +205,21 @@ func (r *Rules) Read(pane string) Reading {
 			}
 			continue
 		}
+		// a row reads as drawn; at a composer holding nothing also with its faint or muted hint
+		// blanked, so its mark still reads, though never on a scroll marker's row
+		var brights []string
+		if each.atComposer && each.state == "at_prompt" && each.row != nil {
+			if held, found := r.ComposerDraft(tail); found && held == "" {
+				brights = lastOf(r.brightRows(raws), each.lines)
+			}
+		}
 		var drawn []string
 		together := make([]string, len(rows))
 		for at, raw := range rows {
 			together[at] = strings.TrimRightFunc(strip(raw), config.Space)
-			if each.row != nil && each.row.MatchString(together[at]) {
+			if each.row != nil && (each.row.MatchString(together[at]) || brights != nil &&
+				(r.scrolled == nil || !r.scrolled.MatchString(together[at])) &&
+				each.row.MatchString(strings.TrimRightFunc(brights[at], config.Space))) {
 				drawn = append(drawn, region[at])
 			}
 		}

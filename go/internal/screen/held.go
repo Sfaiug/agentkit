@@ -20,14 +20,15 @@ func (r *Rules) Held(tail string) ([]string, bool) {
 			lines = append(lines, plain)
 		}
 	}
-	found := r.held.Find(strings.Join(lines, "\n"))
+	text := strings.Join(lines, "\n")
+	found := r.held.Find(text)
 	if found == nil {
 		return nil, false
 	}
 	held := []string{}
 	for _, kind := range r.held.Names() {
-		rows, _ := found.Group(kind)
-		for range config.SplitLines(rows) {
+		start, end, _ := found.Group(kind)
+		for range config.SplitLines(text[start:end]) {
 			held = append(held, kind)
 		}
 	}
