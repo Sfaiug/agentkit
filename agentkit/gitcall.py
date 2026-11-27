@@ -517,6 +517,19 @@ def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
     return kept + [f"{suite}  # once"]
 
 
+def unlanded_suite_refusal(cmds, wt, target, *, landing):
+    """One sentence when a done-when line of a repository's run that does not land is the
+    target's suite or its bare first command, else None: such a run would run it in every
+    round before its review, and the suite runs once, at landing (the owner, 10 Nov 2026)."""
+    targets = set() if landing or wt is None else suite_commands(declared_suite(wt, target))
+    for bare in (taskfile.split_once(cmd)[0] for cmd in cmds):
+        if " ".join(bare.split()) in targets:
+            return (f"done-when line `{bare}` is {Path(wt).name}'s whole-suite `tests:` command, "
+                    "which ak runs once, at landing, and --no-merge has no landing. "
+                    "Write a focused check instead.")
+    return None
+
+
 def round_commands(cmds, wt, target, *, scratch, landing):
     """The done-when as a round runs it, in one reading for preflight, which counts its checks
     (`task.checks_refusal`), and the loop, which runs them: a scratch task's lines with their

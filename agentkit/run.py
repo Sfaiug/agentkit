@@ -1559,6 +1559,8 @@ def preflight(run_dir, opts, log):
         every, once = taskfile.group_commands(round_commands(
             cmds, repo, target, scratch=repo is None, landing=not opts["--no-merge"]))
         refusal = (taskfile.checks_refusal(every)
+                   or gitcall.unlanded_suite_refusal(cmds, repo, target,
+                                                     landing=not opts["--no-merge"])
                    or from_refusal(run_dir / "task.md", (meta.get("from") or "").strip(), repo,
                                    opts["--no-worktree"]))
         if not refusal and not state.get("job_id") and from_seat() and run_kind(state) == "task":
