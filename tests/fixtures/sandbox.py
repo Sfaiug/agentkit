@@ -130,6 +130,10 @@ class Sandbox(unittest.TestCase):
         os.environ.pop(config.SESSION_ENV, None)
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
+        # no live harness listing in a throwaway HOME: a background `_keep` child outlives
+        # `catalog_now`'s short wait and races `tmp.cleanup()` on `STATE/listings/`
+        self.stack.enter_context(patch.dict(config._ASKED, clear=True))
+        self.stack.enter_context(patch.object(config, "_ask", return_value=None))
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[]))
         self.stack.enter_context(patch.object(terminal, "height", return_value=24))
         self.stack.enter_context(patch.object(menu.time, "time", return_value=10000))
