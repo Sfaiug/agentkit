@@ -1,7 +1,8 @@
-"""The tables `config · limits` draws of what your tasks took (`ledger.counted`'s rows), the
-owner's asks of 24 Nov 2026: under `executor_lines` by size (`lines`), under `rescope_findings`
-by the issues their first review found (`issues`), under `review_rounds` by the review rounds
-they went through (`rounds`).  Each is its rows, columns of hours and mark given to one drawing,
+"""The tables `config · limits` draws of what your tasks and own changes took (`ledger.counted`'s
+rows), the owner's asks of 24 Nov 2026: under `executor_lines` tasks by size (`lines`), under
+`orchestrator_lines` own changes by size (`own_lines`), under `rescope_findings` tasks by the
+issues their first review found (`issues`), under `review_rounds` tasks by the review rounds they
+went through (`rounds`).  Each is its rows, columns of hours and mark given to one drawing,
 rather than a module of its own writing the fold and the usage cell again: each number written
 once, then fixed columns where every row fits the page, else every row folded with its numbers
 named, so no width loses or rewrites a number another width shows.
@@ -12,24 +13,39 @@ import math
 
 from . import ledger, own, terminal
 
-FEW = 20        # a row of fewer tasks shows its tasks alone: a few tasks say nothing yet
+FEW = 20        # a row of fewer tasks or changes shows its count alone: a few say nothing yet
 # each table's columns of hours, and the parts of `ledger.HOURS` each sums
 BY_SIZE = {"building": ("build",), "reviewing": ("review",), "own tests": ("checks",),
            "waiting": ("waiting",)}
+# a seat builds its own change in its own turns, so a run's builder only fixes what a review found
+OWN_BY_SIZE = {"fixing" if col == "building" else col: parts for col, parts in BY_SIZE.items()}
 IN_ALL = {"time": tuple(ledger.HOURS)}
 
 
 def lines(sizes, limit, width, paid):
-    """`sizes` at `executor_lines` `limit` (`_drawn`): a row of each size, smallest first, its
-    numbers for every 100 lines live, marked `over` wholly above a limit on."""
+    """`sizes`, tasks, at `executor_lines` `limit` (`_by_size`)."""
+    return _by_size("What your tasks of each size took", "tasks", ledger.SIZE, BY_SIZE, sizes,
+                    limit, width, paid)
+
+
+def own_lines(own_sizes, limit, width, paid):
+    """`own_sizes`, a seat's own changes, at `orchestrator_lines` `limit` (`_by_size`)."""
+    return _by_size("What your own changes of each size took", "changes", ledger.OWN_SIZE,
+                    OWN_BY_SIZE, own_sizes, limit, width, paid)
+
+
+def _by_size(what, counted, step, hours, sizes, limit, width, paid):
+    """`sizes`, rows of `step` lines each counting `counted`, at `limit` (`_drawn`): a row of each
+    size, smallest first, its numbers for every 100 lines live, so a line reads the same in
+    either table, marked `over` wholly above a limit on."""
     dash = "–" if terminal.utf8() else "-"
     rows = []
     for row in sorted(sizes, key=lambda row: row["upto"]):
-        low = row["upto"] - ledger.SIZE + 1
+        low = row["upto"] - step + 1
         rows.append((f"{low}{dash}{row['upto']}", row, Fraction(row["lines_live"], 100),
                      "over" if type(limit) is int and 0 < limit < low else ""))
-    return _drawn("What your tasks of each size took, for every 100 lines that went live",
-                  "lines", BY_SIZE, rows, width, paid)
+    return _drawn(f"{what}, for every 100 lines that went live", "lines", counted, hours, rows,
+                  width, paid)
 
 
 def issues(first_issues, limit, width, paid):
@@ -40,7 +56,7 @@ def issues(first_issues, limit, width, paid):
              "ends the run" if 0 < limit <= row["issues"] else "")
             for row in sorted(first_issues, key=lambda row: row["issues"])]
     return _drawn("What your tasks took, by the issues their first review found", "issues",
-                  IN_ALL, rows, width, paid)
+                  "tasks", IN_ALL, rows, width, paid)
 
 
 def rounds(went, limit, width, paid):
@@ -50,21 +66,21 @@ def rounds(went, limit, width, paid):
     rows = [(str(row["rounds"]), row, row["live"], "over" if 0 < limit < row["rounds"] else "")
             for row in sorted(went, key=lambda row: row["rounds"])]
     return _drawn("What your tasks took, by the review rounds they went through", "rounds",
-                  IN_ALL, rows, width, paid)
+                  "tasks", IN_ALL, rows, width, paid)
 
 
-def _drawn(heading, name, hours, rows, width, paid):
+def _drawn(heading, name, counted, hours, rows, width, paid):
     """The lines of `rows`, each `(label, row, per, mark)`, at `paid` (`money.month`'s) held on
     `width` cells: `heading`, ending `· none yet` with no row, then a row of each under its
-    `name`, its numbers for every `per` (`_shown`), as fixed columns with two-space gutters where
-    every row fits, else each folded: its label, tasks and mark, then, indented, each number it
-    shows after its column's name."""
+    `name`, its `counted` (`tasks`, `changes`), its numbers for every `per` (`_shown`), as fixed
+    columns with two-space gutters where every row fits, else each folded: its label, count and
+    mark, then, indented, each number it shows after its column's name."""
     tail = "last 30 days" if rows else "none yet"
     head = ["", *(f"  {part}" for part in terminal.wrap(f"{heading} · {tail}", width - 2))]
     if not rows:
         return head
-    columns = (name, "tasks", "went live", *hours, "usage")
-    rows = [(label, row["tasks"], _shown(row, per, hours, paid), mark)
+    columns = (name, counted, "went live", *hours, "usage")
+    rows = [(label, row[counted], _shown(row, row[counted], per, hours, paid), mark)
             for label, row, per, mark in rows]
     marked = any(mark for *_, mark in rows)
     grid = [[*columns, *[""] * marked],
@@ -77,24 +93,24 @@ def _drawn(heading, name, hours, rows, width, paid):
     if max(map(terminal.cells, table)) <= width:
         return [*head, "", terminal.styled(table[0], "muted"), *table[1:]]
     folded = []
-    for label, tasks, shown, mark in rows:
-        folded += [*_packed([label, f"{tasks} task{'s' * (tasks != 1)}", *[mark] * bool(mark)],
-                            "  ", width),
+    for label, count, shown, mark in rows:
+        folded += [*_packed([label, f"{count} {counted[:-1]}{'s' * (count != 1)}",
+                             *[mark] * bool(mark)], "  ", width),
                    *_packed([f"{col} {text}" for col, text in shown.items()], "    ", width)]
     return [*head, "", *folded]
 
 
-def _shown(row, per, hours, paid):
-    """The numbers `row` shows, by column, each written once: none for a few tasks or an hour no
-    finite number of zero or more; else the share that went live, a whole percent, with `per`
-    above zero each of `hours`' columns its parts' hours for every `per`, the exact quotient
-    rounded half to even to a tenth and in plain digits whatever its size, and what its tasks
-    took in all three roles together for every `per` as money (`own.took`), `-` with no points
-    or an unpriced plan."""
-    if row["tasks"] < FEW or not all(math.isfinite(hour) and hour >= 0
-                                     for hour in row["hours"].values()):
+def _shown(row, count, per, hours, paid):
+    """The numbers `row` of `count` tasks or changes shows, by column, each written once: none
+    for a few or an hour no finite number of zero or more; else the share that went live, a
+    whole percent, with `per` above zero each of `hours`' columns its parts' hours for every
+    `per`, the exact quotient rounded half to even to a tenth and in plain digits whatever its
+    size, and what they took in all three roles together for every `per` as money (`own.took`),
+    `-` with no points or an unpriced plan."""
+    if count < FEW or not all(math.isfinite(hour) and hour >= 0
+                              for hour in row["hours"].values()):
         return {}
-    shown = {"went live": f"{round(100 * row['live'] / row['tasks'])}%"}
+    shown = {"went live": f"{round(100 * row['live'] / count)}%"}
     if per > 0:
         for col, parts in hours.items():
             tenths = round(sum(Fraction(row["hours"][part]) for part in parts) * 10 / per)

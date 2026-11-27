@@ -59,8 +59,8 @@ SAYS = {"review_rounds": (
              0: "Off: executors build nothing, so your runs can't say how that would go."}),
         "orchestrator_lines": (
             "The most added lines an orchestrator builds.",
-            "how often an orchestrator's own pull request merged in its first round, by size · "
-            "1 since 4 Oct",
+            "What your own changes of each size took, for every 100 lines that went live · "
+            "none yet",
             {50: "1 of your orchestrators' 1 own pull requests was 50 lines or more and would have "
                  "been a task. Round 1 merged 100% of them.",
              0: "Off: orchestrators build nothing themselves, so every one of their 1 own pull "
@@ -70,8 +70,8 @@ SAYS = {"review_rounds": (
 UNRUN = {key: (SAYS[key][0], heading, {0: off}) for key, heading, off in (
     ("review_rounds", SAYS["review_rounds"][1], SAYS["review_rounds"][2][0]),
     ("executor_lines", SAYS["executor_lines"][1], SAYS["executor_lines"][2][0]),
-    ("orchestrator_lines", "how often an orchestrator's own pull request merged in its first "
-     "round, by size · none yet", "Off: orchestrators build nothing themselves."))}
+    ("orchestrator_lines", SAYS["orchestrator_lines"][1],
+     "Off: orchestrators build nothing themselves."))}
 
 
 def lines(screen):

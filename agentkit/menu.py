@@ -6653,45 +6653,6 @@ def limits_value(cfg):
         for key, (_, short, unit, _) in LIMIT_NAMES.items() if short)
 
 
-def bar_chart(heading, bars):
-    """`heading`, then a line of each of `bars` -- (name, share, word, *cells) -- its share of a
-    line full (terminal.share_line, in `word`'s colour) taking the room the cells after it leave,
-    each cell aligned right, folding under its name where shorter than a plan bar's ever is."""
-    room = terminal.layout_width()
-    widths = [max(map(len, cells)) for cells in [*zip(*bars)][3:]]
-    wide = max((len(name) for name, *_ in bars), default=0)
-    size = room - 4 - sum(2 + width for width in widths)
-    size, folded = max(1, size - wide * (size - wide >= 8)), size - wide < 8
-    lines = ["", *("  " + part for part in terminal.wrap(heading, room - 2))]
-    for name, share, word, *cells in bars:
-        tail = "  ".join([terminal.share_line(share, size, word),
-                          *(f"{cell:>{width}}" for cell, width in zip(cells, widths))]).rstrip()
-        lines += [f"  {name}", f"    {tail}"] if folded else [f"  {name:<{wide}}  {tail}"]
-    return lines
-
-
-def size_chart(runs, limit):
-    """How orchestrators' own pull requests of each size did (`runs`,
-    history.first_review_sizes) under `orchestrator_lines`, the evidence it is set from (the
-    owner's design of 5 Nov 2026): a bar of each 25 lines below `limit`, then one from it up
-    marked `over`, of what ran under a higher one; with none, up to the largest.  Each: its share
-    merged in round 1, as a whole percent, and its count."""
-    heading = "how often an orchestrator's own pull request merged in its first round, by size"
-    if not runs:
-        return bar_chart(f"{heading} · none yet", [])
-    step = 25
-    dash, limited = "–" if terminal.utf8() else "-", type(limit) is int
-    top = limit if limited else (max(size for _, size, _ in runs) // step + 1) * step
-    sizes = [*((f"{low}{dash}{min(low + step, top) - 1}", low, min(low + step, top), "")
-               for low in range(0, top, step)), *[(f"{top}+", top, float("inf"), "over")] * limited]
-    held = [[passed for _, size, passed in runs if low <= size < high] for _, low, high, _ in sizes]
-    return bar_chart(f"{heading} · {len(runs)} since "
-                     + time.strftime("%-d %b", time.localtime(runs[0][0])),
-                     [(name, sum(each) / max(1, len(each)), "done",
-                       f"{round(100 * sum(each) / len(each))}%" if each else "", str(len(each)),
-                       over) for (name, _, _, over), each in zip(sizes, held)])
-
-
 def limit_step(key, held, step):
     """`key`'s step (LIMIT_NAMES) next from `held` up, `step` 1, or down, -1, `no limit` over
     every number: one between steps, as typed by hand, moves onto the next; None past an end.
@@ -6738,15 +6699,14 @@ def rounds_said(runs, held):
     return f"No run has gone past {last} round{'s' * (last != 1)}, so your runs can't say."
 
 
-def lines_said(key, runs, held):
-    """What `key`'s changes would have done at `held` lines, `runs` its kind's of
+def lines_said(key, sizes, held):
+    """What `key`'s changes would have done at `held` lines, `sizes` its kind's of
     history.first_review_sizes: those of `held` lines or more -- where the owner's design
     of 5 Nov 2026 splits them -- split, for builds under `executor_lines`, or made tasks, for
     orchestrators' own pull requests under `orchestrator_lines`, and how often their first review
     passed, or round 1 merged them, beside the rest; off, or past the largest, what they can't
     say.  None with none, unless off."""
     own = key == "orchestrator_lines"
-    sizes = [(lines, passed) for _, lines, passed in runs]
     if held == 0:
         return ("Off: orchestrators build nothing themselves" + (
                     f", so every one of their {len(sizes)} own pull request"
@@ -6777,7 +6737,7 @@ def lines_said(key, runs, held):
 def config_limits(cfg):
     """`Limits`: each of LIMIT_NAMES' numbers a row (config_page) under its name there,
     its value and `default N` where that is not ak's default, then under each
-    what it means and, where it has them, how its runs did (size_table, size_chart)
+    what it means and, where it has them, how its runs did (size_table)
     and what they would have done at its value (rounds_said, lines_said), read as the page opens
     and said again as the value moves: each explanation before its evidence.  ← and → move the
     pointed one a step (limit_step), saved to config.toml at once where config.host_policy takes
@@ -6794,7 +6754,8 @@ def config_limits(cfg):
                     size_table.lines(runs["sizes"], held, terminal.layout_width(), paid),
                     lines_said("executor_lines", builds, held)),
                 "orchestrator_lines": lambda held: (
-                    size_chart(own, held), lines_said("orchestrator_lines", own, held)),
+                    size_table.own_lines(runs["own_sizes"], held, terminal.layout_width(), paid),
+                    lines_said("orchestrator_lines", own, held)),
                 "rescope_findings": lambda held: (
                     size_table.issues(runs["first_issues"], held, terminal.layout_width(), paid),
                     None)}
