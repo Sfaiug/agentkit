@@ -85,12 +85,11 @@ class BareInstallIsALiveCheck(unittest.TestCase):
                 out = proc.stdout + proc.stderr
                 self.assertEqual(proc.returncode, int(verdict == "FAIL"), out)
                 self.assertEqual(made, [call.format(root=root) for call in calls])
-                # every verdict a check printed, a skip's too
-                ran = {name: said for said, name in
-                       re.findall(r"(?m)^(PASS|FAIL|SKIP)  (\w+)", proc.stdout)}
+                # every verdict printed, a skip's too, each check's once
+                ran = sorted(re.findall(r"(?m)^(PASS|FAIL|SKIP)  (\w+)", proc.stdout))
                 held = suite.LIVE_CHECKS - {"52"} - (suite.MODEL_CALLS if no_model_calls else set())
-                want = dict.fromkeys(held, "PASS") | ({"52": verdict} if verdict else {})
-                self.assertEqual(ran, want, out)
+                want = [("PASS", name) for name in held] + ([(verdict, "52")] if verdict else [])
+                self.assertEqual(ran, sorted(want), out)
                 self.assertIn(", 0 skipped", proc.stdout)
                 failed = ["52"] if verdict == "FAIL" else []
                 self.assertEqual((root / "failed").read_text().split(), failed)
