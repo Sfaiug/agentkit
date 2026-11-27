@@ -38,25 +38,20 @@ def parked(home, harness, now, continuing=True):
     elif harness == "muse":
         record["id_source"] = "muse-hook"
     screen = "grok" if harness == "grokbuild" else harness
-    screen_turn = harness in ("antigravity", "muse")
-    screen += "-working-pane.txt" if continuing and screen_turn else "-prompt-pane.txt"
-    if continuing and not screen_turn:
-        home.write(f".agentkit/state/hook-{name}.json", {
-            "session": name, "event": "UserPromptSubmit", "at": now - 700, "kind": "", "text": ""})
-    seat = Seat(home, name, model=MODELS[harness], screen=screen, record=record)
+    seat = Seat(home, name, model=MODELS[harness], screen=f"{screen}-prompt-pane.txt", record=record)
     if harness == "claude":
         home.write(conversation(home, seat),
                    '{"type":"user","message":{"role":"user","content":"fix the api"}}\n')
     elif harness == "grokbuild":
         home.write(f".grok/sessions/{quote(str(cwd), safe='')}/{sid}/chat_history.jsonl", "")
-    usage_wait(home, seat, harness, now, continuing, "working" if continuing else "at_prompt")
+    usage_wait(home, seat, harness, now, continuing)
     return seat
 
 
-def usage_wait(home, seat, harness, now, continuing, state):
+def usage_wait(home, seat, harness, now, continuing):
     provider = akconfig.PROVIDER[harness]
     return home.write(f".agentkit/state/seat-{seat.name}.json", {
-        "session": seat.name, "word": "out of usage", "state": state,
+        "session": seat.name, "word": "out of usage", "state": "at_prompt",
         "began": now - 700, "since": now - 700, "usage_wait": {
             "reason": f"{provider} out of usage", "continue": continuing,
             "since": now - 600, "until": now + 10800}})
@@ -85,12 +80,11 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
             seats = {}
             for harness, adapter in fakes.items():
                 seat = seats[harness] = parked(home, harness, now)
+                pane = [seat.screen_file, seat.typed_file]
                 if harness == "muse":
                     # Its prompt turns into a working screen only after Enter lands.
-                    screens = home.write("acme-screens.json", {ACCOUNT_LINE: seat.screen})
-                    pane = [FIXTURES / "muse-prompt-pane.txt", seat.typed_file, "❯", screens]
-                else:
-                    pane = [seat.screen_file, seat.typed_file]
+                    working = (FIXTURES / "muse-working-pane.txt").read_text()
+                    pane.extend(["❯", home.write("acme-screens.json", {ACCOUNT_LINE: working})])
                 adapter.answer("interactive", shlex.join(
                     [sys.executable, str(PANE), *map(str, pane)]))
 
@@ -111,6 +105,14 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
                     else:
                         self.assertEqual(launch["env"]["AGENTKIT_FIRST_PROMPT"], ACCOUNT_LINE)
                         self.assertEqual(seat.lines(), [])
+
+            # A Stop after the first prompt ends the turn before the next tick.
+            name = seats["claude"].name
+            home.write(f".agentkit/state/hook-{name}.json", {
+                "session": name, "event": "Stop", "at": time.time()})
+            why = home.ak("orch", "why", name)
+            self.assertEqual(why.code, 0, why.err)
+            self.assertEqual(why.out.splitlines()[0].split()[-1], "idle")
 
     def test_idle_seats_stay_idle_while_their_relaunched_panes_are_loading(self):
         with Home() as home:
@@ -144,7 +146,7 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
             now = time.time()
             seat = Seat(home, "fix-api", model="spark", screen="muse-prompt-pane.txt",
                         asks={"continue": "muse-working-pane.txt"})
-            path = usage_wait(home, seat, "muse", now, continuing=True, state="at_prompt")
+            path = usage_wait(home, seat, "muse", now, continuing=True)
             tick = refill(home, fakes, now)
             self.assertEqual(tick.code, 0, tick.out + tick.err)
             self.assertEqual(fakes["muse"].calls("interactive"), [])

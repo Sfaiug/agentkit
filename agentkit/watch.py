@@ -759,7 +759,7 @@ def prompted_since(name, at):
 
 def continue_turns(cfg, log, accounts=False, names=None):
     """Continue rebooted seats or have them ask again, or (`accounts`) continue seats reopened
-    on another subscription; of `names` only, where given. Return the names we typed a line into.
+    on another subscription; of `names` only, where given. Return seats observed taking a prompt.
 
     The mark goes on once the relaunch is back and comes off once the line has landed, so a
     send that failed -- or a tick killed in the warmup -- is tried again by the next tick,
@@ -778,7 +778,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
     till the prompt is stamped, or for MIDTURN_TRIES passes.
     """
     boot = boot_id()
-    typed = set()
+    prompted = set()
     for name in config.session_records() if names is None else names:
         mark = seat_read(name).get("midturn")
         if not isinstance(mark, dict) or bool(mark.get("account")) != accounts:
@@ -788,10 +788,12 @@ def continue_turns(cfg, log, accounts=False, names=None):
         session = orch.find(name) if mark.get("boot") == boot else None
         if mark.get("launched"):
             waited = (mark.get("tries") or 0) + 1
-            if (session and not session.get("exited") and not prompted_since(name, at)
-                    and waited < MIDTURN_TRIES):
-                replace_midturn(name, mark, {**mark, "tries": waited})
-                continue
+            if session and not session.get("exited"):
+                if prompted_since(name, at):
+                    prompted.add(name)
+                elif waited < MIDTURN_TRIES:
+                    replace_midturn(name, mark, {**mark, "tries": waited})
+                    continue
         elif session and not session.get("exited"):
             wait = at + INBOX_WARMUP - time.time()
             if wait > 0:
@@ -813,7 +815,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
                     return quiet == [False] or taken(held)
                 sent = type_into(session, line, log, stale, asked=True)
                 if sent:
-                    typed.add(name)
+                    prompted.add(name)
                     log(f"told {name}: {line}")
                 elif taken(config.resolve_session(name)):
                     log(f"{name} was prompted or renamed since it came back: no line")
@@ -826,7 +828,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
                 else:
                     log(f"WARN {name}: its line did not land in {tries} tries")
         replace_midturn(config.resolve_session(name), mark)
-    return typed
+    return prompted
 
 
 def finish_own_lines(cfg, log):
@@ -3351,7 +3353,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     gone = any(session.get(key) for key in orch.CLOSED)
     # A seat waiting for its usage to come back was refused mid-turn: whatever its screen
     # shows, no turn is in flight until ak resumes it (3b).
-    waiting = None if gone or seat_closed_by_owner(name) else seat_read(name).get("usage_wait")
+    marks = {} if gone or seat_closed_by_owner(name) else seat_read(name)
+    waiting = marks.get("usage_wait")
     # One no limit cut off, its work done and live and nothing left to tell it, has nothing the
     # usage would continue, so it keeps its own word.  The owner, 2 Nov 2026: "Out of usage should
     # be when there is no more usage from the provider to continue."
@@ -3391,8 +3394,16 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # What ak moves in the seat besides what it waits on, each read at its own rung below.
     def turn():
         """2b. a turn in flight, which only a seat somebody is still in has a screen to show"""
-        flight, began = (_turn_in_flight(harness, found) if harness and not gone and not waiting
-                         else (False, None))
+        if not harness or gone or waiting:
+            return
+        flight, began = _turn_in_flight(harness, found)
+        # The relaunch supplied the first prompt even if the last look still shows
+        # the old composer. A subsequent hook or observed stop supersedes that launch.
+        mark = marks.get("midturn")
+        if not flight and isinstance(mark, dict) and mark.get("launched"):
+            began = _stamp(mark.get("at"))
+            flight = began is not None and began > max(_stamp(found.get("hooked_at")) or 0,
+                                                       _stamp(marks.get("stop_said_at")) or 0)
         if flight:
             long = (isinstance(began, (int, float)) and not isinstance(began, bool)
                     and at - began > TURN_SECS)
@@ -5988,13 +5999,13 @@ def usage_waits(cfg, state, log):
                 reopened[name] = session, relaunched
     # ... and told to go on now where its harness took no first prompt: `switched turns`, which
     # tells seat health's, has run this tick, and no other mark may have a second try in it
-    typed = continue_turns(cfg, log, accounts=True, names=reopened)
+    prompted = continue_turns(cfg, log, accounts=True, names=reopened)
     if reopened:
         records = _health_records()
         for name, (session, relaunched) in reopened.items():
             # The existing pane may have taken its retry key. A replacement pane may
-            # still be loading unless it has already accepted a typed continuation.
-            _announce_health(session, cfg, state, records, look=not relaunched or name in typed)
+            # still be loading unless it has already accepted a prompt.
+            _announce_health(session, cfg, state, records, look=not relaunched or name in prompted)
 
 
 def _health_records(dry_run=False):
