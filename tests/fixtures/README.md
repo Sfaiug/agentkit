@@ -134,8 +134,8 @@ under its one-row dropdown. Each is cut to the rows `watch.pane_tail` reads; the
 path left in them was replaced by an invented one.
 
 `grokbuild-limit-free-pane.txt` and `grokbuild-limit-weekly-pane.txt` are Grok Build 1.0.92
-80-column captures against a loopback server refusing the request (2026-11-26): the allowance
-cards for a spent free login and a spent paid week.
+80-column captures against a loopback server (2026-11-26): the allowance cards for a spent
+free login and a spent paid week.
 
 `grok-events.jsonl` is a real headless turn (`grok -p`, one line in, `ok` out), kept whole
 so `history.event_tokens` reads the harness's own `usage` objects. `grok-hook-*.json` are
@@ -711,12 +711,8 @@ removed; subsequent listings were empty, and later probes retained ids until DEL
 An `ak-probe-delete` probe then confirmed deletion (204, then GET 404). All probe state was
 cleaned up and identifiers replaced.
 
-`codex-remote-http-fake.py` is a synthetic `sitecustomize` used only by the isolated
-test subprocesses. It records enrollment names and deletions and rejects deletion
-while its fake server is alive, and can fail every request as offline or every
-DELETE with 409. The fake Codex now persists installation and
-SQLite enrollment identities. The regression tests cover preparation before pane
-replacement, delayed cleanup, account changes, pairing independent of turn cards,
-monitor disconnects, SIGKILL, legacy fallback, enrollment removal, and forget
-while offline or under persistent 409 with a later retry. Test homes
-and sockets live in temporary directories outside the checkout.
+`codex-remote-http-fake.py` is a test-only `sitecustomize` that records enrollment names and
+deletions, rejects deletion while its fake server lives, and simulates offline failures or 409
+DELETEs. Fake Codex persists installation and SQLite enrollment ids; regression tests cover
+prep, delayed cleanup, account switches, pairing, disconnects, SIGKILL, legacy fallback, removal,
+and offline/409 forget retries in temporary directories.
