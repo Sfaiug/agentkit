@@ -48,10 +48,10 @@ def parked(home, harness, now, continuing=True):
     return seat
 
 
-def usage_wait(home, seat, harness, now, continuing):
+def usage_wait(home, seat, harness, now, continuing, state="at_prompt"):
     provider = akconfig.PROVIDER[harness]
     return home.write(f".agentkit/state/seat-{seat.name}.json", {
-        "session": seat.name, "word": "out of usage", "state": "at_prompt",
+        "session": seat.name, "word": "out of usage", "state": state,
         "began": now - 700, "since": now - 700, "usage_wait": {
             "reason": f"{provider} out of usage", "continue": continuing,
             "since": now - 600, "until": now + 10800}})
