@@ -2859,6 +2859,13 @@
   },
   {
    "harness": "claude",
+   "key": "rule asking.survey rows",
+   "pattern": "^ *How is Claude doing this session\\? \\(optional\\)\\n *1: Bad +2: Fine +3: Good +(?:4: Unsure +)?0: Dismiss\\Z",
+   "flags": "m",
+   "matches": []
+  },
+  {
+   "harness": "claude",
    "key": "rule asking.trust newest",
    "pattern": "(?i)enter to confirm",
    "flags": "",

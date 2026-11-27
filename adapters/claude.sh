@@ -295,7 +295,7 @@ interactive)
   # background daemon on, `/background` moved a seat's conversation into a daemon process that
   # carried whichever seat had started the daemon, so its hooks and `ak` commands spoke for
   # that other seat and its resume reopened the conversation from before the move.
-  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 %s ' \
+  printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 %s ' \
       "$OWN_RULES_OFF"
   # Seat preparation runs in the seat's actual cwd before the TUI, on either login: the first-run
   # questions answered, trust in this directory among them.
