@@ -6385,11 +6385,12 @@ def machine_value(machine, cfg):
     return " · ".join([*words, work_words(machine.name, cfg)])
 
 
-def stand_in_value(age, takes):
+def stand_in_value(age, takes, own=True):
     """A machine that copies this one, from its record (standby.copies): its copy's age, or why
-    that cannot be said, and whether it takes over."""
+    that cannot be said, and on a row of its `own` whether it takes over: on a listed machine's
+    row, `this one` would read as that machine."""
     return " · ".join(["stand-in", f"copy {age}" if takes else age,
-                       *["takes over when this one stops"] * (takes in standby.OVER),
+                       *["takes over when this one stops"] * (own and takes in standby.OVER),
                        *["home goes back to it once it is steady"] * (takes == "back")])
 
 
@@ -6422,8 +6423,10 @@ def machine_hours(name):
 def config_machines(cfg):
     """Recorded machines; Enter opens each one's cap on runs at once (runs_row), the home's with
     how many sessions it carries at once under it (carried.value), another's under its work
-    marks.  Under them, each machine that copies this one (standby.copies), whose row opens
-    nothing, or under the rows why they cannot be read.  Last, `+ add a machine` takes an
+    marks.  Each machine that copies this one (standby.copies) is said at the end of the row of
+    the first listed machine but the home whose last reading names its host, one machine one
+    row, else under them on a row that opens nothing; why they cannot be read under the rows.
+    Last, `+ add a machine` takes an
     ssh address, or with none typed finds those that ran the line making a new machine one it
     adds (machines.join_line, under its field; machines.found), and writes each to config.toml
     once it answers (machines.add), else says why not."""
@@ -6535,13 +6538,21 @@ def config_machines(cfg):
         return open_page
 
     def page():
-        rows = [(machine.name, machine_value(machine, cfg), opens(machine.name))
-                for machine in machines.known()]
+        known = machines.known()
         try:
             stand_ins, why = standby.copies(), ""
         except config.Error as exc:
             stand_ins, why = [], str(exc)
-        rows += [(host, stand_in_value(age, takes), None) for host, age, takes in stand_ins]
+        joined, apart = {}, []
+        for host, age, takes in stand_ins:
+            same = next((machine.name for machine in known if machine.name != machines.HERE
+                         and (machine.said or {}).get("name") == host), None)
+            if same:
+                joined[same] = f" · {stand_in_value(age, takes, own=False)}"
+            else:
+                apart.append((host, stand_in_value(age, takes), None))
+        rows = [(machine.name, machine_value(machine, cfg) + joined.get(machine.name, ""),
+                 opens(machine.name)) for machine in known] + apart
         # a file that will not load closes the page, saying why on `c`; read last, so one
         # breaking under the reads above does too
         config.load()
