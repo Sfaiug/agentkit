@@ -1,0 +1,15 @@
+  ~/proj                                             1.3k / 500k │ [Dashboard]
+     ❯ say hi                                                        9:51 PM
+
+  ┃
+  ┃  You hit your free usage limit.
+  ┃
+  ┃
+  ┃  1 (○) Upgrade to SuperGrok        For everyday coding and productivity
+  ┃                                    tasks
+  ┃  2 (○) Upgrade to SuperGrok Plus   Significantly higher usage and rate…
+  ┃  3 (○) Upgrade to SuperGrok Heavy  Get the most out of Grok Build.…
+  ┃
+  ┃  ↑/↓ navigate · y copy                                    Enter:submit
+  ┃
+  Tab:next answer  │  Esc:scrollback  │  Shift+x:dismiss

@@ -211,6 +211,24 @@ faint = ["38;5;240"]
 # whole block range is chrome there.
 scrolled = '\s+[▀-█]$'
 
+# The card Grok Build draws in its composer's place at a spent allowance (1.0.92, 26 Nov 2026;
+# two more titles from its strings never seen drawn): a framed row holding one of the four
+# titles whole, only framed rows under it, and its hint as the pane's newest row, so a wrapped
+# row or a title quoted above an unframed row is no such card; first among the rules, before
+# `asking.trust` and `asking.question`, which otherwise match interior text or the shared hint
+# and leave the seat at `needs you` with only purchase options.  `answer` is `X` (`Shift+x`,
+# `watch.dismiss`), which removes the card and picks nothing, leaving the composer empty while
+# the refusal stays in `updates.jsonl` for the look to read.  The owner, 19 Nov 2026: "seems
+# like a bug in ak, where this shows needs you even through its just asking what I want to do.
+# Should always pick stop and wait for limit to reset"; 26 Nov 2026: "I want you to also apply
+# to every other harness. All should work the same way with ak."
+[[rule]]
+id = "asking.limit"
+state = "asking"
+lines = 15
+rows = '''^  ┃  (?:You hit your (?:free usage|weekly) limit\.|You've hit (?:the credit limit for your plan|your spending cap)\.)\n(?:  ┃.*\n)*  Tab:next answer  │  Esc:scrollback  │  Shift\+x:dismiss\Z'''
+answer = "X"
+
 # Its trust dialog: the question with the pair of controls.  Words from the executable's
 # own strings; no fresh folder on this host was still untrusted enough to paint it, so the
 # layout is assumed.  No newest anchor: the composer and its key hints are taken to stay

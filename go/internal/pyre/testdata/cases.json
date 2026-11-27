@@ -132,6 +132,8 @@
   "grokbuild-compacting-pane.txt",
   "grokbuild-esc-clear-pane.txt",
   "grokbuild-interrupted-pane.txt",
+  "grokbuild-limit-free-pane.txt",
+  "grokbuild-limit-weekly-pane.txt",
   "grokbuild-palette-edit-prompt-pane.txt",
   "grokbuild-palette-pane.txt",
   "grokbuild-permission-narrow-pane.txt",
@@ -10023,6 +10025,204 @@
      "groups": {}
     },
     {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 0,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 3,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 4,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 5,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 6,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 7,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 8,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 9,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 10,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 11,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 13,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 14,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 0,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 1,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 2,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 3,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 4,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 5,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 6,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 7,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 9,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 10,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "grokbuild-palette-edit-prompt-pane.txt",
      "row": 1,
      "span": [
@@ -12780,6 +12980,13 @@
   },
   {
    "harness": "grokbuild",
+   "key": "rule asking.limit rows",
+   "pattern": "^  ┃  (?:You hit your (?:free usage|weekly) limit\\.|You've hit (?:the credit limit for your plan|your spending cap)\\.)\\n(?:  ┃.*\\n)*  Tab:next answer  │  Esc:scrollback  │  Shift\\+x:dismiss\\Z",
+   "flags": "m",
+   "matches": []
+  },
+  {
+   "harness": "grokbuild",
    "key": "rule asking.permission newest",
    "pattern": "^(?:\\d+/\\d+:select\\s+│\\s+Tab:next option|Tab/Space:permission)\\b",
    "flags": "",
@@ -13756,6 +13963,195 @@
      "span": [
       2,
       15
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 3,
+     "span": [
+      2,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 4,
+     "span": [
+      2,
+      35
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 5,
+     "span": [
+      2,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 6,
+     "span": [
+      2,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 7,
+     "span": [
+      2,
+      75
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 8,
+     "span": [
+      2,
+      44
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 9,
+     "span": [
+      2,
+      75
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 10,
+     "span": [
+      2,
+      71
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 11,
+     "span": [
+      2,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 12,
+     "span": [
+      2,
+      74
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 13,
+     "span": [
+      2,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 0,
+     "span": [
+      2,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 1,
+     "span": [
+      2,
+      31
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 2,
+     "span": [
+      2,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 3,
+     "span": [
+      2,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 4,
+     "span": [
+      2,
+      68
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 5,
+     "span": [
+      2,
+      70
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 6,
+     "span": [
+      2,
+      74
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 7,
+     "span": [
+      2,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 8,
+     "span": [
+      2,
+      74
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 9,
+     "span": [
+      2,
+      3
      ],
      "groups": {}
     },
@@ -16977,6 +17373,24 @@
      "span": [
       127,
       180
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-free-pane.txt",
+     "row": 12,
+     "span": [
+      9,
+      74
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "grokbuild-limit-weekly-pane.txt",
+     "row": 8,
+     "span": [
+      9,
+      74
      ],
      "groups": {}
     },
