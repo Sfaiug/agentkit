@@ -22,10 +22,15 @@ import (
 	"agentkit/internal/update"
 )
 
-// colours says each role's colour in the shades kept, on one line: what Ctrl-b m's popup asks as
-// the key is pressed (tmux.ColoursVerb).
+// colours says each role's colour in the shades kept, on one line, or after `look`, in the look on
+// the colour kept (terminal.InLook): what Ctrl-b m's popup asks as the key is pressed
+// (tmux.ColoursVerb).
 func colours(roles []string, out io.Writer) int {
-	fmt.Fprintln(out, strings.Join(terminal.RGBs(roles...), " "))
+	said := terminal.RGBs
+	if len(roles) > 0 && roles[0] == "look" {
+		said, roles = terminal.InLook, roles[1:]
+	}
+	fmt.Fprintln(out, strings.Join(said(roles...), " "))
 	return 0
 }
 

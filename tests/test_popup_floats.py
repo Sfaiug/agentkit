@@ -361,10 +361,12 @@ class TheBinding(unittest.TestCase):
                          f"fg=#{themes.ROLES['border'][themes.WHITE]}")
         self.assertEqual(seen["styles"], dict.fromkeys(STYLES, white))
 
-    def test_its_client_s_name_reaches_no_server_a_tmux_command_starts(self):
-        with patch.dict(os.environ, {orch.CLIENT_ENV: CLIENT, "TMUX": "/tmp/acme,1,0"}):
+    def test_its_client_s_name_and_colour_reach_no_server_a_tmux_command_starts(self):
+        with patch.dict(os.environ, {orch.CLIENT_ENV: CLIENT, terminal.BACKGROUND_ENV: "203040",
+                                     "TMUX": "/tmp/acme,1,0"}):
             for client in (False, True):
-                self.assertNotIn(orch.CLIENT_ENV, orch.tmux_env(client))
+                self.assertFalse({orch.CLIENT_ENV, terminal.BACKGROUND_ENV} & set(
+                    orch.tmux_env(client)))
 
     def test_it_runs_tmux_itself_never_the_shim_a_seat_s_path_starts_with(self):
         tmux = FakeTmux(self, shim=True)

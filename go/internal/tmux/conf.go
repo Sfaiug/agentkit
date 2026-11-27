@@ -13,6 +13,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/terminal"
 )
 
 // release is the release a tmux names as it says its version.
@@ -21,12 +22,14 @@ var release = regexp.MustCompile(`(\d+)\.(\d+)`)
 // float is what Ctrl-b m runs in the background on a tmux that floats a popup (floats), as
 // orch.FLOAT does and for the reasons it gives, on the same pane options and lock, so popups of
 // either ak over one pane keep and put back its styles together: p the pane it opens over, c its
-// client, w and h its size; the popup is bordered in the theme's border, and the pane draws in its
-// dim while the popup is up, then has exactly its own styles back once the last popup over it is
-// down.  Both colours are asked as the key is pressed (ColoursVerb), so they are in the shades kept
-// then, whichever ak's menu kept them.  Its words: tmux itself (real), the command that says the
+// client, w and h its size; the popup is bordered in the theme's border -- where the look reads on
+// the colour kept, titled (orch.POPUP_TITLE) and bordered in the look's on that colour, which its
+// menu is handed (terminal.Background) -- and the pane draws in its dim while the popup is up, then
+// has exactly its own styles back once the last popup over it is down.  The colours are asked as the
+// key is pressed (ColoursVerb), so they are in the shades kept then, whichever ak's menu kept them,
+// and frame and menu of that one read.  Its words: tmux itself (real), the command that says the
 // colours, and the popup's command.
-const float = `tmux() { command %s "$@"; }; set -- $(%s); b="fg=#$1" m="fg=#$2"; ` +
+const float = `tmux() { command %s "$@"; }; set -- $(%s); b="fg=#$1${3:+,bg=#$3}" m="fg=#$2"; ` +
 	`o() { tmux show-options -pqv -t "$p" "$1"; }; ` +
 	`h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; ` +
 	`l() { tmux wait-for "$1" "ak-float$p"; }; { l -L; n=$(o @ak_floats); ` +
@@ -34,7 +37,8 @@ const float = `tmux() { command %s "$@"; }; set -- $(%s); b="fg=#$1" m="fg=#$2";
 	`if [ -z "$n" ] && h $s; then tmux set-option -p -t "$p" @ak_was_$s "$(o $s)"; fi; ` +
 	`tmux set-option -p -t "$p" $s "$m"; done; ` +
 	`tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; } & d=$!; ` +
-	`tmux display-popup -E -b rounded -S "$b" -w "$w" -h "$h" -e "` + Client + `=$c" -c "$c" -t "$p" %s; ` +
+	`tmux display-popup -E -b rounded -S "$b" ${3:+-T ' agentkit '} -w "$w" -h "$h" -e "` + Client + `=$c" ` +
+	`${3:+-e ` + terminal.Background + `=$3} -c "$c" -t "$p" %s; ` +
 	`wait $d; l -L; n=$(o @ak_floats); ` +
 	`if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); ` +
 	`else for s in window-style window-active-style; do ` +
@@ -42,9 +46,9 @@ const float = `tmux() { command %s "$@"; }; set -- $(%s); b="fg=#$1" m="fg=#$2";
 	`set-option -pu -t "$p" @ak_was_$s; else tmux set-option -pu -t "$p" $s; fi; done; ` +
 	`tmux set-option -pu -t "$p" @ak_floats; fi; l -U; true`
 
-// ColoursVerb is the unlisted command float asks its colours of, `ak colours <role>...`: each role's
-// colour in the shades kept, as Python's themes.py run bare says it.  A word outside every
-// command's own, it is never a seat's name.
+// ColoursVerb is the unlisted command float asks its colours of, `ak colours look <role>...`: each
+// role's colour in the look on the colour kept, as Python's themes.py run bare says it
+// (terminal.InLook).  A word outside every command's own, it is never a seat's name.
 const ColoursVerb = "colours"
 
 // phone is a client too small for a popup of 80% by 70%, under sixty columns or twenty-five rows,
@@ -119,7 +123,7 @@ func again() (string, error) {
 		// run-shell expands the pane, the client and the size into the job as the key is pressed
 		bind = "run-shell -b " + Word("p='#{pane_id}' c='#{client_name}' w='"+size("100%", "80%")+"' h='"+
 			size("100%", "70%")+"'; "+unformatted(fmt.Sprintf(float, commandhelp.ShellJoin([]string{real()}),
-			commandhelp.ShellJoin([]string{program, ColoursVerb, "border", "dim"}),
+			commandhelp.ShellJoin([]string{program, ColoursVerb, "look", "border", "dim"}),
 			commandhelp.ShellJoin([]string{overlay}))))
 	}
 	text := "set -g mouse on\n" +
