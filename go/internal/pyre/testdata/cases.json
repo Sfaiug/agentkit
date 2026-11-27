@@ -1,5 +1,6 @@
 {
  "fixtures": [
+  "antigravity-1.5-working-pane.txt",
   "antigravity-background-draft-pane.txt",
   "antigravity-background-pane.txt",
   "antigravity-bracketed-label-pane.txt",
@@ -760,6 +761,39 @@
      "groups": {}
     }
    ]
+  },
+  {
+   "harness": "antigravity",
+   "key": "rule working.spinner row",
+   "pattern": "^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷] +\\S.+",
+   "flags": "",
+   "matches": [
+    {
+     "fixture": "antigravity-1.5-working-pane.txt",
+     "row": 3,
+     "span": [
+      0,
+      62
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "antigravity-working-pane.txt",
+     "row": 9,
+     "span": [
+      0,
+      16
+     ],
+     "groups": {}
+    }
+   ]
+  },
+  {
+   "harness": "antigravity",
+   "key": "rule working.spinner rows",
+   "pattern": "^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷] +\\S.+(?:\\n(?:└ Tip: |▸ ).+(?:\\n  .+)*)*\\n─+\\n>.*(?:\\n(?!─+$).*)*\\n─+(?:(?:\\n\\s*● \\[\\d\\d:\\d\\d:\\d\\d\\] .+)+(?:\\n\\s*↓ \\d+ more *)?\\n─+)?\\Z",
+   "flags": "m",
+   "matches": []
   },
   {
    "harness": "antigravity",
@@ -12932,6 +12966,15 @@
    "pattern": "(?:main(?: · ↓ to select)?|[├└] .+)",
    "flags": "",
    "matches": [
+    {
+     "fixture": "antigravity-1.5-working-pane.txt",
+     "row": 4,
+     "span": [
+      11,
+      71
+     ],
+     "groups": {}
+    },
     {
      "fixture": "antigravity-usage-pane.txt",
      "row": 5,

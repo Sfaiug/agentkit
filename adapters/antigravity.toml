@@ -1,7 +1,7 @@
 # adapters/antigravity.toml -- everything agentkit reads off an Antigravity seat's screen, and
 # who has the authority to say what that seat is doing.  Paired with adapters/antigravity.sh;
 # the format is the adapter contract in `config.adapter`.
-# Verified against agy 1.2.9, and its screen again against 1.3.5; see tests/fixtures/README.md
+# Verified against agy 1.2.9, and its screen again against 1.3.5 and 1.5.18; see tests/fixtures/README.md
 # for the captures.
 version = 1
 name = "Antigravity"
@@ -170,6 +170,14 @@ id = "working.cancel"
 state = "working"
 lines = 8
 any = ["esc to cancel"]
+
+# agy 1.5.18 omits the cancel footer. Only a spinner above the live composer marks a turn.
+[[rule]]
+id = "working.spinner"
+state = "working"
+lines = 15
+row = '^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷] +\S.+'
+rows = '^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷] +\S.+(?:\n(?:└ Tip: |▸ ).+(?:\n  .+)*)*\n─+\n>.*(?:\n(?!─+$).*)*\n─+(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+(?:\n\s*↓ \d+ more *)?\n─+)?\Z'
 
 # A line typed and not sent: the footer drops its left-hand key hint while the composer holds
 # text, leaving only the model or the agent (captured).  The generic draft machinery reads a
