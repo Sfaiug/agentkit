@@ -114,9 +114,9 @@ class ModelsPageNewestRelease(unittest.TestCase):
         term.keys("Enter")
         listed = ticks(term.wait(lambda screen: "■ Bolt 4.8" in ticks(screen)))
         self.assertEqual(listed, ["■ Bolt 4.8", "□ Bolt 5.5"])
-        # Space still takes the older configured release out
+        # Space takes the older configured release out, and it is no longer offered `□`
         term.keys("Space")
-        term.wait(lambda screen: "□ Bolt 4.8" in ticks(screen))
+        term.wait(lambda screen: ticks(screen) == ["□ Bolt 5.5"])
         self.assertNotIn("bolt", akconfig.read(home)["models"])
 
     def test_two_harnesses_listing_one_line_each_offer_their_own_newest(self):

@@ -5120,16 +5120,16 @@ def _logs_in(takes):
     return {"sign-in": "sign in", "key": "API key"}.get(takes, "log in")
 
 
-def _through_choices(cfg, harness, listed, screen):
+def _through_choices(cfg, harness, listed, screen, offered=None):
     """`add a subscription`'s first list for `harness`, as OpenCode's own `/models` lists them:
-    every model its catalog lists (_offered) of a provider in `listed` with a mode, which it
-    runs now, beside that provider's name; then each provider it lists with none, to log in
-    to, by what it takes (_logs_in).  Each is ((harness, provider), the model, or None for a
-    login) and the columns it shows, so typing a model's name after `/` finds it before a
-    provider that shares it."""
+    every model its catalog lists (_offered, or `offered` where read already) of a provider in
+    `listed` with a mode, which it runs now, beside that provider's name; then each provider it
+    lists with none, to log in to, by what it takes (_logs_in).  Each is ((harness, provider),
+    the model, or None for a login) and the columns it shows, so typing a model's name after `/`
+    finds it before a provider that shares it."""
     ready = {provider: name for provider, name, mode, _ in listed if mode}
     choices = []
-    for model in _offered(harness, *screen, cfg=cfg):
+    for model in (_offered(harness, *screen, cfg=cfg) if offered is None else offered):
         provider = model["id"].partition("/")[0]
         if provider in ready:
             choices.append((((harness, provider), model),
@@ -6071,17 +6071,20 @@ def models_page(cfg, keyboard):
     ran = {}
 
     def listing(harness):     # what a harness's row opens onto: (model, the provider it is
-        said = ""             # listed under) each, (None, one to log in), and why none is, or ""
+        said, catalog = "", []  # listed under) each, (None, one to log in), offered ids, and note
         try:
             if harness not in config.provider_hosts():
-                rows = [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
+                catalog = _offered(harness, "config · models", cfg=cfg)
+                rows = [(model, None) for model in catalog]
             else:
                 listed = waited(lambda: config.listed_providers(harness), "config · models",
                                 doing=f"asking {config.provider_hosts()[harness]} "
                                       "which providers it has")
+                catalog = _offered(harness, "config · models", cfg=cfg)
                 by = {row[0]: row for row in listed}
                 rows = [(model, by[provider]) for (((_, provider), model), _)
-                        in _through_choices(cfg, harness, listed, ("config · models",))
+                        in _through_choices(cfg, harness, listed, ("config · models",),
+                                            offered=catalog)
                         if model or provider in cfg["providers"]]
         except config.Error as exc:     # what the config runs there comes out with no listing
             rows, said = [], f"config: {exc}"
@@ -6089,14 +6092,14 @@ def models_page(cfg, keyboard):
             rows, said = [], "not read: esc and open it again"
         ran.setdefault(harness, {}).update((cfg["models"][name]["model"],
                                             config.model_name(cfg, name)) for name in on(harness))
-        # only the newest release of each line is offered `□`; what ran here stays so it can come out
-        newest = {model["id"] for model in releases.newest([model for model, _ in rows if model])}
-        rows = [(model, row) for model, row in rows
-                if not model or model["id"] in newest or model["id"] in ran[harness]]
         ids = {model["id"] for model, _ in rows if model}
         rows += [({"id": model, "label": label}, None)
                  for model, label in ran[harness].items() if model not in ids]
-        return rows, said or ("" if rows else "its catalog lists no model")
+        # compare against the harness's full catalog, so a model whose provider needs a login still
+        # supersedes an older release of its line, and a removed older release is not offered `□`
+        offered = {model["id"] for model in releases.newest(
+            [model for model, _ in rows if model], among=catalog)}
+        return rows, offered, said
 
     def ticks(harness):       # the list a harness's row opens
         got = []
@@ -6111,14 +6114,17 @@ def models_page(cfg, keyboard):
         def choices():
             if not got:
                 got.append(listing(harness))
-            rows, said = got[0]
+            rows, offered, said = got[0]
+            shown = [(model, row) for model, row in rows
+                     if not model or on(harness, model["id"]) or model["id"] in offered]
+            note = said or ("" if shown else "its catalog lists no model")
             return [([(full, "accent") if on(harness, model["id"]) else (empty, "dim"),
                       (model["label"], None)],
                      lambda model=model, row=row: tick(harness, model, row),
                      bool(on(harness, model["id"]))) if model else
                     ([(row[1], None), (_logs_in(row[3]), "dim")], lambda row=row: log_in(row),
                      "log in")
-                    for model, row in rows] + ([([(said, "dim")], lambda: "", "")] if said else [])
+                    for model, row in shown] + ([([(note, "dim")], lambda: "", "")] if note else [])
         return choices, True
 
     def page():
