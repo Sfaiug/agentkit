@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # agentkit's checks that need the outside world: real model calls on every harness, one real
-# `ak run` merged on GitHub, the Discord webhook, live meters and seats, the shared browser
-# and user systemd.
+# `ak run` merged on GitHub, the Discord webhook, live meters and seats, the shared browser,
+# user systemd and a bare-machine install in docker (check 32, left out where `docker` or
+# `timeout` is missing or `timeout -k 5 20 docker info` exits non-zero).
 # They are smoke.sh's live mode, so the sandbox HOME, the borrowed logins and the accounting
 # are smoke.sh's own, and it runs only them (LIVE_CHECKS in tests/suite_shares.py): every
 # other check ran at landing on the same commit.  The landing suite never runs them; ak runs
