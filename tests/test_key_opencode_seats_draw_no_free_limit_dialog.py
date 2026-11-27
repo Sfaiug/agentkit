@@ -1,0 +1,137 @@
+"""An OpenCode seat sets dontShow in each existing channel's go-upsell.json before launch."""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _make_home(root, name="home"):
+    home = Path(root) / name
+    installed = home / ".opencode/bin"
+    installed.mkdir(parents=True)
+    binary = installed / "opencode"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o755)
+    rulebook = Path(root) / "rules.md"
+    rulebook.write_text("Follow the owner's task.\n")
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin",
+           "AGENTKIT_RULEBOOK": str(rulebook), "LC_ALL": "C"}
+    return home, env
+
+
+def _launch(env):
+    return subprocess.run(
+        [str(REPO / "adapters/opencode.sh"), "interactive", "acme/flash", "high"],
+        env=env, capture_output=True, text=True, timeout=10)
+
+
+class OpenCodeFreeLimitDialog(unittest.TestCase):
+    def test_no_state_folder_prints_command_and_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home, env = _make_home(temp)
+            proc = _launch(env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue(proc.stdout.strip())
+            self.assertFalse((home / ".local").exists())
+
+    def test_existing_channels_set_dont_show_and_keep_other_fields_and_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home, env = _make_home(temp, name="home with spaces")
+            baseline = _launch(env)
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            state = home / ".local/state/opencode"
+            latest_tui = state / "latest/tui"
+            latest_tui.mkdir(parents=True)
+            latest_note = latest_tui / "go-upsell.json"
+            latest_note.write_text('{"lastSeenAt": 1795717297316}\n')
+            sibling = latest_tui / "other.json"
+            sibling.write_text('{"keep": 1}\n')
+
+            empty_tui = state / "beta/tui"
+            empty_tui.mkdir(parents=True)
+
+            corrupt_tui = state / "canary/tui"
+            corrupt_tui.mkdir(parents=True)
+            (corrupt_tui / "go-upsell.json").write_text("not json\n")
+
+            array_tui = state / "dev/tui"
+            array_tui.mkdir(parents=True)
+            (array_tui / "go-upsell.json").write_text("[1, 2]\n")
+
+            proc = _launch(env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, baseline.stdout)
+            self.assertEqual(
+                json.loads(latest_note.read_text()),
+                {"lastSeenAt": 1795717297316, "dontShow": True},
+            )
+            self.assertEqual(sibling.read_text(), '{"keep": 1}\n')
+            self.assertEqual(
+                sorted(p.name for p in latest_tui.iterdir()),
+                ["go-upsell.json", "other.json"],
+            )
+            self.assertEqual(
+                json.loads((empty_tui / "go-upsell.json").read_text()),
+                {"dontShow": True},
+            )
+            self.assertEqual(
+                json.loads((corrupt_tui / "go-upsell.json").read_text()),
+                {"dontShow": True},
+            )
+            self.assertEqual(
+                json.loads((array_tui / "go-upsell.json").read_text()),
+                {"dontShow": True},
+            )
+
+    def test_xdg_state_home_overrides_default_state_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home, env = _make_home(temp)
+            default_tui = home / ".local/state/opencode/latest/tui"
+            default_tui.mkdir(parents=True)
+            default_note = default_tui / "go-upsell.json"
+            default_note.write_text('{"lastSeenAt": 111}\n')
+
+            xdg = Path(temp) / "custom state"
+            xdg_tui = xdg / "opencode/latest/tui"
+            xdg_tui.mkdir(parents=True)
+            xdg_note = xdg_tui / "go-upsell.json"
+            xdg_note.write_text('{"lastSeenAt": 222}\n')
+
+            proc = _launch({**env, "XDG_STATE_HOME": str(xdg)})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(
+                json.loads(xdg_note.read_text()),
+                {"lastSeenAt": 222, "dontShow": True},
+            )
+            self.assertEqual(default_note.read_text(), '{"lastSeenAt": 111}\n')
+
+    def test_unwritable_state_folder_does_not_fail_launch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home, env = _make_home(temp)
+            baseline = _launch(env)
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            tui = home / ".local/state/opencode/latest/tui"
+            tui.mkdir(parents=True)
+            note = tui / "go-upsell.json"
+            note.write_text('{"lastSeenAt": 1795717297316}\n')
+            tui.chmod(0o555)
+            try:
+                proc = _launch(env)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout, baseline.stdout)
+                self.assertEqual(proc.stderr, "")
+                if os.geteuid() != 0:
+                    self.assertEqual(note.read_text(), '{"lastSeenAt": 1795717297316}\n')
+            finally:
+                tui.chmod(0o755)
+
+
+if __name__ == "__main__":
+    unittest.main()

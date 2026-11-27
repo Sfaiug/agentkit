@@ -280,6 +280,31 @@ interactive)
   # %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
   sq="'"; first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
     first=" --prompt='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"
+  # Keep OpenCode's TUI from drawing its `Free limit reached` upsell dialog (2.4.2, 26 Nov
+  # 2026): when a turn hits the free limit with an empty composer it opens over the session
+  # with `subscribe` selected, standing above the last 15 rows ak reads so no screen rule can
+  # reach it, and the next Enter ak types lands on `subscribe`.  OpenCode has no flag or
+  # config key for it; setting `dontShow` in each existing channel's `tui/go-upsell.json`
+  # before launch is its only switch (27 Nov 2026, 2.4.2), picking `don't show again` ahead
+  # of time.  Owner, 19 Nov 2026 (of Claude Code's spent-window menu): "Should always pick
+  # stop and wait for limit to reset"; 26 Nov 2026: "I want you to also apply to every other
+  # harness. All should work the same way with ak."  Only `tui` folders OpenCode has already
+  # made are touched, each write is atomic via a sibling temp file, and an unwritable state
+  # folder never fails a launch.
+  for tui in "${XDG_STATE_HOME:-$HOME/.local/state}/opencode"/*/tui; do
+    [ -d "$tui" ] || continue
+    note="$tui/go-upsell.json"
+    src=/dev/null; [ -f "$note" ] && src=$note
+    body=$({ jq -cRs '(try fromjson catch null) | if type == "object" then . else {} end
+      | if .dontShow == true then empty else .dontShow = true end' <"$src"; } 2>/dev/null) || continue
+    [ -n "$body" ] || continue
+    tmp=$(mktemp "$tui/.go-upsell.XXXXXX" 2>/dev/null) || continue
+    if printf '%s\n' "$body" >"$tmp" 2>/dev/null && mv -f -- "$tmp" "$note" 2>/dev/null; then
+      :
+    else
+      rm -f -- "$tmp" 2>/dev/null || true
+    fi
+  done
   # The pane does not inherit the adapter's fallback PATH.
   printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %s%s %s--standalone --auto%s\n' \
       "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "'${binary//$sq/$sq\\$sq$sq}'" "$resume" "$first" ;;
