@@ -141,7 +141,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, logins, look, machines, money, open_runs, parsed, readings, record
+from . import carried, done_check, logins, look, machines, money, open_runs, parsed, readings, record
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -6378,9 +6378,10 @@ def machine_hours(name):
 
 
 def config_machines(cfg):
-    """Recorded machines; Enter opens each one's cap on runs at once (runs_row), another's under
-    its work marks.  Under them, each machine that copies this one (standby.copies), whose row
-    opens nothing, or under the rows why they cannot be read.  Last, `+ add a machine` takes an
+    """Recorded machines; Enter opens each one's cap on runs at once (runs_row), the home's with
+    how many sessions it carries at once under it (carried.value), another's under its work
+    marks.  Under them, each machine that copies this one (standby.copies), whose row opens
+    nothing, or under the rows why they cannot be read.  Last, `+ add a machine` takes an
     ssh address, or with none typed finds those that ran the line making a new machine one it
     adds (machines.join_line, under its field; machines.found), and writes each to config.toml
     once it answers (machines.add), else says why not."""
@@ -6449,11 +6450,14 @@ def config_machines(cfg):
     # tick may find this host a listed machine, or no longer one, while the field is open
     here = []
 
-    def home_page():
-        where, held = config.max_runs_at()
-        here[:] = where
-        config.load()       # as on Machines' own page
-        return [runs_row(here, held, *["set by AK_MAX_RUNS"] * ("AK_MAX_RUNS" in os.environ))], ""
+    def home_page(sessions):
+        def page():
+            where, held = config.max_runs_at()
+            here[:] = where
+            config.load()       # as on Machines' own page
+            return [runs_row(here, held, *["set by AK_MAX_RUNS"] * ("AK_MAX_RUNS" in os.environ)),
+                    ("sessions at once", sessions, None)], ""
+        return page
 
     def work_page(name):
         def flip(word):
@@ -6482,8 +6486,9 @@ def config_machines(cfg):
 
     def opens(name):
         def open_page(draw):
-            config_page(f"machines · {name}", home_page if name == machines.HERE
-                        else work_page(name))
+            # the history read once as the page opens, as `Limits` reads it
+            config_page(f"machines · {name}", home_page(carried.value(time.time()))
+                        if name == machines.HERE else work_page(name))
             return ""
         return open_page
 

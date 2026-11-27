@@ -1597,6 +1597,32 @@ def round_endings():
         return []
 
 
+def slot_waits(since, until):
+    """For the home's `sessions at once` (carried.value): of the runs REAL_WORK counts that
+    finished from `since` to `until` with a session, a start before their finish and a wait that
+    is a number or none, each (session, started_at, finished_at, slot_wait_seconds), the wait 0
+    where none is held.  [] where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                # a read connection adds no column: a history from before slot_wait_seconds
+                # counted no wait
+                wait = ("COALESCE(slot_wait_seconds, 0)" if "slot_wait_seconds" in {
+                    row[1] for row in connection.execute("PRAGMA table_info(runs)")} else "0")
+                # REAL_WORK last: it reads a run's record, which the columns spare most rows; a
+                # REAL column keeps text it was given, which is no wait
+                return connection.execute(
+                    f"SELECT session, started_at, finished_at, {wait} FROM runs WHERE session <> "
+                    "'' AND started_at < finished_at AND finished_at BETWEEN ? AND ? AND "
+                    f"typeof({wait}) IN ('integer', 'real') AND {REAL_WORK}",
+                    (since, until)).fetchall()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
 def first_review_sizes():
     """For `Limits`' line limits, the words under each (menu.lines_said) and the orchestrator's
     bars (menu.size_chart) the same runs: of those REAL_WORK counts that ended with a verdict on
