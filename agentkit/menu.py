@@ -6664,15 +6664,17 @@ def config_limits(cfg):
     ended = history.round_endings()
     builds, own = history.first_review_sizes()
     runs, _, paid = matrix.counted(cfg)
-    sizes = runs["sizes"]
     # each number's chart and what its runs would have done at `held`; one no run records how
     # it did yet has neither
     evidence = {"review_rounds": lambda held: (rounds_chart(ended), rounds_said(ended, held)),
                 "executor_lines": lambda held: (
-                    size_table.lines(sizes, held, terminal.layout_width(), paid),
+                    size_table.lines(runs["sizes"], held, terminal.layout_width(), paid),
                     lines_said("executor_lines", builds, held)),
                 "orchestrator_lines": lambda held: (
-                    size_chart(own, held), lines_said("orchestrator_lines", own, held))}
+                    size_chart(own, held), lines_said("orchestrator_lines", own, held)),
+                "rescope_findings": lambda held: (
+                    size_table.issues(runs["first_issues"], held, terminal.layout_width(), paid),
+                    None)}
 
     def under(key, held):      # what the row means, its chart, what its runs would have done
         meaning = config.POLICY[key][2]

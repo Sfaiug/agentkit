@@ -1,8 +1,8 @@
 """`config · limits` holds `rescope_findings`
 (tests/test_key_many_findings_end_a_run_for_rescoping.py) on a row after `Extra rounds with one or
 two findings left`, drawn as that row is: on a fresh home `Findings that end a run for rescoping`
-at 6, its meaning under it, ← and → stepping it by one from 0 with no top, saved to config.toml
-at once.
+at 6, its meaning under it, then its table (tests/test_key_limits_first_issues_table.py), ← and
+→ stepping it by one from 0 with no top, saved to config.toml at once.
 
 The owner's ask of 20 Nov 2026: "The user can choose how many findings should force a rescope.";
 22 Nov 2026: "Let the page count on."
@@ -72,7 +72,9 @@ class RescopeFindings(unittest.TestCase):
         shown = self.shows(term, "◂ 6 ▸")
         names = [line[2:].split("  ")[0] for line in shown if line[2:].startswith((EXTRA, NAME))]
         self.assertEqual(names, [EXTRA, NAME])
-        self.assertIn(f"› {NAME} ◂ 6 ▸ {MEANING} ↑↓ limit", flat("\n".join(shown)))
+        # under it, its table of no task yet (tests/test_key_limits_first_issues_table.py)
+        self.assertIn(f"› {NAME} ◂ 6 ▸ {MEANING} What your tasks took, by the issues their first "
+                      "review found · none yet ↑↓ limit", flat("\n".join(shown)))
         self.assertNotIn("rescope_findings", akconfig.read(self.home))
 
     def test_right_saves_7(self):
