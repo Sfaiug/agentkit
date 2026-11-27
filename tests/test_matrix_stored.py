@@ -10,6 +10,8 @@ Offline: the boards answered by bytes, the catalogs and installed harnesses fake
 a throwaway HOME.
 """
 
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import sys
@@ -22,6 +24,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
 from agentkit import boards, config, matrix, quality, usage
+from test_key_models_answer import boards as answer_boards
 import test_model_rows as rows_test
 from test_matrix_lineup import aa
 
@@ -105,6 +108,33 @@ class AStoredLineup(Sandbox):
                 self.assertEqual(usage.pick_order(self.cfg, providers, ["opus", "astra"],
                                                   quiet=True), ["opus", "astra"])
         self.assertEqual(rated.call_count, len(quality.ROLES))
+
+    def test_models_json_does_not_mix_lineups_when_another_refresh_overwrites_matrix_json(self):
+        cfg = {**self.cfg, "companies": ["Acme"]}
+        held = answer_boards()
+
+        def showing(model, at):
+            return {key: {**board, "fetched_at": at,
+                          "rows": [row for row in board["rows"] if row["model"] == model]}
+                    for key, board in held.items()}
+
+        first, second = showing("Acme Max 5", 10000), showing("Acme Mid 5", 10001)
+        refresh = matrix.refresh
+
+        def refresh_then_publish_another(cfg, **kwargs):
+            found = refresh(cfg, **kwargs)
+            with patch.object(matrix, "collect", return_value=second):
+                refresh(cfg, refresh=True, now=10001)
+            return found
+
+        with (patch.object(config, "load", return_value=cfg),
+              patch.object(matrix, "present", return_value=[]),
+              patch.object(matrix, "collect", return_value=first),
+              patch.object(matrix, "refresh", side_effect=refresh_then_publish_another),
+              redirect_stdout(io.StringIO()) as out):
+            self.assertEqual(matrix.main(["--json"]), 0)
+        self.assertEqual({row["release"] for row in json.loads(out.getvalue())["execute"]["front"]},
+                         {"acme-max-5"})
 
 
 if __name__ == "__main__":
