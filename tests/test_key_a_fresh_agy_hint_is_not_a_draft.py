@@ -95,18 +95,20 @@ class FreshAgyComposerHint(unittest.TestCase):
         gap = " " * (150 - len("? for shortcuts") - len("plan"))
         cases = []
         for _name, mark, muted, frame in THEMES:
-            footer = f"\x1b[{muted}m? for shortcuts\x1b[39m{gap}\x1b[{mark}mplan\n"
             hint_pane = (f"\x1b[{frame}m{RULE}\n\x1b[{mark}m>\x1b[39m \x1b[{muted}m{hint}\n"
-                         f"\x1b[{frame}m{RULE}\n{footer}")
+                         f"\x1b[{frame}m{RULE}\n")
+            footer = f"\x1b[{muted}m? for shortcuts\x1b[39m{gap}\x1b[{mark}mplan\n"
             typed_pane = (f"\x1b[{frame}m{RULE}\n\x1b[{mark}m>\x1b[39m {hint}\n"
                           f"\x1b[{frame}m{RULE}\n")
-            cases.extend([("draft", hint_pane), ("state", hint_pane), ("draft", typed_pane)])
+            cases.extend([("draft", hint_pane), ("draft", f"{hint_pane}{footer}"),
+                          ("state", f"{hint_pane}{footer}"), ("draft", typed_pane)])
         got = self.ask_many(cases)
         at_prompt = {"free": True, "state": "at_prompt", "authority": "screen",
                      "rule": "prompt.composer"}
         for at, (name, *_rest) in enumerate(THEMES):
             with self.subTest(theme=name):
-                self.assertEqual(got[3 * at:3 * at + 3], ["", at_prompt, hint.replace(" ", "")])
+                self.assertEqual(got[4 * at:4 * at + 4],
+                                 ["", "", at_prompt, hint.replace(" ", "")])
 
     def test_a_muted_scroll_marker_keeps_a_cropped_draft_from_reading_whole(self):
         rule = "─" * 42
