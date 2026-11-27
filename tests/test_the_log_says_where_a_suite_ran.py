@@ -121,7 +121,7 @@ case $5 in''')
     def test_unsplit_and_pinned_commands_say_they_are_not_sent_there(self):
         for landing in (True, False):
             with self.subTest(landing=landing):
-                self.assertIn("suite runs here: command is not sent to the suite helper "
+                self.assertIn("check runs here: command is not sent to the suite helper "
                               "(does not name AK_SHARD)\n", self.check("true", landing=landing))
                 for only, label in ((None, "2/3"), ([], "2/3, its failed tests alone")):
                     self.assertIn(f"AK_SHARD={label} runs here: command is not sent to the "

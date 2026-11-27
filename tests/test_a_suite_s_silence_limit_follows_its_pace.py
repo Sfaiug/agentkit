@@ -33,7 +33,7 @@ ROOM = {"cpus": 4, "load": 0, "free_mb": 820,
         "slice_memory_high_mb": 820, "slice_memory_used_mb": 0}
 SUITE = 'printf "piece %s\\n" "${AK_SHARD:-all}"'
 WHOLE = "echo whole"
-HERE = "suite runs here: command is not sent to the suite helper (does not name AK_SHARD)"
+HERE = "check runs here: command is not sent to the suite helper (does not name AK_SHARD)"
 NOBODY = 2 ** 22 + 1    # past any pid_max: a stopped command with no children to name
 
 

@@ -2083,7 +2083,7 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
         return code, text, killed
     if not names_shard(command):
         if log is not None:
-            log("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
+            log("check runs here: command is not sent to the suite helper (does not name AK_SHARD)")
         path, _, planned = suite_cost(command, cwd, run_dir) if measure else (None,) * 3
         measured = _SuiteMeasure(run_dir) if measure else None
         aborting = kwargs.pop("abort", None)
