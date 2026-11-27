@@ -114,7 +114,14 @@ class ReadingsByTheHour(unittest.TestCase):
                 raw(M + 10, "acme-gap", 2.0, 2, stall=0),
                 *(raw(M + 100 + i, "acme-gap", 2.0, 2, stall=bad)
                   for i, bad in enumerate((-1, True, False, 1.5, 1.0, "100", None))),
+                f'{{"at": {M + 200}, "machine": "acme-gap", "load": 2.0, "cores": 2, "memory_mb": 100, "free_mb": 50, "memory_stall_us": 1e-9999999999999999999}}\n'.encode(),
                 raw(M + 500, "acme-gap", 2.0, 2, stall=tenth),
+                # Float timestamps round-trip as float on hour edges and clamped intervals.
+                *(raw(at, "acme-float-at", 1.0, 1, stall=stall) for at, stall in (
+                    (float(M), 0), (M + 120.2, 500_000_000), (M + 500.1, 0), (1795651939.8999999, 500_000_000))),
+                raw(M + 0.2, "acme-float-edge", 1.0, 1),
+                raw(M + H + 0.2, "acme-float-edge", 2.0, 1),
+                raw(M + 2 * H + 0.2, "acme-float-edge", 3.0, 1),
                 raw(M - 350, "acme-edge-gap", 1.0, 4, stall=0),
                 raw(M - 100, "acme-edge-gap", 1.0, 4),
                 raw(M + 10, "acme-edge-gap", 1.0, 4, stall=tenth),
@@ -151,6 +158,8 @@ class ReadingsByTheHour(unittest.TestCase):
                 # Window starting at M + H still picks up the step from the reading before M + H.
                 (("acme-edge", M + 2 * H, 1, False), [(M + H, 2.0, 0.5, 0.1, ("processors", "memory"))]),
                 (("acme-gap", M + H, 1, False), [(M, 1.0, 0.5, None, ())]),
+                (("acme-float-at", M + H, 1, False), [(M, 1.0, 0.5, 0.1, ("memory",))]),
+                (("acme-float-edge", M + 2 * H + 0.2, 2, False), [(M + 0.2, 1.0, 0.5, None, ()), (M + H + 0.2, 2.0, 0.5, None, ("processors",))]),
                 (("acme-edge-gap", M + H, 1, False), [(M, 0.25, 0.5, None, ())]),
                 (("acme-restart", M + 3 * H, 3, False), [
                     (M, 0.5, 0.5, 0.0, ()),

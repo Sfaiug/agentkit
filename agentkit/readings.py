@@ -35,6 +35,7 @@ from . import config, history
 HOUR = 3600
 _US = 1_000_000
 _HOUR_US = HOUR * _US
+_Num = namedtuple("_Num", "value text")  # JSON float kept as both float (`at`) and decimal text (`load`)
 PROCESSORS_SHORT = 1       # above 1, work stood in line for a processor
 # a tenth or more: on 25 Nov 2026 the busiest home's hours all read 0, and anything near a tenth
 # is an hour a person would have felt
@@ -154,17 +155,16 @@ def _usable(raw, key, other, name):
     == `name` without `other`, else None.  `memory_stall_us` is a whole number of 0 or more, or
     None when absent or anything else."""
     try:
-        # parse_float=Decimal keeps stored decimals exact (e.g. 3.6 and 4.4 average to exact 4)
-        line = json.loads(raw.decode("utf-8"), parse_float=Decimal)
-    except (UnicodeDecodeError, ValueError, RecursionError, InvalidOperation):
+        line = json.loads(raw.decode("utf-8"), parse_float=lambda text: _Num(float(text), text))
+    except (UnicodeDecodeError, ValueError, RecursionError):
         return None
     if not isinstance(line, dict) or line.get(key) != name or other in line:
         return None
     at = _finite(line.get("at"))
-    load = _finite(line.get("load"))
-    cores = _finite(line.get("cores"))
-    memory_mb = _finite(line.get("memory_mb"))
-    free_mb = _finite(line.get("free_mb"))
+    load = _finite(line.get("load"), exact=True)
+    cores = _finite(line.get("cores"), exact=True)
+    memory_mb = _finite(line.get("memory_mb"), exact=True)
+    free_mb = _finite(line.get("free_mb"), exact=True)
     if (at is None or load is None or cores is None or memory_mb is None or free_mb is None
             or at < 0 or load < 0 or cores < 1 or memory_mb < 1
             or not (0 <= free_mb <= memory_mb)):
@@ -174,20 +174,26 @@ def _usable(raw, key, other, name):
     return at, load, cores, memory_mb, free_mb, stall
 
 
-def _finite(value):
-    """`value` when it is a finite JSON number (never a bool, never overflowing float), else None."""
-    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+def _finite(value, *, exact=False):
+    """`value` when it is a finite JSON number (never a bool, never overflowing float), else None.
+    With `exact`, JSON floats become exact `Decimal` (folding float-underflow to 0)."""
+    if isinstance(value, _Num):
+        if not math.isfinite(value.value):
+            return None
+        if not exact:
+            return value.value
+        if value.value == 0.0:
+            return 0
+        with suppress(InvalidOperation):
+            return Decimal(value.text)
+        return value.value
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     try:
         number = float(value)
     except OverflowError:
         return None
-    if not math.isfinite(number):
-        return None
-    # a decimal tiny enough to underflow float (e.g. 1e-999999999) would explode Fraction's denominator
-    if isinstance(value, Decimal) and number == 0.0:
-        return 0 if value >= 0 else None
-    return value
+    return value if math.isfinite(number) else None
 
 
 def _day(name):
