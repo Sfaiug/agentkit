@@ -184,6 +184,7 @@
   "opencode-dialog-pane.txt",
   "opencode-draft-beside-card-pane.txt",
   "opencode-draft-sidebar-hidden-pane.txt",
+  "opencode-prompt-beside-sidebar-pane.txt",
   "opencode-prompt-pane.txt",
   "opencode-stall-pane.txt",
   "opencode-working-pane.txt",
@@ -14817,6 +14818,78 @@
      "groups": {}
     },
     {
+     "fixture": "opencode-prompt-beside-sidebar-pane.txt",
+     "row": 1,
+     "span": [
+      50,
+      379
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-prompt-beside-sidebar-pane.txt",
+     "row": 2,
+     "span": [
+      50,
+      336
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-prompt-beside-sidebar-pane.txt",
+     "row": 3,
+     "span": [
+      50,
+      379
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-prompt-beside-sidebar-pane.txt",
+     "row": 7,
+     "span": [
+      34,
+      336
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-prompt-beside-sidebar-pane.txt",
+     "row": 8,
+     "span": [
+      34,
+      336
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-prompt-beside-sidebar-pane.txt",
+     "row": 9,
+     "span": [
+      34,
+      336
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-prompt-beside-sidebar-pane.txt",
+     "row": 10,
+     "span": [
+      34,
+      450
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-prompt-beside-sidebar-pane.txt",
+     "row": 11,
+     "span": [
+      34,
+      323
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "opencode-prompt-pane.txt",
      "row": 15,
      "span": [
@@ -15010,7 +15083,7 @@
   {
    "harness": "opencode",
    "key": "footer",
-   "pattern": "(?:(?:.*ctrl\\+p commands)|(?:.*\\d+\\.\\d+\\.\\d+)|(?:[\\w-]+ · [^·]+( · \\d+(ms|\\.\\ds|m \\d+s|h \\d+m|d \\d+h))?( · \\d+\\.\\d+ tok/s)?( · interrupted)?))$",
+   "pattern": "(?:(?:.*ctrl\\+p commands(?: +[/~].*)?)|(?:.*\\d+\\.\\d+\\.\\d+)|(?:[\\w-]+ · [^·]+( · \\d+(ms|\\.\\ds|m \\d+s|h \\d+m|d \\d+h))?( · \\d+\\.\\d+ tok/s)?( · interrupted)?))$",
    "flags": "i",
    "matches": [
     {
@@ -18196,6 +18269,15 @@
      "span": [
       51,
       238
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "opencode-prompt-beside-sidebar-pane.txt",
+     "row": 6,
+     "span": [
+      79,
+      326
      ],
      "groups": {}
     },

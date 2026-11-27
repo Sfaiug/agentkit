@@ -135,6 +135,7 @@ editor = ["C-x", "e"]
 # is typed and whose Enter picks a row (2.0.32)
 cursor = true
 # and the key hints under it: the working, resting and fresh footers all end on this --
+# or, in a window wide enough for its sidebar (2.4.2 at 240 columns), on that sidebar's path --
 # and the release stamp alone on the fresh prompt's last line, `2.0.13` bottom-right --
 # and the finished-turn footer under a turn's last line: `<agent> · <model> · <duration>`,
 # with an optional `· <tps> tok/s` tail and an optional `· interrupted`, all read out of the
@@ -144,7 +145,7 @@ cursor = true
 # completed -- an error before its first step, `Build · mimo-v2.6-pro` -- so it is optional.
 # Step lines (`+ Thought · 3.0s`) open on their mark, never on a bare word, so a turn still in
 # flight is never trimmed as chrome.
-footer = ['.*ctrl\+p commands', '.*\d+\.\d+\.\d+',
+footer = ['.*ctrl\+p commands(?: +[/~].*)?', '.*\d+\.\d+\.\d+',
           '[\w-]+ · [^·]+( · \d+(ms|\.\ds|m \d+s|h \d+m|d \d+h))?( · \d+\.\d+ tok/s)?( · interrupted)?']
 # The input box through its `╹` bottom edge. `edge` names the inset and frame removed from
 # every `text` row; placeholder-like owner rows inside a draft stay text. `opening` proves

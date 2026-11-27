@@ -69,9 +69,15 @@ class OpencodeWords(unittest.TestCase):
         self.assertWhy("zeta", "opencode-draft-sidebar-hidden-pane.txt", "idle", "screen",
                        "prompt.composer", "-")
 
-    def test_a_draft_beside_the_getting_started_card_matches_no_rule_and_is_idle(self):
-        self.assertWhy("eta", "opencode-draft-beside-card-pane.txt", "idle", "default", "none",
-                       "-")
+    def test_a_draft_beside_the_getting_started_card_is_idle_at_the_composer(self):
+        self.assertWhy("eta", "opencode-draft-beside-card-pane.txt", "idle", "screen",
+                       "prompt.composer", "-")
+
+    def test_the_composer_at_rest_beside_the_sidebar_is_idle_at_the_composer(self):
+        # 2.4.2 at 240 columns ends its footer on the sidebar's path: read by no rule, a seat
+        # opened that wide took no line after its first turn (27 Nov 2026)
+        self.assertWhy("theta", "opencode-prompt-beside-sidebar-pane.txt", "idle", "screen",
+                       "prompt.composer", "-")
 
 
 if __name__ == "__main__":
