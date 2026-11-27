@@ -263,14 +263,16 @@ def account_order(cfg, model, readings, first=None):
     login -- first while it has room for this model, the rest by room: a seat lives where
     its owner follows it, and only spills over when that one runs low.  An account on
     credits (`usage.on_credits`) has room only after every one with a window left, and one
-    running low (`usage.model_low`) only after every one that is not.
+    running low (`usage.model_low`) only after every one that is not.  Its room and running
+    low are past the part of its week held for another model's cap, but it is spent only as
+    read (`usage.unheld`): a seat spends that part where every login runs low, waiting on none.
     """
     provider = config.model(cfg, model)["provider"]
 
     def rank(account):
         providers = {provider: readings[account]}
         amount, unknown = usage.model_budget(cfg, model, providers)
-        return (usage.model_exhausted(cfg, model, providers)[0],
+        return (usage.model_exhausted(cfg, model, usage.unheld(providers))[0],
                 usage.on_credits(cfg, model, providers),
                 usage.model_low(cfg, model, providers), unknown is not None, -amount)
     accounts = config.accounts(cfg, provider) or list(readings)
@@ -5026,12 +5028,17 @@ def select(cfg, providers, forced=None, forced_workers=None, prompting=True):
 
 def opening_account(cfg, model, providers, prompting):
     """The account a new seat of `model` opens on: the first in `account_order` whose seat
-    login passes, and None for a provider that lists no accounts."""
+    login passes, a login a turn of it reads as spent (`usage.model_exhausted`) after the rest,
+    and None for a provider that lists no accounts.  So a new seat, as a worker turn, leaves
+    the part of a week held for another model's cap even for credits; a seat already open
+    spends it before them."""
     provider = config.model(cfg, model)["provider"]
     accounts = config.accounts(cfg, provider)
     if not accounts:
         return None
-    order = account_order(cfg, model, providers.get(provider, {}).get("accounts") or {})
+    readings = providers.get(provider, {}).get("accounts") or {}
+    order = sorted(account_order(cfg, model, readings), key=lambda a: usage.model_exhausted(
+        cfg, model, {provider: readings[a]})[0])
     harness = harness_plugin(config.model(cfg, model)["harness"])
     account = next((a for a in [*order, *(a for a in accounts if a not in order)]
                     if harness.seat_auth(a)[0] is True), None)
