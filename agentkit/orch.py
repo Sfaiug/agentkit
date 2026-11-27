@@ -186,9 +186,9 @@ def refuse_start(cfg, model, providers, prompting=True):
     """The account a new seat on `model` opens on (`opening_account`), refusing one that
     cannot open here in `create`'s order: no working seat login, `model` off
     (`matrix.refuse_off`), then its harness not installed (`config.harness_present`) -- a seat
-    on that one opens a pane saying only that the harness ended.  Asked by `create` and its
-    previews once the name is free and the model is known, before anything is saved or started
-    for the seat; a move asks `orch.move`."""
+    on that one opens a pane saying only that the harness ended.  Asked by `create`, `ensure`
+    and `create`'s previews once the name is free and the model is known, before anything is
+    saved or started for the seat; a move asks `orch.move`."""
     account = opening_account(cfg, model, providers, prompting)
     harness = config.model(cfg, model)["harness"]
     matrix.refuse_off(cfg, model)
@@ -5200,7 +5200,7 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
     else:
         model, reason, workers = select(cfg, providers, prompting=False)
     # The usual login when none answers, as this seat always opened: it has a question to take.
-    account = opening_account(cfg, model, providers, True)
+    account = refuse_start(cfg, model, providers, True)
     extra = {"cwd": str(seat_cwd()), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     cmd, conversation = fresh_command(cfg, model, seat=name, account=account, cwd=seat_cwd(),

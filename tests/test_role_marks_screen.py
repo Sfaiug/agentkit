@@ -107,6 +107,7 @@ class RoleMarks(Sandbox):
 
     def test_a_seat_ensure_starts_is_what_n_starts_from_too(self):
         with patch.object(orch, "select", return_value=("astra", "opus is spent", ["fable"])), \
+                patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
                 patch.object(orch, "launch"), patch.object(orch, "refuse_held"), \
                 patch.object(orch.usage, "collect", return_value={}), \

@@ -3,9 +3,10 @@ start, before a session is saved or a program starts: Enter on the new row (with
 installed, or with a model picked by hand on `tab models` whose program is missing) and the
 line prompt show why and save no seat, a dry run of either the same, and `ak orch NAME --model`
 of such a model, or `ak orch NAME` where no model's program is installed, `--dry-run` or not,
-prints it, exits as a refusal does and saves and starts nothing.  With the program installed
-the seat starts; the refusals that came first before -- a name held, every model off, the
-model off -- still do.
+prints it, exits as a refusal does and saves and starts nothing.  Automatic inbox and audit
+seats started by `ak watch` refuse the same way without asking the adapter or saving a seat.
+With the program installed the seat starts; the refusals that came first before -- a name held,
+every model off, the model off -- still do.
 
 A newcomer with no program installed got a seat whose pane said only "The harness ended." (26 Nov
 2026).  Black-box: the program `AK_BIN` names runs from outside (tests/fixtures/akbin.py), its
@@ -30,6 +31,8 @@ PICKER_KEYS = "  ↑↓←→ move   ␣ mark   ⏎ start   esc back"
 HINT = "is not installed on this machine; ./install.sh, run in a terminal, installs it"
 REFUSED = f"new session: opus: claude {HINT}"
 DRY = ((), ("--dry-run",))
+OFFLINE = {name: "http://127.0.0.1:9"
+           for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 
 
 class NoModelReady(unittest.TestCase):
@@ -221,6 +224,45 @@ class NoModelReady(unittest.TestCase):
         done = self.home.ak("orch", "fix-api", "--model", "astra", "--dry-run")
         self.assertEqual(done.code, 2, done.out + done.err)
         self.assertIn("tmux already holds a session named 'fix-api'", done.err)
+
+    def test_an_automatic_audit_seat_whose_program_is_missing_is_refused(self):
+        self.uninstall("codex")
+        akconfig.write(
+            self.home, ["opus", "astra"], audit=None,
+            extra='[audit]\non = true\norchestrator = "astra"\n'
+                  'workers = ["opus"]\nreviewers = ["opus"]\n')
+        self.home.write(".agentkit/state/gc.json", {"started_at": time.time()})
+        done = self.home.ak("watch", env=OFFLINE)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertIn(f"astra: codex {HINT}", done.out + done.err)
+        self.assertEqual(self.seats(), [])
+        self.assertEqual(self.launched(), [])
+        if REAL_TMUX:
+            self.assertNotEqual(self.home.tmux("has-session", "-t", "=audit").code, 0)
+
+    def test_an_automatic_inbox_seat_with_no_program_installed_is_refused(self):
+        self.uninstall("claude", "codex")
+        self.home.write(".agentkit/state/gc.json", {"started_at": time.time()})
+        self.home.write(".agentkit/runs/20261127-1000-fix-api/run.json", {
+            "run_id": "20261127-1000-fix-api",
+            "title": "Fix API",
+            "state": "pass",
+            "reported": True,
+            "handed_back": True,
+            "pending_inbox": {
+                "question": "PR #9 by bob: Fix API. Merge? yes/no",
+                "url": "https://example.test/pr/9",
+                "sha": "a" * 40,
+                "asked": False,
+            },
+        })
+        done = self.home.ak("watch", env=OFFLINE)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertIn(f"opus: claude {HINT}", done.out + done.err)
+        self.assertEqual(self.seats(), [])
+        self.assertEqual(self.launched(), [])
+        if REAL_TMUX:
+            self.assertNotEqual(self.home.tmux("has-session", "-t", "=inbox").code, 0)
 
 
 if __name__ == "__main__":

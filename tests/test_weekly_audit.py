@@ -206,6 +206,7 @@ class Weekly(unittest.TestCase):
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(orch, "select", side_effect=AssertionError("no selection")))
         self.stack.enter_context(patch.object(orch, "opening_account", return_value=None))
+        self.stack.enter_context(patch.object(config, "harness_present", return_value=True))
         self.stack.enter_context(patch.object(orch, "fresh_command", return_value=(["harness"], None)))
         self.stack.enter_context(patch.object(orch, "refuse_held"))
         launched = self.stack.enter_context(patch.object(orch, "launch"))
@@ -218,6 +219,26 @@ class Weekly(unittest.TestCase):
                          ("astra", ["opus"], ["fable"], str(config.REPO)))
         self.assertEqual((remembered.call_count, launched.call_count), (0, 1))
         self.assertEqual(self.log, ["orch: started audit on astra (its setting)"])
+
+    def test_ensure_refuses_a_missing_harness_without_building_or_saving(self):
+        self.ensure.side_effect = REAL_ENSURE
+        remembered = self.stack.enter_context(patch.object(config, "remember_defaults"))
+        self.stack.enter_context(patch.object(usage, "collect", return_value={}))
+        self.stack.enter_context(patch.object(orch, "opening_account", return_value=None))
+        self.stack.enter_context(patch.object(config, "harness_present", return_value=False))
+        built = self.stack.enter_context(patch.object(orch, "fresh_command"))
+        self.stack.enter_context(patch.object(orch, "refuse_held"))
+        launched = self.stack.enter_context(patch.object(orch, "launch"))
+        cases = (
+            ("inbox", None, "opus: claude is not installed"),
+            ("audit", {"on": True, "orchestrator": "astra", "workers": ["opus"],
+                       "reviewers": ["fable"]}, "astra: codex is not installed"),
+        )
+        for name, roles, expected in cases:
+            with self.subTest(name=name), self.assertRaisesRegex(config.Error, expected):
+                orch.ensure(self.cfg, name, log=self.log.append, roles=roles)
+            self.assertEqual(config.session_records(), {})
+        self.assertEqual((built.call_count, launched.call_count, remembered.call_count), (0, 0, 0))
 
 
 if __name__ == "__main__":
