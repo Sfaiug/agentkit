@@ -26,8 +26,8 @@ def currency(cfg):
 
 
 def vat(cfg):
-    """`[money] vat` of `cfg`, 0 where it names none; config.load refuses any other."""
-    return cfg.get("money", {}).get("vat", 0)
+    """`[money] vat` of `cfg`, or None where it names none; config.load refuses any other."""
+    return cfg.get("money", {}).get("vat")
 
 
 def typed(cfg, provider, plan, paid="USD"):
@@ -66,12 +66,32 @@ def price(cfg, provider, plan, paid="USD"):
     listed = config.manifest(logins.harness(cfg, provider)).get(TABLES[paid])
     found = _price(listed.get(plan)) if isinstance(listed, dict) else None
     rate = vat(cfg)
-    if found is None or not rate:
+    if found is None or rate is None:
         return found
+    return _with_vat(found, rate)
+
+
+def _with_vat(found, rate):
+    """`found` with `rate` percent added, rounded to the cent (a half cent up), int where whole
+    else float.  Exact in Decimal so a written rate near a half-cent boundary never crosses it."""
+    base = decimal.Decimal(str(found))
+    percent = rate if isinstance(rate, decimal.Decimal) else decimal.Decimal(str(rate))
     with decimal.localcontext() as ctx:
-        ctx.prec = 60
-        total = (decimal.Decimal(str(found)) * (100 + decimal.Decimal(str(rate))) / 100).quantize(
-            decimal.Decimal("0.01"), rounding=decimal.ROUND_HALF_UP)
+        ctx.Emin = decimal.MIN_EMIN
+        ctx.Emax = decimal.MAX_EMAX
+        ctx.prec = max(28, len(base.as_tuple().digits) + len(percent.as_tuple().digits) + 2)
+        extra = base * percent / 100
+        if extra:
+            floor = min(base.as_tuple().exponent, -3)
+            if extra.adjusted() < floor - 1:
+                total = base
+            else:
+                low = min(floor, extra.as_tuple().exponent)
+                ctx.prec = max(ctx.prec, max(base.adjusted(), extra.adjusted()) - low + 4)
+                total = base + extra
+        else:
+            total = base
+        total = total.quantize(decimal.Decimal("0.01"), rounding=decimal.ROUND_HALF_UP)
     return int(total) if total == total.to_integral_value() else float(total)
 
 

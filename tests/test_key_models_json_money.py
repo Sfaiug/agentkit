@@ -164,6 +164,10 @@ class ModelsJsonMoney(WeekMeters):
             "openai": {"pro": None},
             "google": {"Google AI Pro": None}}})
         self.assertEqual(self.money(vat=50)["month"]["google"]["Google AI Pro"], 29.99)
+        # Just below 50% stays below $29.985 even where binary float would round the rate to 50.0.
+        self.assertEqual(
+            self.money(extra="[money]\nvat = 49.999999999999999\n")["month"]["google"][
+                "Google AI Pro"], 29.98)
         self.assertEqual(self.money(vat=0)["month"]["google"]["Google AI Pro"], 19.99)
         self.assertEqual(self.money(vat=100)["month"]["anthropic"]["max 20x"], 400)
 
@@ -187,7 +191,7 @@ class ModelsJsonMoney(WeekMeters):
                 self.configure({"vat": bad})
                 done = self.home.ak("models", "--json", env=ENV)
                 self.assertEqual((done.code, done.out, done.err), (2, "", why))
-        for literal in ("nan", "inf", "-inf"):
+        for literal in ("nan", "inf", "-inf", "-1e-325", "100.000000000000001"):
             with self.subTest(vat=literal):
                 self.configure(extra=f"[money]\nvat = {literal}\n")
                 done = self.home.ak("models", "--json", env=ENV)

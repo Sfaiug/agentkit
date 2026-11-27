@@ -3,6 +3,7 @@
 from contextlib import contextmanager, suppress
 import copy
 import datetime
+import decimal
 import fcntl
 import hashlib
 import json
@@ -414,17 +415,40 @@ def repo_env(repo):
     return env
 
 
+def _decimal_literal(raw):
+    """A TOML float literal string as an exact Decimal; an exponent past Decimal's own range
+    maps to 0, a tiny positive rate inside (0, 100), or Infinity when outside [0, 100]."""
+    try:
+        return decimal.Decimal(raw)
+    except decimal.InvalidOperation:
+        mantissa, _, exp = raw.lower().partition("e")
+        if not any(ch in "123456789" for ch in mantissa):
+            return decimal.Decimal(0)
+        if not mantissa.startswith("-") and exp.startswith("-"):
+            return decimal.Decimal("1e-999999")
+        return decimal.Decimal("Infinity")
+
+
 def _read_toml(path):
     """Parse one TOML file, or None when there is no such file."""
     try:
-        with path.open("rb") as fh:
-            return tomllib.load(fh)
+        raw = path.read_bytes().decode("utf-8")
     except FileNotFoundError:
         return None
     except OSError as exc:
         raise Error(f"cannot read {path}: {exc}")
-    except (ValueError, RecursionError) as exc:   # bad TOML or UTF-8, or past Python's digit or depth limit
+    except UnicodeDecodeError as exc:
         raise Error(f"{path}: {exc}")
+    try:
+        data = tomllib.loads(raw)
+    except (ValueError, RecursionError) as exc:   # bad TOML, or past Python's digit or depth limit
+        raise Error(f"{path}: {exc}")
+    # Keep `[money] vat` as exact Decimal so binary float conversion never rounds a written rate
+    # across 0, 100 or a half-cent boundary.
+    if isinstance(data.get("money"), dict) and isinstance(data["money"].get("vat"), float):
+        data["money"]["vat"] = _decimal_literal(
+            tomllib.loads(raw, parse_float=str)["money"]["vat"])
+    return data
 
 
 def host_policy(table=None, keys=POLICY):
@@ -668,10 +692,13 @@ def load():
         raise Error(f"{held('money')}: [money] must be a table")
     if cfg.get("money", {}).get("currency", "USD") not in ("USD", "EUR"):
         raise Error(f'{held("money")}: [money] currency must be "USD" or "EUR"')
-    vat = cfg.get("money", {}).get("vat", 0)
-    if not ((type(vat) is int or (isinstance(vat, float) and math.isfinite(vat)))
-            and 0 <= vat <= 100):
-        raise Error(f"{held('money')}: [money] vat must be a number from 0 to 100")
+    if "vat" in cfg.get("money", {}):
+        vat = cfg["money"]["vat"]
+        if not ((type(vat) is int
+                 or (isinstance(vat, float) and math.isfinite(vat))
+                 or (isinstance(vat, decimal.Decimal) and vat.is_finite()))
+                and 0 <= vat <= 100):
+            raise Error(f"{held('money')}: [money] vat must be a number from 0 to 100")
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
@@ -1242,6 +1269,12 @@ def _toml_value(value):
         if math.isnan(value):       # repr drops the sign tomllib reads of -nan
             return "-nan" if math.copysign(1, value) < 0 else "nan"
         return repr(value)      # inf and -inf as TOML spells them too
+    if isinstance(value, decimal.Decimal):
+        if value.is_nan():
+            return "-nan" if value.is_signed() else "nan"
+        if value.is_infinite():
+            return "-inf" if value.is_signed() else "inf"
+        return str(value)
     if isinstance(value, str):
         return _toml_string(value)
     if isinstance(value, list):
