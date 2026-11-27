@@ -52,6 +52,7 @@ menu.seat_row_state = lambda cfg, session, **facts: {
 menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
+config.harness_present = lambda harness: True   # whatever programs the host has
 menu.TICK = float(os.environ["MENU_KEYS_TICK"])
 drawing, real_draw = [0], menu.draw
 

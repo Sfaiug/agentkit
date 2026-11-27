@@ -39,6 +39,8 @@ class Projects(Sandbox):
                         ignore=lambda _dir, names: [name for name in names
                                                     if not name.endswith(".toml")])
         self.stack.enter_context(patch.object(config, "REPO", Path(no_history.name)))
+        # with none of their scripts no harness is there, yet a seat opened here is one that runs
+        self.stack.enter_context(patch.object(config, "harness_present", return_value=True))
         self.stack.enter_context(patch.object(menu.time, "strftime", return_value="14:02"))
         for name in ("ATOLL", "agentkit", "newsletter-tool"):
             directory = config.CODE / name

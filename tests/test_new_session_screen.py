@@ -4,8 +4,8 @@ Enter takes each default.
 Each test runs `menu.loop` in a child process on a pty of its own, with the seat listing, the
 usage rows, the meters and the probe faked, and the create step reduced to a line saying what
 it was handed.  The dry run keeps all of those real, the tmux listing and the usage collection
-too, over a usage cache every provider was asked for just now; only the launch and the
-harness's command are faked.  No real tmux or adapter is asked anything -- a `tmux` on PATH
+too, over a usage cache every provider was asked for just now; only the launch, the harness's
+command and whether its program is installed are faked.  No real tmux or adapter is asked anything -- a `tmux` on PATH
 writes down each call, and the adapters are an empty directory -- and nothing starts a session;
 the only process signalled is the test's own child.
 """
@@ -54,6 +54,7 @@ def open_session(cfg, session, dry_run):
 orch.launch = refused
 orch.CHARACTERS = ("new",)          # a seat nobody named is `new` here
 orch.fresh_command = lambda cfg, name, seat=None, account=None, **_kw: (["harness"], None)
+config.harness_present = lambda harness: True   # whatever programs the host has
 dry_run = os.environ["SCREEN_DRY_RUN"] == "1"
 if not dry_run:     # a dry run keeps the real listing, rows, probe, notices, create and open
     orch.sessions = lambda: []

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import orch
+from agentkit import config, orch
 
 
 class OpenWhatWasListed(Sandbox):
@@ -26,6 +26,7 @@ class OpenWhatWasListed(Sandbox):
     def test_a_seat_named_from_the_listed_names_lists_no_seat_again(self):
         # the name question listed the seats; tmux is still asked whether it holds the name
         with patch.object(orch, "fresh_command", return_value=(["claude"], None)), \
+                patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "user_manager", return_value=False):
             orch.create(self.cfg, "acme", self.root, taken={"other"},
                         selection=({}, ("opus", "chosen", ["opus"])))
