@@ -12,7 +12,10 @@ cut.  Line two is each task in flight as its squares, then who builds and who re
 their place what the seat needs you for where its chat cannot: an expired login, a parked run,
 a failed move (`whys`); its question is the chat's last message or card.  The one key is at its
 right end, `Ctrl-b m  menu`, whatever the seat's word: the bar is in the seat, where
-`x` is a letter typed.  It never moves: the seat is where the owner reads and types.
+`x` is a letter typed.  The seat is where the owner reads and types, so the bar moves at one
+moment alone, and only its right end: when a seat's word turns `needs you`, every bar's right end
+on ak's server is lit twice, as that word's cell pulses on the `ak` screen (`retell`; the owner,
+24 Nov 2026).
 
 The bar sets a background on its state's chip alone, never tmux's green: the rest of it stands on
 the terminal's own, as the pane where the harness draws does, and its plain text is in the
@@ -21,7 +24,7 @@ theme a menu kept last as it is drawn (`layout`, terminal.kept), so each write a
 another draws it in that one.
 
 The text is data: each write puts it in the session's own options (`@ak_top` at each bar
-width, `@ak_need` and `@ak_fold`, `@ak_why` and its folded versions, `@ak_key`), and
+width, `@ak_need` and `@ak_fold` and each lit, `@ak_why` and its folded versions, `@ak_key`), and
 two fixed formats draw them, so nothing a reason says is ever read as a format and each client
 picks what fits its own width.  Only ak's own tmux server is written to.
 
@@ -39,12 +42,14 @@ import fcntl
 import hashlib
 import os
 
-from . import config, look, menu, orch, terminal, update
+from . import config, look, menu, motion, orch, terminal, update
 
 HINT = "Ctrl-b m  menu"            # line two's right end: the one key
 TOP, WHY, KEY = "@ak_top", "@ak_why", "@ak_key"   # line one, line two, and line two's key
 NEED, FOLD = "@ak_need", "@ak_fold"   # line one's right end: how many other seats need you,
                                       # and the same short, where it would cut this seat's name
+LIT = {NEED: "@ak_need_lit", FOLD: "@ak_fold_lit"}   # ... each lit, while NEWS is set
+NEWS = "@ak_news"   # the server's: set while a seat turning `needs you` lights every right end
 HIT = "@ak_hit"   # the session id the right end leads to while the pointer is on it, or nothing
 TOLD, TOLD_END = "@ak_told", "@ak_told_end"   # a digest of its own options, of its right end
 # Where the pointer is: its cells counted from the client's right edge, the right end's own edge.
@@ -70,14 +75,19 @@ def _cut(option, room):
     return "#{?#{e|>:" + room + ",0},#{=/" + room + "/…:" + option + "}#[default],}"
 
 
+def _end(option):
+    """That right end, lit while `NEWS` is set on the server."""
+    return "#{?#{" + NEWS + "},#{" + LIT[option] + "},#{" + option + "}}"
+
+
 def _line_one():
     """The widest progress line beside who else needs you that fits the client, drawn whole,
     then beside its short count; else the narrowest cut a space short of that."""
     room = "#{e|-:#{client_width},#{e|+:#{w:" + FOLD + "},2}}"
-    found = "#[align=left]" + _cut(TOPS[-1], room) + " #[align=right]#{" + FOLD + "}"
+    found = "#[align=left]" + _cut(TOPS[-1], room) + " #[align=right]" + _end(FOLD)
     for left, right in reversed([(left, right) for right in (NEED, FOLD) for left in TOPS]):
         fits = "#{e|<=:#{e|+:#{w:" + left + "},#{e|+:#{w:" + right + "},2}},#{client_width}}"
-        whole = "#[align=left]#{" + left + "} #[align=right]#{" + right + "}"
+        whole = "#[align=left]#{" + left + "} #[align=right]" + _end(right)
         found = "#{?" + fits + "," + whole + "," + found + "}"
     return found
 
@@ -200,33 +210,63 @@ def seats(listed=None):
 
 
 def others(found, name):
-    """(needing, folded, hit): the right end of `name`'s line one, from `seats()`: how many other
-    seats need you, `! 2 other seats need you` in that word's colour and bold, as its chip is,
-    and the same short, `! 2 need you`, for a client too narrow for both it and this seat's
-    name; or nothing; and `hit`, the format that turns the pointer on it into the first such
-    seat's session id.  A seat never counts itself, and a session that has announced no word --
-    a seat being dressed, or no seat at all -- is not counted.  It is drawn flush against the
-    client's right edge, so its cells from that edge are the same on every client."""
+    """The right end of `name`'s line one, from `seats()`, each option that draws it and its
+    text: how many other seats need you, `! 2 other seats need you` in that word's colour and
+    bold, as its chip is (`NEED`), and the same short, `! 2 need you`, for a client too narrow
+    for both it and this seat's name (`FOLD`); each again lit (`LIT`), in the tone a cell
+    turning that word pulses to on the `ak` screen (`motion.pulsing`); or nothing; and `HIT`,
+    the format that turns the pointer on it into the first such seat's session id.  A seat
+    never counts itself, and a session that has announced no word -- a seat being dressed, or
+    no seat at all -- is not counted.  It is drawn flush against the client's right edge, so its
+    cells from that edge are the same on every client."""
     needs = [sid for sid, seat, word in found if seat != name and word == "needs you"]
     if not needs:
-        return "", "", ""
+        return dict.fromkeys((*LIT, *LIT.values(), HIT), "")
     mark, many = terminal.state_glyph("needs you"), len(needs)
     said = f"{mark} {many} other {'seat needs' if many == 1 else 'seats need'} you"
     short = f"{mark} {many} {'needs' if many == 1 else 'need'} you"
     edge = terminal.cells(said) + 1     # the space after it, at the client's edge
     hit = f"#{{?#{{&&:#{{e|>:{AT},1}},#{{e|<=:{AT},{edge}}}}},{needs[0]},}}"
-    return tuple(f"#[range=right]#[fg=#{terminal.colour('needs you', tmux=True)},bold]"
-                 f"{orch.tmux_text(text)}#[default]#[norange] " for text in (said, short)) + (hit,)
+    shade = terminal.kept()     # one read: at rest and at a pulse's height (`motion.pulsing`)
+    own, lit = (terminal.faded("needs you", -motion.BRIGHTER * pulse, shade=shade)
+                for pulse in (0, 1))
+    return {**{option: f"#[range=right]#[fg={rgb},bold]{orch.tmux_text(text)}#[default]#[norange] "
+               for options, rgb in ((LIT, own), (LIT.values(), lit))
+               for option, text in zip(options, (said, short))}, HIT: hit}
 
 
-def retell(session):
+def retell(session, news=False):
     """That seat's word or name changed, or the seat went: every seat's bar counts it again now,
-    not at the next tick, and those whose right end moves are written.  Never raises."""
+    not at the next tick, and those whose right end moves are written; with `news`, its word
+    turned `needs you`, and every bar's right end on ak's server then lights twice (`_light`).
+    Never raises."""
     try:
         if orch.on_own_server(session):
-            _tell()
+            if _tell() and news:
+                _light()
     except Exception:  # noqa: BLE001 - another seat's bar never breaks this seat's announcing
         pass
+
+
+def _light():
+    """Every bar's right end on ak's server lit for half of `motion.PULSE`, its own yellow for
+    half, lit, its own: `NEWS`, which line one reads (`_end`), set and unset server-wide.  One
+    tmux call sets it and queues the three changes on tmux's own clock (`run-shell -d`, tmux 3.2
+    and later), so no bar is written for it; a tmux that refuses the call, an older one, runs
+    none of it."""
+    if not update.publishes():
+        return
+    # Accepted: no bar is told apart, so the seat that turned lights its own right end too where
+    # it shows one (telling it apart needs its session id at the moment of the call, which races
+    # with a rename, a seat reopened under its name or a restarted server); a bar still on an
+    # older format lights from its seat's own next write; two seats turning within one pulse
+    # interleave their changes and whichever was queued last ends it unlit; a count that changes
+    # meanwhile is shown, lit or not, as it stands; a server that ends takes the flag with it.
+    lit, own = f"set-option -g {NEWS} 1", f"set-option -gu {NEWS}"
+    words = ["set-option", "-g", NEWS, "1"]
+    for pulses, change in ((0.5, own), (1, lit), (1.5, own)):
+        words += [";", "run-shell", "-b", "-d", f"{pulses * motion.PULSE:g}", "-C", change]
+    orch.tmux_out(*words, socket=orch.socket_name())
 
 
 def _digest(told):
@@ -243,8 +283,8 @@ def _ends(listed, only):
     lists = []
     for _, name, _ in found:
         if only in (None, name):
-            needing, folded, hit = others(found, name)
-            digest = _digest((needing, folded, hit))
+            end = others(found, name)
+            digest = _digest(end)
             if digest != told.get(name):
                 # One command list, which tmux runs whole before it reads another click: no
                 # click lands between what a bar draws and the lookup that finds its seat.
@@ -252,8 +292,8 @@ def _ends(listed, only):
                 # no seat until what it is for is drawn.  The digest around them, as `_own` says.
                 target = f"={name}:"   # that session alone, as `_write` says
                 lists.append(([(target, HIT, "")],
-                              [(target, TOLD_END, ""), (target, NEED, needing),
-                               (target, FOLD, folded), (target, HIT, hit),
+                              [(target, TOLD_END, ""),
+                               *((target, option, text) for option, text in end.items()),
                                (target, TOLD_END, digest)]))
     return lists
 
@@ -299,16 +339,17 @@ def _tell(only=None, own=()):
     listed = look.once("listed, for the bars", sessions)
     mine = _own(own, listed)
     if not mine and not _ends(listed or [], only):
-        return
+        return listed is not None
     config.ensure_dirs()
     with (config.STATE / "statusbar.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if not update.publishes():   # asked under the lock: an install while it waited counts
-            return
+            return False
         # a seat gone since it was listed fails its own list and no other's (`orch.tmux_lists`)
         told = [*_ends(listed or [], only), *mine]
         if told:
             orch.tmux_options(told, [CLICK], socket=orch.socket_name())
+    return True
 
 
 def dress(name, model):

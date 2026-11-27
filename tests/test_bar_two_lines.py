@@ -55,7 +55,7 @@ class TwoLines(Sandbox):
     def tmux(self, *args, socket=None, **_kw):
         self.calls.append((args, socket))
         for command in commands(args):
-            if command[0] == "set-option":
+            if command[0] == "set-option" and "-t" in command:
                 self.options[command[command.index("-t") + 2]] = command[-1]
         return 0, ""
 
