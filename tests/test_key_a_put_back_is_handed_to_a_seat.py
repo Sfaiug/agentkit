@@ -84,8 +84,7 @@ class APutBackIsHandedToASeat(unittest.TestCase):
     def launch(self, project, title, seat=None):
         """A run of a task in `project`, launched from `seat` or from none; its directory."""
         known = set(taskfile.runs(self.home))
-        # checking nothing, so no two read as one change under way
-        task = taskfile.write(self.home, project, title, done_when=("true",))
+        task = taskfile.write(self.home, project, title, done_when=(f"test -f {taskfile.slug(title)}",))
         done = self.home.ak("run", str(task), "--no-merge", "--bg",
                             env={"AGENTKIT_SESSION": seat} if seat else None)
         self.assertEqual(done.code, 0, done.out + done.err)
@@ -103,14 +102,16 @@ class APutBackIsHandedToASeat(unittest.TestCase):
     def test_the_seat_is_told_once_and_its_next_agentkit_run_starts_first(self):
         before, after = self.moved()
         seat = self.install.seat()
-        self.home.write(f".agentkit/state/plan-{seat.name}.md", plan_line("true") + "\n")
+        files = ("hold-slot-1", "hold-slot-2", "fix-it", "fix-it-early")
+        self.home.write(f".agentkit/state/plan-{seat.name}.md",
+                        "".join(plan_line(f"test -f {name}") + "\n" for name in files))
         fakes = fakeadapter.install(self.home, claude="work", codex="pass")
         release = fakes["claude"].dir / "release"
         # bounded, so a turn the test never let go cannot outlive it
         released = f"[ -f {shlex.quote(str(release))} ]"
-        hold = {**fakeadapter.WORK,
-                "sh": f"for i in $(seq 9000); do {released} && break; sleep 0.1; done"}
-        fakes["claude"].behave(hold, hold, "work")
+        hold = f"for i in $(seq 9000); do {released} && break; sleep 0.1; done"
+        fakes["claude"].behave(*({**fakeadapter.WORK, "write": {name: name},
+                                  "sh": hold if name.startswith("hold-slot") else "true"} for name in files))
         project = self.project()
         runs = []
         self.addCleanup(wait, lambda: all(self.state(run).get("state") not in WAITING

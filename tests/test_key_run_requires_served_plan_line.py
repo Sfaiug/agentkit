@@ -14,9 +14,12 @@ from fixtures.gitrig import Rig
 
 API = "test -f api.txt"
 WEB = "test -f web.txt"
+PAGE = "test -f page.txt"
 
 
-class RunRequiresServedPlanLine(unittest.TestCase):
+class SeatLaunch(unittest.TestCase):
+    planned = (API,)
+
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
@@ -24,7 +27,7 @@ class RunRequiresServedPlanLine(unittest.TestCase):
         akconfig.write(self.home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
         self.fakes = fakeadapter.install(self.home, claude={**fakeadapter.WORK,
                                          "write": {"web.txt": "web\n"}}, codex="pass")
-        self.seat = Seat(self.home, "fix-api", alive=False, cwd=self.rig.path, planned=(API,),
+        self.seat = Seat(self.home, "fix-api", alive=False, cwd=self.rig.path, planned=self.planned,
                          record={"repo": str(self.rig.path), "reviewers": ["astra"]})
         self.web = taskfile.write(self.home, self.rig.path, "Add web", done_when=(WEB,))
 
@@ -32,6 +35,8 @@ class RunRequiresServedPlanLine(unittest.TestCase):
         return self.home.ak(*args, cwd=self.rig.path, timeout=300,
                             env={"AGENTKIT_SESSION": self.seat.name if seat else None})
 
+
+class RunRequiresServedPlanLine(SeatLaunch):
     def accepted(self, *args, seat=True):
         done = self.ak("run", *args, "--no-merge", seat=seat)
         self.assertEqual(done.code, 0, done.out + done.err)
@@ -69,19 +74,21 @@ class RunRequiresServedPlanLine(unittest.TestCase):
     def test_an_ordered_job_keeps_its_line_after_the_first_merge_ticks_it(self):
         GitHub(self.home).grant(self.rig.slug, "WRITE")
         self.plan_web()
+        self.assertEqual(self.ak("plan", "add", "Page is ready", "--check", PAGE).code, 0)
         page = taskfile.write(self.home, self.rig.path, "Add page",
-                              done_when=(WEB, "test -f page.txt"))
-        self.fakes["claude"].behave(*({**fakeadapter.WORK, "write": {name: name}}
-                                      for name in ("web.txt", "page.txt")))
+                              done_when=(PAGE, "test -f links.txt"))
+        self.fakes["claude"].behave({**fakeadapter.WORK, "write": {"web.txt": "web", "page.txt": "page"}},
+                                   {**fakeadapter.WORK, "write": {"links.txt": "links"}})
         done = self.ak("run", self.web, page, "--in-order")
         self.assertEqual(done.code, 0, done.out + done.err)
         states = [json.loads((path / "run.json").read_text()) for path in taskfile.runs(self.home)]
         self.assertEqual(len(states), 2)
         for state in states:
             self.assertTrue(state["merged"])
-            self.assertRegex(state["plan_line"], r"^Web is ready · written ")
+            part = Path(state["task_file"]).stem.split("-")[-1].title()
+            self.assertRegex(state["plan_line"], rf"^{part} is ready · written ")
         plan = (self.home.path / ".agentkit/state/plan-fix-api.md").read_text()
-        self.assertIn("- [x] Web is ready", plan)
+        self.assertIn("- [x] Page is ready", plan)
 
     def test_a_fourth_check_that_is_the_declared_suite_still_needs_a_match(self):
         task = taskfile.write(self.home, self.rig.path, "Add web", done_when=(

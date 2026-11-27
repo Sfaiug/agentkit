@@ -785,7 +785,7 @@ class RunStop(Sandbox):
         task_file = self.root / "launch-stop.md"
         task_file.write_text("# Launch-stop\n\n## Done when\n```bash\ntrue\n```\n")
         out = io.StringIO()
-        with patch.object(run, "prepare",
+        with patch.object(run, "preflight",
                           side_effect=record.StopRequested("launch stopped")), \
                 redirect_stdout(out):
             rc = run.main([str(task_file)])

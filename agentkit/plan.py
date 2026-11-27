@@ -417,16 +417,15 @@ def link(found):
     return f"{found['what']} · written {found['when']}"
 
 
-def served_line(name, commands):
-    """The first open line whose check is one of a task's, else None: a task that runs no
-    line's check serves none, however few are open.
+def served_line(name, commands, exclude=()):
+    """The first free matching open line, or the first taken match if none is free.
 
     Outcome and written stamp keep the link when `ak plan check` replaces the check.
     """
     checks = {" ".join(task.split_once(command)[0].split()) for command in commands}
-    found = next((line for line in map(LINE.match, open_lines(name))
-                  if " ".join(line["check"].split()) in checks), None)
-    return link(found) if found else None
+    matches = [link(line) for line in map(LINE.match, open_lines(name))
+               if " ".join(line["check"].split()) in checks]
+    return next((line for line in matches if line not in exclude), matches[0] if matches else None)
 
 
 def finished(name):

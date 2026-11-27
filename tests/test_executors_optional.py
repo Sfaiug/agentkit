@@ -39,7 +39,7 @@ class ExecutorsOptional(Sandbox):
         self.stack.enter_context(patch.object(usage, "unready", return_value=""))
         config.save_session(self.cfg, "fix-api", "opus", [],
                             {"reviewers": ["astra"], "cwd": str(self.root), "created": 100})
-        plan.write("fix-api", [plan_line("true")])
+        plan.write("fix-api", [plan_line("true"), plan_line("true", "Another outcome")])
         self.task = self.root / "task.md"
         self.task.write_text("---\nrepo: none\n---\n# Fix the endpoint\n\n"
                              "## Done when\n```bash\ntrue\n```\n")
