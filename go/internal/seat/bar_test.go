@@ -12,7 +12,9 @@ import (
 // reads the same whichever program wrote it last.
 
 func TestTheBarsFormatsAreStatusbarsOwn(t *testing.T) {
-	one := "#{?#{e|<=:#{e|+:#{w:@ak_top},#{e|+:#{w:@ak_need},2}},#{client_width}},#[align=left]#{@ak_top} #[align=right]#{@ak_need},#{?#{e|<=:#{e|+:#{w:@ak_top1},#{e|+:#{w:@ak_need},2}},#{client_width}},#[align=left]#{@ak_top1} #[align=right]#{@ak_need},#{?#{e|<=:#{e|+:#{w:@ak_top2},#{e|+:#{w:@ak_need},2}},#{client_width}},#[align=left]#{@ak_top2} #[align=right]#{@ak_need},#{?#{e|<=:#{e|+:#{w:@ak_top},#{e|+:#{w:@ak_fold},2}},#{client_width}},#[align=left]#{@ak_top} #[align=right]#{@ak_fold},#{?#{e|<=:#{e|+:#{w:@ak_top1},#{e|+:#{w:@ak_fold},2}},#{client_width}},#[align=left]#{@ak_top1} #[align=right]#{@ak_fold},#{?#{e|<=:#{e|+:#{w:@ak_top2},#{e|+:#{w:@ak_fold},2}},#{client_width}},#[align=left]#{@ak_top2} #[align=right]#{@ak_fold},#[align=left]#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_fold},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_fold},2}}/…:@ak_top2}#[default],} #[align=right]#{@ak_fold}}}}}}}"
+	need := "#{?#{@ak_news},#{@ak_need_lit},#{@ak_need}}"
+	fold := "#{?#{@ak_news},#{@ak_fold_lit},#{@ak_fold}}"
+	one := "#{?#{e|<=:#{e|+:#{w:@ak_top},#{e|+:#{w:@ak_need},2}},#{client_width}},#[align=left]#{@ak_top} #[align=right]" + need + ",#{?#{e|<=:#{e|+:#{w:@ak_top1},#{e|+:#{w:@ak_need},2}},#{client_width}},#[align=left]#{@ak_top1} #[align=right]" + need + ",#{?#{e|<=:#{e|+:#{w:@ak_top2},#{e|+:#{w:@ak_need},2}},#{client_width}},#[align=left]#{@ak_top2} #[align=right]" + need + ",#{?#{e|<=:#{e|+:#{w:@ak_top},#{e|+:#{w:@ak_fold},2}},#{client_width}},#[align=left]#{@ak_top} #[align=right]" + fold + ",#{?#{e|<=:#{e|+:#{w:@ak_top1},#{e|+:#{w:@ak_fold},2}},#{client_width}},#[align=left]#{@ak_top1} #[align=right]" + fold + ",#{?#{e|<=:#{e|+:#{w:@ak_top2},#{e|+:#{w:@ak_fold},2}},#{client_width}},#[align=left]#{@ak_top2} #[align=right]" + fold + ",#[align=left]#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_fold},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_fold},2}}/…:@ak_top2}#[default],} #[align=right]" + fold + "}}}}}}"
 	two := "#[align=left]#{?#{e|<=:#{w:@ak_why},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why},#{?#{e|<:#{e|+:#{w:@ak_why1},3},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}/…:@ak_why}#[default],},#{?#{e|<=:#{w:@ak_why1},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why1},#{?#{e|<=:#{w:@ak_why2},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why2},#{?#{e|<:#{e|+:#{w:@ak_why3},3},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}/…:@ak_why2}#[default],},#{?#{e|<=:#{w:@ak_why3},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why3},#{?#{e|<=:#{w:@ak_why4},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why4},#{?#{e|<:#{e|+:#{w:@ak_why5},3},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}/…:@ak_why4}#[default],},#{?#{e|<=:#{w:@ak_why5},#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}},#{@ak_why5},#{?#{e|>:#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}},0},#{=/#{e|-:#{client_width},#{e|+:#{w:@ak_key},2}}/…:@ak_why5}#[default],}}}}}}}}}} #[align=right]#{@ak_key}"
 	if got := barLineOne(); got != one {
 		t.Fatalf("line one:\n%s", got)
@@ -113,17 +115,21 @@ func TestTheRightEndCountsTheOtherSeatsThatNeedYou(t *testing.T) {
 	sandbox(t) // the shades kept are the home's: none, black's
 	hit := "#{?#{&&:#{e|>:#{e|-:#{client_width},#{mouse_x}},1},#{e|<=:#{e|-:#{client_width},#{mouse_x}},25}},$1,}"
 	one := []barRow{{id: "$1", name: "a", word: "needs you"}, {id: "$2", name: "b", word: "idle"}}
-	said, short, found := barOthers(one, "b")
+	said, short, saidLit, shortLit, found := barOthers(one, "b")
 	if said != "#[range=right]#[fg=#d79200,bold]! 1 other seat needs you#[default]#[norange] " ||
-		short != "#[range=right]#[fg=#d79200,bold]! 1 needs you#[default]#[norange] " || found != hit {
-		t.Errorf("%q %q %q", said, short, found)
+		short != "#[range=right]#[fg=#d79200,bold]! 1 needs you#[default]#[norange] " ||
+		saidLit != "#[range=right]#[fg=#dcbd78,bold]! 1 other seat needs you#[default]#[norange] " ||
+		shortLit != "#[range=right]#[fg=#dcbd78,bold]! 1 needs you#[default]#[norange] " || found != hit {
+		t.Errorf("%q %q %q %q %q", said, short, saidLit, shortLit, found)
 	}
-	said, short, found = barOthers(append(one, barRow{id: "$3", name: "c", word: "needs you"}), "b")
+	said, short, saidLit, shortLit, found = barOthers(append(one, barRow{id: "$3", name: "c", word: "needs you"}), "b")
 	if said != "#[range=right]#[fg=#d79200,bold]! 2 other seats need you#[default]#[norange] " ||
-		short != "#[range=right]#[fg=#d79200,bold]! 2 need you#[default]#[norange] " || found != hit {
-		t.Errorf("%q %q %q", said, short, found)
+		short != "#[range=right]#[fg=#d79200,bold]! 2 need you#[default]#[norange] " ||
+		saidLit != "#[range=right]#[fg=#dcbd78,bold]! 2 other seats need you#[default]#[norange] " ||
+		shortLit != "#[range=right]#[fg=#dcbd78,bold]! 2 need you#[default]#[norange] " || found != hit {
+		t.Errorf("%q %q %q %q %q", said, short, saidLit, shortLit, found)
 	}
-	if said, short, found := barOthers(one, "a"); said != "" || short != "" || found != "" {
-		t.Errorf("a seat counts itself: %q %q %q", said, short, found)
+	if said, short, saidLit, shortLit, found := barOthers(one, "a"); said != "" || short != "" || saidLit != "" || shortLit != "" || found != "" {
+		t.Errorf("a seat counts itself: %q %q %q %q %q", said, short, saidLit, shortLit, found)
 	}
 }

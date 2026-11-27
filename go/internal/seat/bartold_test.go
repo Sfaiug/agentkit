@@ -12,7 +12,7 @@ import (
 // Each want is statusbar._digest of the same told, so a bar Python told is left alone where Go
 // would tell it the same.
 func TestABarsDigestIsStatusbarsOwn(t *testing.T) {
-	if got := barDigest(barTuple("! 1 other seat needs you", "it's", "é\n\"")); got != "2b0c79b01c228b45" {
+	if got := barDigest(barDict([2]string{barNeed, "! 1 other seat needs you"}, [2]string{barFold, "it's"}, [2]string{barHit, "é\n\""})); got != "4e57c80042f80bc5" {
 		t.Errorf("right end: %s", got)
 	}
 	own := [][3]string{{"=a#b%:", "status", "2"}, {"=a#b%:", "set-titles-string", "a##b%% · idle"}}

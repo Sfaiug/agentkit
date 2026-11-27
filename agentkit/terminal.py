@@ -114,12 +114,15 @@ def theme():
     return kept() if THEME is None else THEME
 
 
-def colour(word, tmux=False):
+def colour(word, tmux=False, shade=None):
     """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
     force; with `tmux`, in a tmux format (a seat's bar, a popup's border), in the kept one
     whichever process writes it: tmux shows it on a terminal ak never asks, and the
-    menu's writes and the tick's never disagree; without, LOOK's where the look reads."""
+    menu's writes and the tick's never disagree; without, LOOK's where the look reads.  In
+    `shade` where given: a theme its caller read once, for colours that must agree."""
     role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
+    if shade is not None:
+        return ROLES[role][shade]
     return LOOK[role] if LOOK and not tmux else ROLES[role][kept() if tmux else theme()]
 
 
@@ -169,12 +172,12 @@ def basic_colour(rgb):
     return str(30 + sum(1 << i for i in range(3) if int(rgb[2 * i:2 * i + 2], 16) >= 128))
 
 
-def faded(word, amount, ground="background"):
+def faded(word, amount, ground="background", shade=None):
     """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
     `ground`, or with a negative one that far toward the foreground, where it is lit; as
-    `#RRGGBB` for `styled`."""
-    rgb = word[1:] if word.startswith("#") else colour(word)
-    to, amount = bytes.fromhex(colour(ground if amount >= 0 else "text")), abs(amount)
+    `#RRGGBB` for `styled`, in `shade` where given (`colour`)."""
+    rgb = word[1:] if word.startswith("#") else colour(word, shade=shade)
+    to, amount = bytes.fromhex(colour(ground if amount >= 0 else "text", shade=shade)), abs(amount)
     return "#" + "".join(f"{round(c * (1 - amount) + t * amount):02x}"
                          for c, t in zip(bytes.fromhex(rgb), to))
 

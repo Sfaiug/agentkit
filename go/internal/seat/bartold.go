@@ -23,14 +23,19 @@ const (
 // barEnd is the command list that tells that seat's right end (barOthers), none where its digest
 // says the bar shows it already (statusbar._ends).
 func barEnd(found []barRow, row barRow) []string {
-	needing, folded, hit := barOthers(found, row.name)
-	digest := barDigest(barTuple(needing, folded, hit))
+	needing, folded, needLit, foldLit, hit := barOthers(found, row.name)
+	pairs := [][2]string{{barNeed, needing}, {barFold, folded}, {barNeedLit, needLit},
+		{barFoldLit, foldLit}, {barHit, hit}}
+	digest := barDigest(barDict(pairs...))
 	if digest == row.toldEnd {
 		return nil
 	}
 	target := "=" + row.name + ":"
-	return barList([][3]string{{target, barToldEnd, ""}, {target, barHit, ""}, {target, barNeed, needing},
-		{target, barFold, folded}, {target, barHit, hit}, {target, barToldEnd, digest}})
+	options := [][3]string{{target, barToldEnd, ""}, {target, barHit, ""}}
+	for _, pair := range pairs {
+		options = append(options, [3]string{target, pair[0], pair[1]})
+	}
+	return barList(append(options, [3]string{target, barToldEnd, digest}))
 }
 
 // barOwn is the command lists that tell each listed session its own of those options, none for one
@@ -77,6 +82,15 @@ func barList(options [][3]string) []string {
 		list = append(append(list, barSet(option)...), ";")
 	}
 	return list[:len(list)-1]
+}
+
+// barDict is Python's repr of a dict of texts in order.
+func barDict(pairs ...[2]string) string {
+	entries := make([]string, len(pairs))
+	for i, pair := range pairs {
+		entries[i] = commandhelp.Quote(pair[0]) + ": " + commandhelp.Quote(pair[1])
+	}
+	return "{" + strings.Join(entries, ", ") + "}"
 }
 
 // barTuple is Python's repr of a tuple of texts.

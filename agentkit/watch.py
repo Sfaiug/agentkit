@@ -2932,7 +2932,7 @@ def announce_state(session, cfg=None, look=False, **facts):
         statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"),
                           mine=facts.get("mine"))
         if previous.get("word") != answer["word"]:
-            statusbar.retell(session)
+            statusbar.retell(session, news=answer["word"] == "needs you")
     return answer
 
 

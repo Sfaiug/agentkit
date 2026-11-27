@@ -27,7 +27,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, notify, orch, statusbar, themes, watch
+from agentkit import config, notify, orch, statusbar, terminal, themes, update, watch
 from agentkit.guard import commands
 
 IDS = {"fix-api": "$0", "orbit-proxies": "$1", "web": "$2", "zeta": "$3"}
@@ -45,7 +45,7 @@ class OtherSeats(Sandbox):
         super().setUp()
         self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
         os.environ.pop("AGENTKIT_SESSION", None)   # the owner stops a seat, not the seat running this
-        self.options, self.calls, self.ids = {}, [], dict(IDS)
+        self.options, self.server, self.calls, self.ids = {}, {}, [], dict(IDS)
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         for name, word in WORDS.items():
             watch.seat_write(name, word=word, reason="", word_since=None)
@@ -61,7 +61,10 @@ class OtherSeats(Sandbox):
             if word != ";":
                 command.append(word)
                 continue
-            if command[:1] == ["set-option"]:   # each seat's own options, by its exact target
+            if command[:2] == ["set-option", "-g"]:
+                self.assertEqual(command[2], statusbar.NEWS)
+                self.server[command[2]] = command[-1]
+            elif command[:1] == ["set-option"]:   # each seat's own options, by its exact target
                 self.assertRegex(command[2], r"^=[^:]+:$")
                 self.options.setdefault(command[2][1:-1], {})[command[3]] = command[-1]
             command = []
@@ -90,16 +93,23 @@ class OtherSeats(Sandbox):
         found = statusbar.seats()
         self.assertEqual(found[1], ("$1", "orbit-proxies", "needs you"))
         # working and done seats are no one's business on another bar, nor a seat itself
-        self.assertEqual(statusbar.others(found, "orbit-proxies"), ("", "", ""))
-        self.assertEqual(statusbar.others([("$0", "fix-api", "needs you")], "fix-api"),
-                         ("", "", ""))
+        empty = dict.fromkeys((*statusbar.LIT, *statusbar.LIT.values(), statusbar.HIT), "")
+        self.assertEqual(statusbar.others(found, "orbit-proxies"), empty)
+        self.assertEqual(statusbar.others([("$0", "fix-api", "needs you")], "fix-api"), empty)
 
     def test_b_two_are_one_count_and_the_click_goes_to_the_first(self):
         found = [("$4", "a#1", "needs you"), ("$5", "b%", "needs you"), ("$6", "me", "done")]
-        needing, folded, hit = statusbar.others(found, "me")
+        end = statusbar.others(found, "me")
+        needing, folded, hit = (end[name] for name in (statusbar.NEED, statusbar.FOLD, statusbar.HIT))
         self.assertEqual(drawn(needing), "! 2 other seats need you ")
         self.assertEqual(drawn(folded), "! 2 need you ")
         self.assertTrue(hit.endswith(",$4,}"), hit)
+        self.assertIn("#[fg=#dcbd78,bold]! 2 other seats need you", end[statusbar.LIT[statusbar.NEED]])
+        self.assertIn("#[fg=#dcbd78,bold]! 2 need you", end[statusbar.LIT[statusbar.FOLD]])
+        config.STATE.mkdir(parents=True, exist_ok=True)
+        (config.STATE / terminal.KEPT).write_text("light\n")
+        light = statusbar.others(found, "me")
+        self.assertIn("#[fg=#533d11,bold]! 2 other seats need you", light[statusbar.LIT[statusbar.NEED]])
 
     def test_c_a_changed_word_reaches_every_other_bar_as_it_is_announced(self):
         answers = {name: {"word": word, "reason": "", "since": None}
@@ -178,6 +188,26 @@ class OtherSeats(Sandbox):
         older.join(10)
         newer.join(10)
         self.assertEqual(drawn(self.options["fix-api"][statusbar.NEED]), "! 2 other seats need you ")
+
+    def test_i_a_tmux_refusing_the_light_leaves_every_bar_told_and_unlit(self):
+        self.stack.enter_context(patch.object(watch, "session_state", return_value={
+            "word": "needs you", "reason": "", "since": None}))
+        older = self.stack.enter_context(patch.object(  # tmux before 3.2: none of the call runs
+            orch, "tmux_out", side_effect=lambda *args, **kw: (1, "run-shell: unknown flag -d")
+            if "run-shell" in args else self.tmux(*args, **kw)))
+        watch.announce_state(self.seat("web"), cfg=self.cfg)
+        (refused,) = [call.args for call in older.call_args_list if "run-shell" in call.args]
+        self.assertIn(statusbar.NEWS, refused)  # the light is set in that call alone
+        self.assertEqual(self.server, {})
+        self.assertEqual(drawn(self.options["fix-api"][statusbar.NEED]),
+                         "! 2 other seats need you ")     # each bar told all the same
+        older.reset_mock()
+        with patch.object(update, "publishes", return_value=False):
+            statusbar.retell(self.seat("web"), news=True)
+        with patch.object(statusbar, "sessions", return_value=None):
+            statusbar.retell(self.seat("web"), news=True)
+        self.assertEqual([call.args for call in older.call_args_list if statusbar.NEWS in call.args],
+                         [])
 
 
 class OnTmux(Sandbox):

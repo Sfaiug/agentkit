@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	Frame   = time.Second / 20       // at most twenty frames a second
-	Grow    = 450 * time.Millisecond // a seat's progress line takes to grow to its length as ak opens
-	Stagger = 40 * time.Millisecond  // ... and each row after the one above it
-	Glide   = 700 * time.Millisecond // ... and to glide to a new length as its plan moves
-	Breath  = 2 * time.Second        // a breathing cell takes out to its dimmer tone and back
-	Dimmer  = 0.5                    // ... that tone: half way from its colour to the background
+	Frame    = time.Second / 20       // at most twenty frames a second
+	Grow     = 450 * time.Millisecond // a seat's progress line takes to grow to its length as ak opens
+	Stagger  = 40 * time.Millisecond  // ... and each row after the one above it
+	Glide    = 700 * time.Millisecond // ... and to glide to a new length as its plan moves
+	Breath   = 2 * time.Second        // a breathing cell takes out to its dimmer tone and back
+	Dimmer   = 0.5                    // ... that tone: half way from its colour to the background
+	Brighter = 0.5                    // how lit news is: half way from its colour to the foreground
 )
 
 // Eased is 0 to 1 as x goes from 0 to 1, slow out of the one and into the other.
