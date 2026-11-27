@@ -12980,16 +12980,16 @@
   },
   {
    "harness": "grokbuild",
-   "key": "rule asking.permission newest",
-   "pattern": "^(?:\\d+/\\d+:select\\s+│\\s+Tab:next option|Tab/Space:permission)\\b",
-   "flags": "",
+   "key": "rule asking.limit rows",
+   "pattern": "^  ┃  (?:You hit your (?:free usage|weekly) limit\\.|You've hit (?:the credit limit for your plan|your spending cap)\\.)\\n(?:  ┃.*\\n)*  Tab:next answer  │  Esc:scrollback  │  Shift\\+x:dismiss\\Z",
+   "flags": "m",
    "matches": []
   },
   {
    "harness": "grokbuild",
-   "key": "rule asking.limit rows",
-   "pattern": "^  ┃  (?:You hit your (?:free usage|weekly) limit\\.|You've hit (?:the credit limit for your plan|your spending cap)\\.)\\n(?:  ┃.*\\n)*  Tab:next answer  │  Esc:scrollback  │  Shift\\+x:dismiss\\Z",
-   "flags": "m",
+   "key": "rule asking.permission newest",
+   "pattern": "^(?:\\d+/\\d+:select\\s+│\\s+Tab:next option|Tab/Space:permission)\\b",
+   "flags": "",
    "matches": []
   },
   {

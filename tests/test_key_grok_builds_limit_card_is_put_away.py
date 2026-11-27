@@ -166,6 +166,9 @@ class GrokBuildsLimitCardIsPutAway(unittest.TestCase):
                 "You hit your weekly limit.", "You've hit the credit limit for your plan.")),
             ("spending-cap", WEEKLY.replace(
                 "You hit your weekly limit.", "You've hit your spending cap.")),
+            ("interior-trust-words", FREE.replace(
+                "  ┃                                    tasks",
+                "  ┃  Do you trust the contents of this directory? Yes, proceed. No, quit")),
         )
         for name, screen in (("free", FREE), ("weekly", WEEKLY), *other_titles):
             with self.subTest(title=name):
