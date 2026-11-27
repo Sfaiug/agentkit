@@ -2195,13 +2195,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         moment = motion.moment()
         glides = {}
         if grid:
-            for n, (key, shown) in enumerate(readings):
+            before_cells = []
+            for n, ((key, shown), cell) in enumerate(zip(readings, cells)):
                 since, before = news.get(key, (None, None))
-                if (shown and shown[0] and before and (before[0] or before[1][:1] != "—")
-                        and since + motion.GLIDE > moment):
-                    start = [*cells[:n], (*cells[n][:2], *before), *cells[n + 1:]]
-                    if usage_lines(cfg, layout, rows=rows, ending=ending, cells=start):
-                        glides[n] = since, before
+                active = since is not None and since + motion.GLIDE > moment
+                before_cells.append((*cell[:2], *before) if active and before else cell)
+                if active and shown and shown[0] and before and (before[0] or before[1][:1] != "—"):
+                    glides[n] = since, before
+            if glides and not usage_lines(cfg, layout, rows=rows, ending=ending, cells=before_cells):
+                glides = {}
         if glides:
             until = max(since for since, _ in glides.values()) + motion.GLIDE
 
