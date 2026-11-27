@@ -75,7 +75,6 @@ ADAPTER_DIR_ENV = "AGENTKIT_ADAPTER_DIR"   # adapters/ elsewhere: the offline sm
 SESSION_ENV = "AGENTKIT_SESSION"
 RULEBOOK_ENV = "AGENTKIT_RULEBOOK"          # the rulebook a launch has written, for its adapter to take
 RULEBOOK_DIR_ENV = "AGENTKIT_RULEBOOK_DIR"  # a dry run's: where rulebook.py writes instead of STATE
-SEAT_REPO_ENV = "AGENTKIT_SEAT_REPO"      # a new seat's project, for rulebook.py: no record yet
 # where a seat's project rules are read: the full name, since a branch or tag called
 # origin/HEAD would win the short one
 RULES_REF = "refs/remotes/origin/HEAD"
@@ -1862,8 +1861,9 @@ def _write_json(path, data, prepare=True):
     tmp.replace(path)
 
 
-def save_session(cfg, name, orchestrator, workers, extra=None):
-    """Atomically record the models selected for a newly created session, and where it runs.
+def new_session(cfg, name, orchestrator, workers, extra=None):
+    """The record a newly created session is saved as: the models selected for it, and where it
+    runs.
 
     `extra` is what the seat is besides its models -- its directory, the moment it was created,
     the harness conversation it holds -- because a record has to say enough to open the seat
@@ -1875,7 +1875,12 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
                                               **({"reviewers": list(reviewers)}
                                                  if reviewers is not None else {}),
                                               **(extra or {})})
-    selection = own_efforts(cfg["models"], name, selection)
+    return own_efforts(cfg["models"], name, selection)
+
+
+def save_session(cfg, name, orchestrator, workers, extra=None):
+    """Atomically record a newly created session as `new_session` makes its record."""
+    selection = new_session(cfg, name, orchestrator, workers, extra)
     ensure_dirs()
     with _record_lock(session_path(name)):
         _write_json(session_path(name), selection, prepare=False)
@@ -2736,23 +2741,23 @@ def name_owed(name):
     return NAME_LINE if session_records().get(name, {}).get("unnamed") else None
 
 
-def seat_rulebook(session, repo=None):
+def seat_rulebook(session, new=None):
     """What `session`'s rulebook file holds when it opens now: `rulebook_text` with its project's
     numbers, else the host's, as the seat holds them (`seat_numbers`), the AGENTS.md of the
-    project it is filed under -- `repo`, else its record's -- as on that project's default
-    branch: what its workers get, as its launch or the tick last fetched it
-    (`orch.fetch_project`); an unnamed seat's instruction to name itself; and, last, where the
-    conversations it moved from are (`orch.handover`)."""
+    project it is filed under as on that project's default branch: what its workers get, as
+    its launch or the tick last fetched it (`orch.fetch_project`); an unnamed seat's
+    instruction to name itself; and, last, where the conversations it moved from are
+    (`orch.handover`).  Each as its record says, or `new` -- a new seat's record, which it is
+    saved as once it opens (`orch.create`): one under its name is then the seat's before it."""
     from . import gitcall     # here, not at the top: gitcall imports this module
     with look.one_look():     # its project and its builders as one read of its record found them
-        record = session_records().get(session, {})
-        # `repo` is a new seat's, which no record says until it opens (`orch.for_seat`): a record
-        # under its name is then the seat's before it, whose builders are not this one's
-        seat, repo = (session, record.get("repo")) if repo is None else (None, repo)
+        record = session_records().get(session, {}) if new is None else new
+        repo = record.get("repo")
         # its numbers and its text from one read: a fetch between two would hand it one
         # revision's numbers beside another's rules
         text = gitcall.agents_text(repo, RULES_REF)
-        numbers = seat_numbers(seat, declared_policy(repo, text) if repo else said_policy())
+        numbers = seat_numbers(session, declared_policy(repo, text) if repo else said_policy(),
+                               record=record)
     project = gitcall.agents_body(text)
     body = rulebook_text(numbers=numbers)
     if project:
@@ -2772,16 +2777,20 @@ def seat_rulebook(session, repo=None):
     return body
 
 
-def seat_numbers(session, numbers, *, workers=None):
-    """The POLICY `numbers` as the seat `session` (or a run's captured `workers`) holds them:
-    executor_lines 0 where it marks no builder, since `ak run` refuses every task, so its rules
-    say it builds each change itself.  Where orchestrator_lines is 0 too nobody could build, a
-    pair `_policy_in` refuses, so they stay as they are."""
-    if workers is None:
-        workers = session_records().get(session, {}).get("workers") if session else None
-    if workers != [] or numbers["orchestrator_lines"] == 0:
-        return numbers
-    return {**numbers, "executor_lines": 0}
+def seat_numbers(session, numbers, *, record=None):
+    """The POLICY `numbers` as the seat `session` holds them, as its saved record marks them or
+    `record` does (a new seat's, a run's captured builders): executor_lines 0 where it marks no
+    builder, since `ak run` refuses every task, so its rules say it builds each change itself;
+    review_rounds 0 where it marks no reviewer, since each run it launches lands on its checks
+    (`record.review_off`).  Where orchestrator_lines is 0 too nobody could build, a pair
+    `_policy_in` refuses, so executor_lines stays as it is."""
+    if record is None:
+        record = session_records().get(session, {}) if session else {}
+    if record.get("workers") == [] and numbers["orchestrator_lines"] != 0:
+        numbers = {**numbers, "executor_lines": 0}
+    if record.get("reviewers") == []:
+        numbers = {**numbers, "review_rounds": 0}
+    return numbers
 
 
 def rulebook_digest(data):

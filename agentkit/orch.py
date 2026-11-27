@@ -234,14 +234,12 @@ def scratch(dry_run):
 
 
 @contextmanager
-def for_seat(name, repo=None):
+def for_seat(name):
     """Which seat the adapters called inside are building a command line for.
 
     In $AGENTKIT_SESSION, the name every part of agentkit says a seat by, because the rulebook
     an adapter writes at launch is that seat's -- and a launch is often made from another seat,
-    whose name is the one this process inherited.  `repo`, the project a new seat is filed under
-    ("" for none), goes in $AGENTKIT_SEAT_REPO, since its record is written once it has opened;
-    without one the rulebook reads the seat's record, whatever project this process inherited.
+    whose name is the one this process inherited.
     """
     def put(values):
         for key, value in values.items():
@@ -249,7 +247,7 @@ def for_seat(name, repo=None):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-    told = {config.SESSION_ENV: name or "", config.SEAT_REPO_ENV: repo}
+    told = {config.SESSION_ENV: name or ""}
     before = {key: os.environ.get(key) for key in told}
     put(told)
     try:
@@ -377,9 +375,9 @@ def command_env(cmd):
     return values
 
 
-def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None, repo=None):
-    """(command, conversation) for a seat opening a conversation of its own, `repo` the project
-    of a new one that no record says yet (`for_seat`).
+def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None, new=None):
+    """(command, conversation) for a seat opening a conversation of its own, `new` the record a
+    new one is saved as once it opens (`write_rulebook`).
 
     The id is generated here, before anything starts, and handed to the adapter as one its
     harness has not opened yet, so the seat owns it from the moment it is launched.  A TUI that
@@ -388,8 +386,8 @@ def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None, repo=
     hook and OpenCode through its seat plugin.
     """
     conversation = str(uuid.uuid4())
-    with for_seat(seat, repo):
-        rulebook = write_rulebook(seat or "")
+    with for_seat(seat):
+        rulebook = write_rulebook(seat or "", new)
         cmd = command(cfg, name, conversation, fresh=True, account=account, rulebook=rulebook,
                       line=line, cwd=cwd)
         if cmd:
@@ -3060,10 +3058,10 @@ def hand_task_template():
         pass
 
 
-def write_rulebook(session):
-    """Write the rulebook `session` is launched with (`config.seat_rulebook`) under its name and
-    return its path: ~/.agentkit/state/rulebook-<session>.md, under $AGENTKIT_RULEBOOK_DIR
-    instead for a dry run.
+def write_rulebook(session, new=None):
+    """Write the rulebook `session` is launched with (`config.seat_rulebook`, `new` the record a
+    new seat is saved as once it opens) under its name and return its path:
+    ~/.agentkit/state/rulebook-<session>.md, under $AGENTKIT_RULEBOOK_DIR instead for a dry run.
 
     A launch fetches no project that has been fetched: it reads the rules as last fetched,
     which is what every open seat has, and the tick's fetch brings a later merge to both, carried
@@ -3071,10 +3069,9 @@ def write_rulebook(session):
     first seat opens with its rules.  A dry run fetches nothing.  A file that cannot be written
     refuses the launch: a session is opened with its rules or not at all.
     """
-    new = os.environ.get(config.SEAT_REPO_ENV)
     path = config.rulebook_path(session)
     with look.one_look():     # the project it fetches is the one its rulebook reads
-        repo = new if new is not None else config.session_records().get(session, {}).get("repo")
+        repo = (config.session_records().get(session, {}) if new is None else new).get("repo")
         if os.environ.get(config.RULEBOOK_DIR_ENV):
             path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
         elif repo and not fetched(Path(repo)):
@@ -5085,12 +5082,12 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     elif not dry_run:
         config.update_session(name, unnamed=None)
     try:
-        # the project this launch files it under where no record says it yet: one saved above
-        # says it, with the builders the seat opens with
-        filed = None if saved else str(repo) if repo else ""
+        # the record it is saved as once it opens, where none is saved yet: its project and its
+        # marks, never those of a seat before it under its name
+        new = None if saved else config.new_session(cfg, name, model, workers, extra)
         with scratch(dry_run):
             cmd, conversation = fresh_command(config.at_efforts(cfg, extra), model, seat=name,
-                                              account=account, cwd=cwd, repo=filed)
+                                              account=account, cwd=cwd, new=new)
     except Exception:
         if saved:
             config.discard_session(name, extra["created"])
@@ -5172,10 +5169,10 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
         model, reason, workers = select(cfg, providers, prompting=False)
     # The usual login when none answers, as this seat always opened: it has a question to take.
     account = opening_account(cfg, model, providers, True)
-    cmd, conversation = fresh_command(cfg, model, seat=name, account=account, cwd=seat_cwd(),
-                                      repo=str(repo) if repo else "")
     extra = {"cwd": str(seat_cwd()), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
+    cmd, conversation = fresh_command(cfg, model, seat=name, account=account, cwd=seat_cwd(),
+                                      new=config.new_session(cfg, name, model, workers, extra))
     if conversation:
         extra["conversation"] = conversation
         extra["id_source"] = LAUNCHER

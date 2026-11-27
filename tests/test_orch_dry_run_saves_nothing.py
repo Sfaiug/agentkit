@@ -8,8 +8,9 @@ the last notification a seat of that name sent, which only a start clears.
 A real `ak orch NAME` for a seat that does not exist opens it only where a person types: an
 agent has no terminal, so its guessed `ak orch help` gets the commands, not a new seat.
 
-Offline: a temporary HOME, a tmux that holds no session, and fake adapters that write the
-rulebook through the real tools/rulebook.py the way every adapter's `interactive` does.
+Offline: a temporary HOME, a tmux that holds no session, and fake adapters that take the
+rulebook a launch wrote, else write it through the real tools/rulebook.py, the way every
+adapter's `interactive` does.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -29,7 +30,7 @@ from agentkit import config, orch, terminal, usage
 
 FAKE_ADAPTER = f"""#!/bin/sh
 [ "$1" = interactive ] || exit 2
-rb=$(python3 "{REPO}/tools/rulebook.py" "$AGENTKIT_SESSION") || exit 2
+rb=${{AGENTKIT_RULEBOOK:-$(python3 "{REPO}/tools/rulebook.py" "$AGENTKIT_SESSION")}} || exit 2
 echo "fake-tui --rules $rb"
 """
 RESUME = orch.resume

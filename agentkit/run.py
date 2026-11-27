@@ -2501,8 +2501,9 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
         return None
     state = run_record.read_state(run_dir) or {}
     workers = state.get("workers") if isinstance(state.get("workers"), list) else None
-    numbers = config.seat_numbers(None if workers is not None else run_session(state),
-                                  run_record.policy_of(state), workers=workers)
+    policy = run_record.policy_of(state)
+    numbers = config.seat_numbers(None if workers is not None else run_session(state), policy,
+                                  record=None if workers is None else {"workers": workers})
     limit = numbers["orchestrator_lines"]
     read, over = seat_lines(repo, target_sha, head, limit)
     if over:
@@ -2511,9 +2512,11 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
                       f"too big for the seat, which builds at most {limit} added "
                       f"lines. {action}")
+    # the rounds are the run's own: a seat's saved reviewers say what its rulebook words, not
+    # what a run it launched does (`run_record.review_off`)
     return read, (None if run_record.review_off(state)
                   else replacement_refusal(repo, target_sha, head, number, read,
-                                           numbers["review_rounds"], exclude=run_dir))
+                                           policy["review_rounds"], exclude=run_dir))
 
 
 def own_pr_base_refusal(repo, number, base):
