@@ -55,8 +55,8 @@ def make_checkout(root):
     install = repo / "install.sh"
     install.write_text("#!/usr/bin/env bash\necho ok\n")
     install.chmod(0o755)
-    git_env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
-    git_env.update(GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
+    git_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    git_env.update(HOME=str(root), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
     for cmd in (
         ["git", "init", "-q", "-b", "main"],
         ["git", "add", "README.md", "nested/file.txt", "install.sh"],
@@ -89,8 +89,11 @@ class BareInstall(unittest.TestCase):
         write_python_shim(fake_bin / "docker", FAKE_DOCKER)
         if wrap_timeout:
             write_python_shim(fake_bin / "timeout", FAKE_TIMEOUT)
-        env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         env.update(
+            HOME=str(root),
+            GIT_CONFIG_GLOBAL=os.devnull,
+            GIT_CONFIG_SYSTEM=os.devnull,
             PATH=f"{fake_bin}:{os.environ.get('PATH', '')}",
             FAKE_PYTHON=sys.executable,
             FAKE_DOCKER_DIR=str(record),
