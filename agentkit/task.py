@@ -233,15 +233,145 @@ def opens_heredoc(command):
     """
     if "<<" not in command:
         return False        # no expansion makes a heredoc: its operator is in the text
+    said = bash_reads("-n", "-c", command)
+    return bool(said and UNCLOSED_HEREDOC.search(said.stderr))
+
+
+def bash_reads(*args, **run):
+    """bash, set by `args` to read a line with its own parser and run none of it: the finished
+    process, or None where no bash answers."""
     # nothing inherited may make bash read a file first or echo the line back (`verbose`)
     env = {key: value for key, value in os.environ.items()
            if key not in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS")}
     try:
-        said = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True,
-                              env={**env, "LC_ALL": "C"}, timeout=30).stderr
+        return subprocess.run(["bash", *args], capture_output=True, encoding="utf-8",
+                              errors="surrogateescape", env={**env, "LC_ALL": "C"}, timeout=30,
+                              **run)
     except (OSError, subprocess.SubprocessError):
-        return False
-    return bool(UNCLOSED_HEREDOC.search(said))
+        return None
+
+
+def printed(line):
+    """`line` as bash prints the command its own parser reads it as: in bash's one layout,
+    comments gone, and so each substitution in it that bash parses as it reads the line (from
+    5.2).  None where bash prints none: a line it cannot parse, a bash with no
+    `--pretty-print`, or a line a backslash ends, which escapes the line's end where bash
+    reads a file and stays a backslash in the `-c` that runs the line."""
+    if line.endswith("\\"):
+        return None
+    said = bash_reads("--pretty-print", input=line)             # never `-c`: that runs the line
+    return said.stdout.rstrip("\n") if said and said.returncode == 0 else None
+
+
+# what opens a quote or a bracket, and what closes it
+CLOSES = {"'": "'", "$'": "'", '"': '"', "`": "`", "(": ")", "$(": ")", "<(": ")", ">(": ")",
+          "${": "}"}
+SEPARATOR = re.compile(r"[ \t]+|\n|;;&?|;&|&&|&>>?|\|[|&]|<<[<-]?|<[&>]|>[>&|]|[|&;<>]")
+DESCRIPTOR = re.compile(r"\d+|\{\w+\}")     # what a redirection may name before its `<` or `>`
+PLAIN = r"[\w./:@%+,-]"                     # a character that is itself to bash, quoted or not
+# a piece of a word nothing in which expands: such a character, an escaped one, a quoted run
+LITERAL = re.compile(rf"""({PLAIN})|\\(.)|'([^']*)'|"([^"$`\\]*)\"""")
+# what bash knows by its unquoted spelling, so that a quote makes it another word: a keyword,
+# an option of `time`, a builtin whose arguments it reads as assignments or, `unset`, as array
+# references, and `command` before one
+SYNTAX = ("case coproc do done elif else esac fi for function if in select then time until while "
+          "-p -- alias declare export local readonly typeset unset command").split()
+NAMES = ("coproc", "for", "function", "select")     # what a name bash keeps as written follows
+WRITES = re.compile(r"(\d+|\{\w+\})?(>[>|&]?|&>>?)")     # a redirection of output
+
+
+def split(text):
+    """(words, held): `text`'s words as bash splits them, and the spans of it that hold
+    commands of their own.  Blanks and a comment are dropped, and each operator (`|`, `&&`,
+    `;`, `>>`, a line's end) is a word of its own, with the descriptor its redirection names
+    (`2>`).  What a quote or a bracket (`CLOSES`) holds is as written, blanks and all: a
+    backslash escapes there but in `'...'`, a bracket holds further quotes and brackets, and
+    `"..."` holds `$(...)`, `${...}` and backquotes.  Commands are what a substitution holds
+    wherever it stands and a subshell where it opens a word, each inside no other parenthesis
+    and starting with none, which arithmetic does."""
+    words, nest, held, start, i = [], [], [], 0, 0
+    while i < len(text):
+        top, since = nest[-1] if nest else ("", 0)
+        opens = (() if top in ("'", "$'", "`") else ("$(", "${", "`") if top == '"'
+                 else tuple(CLOSES))
+        end = i + 1
+        if text[i] == "\\" and top != "'":
+            end += 1                                    # with the character it escapes
+        elif top and text[i] == CLOSES[top]:
+            nest.pop()
+            if ((top in ("$(", "<(", ">(") or top == "(" and since - 1 == start)
+                    and not any(opener[-1] == "(" for opener, _ in nest)
+                    and text[since:i].strip() and text[since] != "("):
+                held.append((since, i))
+        elif text.startswith(opens, i):
+            opener = next(opener for opener in opens if text.startswith(opener, i))
+            end = i + len(opener)
+            nest.append((opener, end))
+        elif nest:
+            pass                                        # as written
+        elif text[i] == "#" and start == i:
+            break
+        elif text[i] in " \t\n|&;<>":
+            end = SEPARATOR.match(text, i).end()        # blanks, or one operator
+            cut = start if text[i] in "<>" and DESCRIPTOR.fullmatch(text, start, i) else i
+            words += [text[start:cut], text[cut:end].strip(" \t")]
+            start = end
+        i = end
+    return [word for word in words + [text[start:i]] if word], held
+
+
+def shell_words(text):
+    """The words of `text`, a line or bash's print of one (`printed`), such that two texts of
+    the same words are one command: split as bash splits them (`split`), the commands a
+    bracket holds read the same way in turn, and each word outside quote and bracket one word
+    however it is quoted (`unquoted`), but a name bash keeps as written (`NAMES`, and a
+    function's before its `()`).  A line with `[[`, whose words bash reads by their quotes,
+    stays as split."""
+    words, held = split(text)
+    if "[[" in words:
+        return words
+    for since, until in reversed(held):
+        text = f"{text[:since]} {' '.join(shell_words(text[since:until]))} {text[until:]}"
+    words = split(text)[0] if held else words
+    return [word if words[at + 1:at + 2] == ["()"] or at and words[at - 1] in NAMES
+            else unquoted(word) for at, word in enumerate(words)]
+
+
+def unquoted(word):
+    """`word` as bash takes the quotes off it, where it holds a quote and nothing in it expands
+    (`LITERAL`): its characters alone where each is `PLAIN` and they spell no `SYNTAX`, else
+    in single quotes."""
+    if not re.search(r"""['"\\]""", word) or not re.fullmatch(f"(?:{LITERAL.pattern})+", word):
+        return word
+    value = LITERAL.sub(lambda piece: piece.group(piece.lastindex), word)
+    if re.fullmatch(f"{PLAIN}+", value) and value not in SYNTAX:
+        return value
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def bare(words):
+    """`words` (`shell_words`) without the output plumbing that ends them: each redirection of
+    output, and a last pipe into `tee`.  Only one that names plain words: a substitution among
+    them could run anything."""
+    def plain(named):
+        return not any(re.search(r"[|&;<>\n()`]", word) for word in named)
+    while True:
+        pipe = max((at for at, word in enumerate(words) if word in ("|", "|&")), default=0)
+        if len(words) > 2 and WRITES.fullmatch(words[-2]) and plain(words[-1:]):
+            words = words[:-2]
+        elif pipe and words[pipe + 1:pipe + 2] == ["tee"] and plain(words[pipe + 2:]):
+            words = words[:pipe]
+        else:
+            return words
+
+
+def is_suite(line, suite):
+    """Whether done-when `line` is the declared `suite`: the two are one command (`shell_words`)
+    as bash reads each (`printed`; as it is written where bash prints none), once the output
+    plumbing that ends each is gone (`bare`).  Any other spelling is another command here, so
+    that no focused check is taken for the suite."""
+    words, whole = (bare(shell_words(printed(text) or text)) for text in (line, suite))
+    return bool(words) and words == whole
 
 
 def rounds_refusal(value, what, budget):

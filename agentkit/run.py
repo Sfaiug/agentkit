@@ -138,18 +138,24 @@ def fetch_branches(repo):
 
 def unlanded_suite_refusal(cmds, repo, target, *, landing):
     """Why a repository's run that does not land cannot start with a done-when line that is its
-    target's suite (`gitcall.is_suite`), or None: it would run the suite in every round before
+    target's suite (`taskfile.is_suite`), or None: it would run the suite in every round before
     its review, and the suite runs once, at landing (the owner, 10 Nov 2026).  The suite is the
-    one origin declares now, its branches fetched as the loop fetches them; where origin does
-    not answer, the one the clone last fetched."""
+    one the target's commit declares: origin's branch, its branches fetched as the loop fetches
+    them (as last fetched where origin does not answer), or, where origin has no such branch,
+    the local ref the task names, which the loop bases such a run on.  Never the checkout's
+    own AGENTS.md, which is that of whatever is checked out there."""
     if landing or repo is None:
         return None
     try:
         fetch_branches(repo)
     except Stopped:
         pass
-    suite = gitcall.declared_suite(repo, target) or ""
-    line = next((cmd for cmd in cmds if gitcall.is_suite(cmd, suite)), None)
+    # the tracking ref named in full, as `origin/<branch>` could be a tag or a local branch
+    tracked = "refs/remotes/origin/" + re.sub(r"^(refs/(heads|remotes/origin)|origin)/", "", target)
+    tip = next(filter(None, (git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}",
+                                 check=False) for ref in (tracked, target))), None)
+    suite = tip and gitcall.declared_at(repo, tip, "tests")
+    line = next((cmd for cmd in cmds if suite and taskfile.is_suite(cmd, suite)), None)
     return line and (f"done-when line `{line}` is {repo.name}'s whole-suite `tests:` command, "
                      "which ak runs once, at landing, and --no-merge has no landing. "
                      "Write a focused check instead.")
