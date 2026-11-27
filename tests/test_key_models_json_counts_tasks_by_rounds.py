@@ -1,10 +1,11 @@
 """`ak models --json` counts the tasks of the last 30 days by the review rounds they went through
 (`runs`' `rounds`), the same tasks it counts by team and by first review's issues
 (tests/test_key_models_json_counts_tasks_by_team.py,
-tests/test_key_models_json_counts_tasks_by_first_issues.py): a task's number is the highest
-round among the reviews of a round over every run of it, a relaunch's too; a task with no such
-review is in no row.  Per row, fewest rounds first, and none for a number with no task: what a
-row of `runs.first_issues` holds of its tasks, its `usage` as that row holds it.
+tests/test_key_models_json_counts_tasks_by_first_issues.py): a task's number is the rounds it
+went through, the highest round among the reviews of a round of each run of it summed, as each
+run, a relaunch too, numbers its own from 1; a task with no such review is in no row.  Per row,
+fewest rounds first, and none for a number with no task: what a row of `runs.first_issues` holds
+of its tasks, its `usage` as that row holds it.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
 runs and their reviews written into the Home's history.db; judged by the output and exit code.
@@ -47,15 +48,15 @@ class ModelsJsonCountsTasksByRounds(unittest.TestCase):
             row(1, 1, 1, 1, 1.0),
             row(3, 2, 1, 1, 2.0)])
 
-    def test_a_relaunch_that_passed_in_round_five_is_in_row_five_live_not_first_run(self):
+    def test_three_rounds_then_a_relaunch_s_two_are_row_five_live_not_first_run(self):
         runs = [run("write-cache", 4, **FAILED),
                 run("finish-cache", 2, change="write-cache")]
         reviews = [
             ("write-cache", 1, "medium", "FAIL", 3),
             ("write-cache", 2, "medium", "FAIL", 2),
             ("write-cache", 3, "medium", "FAIL", 2),
-            ("finish-cache", 4, "medium", "FAIL", 1),
-            ("finish-cache", 5, "medium", "PASS", 0),
+            ("finish-cache", 1, "medium", "FAIL", 1),
+            ("finish-cache", 2, "medium", "PASS", 0),
         ]
         done = counted(runs, reviews)
         self.assertEqual(done.code, 0, done.err)
@@ -102,7 +103,7 @@ class ModelsJsonRoundsUsage(WeekMeters):
         ], [
             ("fix-api", 1, "medium", "PASS", 0),
             ("write-cache", 1, "medium", "FAIL", 2),
-            ("finish-cache", 2, "medium", "PASS", 0),
+            ("finish-cache", 1, "medium", "PASS", 0),
             ("fix-menu", 1, "medium", "FAIL", 2),
             ("fix-menu", 2, "medium", "PASS", 0),
         ])

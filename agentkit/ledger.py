@@ -123,10 +123,10 @@ def counted(usage=None, seats=None, *, until=None):
     tasks there over the team's (`_split`, its sizes smallest first, then those of none); per
     number of `blocking` issues its first run's first review found, fewest first, the same of the
     tasks whose first review holds a non-negative whole `blocking`, with `first_run` and no
-    `lines_live`, `orchestrator` split the same way; per highest round among the reviews
-    `reviews` counts of a task, fewest first, the same of the tasks with one; `usage` over every
-    run (`executor`, `reviewer`) and seat (`orchestrator`); and `seats`, per orchestrator and
-    effort (`sum_seats`)."""
+    `lines_live`, `orchestrator` split the same way; per number of rounds a task went through,
+    the highest round among the reviews `reviews` counts of each run of it summed, fewest first,
+    the same of the tasks with one; `usage` over every run (`executor`, `reviewer`) and seat
+    (`orchestrator`); and `seats`, per orchestrator and effort (`sum_seats`)."""
     until = time.time() if until is None else until
     since = until - WINDOW
     usage = usage or {}
@@ -183,8 +183,9 @@ def counted(usage=None, seats=None, *, until=None):
             of_team = sized.setdefault(key, {})
             of_team[upto] = of_team.get(upto, 0) + 1
         issues = first_review and first_review.get("blocking")
-        # over every run of it, not its first alone: a row holds what going that far took
-        went = max((row["round"] for rows in by_run for row in rows), default=None)
+        # each run numbers its rounds from 1, a relaunch too (`run.py` starts its
+        # `round_summaries` empty): a task sent back after three and relaunched for two went five
+        went = sum(max((row["round"] for row in rows), default=0) for rows in by_run) or None
         for rows, grouped, bucket in ((first_issues, by_issues, issues), (rounds, by_rounds, went)):
             if _whole(bucket):
                 counts.append(rows.setdefault(bucket, {
