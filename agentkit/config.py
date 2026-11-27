@@ -677,9 +677,9 @@ def load():
             or len(set(workers)) != len(workers)):
         raise Error(f"{path}: [defaults].workers must list distinct model names "
                     f"(got {workers!r})")
-    if "reviewers" in defaults:
+    if "reviewers" in defaults:     # empty, new seats start with none (orch.default_crew)
         reviewers = defaults["reviewers"]
-        if (not isinstance(reviewers, list) or not reviewers
+        if (not isinstance(reviewers, list)
                 or any(not isinstance(name, str) for name in reviewers)
                 or len(set(reviewers)) != len(reviewers)):
             raise Error(f"{path}: [defaults].reviewers must list distinct model names "
@@ -1925,15 +1925,12 @@ def remember_defaults(record):
     write keeps it as it was and says why, else ""."""
     defaults = {key: record[key] for key in _DEFAULTS_ORDER if key in record}
 
-    def meant(table):     # reviewers it leaves out are its workers
-        return {"reviewers": table.get("workers"), **table} if isinstance(table, dict) else None
+    def meant(table):     # reviewers it leaves out are its workers; none of them loads one
+        return ({"reviewers": table["workers"], **table}
+                if isinstance(table, dict) and table.get("workers") else table)
     try:
         with _config_lock():
             current = (_read_toml(HOME / CONFIG_NAME) or {}).get("defaults")
-            if defaults.get("reviewers") == []:
-                # [defaults] cannot hold an empty list yet: keep the reviewers it means as read,
-                # written or its workers
-                defaults["reviewers"] = meant(load()["defaults"])["reviewers"]
             if meant(current) == meant(defaults):
                 return ""
             save(load(), defaults)
@@ -2265,9 +2262,22 @@ def suite_helper(cfg=None):
 
 def selection(cfg, seat=None):
     """The record a pick's marks come from: `seat`'s, else the seat this runs in, else
-    [defaults]."""
+    [defaults] as a run binds them (run_defaults)."""
     return ((load_session(cfg, seat, required=False) if seat else active_session(cfg))
-            or cfg["defaults"])
+            or run_defaults(cfg))
+
+
+def run_defaults(cfg):
+    """[defaults] as a run outside any seat binds them: an empty `reviewers` there is new
+    seats' alone (orch.default_crew), so such a run reads them as load does where none is
+    written -- its builders review, the first model building where they name none.  A config
+    with no [defaults] reads as one naming nothing."""
+    defaults = cfg.get("defaults") or {}
+    if defaults.get("reviewers") != []:
+        return defaults
+    unwritten = {key: value for key, value in defaults.items() if key != "reviewers"}
+    _fall_back(unwritten, offered(cfg))
+    return unwritten
 
 
 def workers(cfg):

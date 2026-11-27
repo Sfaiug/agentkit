@@ -128,6 +128,12 @@ const Marker = "AGENTKIT_RUN"
 // Marked are the pids whose environment carries the run's marker, or one below it, except
 // this process and its ancestors: a sweep from inside a run must not end the run that asked.
 func Marked(marker string) []int {
+	found, _ := marking(marker)
+	return found
+}
+
+// marking is Marked, and the pids carrying read no environment of.
+func marking(marker string) (found, silent []int) {
 	skip := map[int]bool{}
 	for pid := os.Getpid(); pid > 0 && !skip[pid]; {
 		skip[pid] = true
@@ -137,7 +143,8 @@ func Marked(marker string) []int {
 		}
 		pid = stat.Parent
 	}
-	return slices.DeleteFunc(Carrying(marker), func(pid int) bool { return skip[pid] })
+	found, silent = carrying(marker)
+	return slices.DeleteFunc(found, func(pid int) bool { return skip[pid] }), silent
 }
 
 // Carrying are the pids whose environment carries the run's marker, or one below it, this
@@ -145,16 +152,23 @@ func Marked(marker string) []int {
 // group is still one of the run's.  No marker marks none: every marker is a path, so all of
 // every run's processes would be below an empty one.
 func Carrying(marker string) []int {
+	found, _ := carrying(marker)
+	return found
+}
+
+// carrying is Carrying, and the pids whose environment reads empty: a kernel thread's, an exited
+// process's, one given none, and one in the middle of its exec, whose reads empty until the new
+// program's is in place, whatever it carries.
+func carrying(marker string) (found, silent []int) {
 	if marker == "" {
-		return nil
+		return nil, nil
 	}
 	want := []byte(Marker + "=" + marker)
 	below := []byte(Marker + "=" + marker + "/")
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	var found []int
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil {
@@ -164,6 +178,9 @@ func Carrying(marker string) []int {
 		if err != nil {
 			continue
 		}
+		if len(environ) == 0 {
+			silent = append(silent, pid)
+		}
 		for _, part := range bytes.Split(environ, []byte{0}) {
 			if bytes.Equal(part, want) || bytes.HasPrefix(part, below) {
 				found = append(found, pid)
@@ -171,5 +188,5 @@ func Carrying(marker string) []int {
 			}
 		}
 	}
-	return found
+	return found, silent
 }

@@ -101,10 +101,11 @@ def spent_until(cfg, model, snapshot, host_home):
         if not usage.model_exhausted(cfg, model, read)[0]:
             return ""
     meters, _ = usage._gating_meters(cfg, model, read)
-    ends = max((m["resets_at"] for m in meters if m.get("exhausted")
-                and isinstance(m.get("resets_at"), (int, float))),
-               default=record.get("exhausted_until"))
-    when = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(ends)) if ends else "unknown"
+    ends = [m["resets_at"] for m in meters if m.get("exhausted")
+            and isinstance(m.get("resets_at"), (int, float))]
+    if (parked := usage.parked_until(cfg, model, record)) is not None:
+        ends.append(parked)
+    when = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(max(ends))) if ends else "unknown"
     return f"{provider} {when}"
 
 

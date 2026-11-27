@@ -1196,14 +1196,14 @@ def launch_session(run_dir):
 
 def launch_lists(cfg):
     """The lists a launch binds (`capture_launch`), but for one the tick makes for a seat
-    (`seat_launch`): the seat's this runs in, else [defaults]'s, a `reviewers` of `[]` too, which
-    turns review off (`run_record.review_off`), with what each model is and runs at.  A job's loop
-    asks its pair of them before its task's run exists, so the two read the same lists alike.
-    None without a config."""
+    (`seat_launch`): the seat's this runs in, a `reviewers` of `[]` too, which turns review off
+    (`run_record.review_off`), else [defaults] as a run binds them (`config.run_defaults`), with
+    what each model is and runs at.  A job's loop asks its pair of them before its task's run
+    exists, so the two read the same lists alike.  None without a config."""
     if cfg is None:
         return {}
     active = config.active_session(cfg)
-    selection = active or cfg["defaults"]
+    selection = active or config.run_defaults(cfg)
     workers = config.workers(cfg) if config.current_session() else None
     groups = {"workers": workers} if workers else {}
     if "reviewers" in selection:
@@ -3431,7 +3431,7 @@ def main(argv):
         if selection and selection.get("workers") == []:
             raise config.Error(f"{selection['name']} has no executor: build it in the session, "
                                "or add an executor on its models screen.")
-        if not selection and (cfg.get("defaults") or {}).get("workers") == []:
+        if not selection and config.run_defaults(cfg).get("workers") == []:
             raise config.Error("defaults have no executor: start a session with an executor.")
     config.ensure_dirs()
     alone = "--parallel" if parallel is not None else "--in-order" if flags["--in-order"] else None

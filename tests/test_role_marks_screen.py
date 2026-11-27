@@ -218,6 +218,16 @@ class RoleMarks(Sandbox):
                                  dict(zip(("orchestrator", "workers", "reviewers"),
                                           ("astra", *expected))))
 
+    def test_no_reviewer_marked_stays_none_and_every_model_spent_leaves_the_default_reviewing(self):
+        for reviewers, spent, workers, expected in ((["fable"], "spent", [], ["astra"]),
+                                                    ([], "spent", [], []), ([], "", ["opus"], [])):
+            self.cfg["defaults"].update(workers=["opus"], reviewers=reviewers)
+            with self.subTest(reviewers=reviewers, spent=spent), \
+                    patch.object(orch, "spent_note", return_value=spent):
+                self.assertEqual(orch.default_crew(self.cfg, {}, "astra"),
+                                 {"orchestrator": "astra", "workers": workers,
+                                  "reviewers": expected})
+
     def test_tab_then_esc_on_the_new_row_keeps_its_picks_spent_ones_too(self):
         picked = {"orchestrator": "opus", "workers": ["opus", "astra"],
                   "reviewers": ["opus", "astra"]}

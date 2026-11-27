@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 import test_features_screen as features
 import test_new_session_screen as new_session
-from test_config_matrix import CHILD, RIGHT, SPACE, Screen, highlighted, row
+from test_config_matrix import CHILD, RIGHT, SPACE, Screen, down, highlighted, row
 from agentkit import motion, terminal, themes
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
@@ -197,24 +197,22 @@ class ConfigScreen(Screens):
         self.assertEqual(screen.record()["workers"], ["opus", "astra"])
         screen.leave()
 
-    def test_new_seats_last_reviewer_refused_shakes_and_nothing_is_saved(self):
-        screen = Screen(self, session=None)     # a seat may go without; [defaults] may not
+    def test_a_refused_mark_shakes_and_nothing_is_saved(self):
+        # new seats' Astra leaving the builders leaves Opus, which cannot run
+        screen = Screen(self, session=None, child=down("opus"))
         number, line = row(screen.frame(), "astra")
-        moved(screen, click(mark_column(line, 2), number))
-        self.assertEqual(screen.saved()["defaults"]["reviewers"], ["opus"])
-        number, line = row(screen.frame(), "opus")
         before = screen.path.read_bytes()
-        cells = moved(screen, click(mark_column(line, 2), number))
-        self.assertIn("  at least one model reviews", screen.frame())
+        cells = moved(screen, click(mark_column(line, 1), number))
+        self.assertIn("  no allowed executor/reviewer pair", screen.frame())
         landed(self, glyphs(cells, number), ["■"] * 4)
-        landed(self, shifts(cells, number, mark_column(line, 2)), [-1, 1, -1, 0])
+        landed(self, shifts(cells, number, mark_column(line, 1)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
 
-    def test_the_last_reviewer_refusal_can_skip_frames(self):
+    def test_a_refusal_can_skip_frames(self):
         # A scheduler pause can outlast the shake without changing the refusal or its landing.
-        child = CHILD.replace("with closing(", """
+        delayed = """
 import time
 from agentkit import motion
 wait_key = menu.wait_key
@@ -224,11 +222,11 @@ def delayed_wait_key(prompt, timeout=None, wake=None):
         time.sleep(motion.SHAKE)
     return key
 menu.wait_key = delayed_wait_key
-with closing(""", 1)
+with closing("""
         create = Screen
-        with patch(__name__ + ".Screen", side_effect=lambda *args, **kwargs:
-                   create(*args, child=child, **kwargs)):
-            self.test_new_seats_last_reviewer_refused_shakes_and_nothing_is_saved()
+        with patch(__name__ + ".Screen", side_effect=lambda *args, child, **kwargs:
+                   create(*args, child=child.replace("with closing(", delayed, 1), **kwargs)):
+            self.test_a_refused_mark_shakes_and_nothing_is_saved()
 
 class NewSessionScreen(Screens):
     def picker(self):

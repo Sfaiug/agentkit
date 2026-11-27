@@ -44,6 +44,13 @@ THEMES = (
     ("solarized dark", "38;5;32", "38;5;246", "38;5;23"),
     ("colorblind-friendly dark", "38;5;111", "38;5;109", "38;5;238"),
     ("tokyo night", "38;5;111", "38;5;103", "38;5;239"),
+    ("light (truecolor)", "38;2;66;133;244", "38;2;95;99;104", "38;2;218;220;224"),
+    ("solarized light (truecolor)", "38;2;38;139;210", "38;2;101;123;131", "38;2;238;232;213"),
+    ("colorblind-friendly light (truecolor)", "38;2;66;133;244", "38;2;95;99;104", "38;2;218;220;224"),
+    ("dark (truecolor)", "38;2;138;180;248", "38;2;154;160;166", "38;2;60;64;67"),
+    ("solarized dark (truecolor)", "38;2;38;139;210", "38;2;131;148;150", "38;2;7;54;66"),
+    ("colorblind-friendly dark (truecolor)", "38;2;138;180;248", "38;2;154;160;166", "38;2;60;64;67"),
+    ("tokyo night (truecolor)", "38;2;122;162;247", "38;2;126;134;173", "38;2;65;72;104"),
 )
 
 
@@ -85,16 +92,23 @@ class FreshAgyComposerHint(unittest.TestCase):
 
     def test_every_built_in_theme_s_muted_hint_reads_empty(self):
         hint = "Plan mode: research & plan only (shift+tab to cycle)"
+        gap = " " * (150 - len("? for shortcuts") - len("plan"))
         cases = []
         for _name, mark, muted, frame in THEMES:
-            cases.append(("draft", f"\x1b[{frame}m{RULE}\n\x1b[{mark}m>\x1b[39m \x1b[{muted}m{hint}\n"
-                                   f"\x1b[{frame}m{RULE}\n"))
-            cases.append(("draft", f"\x1b[{frame}m{RULE}\n\x1b[{mark}m>\x1b[39m {hint}\n"
-                                   f"\x1b[{frame}m{RULE}\n"))
+            hint_pane = (f"\x1b[{frame}m{RULE}\n\x1b[{mark}m>\x1b[39m \x1b[{muted}m{hint}\n"
+                         f"\x1b[{frame}m{RULE}\n")
+            footer = f"\x1b[{muted}m? for shortcuts\x1b[39m{gap}\x1b[{mark}mplan\n"
+            typed_pane = (f"\x1b[{frame}m{RULE}\n\x1b[{mark}m>\x1b[39m {hint}\n"
+                          f"\x1b[{frame}m{RULE}\n")
+            cases.extend([("draft", hint_pane), ("draft", f"{hint_pane}{footer}"),
+                          ("state", f"{hint_pane}{footer}"), ("draft", typed_pane)])
         got = self.ask_many(cases)
+        at_prompt = {"free": True, "state": "at_prompt", "authority": "screen",
+                     "rule": "prompt.composer"}
         for at, (name, *_rest) in enumerate(THEMES):
             with self.subTest(theme=name):
-                self.assertEqual(got[2 * at:2 * at + 2], ["", hint.replace(" ", "")])
+                self.assertEqual(got[4 * at:4 * at + 4],
+                                 ["", "", at_prompt, hint.replace(" ", "")])
 
     def test_a_muted_scroll_marker_keeps_a_cropped_draft_from_reading_whole(self):
         rule = "─" * 42

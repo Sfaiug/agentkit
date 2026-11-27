@@ -2355,9 +2355,6 @@ def born(found):
     providers = waited(lambda: usage.collect(cfg), "new session", doing=LEFT)
     default, reason = orch.choose(cfg, providers)
     selected = orch.default_crew(cfg, providers, default)
-    # every model spent: launched anyway, as `orch.choose` launches its default
-    selected["orchestrator"] = selected["orchestrator"] or default
-    selected["reviewers"] = selected["reviewers"] or [selected["orchestrator"]]
     taken = orch.taken_names(found)
     return {"cfg": cfg, "typed": "", "taken": taken,
             "name": orch.character_name(taken), "providers": providers, "selected": selected,
@@ -4907,7 +4904,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
     under the rows, dim, on every page.
     On a screen too short for every row the part the highlight is on is shown, and what the
-    last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
+    last key could not do -- a pair that cannot run, a switch, a save or a failed catalog -- has
     lines of its own under it, whatever the height, until the next key; `note` is said so
     before the first.  The worker token's date stands under the rows from TOKEN_WARN_DAYS out.
     """
@@ -6767,14 +6764,11 @@ def for_selected(cfg, scope):
 def defaults_mark(cfg, selected, model, column):
     """Act on one of new seats' marks, `selected` being [defaults]: saved at once
     (defaults_saved) and into `cfg` and `selected`, no open seat changing.  What to
-    say under the rows, or "".  New seats keep one reviewer: config.load refuses an empty
-    [defaults].reviewers."""
+    say under the rows, or ""."""
     # a new seat's crew is read as it is made (orch.default_crew), so no meter refuses one now
     changed, note = orch.role_mark(cfg, selected, model, column, {})
     if note or changed == selected:
         return note
-    if not changed["reviewers"]:
-        return "at least one model reviews"
     return defaults_saved(cfg, selected, changed, copy.deepcopy(cfg))
 
 

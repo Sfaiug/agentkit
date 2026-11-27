@@ -336,10 +336,16 @@ class OwnerWords(unittest.TestCase):
         path.touch()
         interjection = update(40, "model framing", index=None, interjection=True)
         interjection["params"]["update"]["content"]["_meta"] = {"displayText": "My exact steering."}
+        legacy_shell = update(25, "ls", index=1)
+        legacy_shell["params"]["update"]["content"]["_meta"] = {"bashCommand": "ls"}
+        shell = update(26, "pwd", index=None, modelId="grok-4.6")
+        shell["params"]["update"]["_meta"].pop("promptIndex")
+        shell["params"]["update"]["content"]["_meta"] = {"bash_command": "pwd"}
         self.append(update(20, "Keep "), update(20, " "), update(20, "the API."),
             update(21, "answer", kind="agent_message_chunk"),
             update(22, "tool output", kind="tool_call_update"),
             update(23, "notice", hostTurn=True), update(24, "foreign", sid="other"),
+            legacy_shell, shell,
             update(30, "Then ship.", index=1), interjection, path=path)
         # chat_history can be compacted or absent without losing the owner's record.
         self.assertEqual(self.messages(), [{"at": 20, "text": "Keep  the API."},

@@ -48,8 +48,9 @@ REFUSED = {
         "[defaults].workers must list distinct model names (got ['beta', 'beta'])"),
     "workers is not a list": (changed('workers = ["beta"]', 'workers = "beta"'),
                               "[defaults].workers must list distinct model names (got 'beta')"),
-    "reviewers is empty": (changed('workers = ["beta"]', 'workers = ["beta"]\nreviewers = []'),
-                           "[defaults].reviewers must list distinct model names (got [])"),
+    "reviewers repeat a model": (
+        changed('workers = ["beta"]', 'workers = ["beta"]\nreviewers = ["beta", "beta"]'),
+        "[defaults].reviewers must list distinct model names (got ['beta', 'beta'])"),
     "an account name holds a slash": (
         BASE + 'accounts = ["acme/two"]\n',
         "[providers.acme].accounts must list distinct names of letters, digits, '.', '_' "

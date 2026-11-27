@@ -42,7 +42,10 @@ with Home() as home:
     menu.wait("draft▏")
     notice = home.write(".agentkit/state/update-result", "update: installed new code\n")
     replacement = home.bin / "replacement"
-    replacement.write_text('#!/bin/sh\nprintf "%s\\n" "$AK_MENU_CURSOR" > "$HOME/restarted"\n'
+    # The menu's usage reads run the program it is, the replacement once it is in place: only the
+    # restart hands on AK_MENU_CURSOR, and the rest go straight on to the original.
+    replacement.write_text('#!/bin/sh\n[ "${AK_MENU_CURSOR+set}" ] || exec ' + shlex.quote(str(original)) + ' "$@"\n'
+                           + 'printf "%s\\n" "$AK_MENU_CURSOR" > "$HOME/restarted"\n'
                            + 'exec ' + shlex.quote(str(original)) + ' "$@"\n')
     replacement.chmod(0o755)
     os.replace(replacement, program)
@@ -87,7 +90,9 @@ for launch in ("binary", "symlink", "path"):
                         env={"PATH": "launch:" + home.env["PATH"]} if launch == "path" else None)
         menu.wait("› 1  acme")
         replacement = home.bin / "replacement"
-        replacement.write_text('#!/bin/sh\nprintf "%s\\n" "$AK_MENU_CURSOR" > "$HOME/restarted"\n'
+        # as above, so beta's record changes on the restart alone, not under the opening sweep's read
+        replacement.write_text('#!/bin/sh\n[ "${AK_MENU_CURSOR+set}" ] || exec ' + shlex.quote(str(original)) + ' "$@"\n'
+                               + 'printf "%s\\n" "$AK_MENU_CURSOR" > "$HOME/restarted"\n'
                                + 'cp "$HOME/beta-after" "$HOME/.agentkit/state/session-beta.json"\n'
                                + 'exec ' + shlex.quote(str(original)) + ' "$@"\n')
         replacement.chmod(0o755)

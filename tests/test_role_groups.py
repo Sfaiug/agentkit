@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import test_worker_list as fixtures
 from fixtures.hand_in import smoke, submitting
-from agentkit import (config, gate, gc, gitcall, run, staffing, status, transitions, turns,
-                      usage, watch)
+from agentkit import (config, gate, gc, gitcall, nightly, run, staffing, status, transitions,
+                      turns, usage, watch)
 from agentkit import record as run_record
 
 @contextmanager
@@ -37,12 +37,12 @@ class RoleGroups(unittest.TestCase):
         return run.pick_models(self.cfg, self.providers(a=30, b=10, c=0),
                                executor, reviewer, self.logs.append, **kwargs)
 
-    def capture(self, name="fixture"):
+    def capture(self, name="fixture", job_id=None):
         directory = config.RUNS / name
         directory.mkdir()
         with patch.object(run, "redress_seat"), \
                 patch.object(run, "history_start"), patch.object(gate, "claim_slot"):
-            run.capture_launch(directory, cfg=self.cfg)
+            run.capture_launch(directory, cfg=self.cfg, job_id=job_id)
         return directory, run_record.read_state(directory)
 
     def test_defaults_and_session_round_trip_without_adding_an_omitted_field(self):
@@ -68,11 +68,22 @@ class RoleGroups(unittest.TestCase):
         with patch.object(config, "active_session", return_value=None):
             self.assertEqual(config.reviewers(self.cfg), ["gamma", "delta"])
 
+    def test_no_reviewer_is_kept_in_both_records(self):
+        config.save(self.cfg)
+        path = config.HOME / config.CONFIG_NAME
+        path.write_text(path.read_text().replace("[defaults]", "[defaults]\nreviewers = []"))
+        self.assertEqual(config.load()["defaults"]["reviewers"], [])      # new seats' none
+        record = {"orchestrator": "seat", "workers": ["alpha"], "reviewers": []}
+        config.session_path("none").write_text(json.dumps(record))
+        self.assertEqual(config.load_session(self.cfg, "none")["reviewers"], [])
+        self.assertEqual(config.save_session(self.cfg, "none", "seat", ["alpha"],
+                                             {"reviewers": []})["reviewers"], [])
+
     def test_invalid_reviewers_are_rejected_in_both_records(self):
         config.save(self.cfg)
         path = config.HOME / config.CONFIG_NAME
         original = path.read_text()
-        for bad in (None, "alpha", [], ["missing"], ["alpha", "alpha"], [3], [{}]):
+        for bad in (None, "alpha", ["missing"], ["alpha", "alpha"], [3], [{}]):
             with self.subTest(reviewers=bad):
                 if bad is not None:  # TOML has no null; each of these is valid TOML.
                     path.write_text(original.replace(
@@ -84,12 +95,7 @@ class RoleGroups(unittest.TestCase):
                             config.load()
                 record = {"orchestrator": "seat", "workers": ["alpha"], "reviewers": bad}
                 config.session_path("bad").write_text(json.dumps(record))
-                if bad == []:
-                    self.assertEqual(config.load_session(self.cfg, "bad")["reviewers"], [])
-                    self.assertEqual(
-                        config.save_session(self.cfg, "bad", "seat", ["alpha"], {"reviewers": bad})["reviewers"],
-                        [])
-                elif bad == ["missing"]:    # a model removed since: passed over, as in [defaults]
+                if bad == ["missing"]:    # a model removed since: passed over, as in [defaults]
                     self.assertNotIn("missing",
                                      config.load_session(self.cfg, "bad")["reviewers"])
                     with self.assertRaises(config.Error):
@@ -99,6 +105,31 @@ class RoleGroups(unittest.TestCase):
                         config.load_session(self.cfg, "bad")
                     with self.assertRaises(config.Error):
                         config.save_session(self.cfg, "bad", "seat", ["alpha"], {"reviewers": bad})
+
+    def test_new_seats_with_no_reviewer_leave_a_run_outside_any_seat_as_where_none_is_named(self):
+        night = self.root / "night"
+        night.mkdir()
+        with patch.object(config, "active_session", return_value=None):
+            for workers in (["alpha", "beta"], []):    # none: the first model builds
+                bound = []
+                for none in ({}, {"reviewers": []}):
+                    config.save(self.cfg, {"orchestrator": "seat", "workers": workers, **none})
+                    self.cfg = config.load()
+                    name = f"{len(workers)}-{len(none)}"
+                    states = [self.capture(f"{name}-{job}", job)[1] for job in (None, "batch")]
+                    with patch.object(config, "load", return_value=self.cfg), \
+                            patch.object(nightly.handback, "free_run_dir",
+                                         return_value=night / name), \
+                            patch.object(run, "launch_policy", return_value={"review_rounds": 3}), \
+                            patch.object(run, "already_under_way", return_value=[]), \
+                            patch.object(run, "launch_for_seat") as launch:
+                        nightly._start(night, "night", ["check.sh"], "false")
+                    bound.append(([(state.get("workers"), state.get("reviewers"))
+                                   for state in states], config.reviewers(self.cfg),
+                                  config.role_groups(self.cfg), config.pair_marks(self.cfg),
+                                  launch.call_args.args[1]))
+                with self.subTest(workers=workers):
+                    self.assertEqual(bound[1], bound[0])
 
     def test_removed_models_leave_valid_explicit_defaults(self):
         self.groups(reviewers=("delta",))
