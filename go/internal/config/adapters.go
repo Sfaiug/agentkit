@@ -26,6 +26,9 @@ var adapters embed.FS
 // adapterDir names another directory of adapters, how the offline suites run with no model.
 const adapterDir = "AGENTKIT_ADAPTER_DIR"
 
+// seatEnv names the variables a seat's own launch set (SeatEnv).
+const seatEnv = "AGENTKIT_SEAT_ENV"
+
 // ErrNoAdapterDir is a home naming no $AGENTKIT_ADAPTER_DIR, as every real home: Go runs no turn
 // through Python ak's adapter scripts, and asks them only for a listing (listing.Lister) and,
 // behind the ak screen, for usage (ShippedAdapter).
@@ -235,10 +238,11 @@ func Unswitched(harness string, env map[string]string, cwd string) []string {
 
 // SeatEnv is the variables a launch sets for its seat alone, as the manifests' `[launch]
 // seat_env` declare them: nothing the seat starts may be told them, or a check would run
-// to the orchestrator's rules.
+// to the orchestrator's rules.  One the owner sets too is the seat's only where its launch set
+// it, and that launch names it in $AGENTKIT_SEAT_ENV (Python's config.seat_env_names).
 func SeatEnv() ([]string, error) {
 	manifests, err := manifests()
-	var names []string
+	names := append([]string{seatEnv}, strings.Fields(os.Getenv(seatEnv))...)
 	for _, root := range manifests {
 		names = append(names, words(root, "launch", "seat_env")...)
 	}

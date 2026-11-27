@@ -26,6 +26,19 @@ func TestSeatEnvReadsAdaptersUnderAHomeNamedLikeAPattern(t *testing.T) {
 	}
 }
 
+// A variable the owner sets too is the seat's alone only where its launch named it.
+func TestChildEnvDropsWhatALaunchNamedItsOwn(t *testing.T) {
+	t.Setenv("ACME_INLINE", "set")
+	for named, kept := range map[string]bool{"": true, "ACME_OTHER ACME_INLINE": false} {
+		t.Setenv("AGENTKIT_SEAT_ENV", named)
+		env, err := ChildEnv()
+		if err != nil || slices.Contains(env, "ACME_INLINE=set") != kept ||
+			slices.Contains(env, "AGENTKIT_SEAT_ENV="+named) {
+			t.Fatalf("named %q: %v %v", named, env, err)
+		}
+	}
+}
+
 func TestRepoEnvReadsTheProjectsEnvFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

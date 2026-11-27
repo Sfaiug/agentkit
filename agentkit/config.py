@@ -73,6 +73,7 @@ HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one pa
 RUN_DIR_ENV = "AGENTKIT_RUN_DIR"
 ADAPTER_DIR_ENV = "AGENTKIT_ADAPTER_DIR"   # adapters/ elsewhere: the offline smoke checks
 SESSION_ENV = "AGENTKIT_SESSION"
+SEAT_ENV = "AGENTKIT_SEAT_ENV"     # the variables a seat's own launch set (`seat_env_names`)
 RULEBOOK_ENV = "AGENTKIT_RULEBOOK"          # the rulebook a launch has written, for its adapter to take
 RULEBOOK_DIR_ENV = "AGENTKIT_RULEBOOK_DIR"  # a dry run's: where rulebook.py writes instead of STATE
 # where a seat's project rules are read: the full name, since a branch or tag called
@@ -2540,8 +2541,12 @@ def seat_env_names():
     working to the orchestrator's rules instead of its own role's.  The names come from the
     manifests because nothing here knows one harness from another, let alone what it calls its
     own variables; the manifests themselves are cached by mtime.
+
+    A variable the owner sets too is the seat's alone only where its launch set it, its pane
+    holding none: the launch names it in $AGENTKIT_SEAT_ENV as the pane starts, which only it
+    can tell, and the owner's own value goes on to what a seat starts, as to all outside one.
     """
-    names = set()
+    names = {SEAT_ENV, *os.environ.get(SEAT_ENV, "").split()}
     for _, data in manifests():
         block = data.get("launch")
         if isinstance(block, dict):

@@ -283,19 +283,19 @@ interactive)
   # A seat's window is 240 columns wide, and at 160 and wider OpenCode (2.4.2) draws a sidebar
   # once a conversation has a turn: its rows sit beside the footer's and the transcript's, the
   # screen read as no rule's, and ak typed no line into that seat (27 Nov 2026).  This launch
-  # hides it: OpenCode lays the setting over the owner's cli.json, which ak does not write.
-  # The variable is the owner's to set too, so the setting is laid the same way, key by key,
-  # over the JSON object this launch was started with in it; any other value gives way.
-  # OpenCode (2.4.2) drops the variable whole for one setting in it that it refuses, the
-  # sidebar's with the owner's.  ASCII out, as the rulebook's document, for %q.  `[launch]
-  # seat_env` names it, so nothing ak starts under the seat is handed it.
-  hide='{"session":{"sidebar":"hide"}}'
-  cli=$(jq -acen --argjson own "${OPENCODE_CLI_CONFIG_CONTENT:-null}" --argjson hide "$hide" \
-      '$own | objects * $hide' 2>/dev/null) || cli=$hide
-  cli=$(printf 'OPENCODE_CLI_CONFIG_CONTENT=%q' "$cli")
+  # hides it by OPENCODE_CLI_CONFIG_CONTENT, which OpenCode lays over the owner's cli.json, a
+  # file ak does not write.  The variable is the owner's to set too -- JSON with comments,
+  # which OpenCode takes whole or, for one setting it refuses, not at all -- so a value the
+  # pane already holds stands as it is, in no process's arguments, and that seat's sidebar is
+  # the owner's to hide.  Only the pane's environment knows, so `sh -c` sets the variable as
+  # the pane starts, and names it in AGENTKIT_SEAT_ENV: no environment ak builds for what
+  # the seat starts carries a value this launch set (config.seat_env_names).  That step goes
+  # first, so the program the line ends on is still opencode itself.
+  hide='[ -n "${OPENCODE_CLI_CONFIG_CONTENT:-}" ] || export OPENCODE_CLI_CONFIG_CONTENT="$0" AGENTKIT_SEAT_ENV=OPENCODE_CLI_CONFIG_CONTENT; exec "$@"'
   # The pane does not inherit the adapter's fallback PATH.
-  printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %s %s%s %s--standalone --auto%s\n' \
-      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$cli" "$rules" "'${binary//$sq/$sq\\$sq$sq}'" "$resume" "$first" ;;
+  printf 'sh -c %s %s python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %s%s %s--standalone --auto%s\n' \
+      "'$hide'" "'{\"session\":{\"sidebar\":\"hide\"}}'" \
+      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "'${binary//$sq/$sq\\$sq$sq}'" "$resume" "$first" ;;
 variants)
   [ $# -ge 1 ] || { echo "opencode.sh variants needs <model>" >&2; exit 2; }
   turn_variants "$1"; echo ;;
