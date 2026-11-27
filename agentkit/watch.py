@@ -5980,15 +5980,18 @@ def usage_waits(cfg, state, log):
         if (seat_read(name).get("usage_wait")
                 and state["stalls"].get(name, {}).get("kind") != "auth"):
             settle_account(cfg, session, log)
-            if not seat_read(name).get("usage_wait"):
-                reopened[name] = session
+            live = seat_read(name)
+            if not live.get("usage_wait"):
+                reopened[name] = session, (live.get("midturn") or {}).get("launched")
     # ... and told to go on now where its harness took no first prompt: `switched turns`, which
     # tells seat health's, has run this tick, and no other mark may have a second try in it
     continue_turns(cfg, log, accounts=True, names=reopened)
     if reopened:
         records = _health_records()
-        for session in reopened.values():
-            _announce_health(session, cfg, state, records)
+        for session, first_prompt in reopened.values():
+            # A typed line can start a turn after its preflight look. A first prompt
+            # already went in at launch, and its TUI may still be drawing.
+            _announce_health(session, cfg, state, records, look=not first_prompt)
 
 
 def _health_records(dry_run=False):
@@ -6001,10 +6004,10 @@ def _health_records(dry_run=False):
         return None
 
 
-def _announce_health(session, cfg, state, records, harness=None):
-    announce_state(session, cfg=cfg, harness=harness, auth_out=state.get("auth_out") or {},
-                   gh_out=state.get("gh_out") or {}, token_out=state.get("worker_tokens"),
-                   stalls=state["stalls"], records=records)
+def _announce_health(session, cfg, state, records, harness=None, *, look=False):
+    announce_state(session, cfg=cfg, look=look, harness=harness,
+                   auth_out=state.get("auth_out") or {}, gh_out=state.get("gh_out") or {},
+                   token_out=state.get("worker_tokens"), stalls=state["stalls"], records=records)
 
 
 def health(cfg, state, dry_run, log):

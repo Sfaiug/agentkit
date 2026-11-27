@@ -69,11 +69,14 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
             seats, spent = {}, {}
             for harness, adapter in fakes.items():
                 seat = seats[harness] = parked(home, harness, now)
-                # Muse returns to its prompt to take the line the tick types there.
-                screen = (FIXTURES / "muse-prompt-pane.txt" if harness == "muse"
-                          else seat.screen_file)
+                if harness == "muse":
+                    # Its prompt turns into a working screen only after Enter lands.
+                    screens = home.write("acme-screens.json", {ACCOUNT_LINE: seat.screen})
+                    pane = [FIXTURES / "muse-prompt-pane.txt", seat.typed_file, "❯", screens]
+                else:
+                    pane = [seat.screen_file, seat.typed_file]
                 adapter.answer("interactive", shlex.join(
-                    [sys.executable, str(PANE), str(screen), str(seat.typed_file)]))
+                    [sys.executable, str(PANE), *map(str, pane)]))
                 adapter.answer("usage", json.dumps(reading(now, 10)))
                 provider = akconfig.PROVIDER[harness]
                 spent[provider] = {**reading(now, 100), "provider": provider, "resets": 0,
@@ -89,12 +92,13 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
                     path = home.path / f".agentkit/state/seat-{seat.name}.json"
                     state = json.loads(path.read_text())
                     self.assertIsNone(state["usage_wait"], tick.out + tick.err)
-                    self.assertEqual(state["word"], "idle" if harness == "muse" else "working")
+                    self.assertEqual(state["word"], "working")
                     self.assertTrue(fakes[harness].calls("usage"))
                     launch, = fakes[harness].calls("interactive")
                     self.assertIn(seat.record["conversation"], launch["argv"])
                     if harness == "muse":
                         self.assertEqual(seat.lines(), [ACCOUNT_LINE])
+                        self.assertIn("Thinking", seat.capture())
                     else:
                         self.assertEqual(launch["env"]["AGENTKIT_FIRST_PROMPT"], ACCOUNT_LINE)
                         self.assertEqual(seat.lines(), [])
