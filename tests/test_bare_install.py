@@ -18,20 +18,21 @@ REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "tests" / "bare-install.sh"
 IMAGE = "docker.io/library/debian:trixie-slim"
 
-FAKE_DOCKER = f"""#!{sys.executable}
-import json, os, pathlib, sys
+# `/bin/sh` avoids splitting a `sys.executable` path that contains spaces in a `#!` line.
+PYTHON_SHIM = '#!/bin/sh\nexec "$FAKE_PYTHON" "$0.py" "$@"\n'
+
+FAKE_DOCKER = """import json, os, pathlib, sys
 
 out = pathlib.Path(os.environ["FAKE_DOCKER_DIR"])
 (out / "args.json").write_text(json.dumps(sys.argv[1:]))
 (out / "stdin.tar").write_bytes(sys.stdin.buffer.read())
 lines = int(os.environ.get("FAKE_DOCKER_LINES", "0"))
 for i in range(1, lines + 1):
-    print(f"line-{{i:03d}}")
+    print(f"line-{i:03d}")
 sys.exit(int(os.environ.get("FAKE_DOCKER_EXIT", "0")))
 """
 
-FAKE_TIMEOUT = f"""#!{sys.executable}
-import json, os, pathlib, sys
+FAKE_TIMEOUT = """import json, os, pathlib, sys
 
 out = pathlib.Path(os.environ["FAKE_DOCKER_DIR"])
 (out / "timeout.json").write_text(json.dumps(sys.argv[1:]))
@@ -54,7 +55,8 @@ def make_checkout(root):
     install = repo / "install.sh"
     install.write_text("#!/usr/bin/env bash\necho ok\n")
     install.chmod(0o755)
-    git_env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+    git_env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+    git_env.update(GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
     for cmd in (
         ["git", "init", "-q", "-b", "main"],
         ["git", "add", "README.md", "nested/file.txt", "install.sh"],
@@ -68,13 +70,15 @@ def make_checkout(root):
     return repo
 
 
-def write_executable(path, content):
-    path.write_text(content)
+def write_python_shim(path, script):
+    path.with_name(f"{path.name}.py").write_text(script)
+    path.write_text(PYTHON_SHIM)
     path.chmod(0o755)
 
 
 class BareInstall(unittest.TestCase):
-    def run_script(self, cwd, *, docker_exit=0, docker_lines=0, wrap_timeout=False):
+    def run_script(self, cwd, *, docker_exit=0, docker_lines=0, wrap_timeout=False,
+                   extra_env=None):
         tmp = tempfile.TemporaryDirectory(prefix="bare-install-")
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
@@ -82,16 +86,19 @@ class BareInstall(unittest.TestCase):
         record = root / "record"
         fake_bin.mkdir()
         record.mkdir()
-        write_executable(fake_bin / "docker", FAKE_DOCKER)
+        write_python_shim(fake_bin / "docker", FAKE_DOCKER)
         if wrap_timeout:
-            write_executable(fake_bin / "timeout", FAKE_TIMEOUT)
-        env = {
-            **os.environ,
-            "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
-            "FAKE_DOCKER_DIR": str(record),
-            "FAKE_DOCKER_EXIT": str(docker_exit),
-            "FAKE_DOCKER_LINES": str(docker_lines),
-        }
+            write_python_shim(fake_bin / "timeout", FAKE_TIMEOUT)
+        env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+        env.update(
+            PATH=f"{fake_bin}:{os.environ.get('PATH', '')}",
+            FAKE_PYTHON=sys.executable,
+            FAKE_DOCKER_DIR=str(record),
+            FAKE_DOCKER_EXIT=str(docker_exit),
+            FAKE_DOCKER_LINES=str(docker_lines),
+        )
+        if extra_env:
+            env.update(extra_env)
         proc = subprocess.run([str(SCRIPT)], cwd=cwd, env=env,
                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
         return proc, record
@@ -153,7 +160,13 @@ class BareInstall(unittest.TestCase):
 
     def test_exits_1_when_git_archive_fails(self):
         with tempfile.TemporaryDirectory(prefix="bare-nongit-") as tmp:
-            proc, _ = self.run_script(Path(tmp), docker_exit=0)
+            # Stop git discovery at the fixture root even when TMPDIR lies inside a checkout.
+            ceiling = Path(tmp).resolve()
+            work = ceiling / "work"
+            work.mkdir()
+            proc, _ = self.run_script(
+                work, docker_exit=0, extra_env={"GIT_CEILING_DIRECTORIES": str(ceiling)}
+            )
         self.assertEqual(proc.returncode, 1)
         self.assertTrue((proc.stdout + proc.stderr).strip())
 
