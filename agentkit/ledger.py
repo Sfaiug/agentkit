@@ -1,11 +1,11 @@
 """The tasks of the last 30 days, counted by the team that did them (the orchestrator that wrote a
 task, the executor that built it and the reviewer that reviewed it, each a model at an effort), by
-their size and by the issues their first review found, in one pass over one reading of the
-history: a task is counted in each view it has a value for.  It hides which runs are a task, and
-how one launched again counts once: a task is a run of kind `task` that ended with a verdict of
-the work (`record.JUDGED`), together with every later run of its change, however it ended or
-while it runs (a relaunch from its kept branch carries the change on, `runs.change`), one task of
-the team of its first run, counted where that run ended.
+their size, by the issues their first review found and by the review rounds they went through, in
+one pass over one reading of the history: a task is counted in each view it has a value for.  It
+hides which runs are a task, and how one launched again counts once: a task is a run of kind
+`task` that ended with a verdict of the work (`record.JUDGED`), together with every later run of
+its change, however it ended or while it runs (a relaunch from its kept branch carries the change
+on, `runs.change`), one task of the team of its first run, counted where that run ended.
 A run of another kind (a follow-up, a repair, a seat's own pull request) is no task, and a task
 rewritten under a new title is a new one: ak keeps no link between the two.
 """
@@ -106,26 +106,27 @@ def _seat(team):
 
 
 def counted(usage=None, seats=None, *, until=None):
-    """{"since", "until", "teams", "sizes", "first_issues", "usage", "seats"}: the window; per
-    team, most tasks first,
-    each role's {"name", "effort"} as its first run's row names them (the reviewer's effort its
-    first review's), its tasks, those whose first run merged (`history.merged`), those any of
-    whose runs merged (`live`), those whose first run's first review (first written of its lowest
-    round) was round 1 with verdict `PASS` (`first_pass`), the `reviews` rows with a round above
-    zero over every run of them (`reviews`), their non-negative `blocking` summed (`issues`), the
-    `findings` rows of those runs whose `outcome` is a text (`disputed`) and of them those
-    `conceded` or `dropped` (`taken_back`), the hours every run of them spent (`HOURS`), and the
-    `usage` (`week_meters.run_usage`'s) every run of them took by role, summed exactly, however it
-    ended or while it runs, and of its orchestrator's entry of `seats` (`_seat`) its tasks over
-    those of every team of that entry (`orchestrator`, `unrated` rounded half to even); per
-    `SIZE` lines, smallest first, the same of the tasks whose size is at most `upto` and over
-    `upto` less SIZE, `lines_live` the sizes of those live summed, `orchestrator` of each team's
-    its tasks there over the team's (`_split`, its sizes smallest first, then those of none); per
+    """{"since", "until", "teams", "sizes", "first_issues", "rounds", "usage", "seats"}: the
+    window; per team, most tasks first, each role's {"name", "effort"} as its first run's row
+    names them (the reviewer's effort its first review's), its tasks, those whose first run
+    merged (`history.merged`), those any of whose runs merged (`live`), those whose first run's
+    first review (first written of its lowest round) was round 1 with verdict `PASS`
+    (`first_pass`), the `reviews` rows with a round above zero over every run of them
+    (`reviews`), their non-negative `blocking` summed (`issues`), the `findings` rows of those
+    runs whose `outcome` is a text (`disputed`) and of them those `conceded` or `dropped`
+    (`taken_back`), the hours every run of them spent (`HOURS`), and the `usage`
+    (`week_meters.run_usage`'s) every run of them took by role, summed exactly, however it ended
+    or while it runs, and of its orchestrator's entry of `seats` (`_seat`) its tasks over those
+    of every team of that entry (`orchestrator`, `unrated` rounded half to even); per `SIZE`
+    lines, smallest first, the same of the tasks whose size is at most `upto` and over `upto`
+    less SIZE, `lines_live` the sizes of those live summed, `orchestrator` of each team's its
+    tasks there over the team's (`_split`, its sizes smallest first, then those of none); per
     number of `blocking` issues its first run's first review found, fewest first, the same of the
     tasks whose first review holds a non-negative whole `blocking`, with `first_run` and no
-    `lines_live`, `orchestrator` split the same way; `usage` over every run (`executor`,
-    `reviewer`) and seat (`orchestrator`); and `seats`, per orchestrator and effort
-    (`sum_seats`)."""
+    `lines_live`, `orchestrator` split the same way; per highest round among the reviews
+    `reviews` counts of a task, fewest first, the same of the tasks with one; `usage` over every
+    run (`executor`, `reviewer`) and seat (`orchestrator`); and `seats`, per orchestrator and
+    effort (`sum_seats`)."""
     until = time.time() if until is None else until
     since = until - WINDOW
     usage = usage or {}
@@ -133,8 +134,8 @@ def counted(usage=None, seats=None, *, until=None):
     for row in history.changes_since(since):
         changes.setdefault(row.get("change") or row["run_id"], []).append(row)
     reviewed, first_efforts, disputes = history._reviews_read()
-    # sized, by_issues: {team: {bucket: that team's tasks in that bucket}}
-    teams, sizes, sized, first_issues, by_issues = {}, {}, {}, {}, {}
+    # sized, by_issues, by_rounds: {team: {bucket: that team's tasks in that bucket}}
+    teams, sizes, sized, first_issues, by_issues, rounds, by_rounds = {}, {}, {}, {}, {}, {}, {}
     for change, runs in changes.items():
         # the run a change is named for began it, whatever start a relaunch ties with; a change
         # comes whole, so a task whose first run ended outside the window, or recorded no end,
@@ -181,14 +182,17 @@ def counted(usage=None, seats=None, *, until=None):
             counts[-1]["lines_live"] += size * live
             of_team = sized.setdefault(key, {})
             of_team[upto] = of_team.get(upto, 0) + 1
-        if first_review and _whole(first_review.get("blocking")):
-            issues = first_review["blocking"]
-            counts.append(first_issues.setdefault(issues, {
-                "tasks": 0, "first_run": 0, "live": 0, "hours": dict.fromkeys(HOURS, 0),
-                "usage": _unused()}))
-            counts[-1]["first_run"] += first_merged
-            of_team = by_issues.setdefault(key, {})
-            of_team[issues] = of_team.get(issues, 0) + 1
+        issues = first_review and first_review.get("blocking")
+        # over every run of it, not its first alone: a row holds what going that far took
+        went = max((row["round"] for rows in by_run for row in rows), default=None)
+        for rows, grouped, bucket in ((first_issues, by_issues, issues), (rounds, by_rounds, went)):
+            if _whole(bucket):
+                counts.append(rows.setdefault(bucket, {
+                    "tasks": 0, "first_run": 0, "live": 0, "hours": dict.fromkeys(HOURS, 0),
+                    "usage": _unused()}))
+                counts[-1]["first_run"] += first_merged
+                of_team = grouped.setdefault(key, {})
+                of_team[bucket] = of_team.get(bucket, 0) + 1
         for count in counts:
             count["tasks"] += 1
             count["live"] += live
@@ -201,7 +205,7 @@ def counted(usage=None, seats=None, *, until=None):
                         _add_usage(count["usage"][role], used)
     seats = seats or {}
     # a seat's turn belongs to no task, so an orchestrator's divides evenly over the tasks it
-    # wrote, and a team's over its sizes and first-review issue counts
+    # wrote, and a team's over its sizes, first-review issue counts and rounds
     wrote = {}
     for team in teams.values():
         wrote[_seat(team)] = wrote.get(_seat(team), 0) + team["tasks"]
@@ -211,7 +215,7 @@ def counted(usage=None, seats=None, *, until=None):
         used = ({plan: value * share for plan, value in points.items()}, round(unrated * share))
         _add_usage(team["usage"]["orchestrator"], used)
         # its tasks in no row a part last, which no row takes
-        for rows, grouped in ((sizes, sized), (first_issues, by_issues)):
+        for rows, grouped in ((sizes, sized), (first_issues, by_issues), (rounds, by_rounds)):
             of_team = sorted(grouped.get(key, {}).items())
             for (bucket, _), part in zip(of_team, _split(used, [
                     *(tasks for _, tasks in of_team),
@@ -223,5 +227,6 @@ def counted(usage=None, seats=None, *, until=None):
             "sizes": [{"upto": upto, **count} for upto, count in sorted(sizes.items())],
             "first_issues": [{"issues": issues, **count}
                              for issues, count in sorted(first_issues.items())],
+            "rounds": [{"rounds": number, **count} for number, count in sorted(rounds.items())],
             "usage": {**sum_usage(usage), "orchestrator": orch_usage},
             "seats": seat_rows}
