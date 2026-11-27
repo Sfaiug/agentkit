@@ -5753,6 +5753,10 @@ def page_body(rows, at=None, moves=None):
     the row lit, on the selection unless its cell is what is lit, and `moves` is handed each
     mark leading a value (`■`, `□`, `●`, `○`) as config_body hands its own."""
     room = terminal.layout_width()
+    # a label may be a name read from a file, a provider's or a plan kept, holding a line break;
+    # its spacing kept, as two names may differ only in it
+    rows = [(row, label if label is None else terminal.plain(label, spaced=True), value)
+            for row, label, value in rows]
     wide = max((terminal.cells(label) for _, label, value in rows if label is not None and value),
                default=0)
     lines, places = [], {}
@@ -5772,7 +5776,7 @@ def page_body(rows, at=None, moves=None):
         if label is not None and any(terminal.cells(word) > left for word in whole):
             # too wide beside the label: the value folds under it, never cut in a word, and so
             # does a label too wide for its line, wrapped at its words
-            for number, part in enumerate(terminal.wrap(label, room - 2)):
+            for number, part in enumerate(terminal.wrap(label, room - 2, spaced=True)):
                 places[len(lines)] = (row, around)
                 lines.append(terminal.highlight(f"  {part}", number == 0, band=not celled)
                              if row == at else f"  {part}")
@@ -6252,13 +6256,53 @@ def money_value(cfg):
 
 def config_money(cfg):
     """`Money`: `Currency`, the currency prices are in (config_page), Space switching it to the
-    next of money.TABLES, written to `[money]` in config.toml at once (setting)."""
+    next of money.TABLES, written to `[money]` in config.toml at once (setting); under it what
+    the logins pay a month in it (plan_rows)."""
     def page():
         held, _, write = setting(cfg, "money", "money", money.currency)
         codes = list(money.TABLES)
         return [("Currency", money_value(cfg), ("mark", lambda: write(
-            "currency", codes[(codes.index(held) + 1) % len(codes)])))], ""
+            "currency", codes[(codes.index(held) + 1) % len(codes)]))), *plan_rows(cfg)], ""
     config_page("money", page)
+
+
+def plan_rows(cfg):
+    """Rows that only show each provider and plan a login is on now, in the order `config ·
+    subscriptions` lists the logins (usage_rows), plans read as kept (usage.plan), so no
+    provider is asked: named as that page names the provider (company_name), then the plan, or
+    alone, `plan not read yet`, where the plan is not known; its price a month in the config's
+    currency (money.price, `amount`), else `no price in` the currency, its logins counted where
+    more than one; then `In all`, each price times its logins, the logins of a row with no
+    price `not counted`.  None where no login is configured."""
+    code, counts = money.currency(cfg), {}
+    for provider, _, _, account in usage_rows(cfg):
+        on = provider, usage.plan(provider, account)
+        counts[on] = counts.get(on, 0) + 1
+    rows, total, missed = [], 0, 0
+    for (provider, on), count in counts.items():
+        price = None if on is None else money.price(cfg, provider, on, code)
+        if price is None:
+            missed += count
+        else:
+            total += decimal.Decimal(str(price)) * count    # exact, as cents written add up
+        said = ("plan not read yet" if on is None
+                else f"no price in {CURRENCY_NAMES[code]}" if price is None
+                else amount(code, price))
+        rows.append((company_name(cfg, provider) + ("" if on is None else f" · {on}"),
+                     said + (f" · {count} logins" if count > 1 else ""), None))
+    if rows:
+        rows.append(("In all", amount(code, total) + (
+            f" · {missed} login{'s' if missed > 1 else ''} not counted" if missed else ""), None))
+    return rows
+
+
+def amount(code, value):
+    """`$200 a month`, `$19.99 a month`: `value` after the sign of currency `code`, or without
+    UTF-8 after its ISO code as money_value's, `EUR 18 a month`; whole where it is whole, else
+    to the cent."""
+    value = decimal.Decimal(str(value))
+    digits = f"{value:,.{0 if value == value.to_integral_value() else 2}f}"
+    return (f"{usage.SIGNS[code]}{digits}" if terminal.utf8() else f"{code} {digits}") + " a month"
 
 
 def machines_value():

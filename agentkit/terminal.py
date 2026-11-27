@@ -379,12 +379,13 @@ def prompt_lines(prompt, room):
     return lines
 
 
-def wrap(text, room):
-    """Word wrapping, splitting only a word that cannot fit on a line by itself."""
+def wrap(text, room, spaced=False):
+    """Word wrapping, splitting only a word that cannot fit on a line by itself; the text
+    `plain`, its own spacing kept between the words of a line where `spaced`."""
     room = max(1, room)
     lines, line = [], ""
-    for word in plain(text).split():
-        if line and cells(line + " " + word) > room:
+    for gap, word in re.findall(r"( *)(\S+)", plain(text, spaced)):
+        if line and cells(line + gap + word) > room:
             lines.append(line)
             line = ""
         while cells(word) > room:
@@ -399,7 +400,7 @@ def wrap(text, room):
             lines.append(word[:end] if used else "…")
             word = word[end:]
         if word:
-            line = f"{line} {word}" if line else word
+            line = f"{line}{gap}{word}" if line else word
     return lines + ([line] if line else [])
 
 
