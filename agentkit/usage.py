@@ -1690,13 +1690,20 @@ def _gating_meters(cfg, name, providers):
     return [m for m in meters if m.get("scope") or m["name"] not in claimed], PROVIDER_METERS
 
 
+def _holding(meters, now):
+    """The caps among `meters` holding a positive part of the week whose window has not ended."""
+    return [cap for cap in (meters if isinstance(meters, list) else ())
+            if isinstance(cap, dict) and _text(cap.get("scope"))
+            and (_number(cap.get("held")) or 0) > 0 and not _past(cap, now)]
+
+
 def _leaving(week, caps):
     """`week`, a login's shared week, as a model none of `caps` gates reads it: used as well by
     the points of it each holds for its own model (`held`), at most 100, with `read`, what it
     read, and `held_for`, whose that part is; as read where they hold none.  A copy, so no
     reading changes: the held part decides what a model may spend, never what a meter says."""
-    now = time.time()     # a cap whose window has rolled over holds nothing it read
-    holding = [cap for cap in caps if (_number(cap.get("held")) or 0) > 0 and not _past(cap, now)]
+    # a cap whose window has rolled over holds nothing it read
+    holding = _holding(caps, time.time())
     used = _number(week.get("used"))
     if not holding or used is None or used >= 100:
         return week
@@ -2460,6 +2467,11 @@ def review_pair(cfg, providers):
 def render(cfg, providers, order, *, repo=None):
     now = _now()
     table = [HEADERS] + rows(cfg, providers)
+    # read off each login's full meters before _as_shared drops scoped caps: shows why another
+    # model leaves part of what `left` reads for the cap's model
+    kept = [[(f"kept for {cap['scope']}", _pct(_number(cap["held"])))
+             for cap in _holding(prov.get("meters"), now)]
+            for _, _, prov, _ in _accounts(cfg, providers)]
     widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
     if width >= 60 and sum(widths) + len(widths) - 1 > width:
@@ -2467,24 +2479,33 @@ def render(cfg, providers, order, *, repo=None):
                     "session", "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     if sum(widths) + len(widths) - 1 <= width:
-        lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip()
-                 for row in table]
-        lines[0] = terminal.styled(lines[0], "dim")
+        left_col = widths[0] + 1 + widths[1] + 1
+        lines = [terminal.styled(" ".join(terminal.pad(cell, w)
+                                          for cell, w in zip(table[0], widths)).rstrip(), "dim")]
+        for row, held_rows in zip(table[1:], kept):
+            lines.append(" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip())
+            for label, value in held_rows:
+                gap = max(2, left_col - 2 - terminal.cells(label))
+                lines.append(f"  {label}{' ' * gap}{value}")
     else:
         # The full headings and all the meters still fit on a phone, as aligned label/value
         # pairs under each provider. Nothing is silently cut to squeeze a row.
         lines = []
         sep = " · " if terminal.utf8() else " - "
-        label_width = max(len(label) for label in HEADERS[2:])
-        for row in table[1:]:
+        cards = [(row[0], row[1], [(HEADERS[2], row[2]), *held_rows, *zip(HEADERS[3:], row[3:])])
+                 for row, held_rows in zip(table[1:], kept)]
+        label_width = max((terminal.cells(label) for _, _, pairs in cards for label, _ in pairs),
+                          default=0)
+        for name, models, pairs in cards:
             if lines:
                 lines.append("")
             lines.extend(terminal.styled(line, "bold")
-                         for line in terminal.wrap(f"{row[0]}{sep}{row[1]}", width))
-            for label, value in zip(HEADERS[2:], row[2:]):
-                prefix = "  " + label.ljust(label_width) + "  "
-                for n, part in enumerate(terminal.wrap(value, width - len(prefix))):
-                    lines.append((prefix if n == 0 else " " * len(prefix)) + part)
+                         for line in terminal.wrap(f"{name}{sep}{models}", width))
+            for label, value in pairs:
+                prefix = "  " + terminal.pad(label, label_width) + "  "
+                pad_width = terminal.cells(prefix)
+                for n, part in enumerate(terminal.wrap(value, max(1, width - pad_width))):
+                    lines.append((prefix if n == 0 else " " * pad_width) + part)
     for name, prov in providers.items():
         split = _split_week(cfg, name, prov)
         if split is None:
