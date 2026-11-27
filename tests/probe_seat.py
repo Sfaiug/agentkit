@@ -60,12 +60,11 @@ def wait_for(seconds, check, read_pane):
     while (budget := deadline - time.monotonic()) > 0:
         pane = read_pane(min(orch.TMUX_CEILING, budget))
         last = last if pane is None else pane
-        remaining = deadline - time.monotonic()
-        if remaining < 0:
+        if time.monotonic() > deadline:
             return False, last
         if pane is not None and check(pane):
-            return True, last
-        if remaining == 0:
+            return time.monotonic() <= deadline, last
+        if (remaining := deadline - time.monotonic()) <= 0:
             return False, last
         time.sleep(min(POLL, remaining))
     return False, last
