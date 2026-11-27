@@ -21,6 +21,7 @@ import bisect
 from collections import namedtuple
 from contextlib import suppress
 import datetime
+from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 import json
 import math
@@ -153,8 +154,9 @@ def _usable(raw, key, other, name):
     == `name` without `other`, else None.  `memory_stall_us` is a whole number of 0 or more, or
     None when absent or anything else."""
     try:
-        line = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError, RecursionError):
+        # parse_float=Decimal keeps stored decimals exact (e.g. 3.6 and 4.4 average to exact 4)
+        line = json.loads(raw.decode("utf-8"), parse_float=Decimal)
+    except (UnicodeDecodeError, ValueError, RecursionError, InvalidOperation):
         return None
     if not isinstance(line, dict) or line.get(key) != name or other in line:
         return None
@@ -174,13 +176,18 @@ def _usable(raw, key, other, name):
 
 def _finite(value):
     """`value` when it is a finite JSON number (never a bool, never overflowing float), else None."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
         return None
     try:
         number = float(value)
     except OverflowError:
         return None
-    return value if math.isfinite(number) else None
+    if not math.isfinite(number):
+        return None
+    # a decimal tiny enough to underflow float (e.g. 1e-999999999) would explode Fraction's denominator
+    if isinstance(value, Decimal) and number == 0.0:
+        return 0 if value >= 0 else None
+    return value
 
 
 def _day(name):

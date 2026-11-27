@@ -104,6 +104,7 @@ class ReadingsByTheHour(unittest.TestCase):
                 raw(M + 1200, "acme-edge", 2.0, 2, stall=tenth - 1),
                 raw(M + 600, "acme-edge", 2.0, 2, stall=0),
                 *(raw(M + 600 * i, "acme-exact", load, 4) for i, load in enumerate((4.25, 8.5, 0.25, 2.25, 6.25, 2.5))),
+                *(raw(M + 300 * i, "acme-dec-exact", load, 4) for i, load in enumerate((3.6, 4.4))),
                 *(raw(M + 300 * i, "acme-just-over", load, cores) for i, (cores, load) in enumerate((
                     (188, 188.01), (189, 188.94), (190, 190.15), (191, 190.80),
                     (192, 192.15), (193, 192.94), (194, 194.01)))),
@@ -145,6 +146,7 @@ class ReadingsByTheHour(unittest.TestCase):
                     (M + H, 2.0, 0.5, 0.1, ("processors", "memory")),
                 ]),
                 (("acme-exact", M + H, 1, False), [(M, 1.0, 0.5, None, ())]),
+                (("acme-dec-exact", M + H, 1, False), [(M, 1.0, 0.5, None, ())]),
                 (("acme-just-over", M + H, 1, False), [(M, 1.0, 0.5, None, ("processors",))]),
                 # Window starting at M + H still picks up the step from the reading before M + H.
                 (("acme-edge", M + 2 * H, 1, False), [(M + H, 2.0, 0.5, 0.1, ("processors", "memory"))]),
