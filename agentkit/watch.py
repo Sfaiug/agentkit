@@ -4014,6 +4014,22 @@ def _wait_ready(ready, held):
     return False
 
 
+def _shown(text):
+    """How a warning names a typed line: a line separator is no key, so typed as it is, and
+    would end the log's line, one warning read as two."""
+    return " ".join(text[:60].splitlines())
+
+
+def _wait_alone(alone, held, text, log):
+    """`_wait_ready` on a typed line reading alone in its composer, which its Enter waits for;
+    where it never does, said, because a screen ak cannot read looks like this too: on 26 Nov
+    2026 a line sat four minutes over a row its adapter did not know, and the log held nothing."""
+    if _wait_ready(alone, held):
+        return True
+    log(f"WARN {held}: its composer does not read as the line typed, so no Enter: {_shown(text)}")
+    return False
+
+
 def _wait_sent(session, harness, text):
     """Poll the pane for SENT_WAIT; True where the typed line left its composer in time."""
     for _ in range(int(SENT_WAIT / SENT_POLL)):
@@ -4169,9 +4185,6 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     composer to read.
     """
     text = terminal_mod.keyed(text)    # a typed escape or newline is a key, not text
-    # how a warning names the line: a line separator is no key, so typed as it is, and would end
-    # the log's line, one warning read as two
-    shown = " ".join(text[:60].splitlines())
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
     except (config.Error, OSError):
@@ -4201,12 +4214,8 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not sent:
                 return sent
             time.sleep(KEY_GAP)
-        if not _wait_ready(alone, held if held is not None else name):
-            # said, because a screen ak cannot read looks like this too: on 26 Nov 2026 a line sat
-            # four minutes over a row its adapter did not know, and the log held nothing
-            log(f"WARN {name}: its composer does not read as the line typed, so no Enter: {shown}")
-            return False
-        if not _send_enter(seat, log):
+        if (not _wait_alone(alone, held if held is not None else name, text, log)
+                or not _send_enter(seat, log)):
             return False
     if _wait_sent(seat, harness, text):
         return True
@@ -4218,7 +4227,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             return False
     if _wait_sent(seat, harness, text):
         return True
-    log(f"WARN {name}: typed text sits unsent in its composer: {shown}")
+    log(f"WARN {name}: typed text sits unsent in its composer: {_shown(text)}")
     return False
 
 
@@ -4882,7 +4891,8 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
     text = mark["line"]
     if not (_send_line(session, text, log, lambda: receipt(dict(mark, pane=where["id"])),
                        source=source, put=lambda: _edit(session, where, "line", text) == "line")
-            and _wait_ready(lambda name: composer_holds(name, session, text, cfg) == "line", held)):
+            and _wait_alone(lambda name: composer_holds(name, session, text, cfg) == "line",
+                            held, text, log)):
         return False
     _send_enter(session, log)
     return (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
