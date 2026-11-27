@@ -11,12 +11,14 @@ combination of models, and I would like to see why, in numbers".
 
 from fractions import Fraction
 import math
+import re
 
 from . import config, menu, terminal, usage
 from .ledger import HOURS, ROLES, recorded
 
-FEW = 20        # a row of fewer tasks says only how many: a few tasks say nothing yet
+FEW = 20        # a row or the team of fewer tasks says only how many: a few tasks say nothing yet
 WORDS = {"orchestrator": "ORCHESTRATOR", "executor": "BUILDER", "reviewer": "REVIEWER"}
+DOING = {"orchestrator": "orchestrating", "executor": "building", "reviewer": "reviewing"}
 
 
 def share(part, whole):
@@ -104,20 +106,21 @@ def by_role(teams, now):
 
 def lines(own, cfg, room, paid):
     """`own` (`by_role`) as `ak models` draws it on `room` cells, its plans costing what `paid`
-    (`money.month`'s) says: a line on the team now, then a table a role of its rows in `own`'s
-    order under its role's COLUMNS, each in use marked as docs/cli-design.md marks one
-    (menu.config_audit's `●` for the one orchestrator, `■` for any of several), named as every
-    screen names it (`named`), and under the last table a muted line saying what the short
-    headings count.  The name and LEAD's columns are sized once for the three tables, to stand
-    under each other, each other column for its own; where a table passes the edge every row
-    folds, no column headed: its model's line, then its numbers indented, each after its column's
-    name, wrapped between two of them."""
+    (`money.month`'s) says: a line on the team now (`spent` among its clauses), then a table a
+    role of its rows in `own`'s order under its role's COLUMNS, each in use marked as
+    docs/cli-design.md marks one (menu.config_audit's `●` for the one orchestrator, `■` for any of
+    several), named as every screen names it (`named`), and under the last table a muted line
+    saying what the short headings count.  The name and LEAD's columns are sized once for the
+    three tables, to stand under each other, each other column for its own; where a table passes
+    the edge every row folds, no column headed: its model's line, then its numbers indented, each
+    after its column's name, wrapped between two of them."""
     team, tasks = own["team"], own["team"]["tasks"]
     said = [f"{team['live']} of {tasks} tasks went live", *(
-        [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting"]
-        if team["live"] else [])] if tasks >= FEW else [f"{tasks} task{'s' * (tasks > 1)}"]
-    # a line too wide breaks between its clauses
-    shown = menu.packed(["Your team now:", *(part + "," for part in said[:-1]), said[-1]]
+        [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting",
+         *spent(team, paid)] if team["live"] else [])] if tasks >= FEW else [
+        f"{tasks} task{'s' * (tasks > 1)}"]
+    # a line too wide breaks between its clauses, each ending in `,` or `:`
+    shown = menu.packed(re.split(r"(?<=[,:]) ", f"Your team now: {', '.join(said)}")
                         if tasks else ["Your team now has no task yet"], " ", room)
     marks = ("●○", "■□") if terminal.utf8() else ("*.", "#-")
     tables = {role: [((marks[role != "orchestrator"][0], "accent") if row["in_use"] else
@@ -159,34 +162,61 @@ def per_live(counts, parts=HOURS):
     return f"{math.fsum(counts['hours'][part] for part in parts) / counts['live']:.1f} h"
 
 
+def spent(team, paid):
+    """[`$0.60 per task live: orchestrating $0.20, building $0.27, reviewing $0.13`]: what the
+    team's tasks took per task live in each role that took points, to the cent as a row's usage
+    cell says it (`took`), after their sum; none where they took none or a plan they took points
+    of has no price at `paid`, as a sum of some roles would read as all."""
+    if took(team, ROLES, paid, share=False) == "-":
+        return []
+    each = {DOING[role]: Fraction(round(100 * cost(plans, team["live"])), 100)
+            for role in ROLES if (plans := priced(team, role, paid))}
+    return [f"{money(sum(each.values()), paid)} per task live: " + ", ".join(
+        f"{doing} {money(value, paid)}" for doing, value in each.items())]
+
+
 def took(row, role, paid, *, per=None, share=True):
     """`$0.25 · 0.6%` (or `$0.25` with `share=False`): what `row` took of its plans in `role`
-    (one role or several) per `per` (`row["live"]` when omitted), each plan's points (100 one
-    login's week on it) at its price a month in `paid` (`money.month`'s), a week 12/52 of a
-    month; with `share`, the points summed beside it, and the share alone where a plan has no
-    price, else `-` there; `-` where it took no points; `""` where it would divide by zero: each
-    from its exact value (`fixed`), the points' Fractions and the price as written."""
-    roles = (role,) if isinstance(role, str) else role
-    priced = [(points, paid["month"].get(provider, {}).get(plan))
-              for one in roles
-              for provider, plans in row["usage"][one]["points"].items()
-              for plan, points in plans.items()]
-    if not priced:
+    (one role or several, `priced`) per `per` (`row["live"]` when omitted) in money (`cost`);
+    with `share`, the points summed beside it (100 one login's week on a plan), and the share
+    alone where a plan has no price, else `-` there; `-` where it took no points; `""` where it
+    would divide by zero: each from its exact value (`fixed`)."""
+    plans = priced(row, role, paid)
+    if not plans:
         return "-"
     divisor = row["live"] if per is None else per
-    if not share and any(price is None for _, price in priced):
+    if not share and any(price is None for _, price in plans):
         return "-"
     if divisor <= 0:
         return ""
-    said = f"{fixed(sum(points for points, _ in priced) / divisor, 1)}%" if share else None
-    if any(price is None for _, price in priced):
+    said = f"{fixed(sum(points for points, _ in plans) / divisor, 1)}%" if share else None
+    if any(price is None for _, price in plans):
         return said
-    cost = (sum(points * Fraction(str(price)) for points, price in priced)
-            / divisor / 100 * 12 / 52)
-    # without UTF-8 the currency's ISO code, as the Money page says it (menu.money_value)
-    code = paid["currency"]
-    text = (usage.SIGNS[code] if terminal.utf8() else f"{code} ") + fixed(cost, 2)
+    text = money(cost(plans, divisor), paid)
     return f"{text}{terminal.separator()}{said}" if share else text
+
+
+def priced(row, role, paid):
+    """[(points, price or None)]: each plan `row` took points of in `role` (one role or several),
+    at its price a month in `paid` (`money.month`'s)."""
+    roles = (role,) if isinstance(role, str) else role
+    return [(points, paid["month"].get(provider, {}).get(plan))
+            for one in roles
+            for provider, plans in row["usage"][one]["points"].items()
+            for plan, points in plans.items()]
+
+
+def cost(plans, divisor):
+    """What `plans` (`priced`, all priced) cost per `divisor`, exactly: each plan's points (100
+    one login's week on it) at its price a month as written, a week 12/52 of a month."""
+    return sum(points * Fraction(str(price)) for points, price in plans) / divisor / 100 * 12 / 52
+
+
+def money(value, paid):
+    """`$0.25`: exact `value` to the cent (`fixed`) in `paid`'s currency, without UTF-8 by its ISO
+    code as the Money page says it (menu.money_value)."""
+    code = paid["currency"]
+    return (usage.SIGNS[code] if terminal.utf8() else f"{code} ") + fixed(value, 2)
 
 
 def fixed(value, places):

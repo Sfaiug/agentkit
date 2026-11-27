@@ -1,20 +1,22 @@
 """`ak models` prints under its boards a line on the team now, a table a role of `own`, as
 `--json` gives it (tests/test_key_models_json_own_rows.py), and one muted line under the last
 table saying what their short headings count: the team now's tasks, those that went live and per
-task live the hours they spent and of them waiting; then each role's rows in `own`'s order,
-those in use marked, each with its tasks, the share that went live, its role's own numbers, time
-(per task live, every hour its tasks spent), and usage (per task live, what its model took of its
-plans in that role over all its tasks, in money and as a share of a week — the share alone where
-a plan it took points of has no price, a dash where it holds no points): a builder's share that
-passed its first review and reviews per task, a reviewer's issues per task and the share of them
-it took back (false alarms, a dash where it counts none).  A row of fewer than 20 tasks shows its
-tasks alone, one with none live neither time nor usage.  A model is named as every screen names
-it at its effort, plain whatever its label holds, by the name its runs kept once no longer
-configured or where its label drawn plain is empty.  All three tables print, a history of one
-role's former model alone too, the names, tasks and went live standing under each other; where a
-table's columns pass the edge every row folds, no column headed: its model's line, then each
-number it shows after its column's name, indented, an over-wide pair wrapping onto indented lines,
-no line passing the edge and no word that fits cut.
+task live the hours they spent and of them waiting and, where every plan they took points of has a
+price, what they took per task live in money, in all and by role, a role that took none left out;
+then each role's rows in `own`'s order, those in use marked, each with its tasks, the share that
+went live, its role's own numbers, time (per task live, every hour its tasks spent), and usage
+(per task live, what its model took of its plans in that role over all its tasks, in money and as
+a share of a week — the share alone where a plan it took points of has no price, a dash where it
+holds no points): a builder's share that passed its first review and reviews per task, a
+reviewer's issues per task and the share of them it took back (false alarms, a dash where it
+counts none).  A row of fewer than 20 tasks shows its tasks alone, one with none live neither time
+nor usage.  A model is named as every screen names it at its effort, plain whatever its label
+holds, by the name its runs kept once no longer configured or where its label drawn plain is
+empty.  All three tables print, a history of one role's former model alone too, the names, tasks
+and went live standing under each other; where a table's columns pass the edge every row folds,
+no column headed: its model's line, then each number it shows after its column's name, indented,
+an over-wide pair wrapping onto indented lines, no line passing the edge and no word that fits
+cut.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
 tasks and their reviews written into the Home's history.db as
@@ -117,12 +119,13 @@ def home_of(teams, reviewed=reviews, findings=None):
     return home
 
 
-def used_home():
+def used_home(*second):
     """A Home of MODELS whose team now's 20 tasks all went live, having taken, on plans priced as
     tests/test_key_models_json_money.py prices them and recorded as
     tests/test_key_models_json_run_usage.py records them: nova orchestrating 7 points of Max 20x
     ($200, 180 euros), bolt building 12 of ChatGPT's Pro ($200, no euro price) and 4 of its $500
-    plan, crux reviewing none."""
+    plan, crux reviewing none; or the 4 split evenly between turns of 100,000 tokens each in the
+    roles `second` names."""
     home = home_of([("now", 20, 20, {})])
     logins = {"anthropic": ["default"], "openai": ["default", "second"]}
     week = {"name": "weekly", "used": 50, "window_secs": 7 * DAY, "resets_at": NOW + DAY}
@@ -139,17 +142,22 @@ def used_home():
         "seat_usage": [("claude:event-0", THEN - 45 * HOUR, 100_000, "default", "nova-7", "nova",
                         "high")],
         "turn_usage": []}
-    for account in logins["openai"]:
-        turn = home.path / f".agentkit/runs/fix-now-0/round-1/executor-{account}"
+    turns = [("default", "executor"), *(("second", role) for role in second or ["executor"])]
+    for n, (account, role) in enumerate(turns):
+        turn = home.path / f".agentkit/runs/fix-now-0/round-1/{role}-{n}"
         turn.mkdir(parents=True)
         (turn / "harness").write_text("codex")
-        rows["turn_usage"].append(("fix-now-0", "executor", str(turn), account, "bolt-3",
+        rows["turn_usage"].append(("fix-now-0", role, str(turn), account, "bolt-3",
                                    THEN - 45 * HOUR, 100_000, 0, 0, 0))
     with closing(sqlite3.connect(home.path / ".agentkit/history.db")) as db, db:
         for table, items in rows.items():
             db.execute(f"CREATE TABLE {table} ({TABLES[table]})")
             db.executemany(f"INSERT INTO {table} VALUES ({', '.join('?' * len(items[0]))})", items)
     return home
+
+
+# used_home's team now, before what it took
+USED_TEAM = "Your team now: 20 of 20 tasks went live, 2.8 h per task live, 1.0 h of it waiting"
 
 
 class ModelsOwnTables(unittest.TestCase):
@@ -169,16 +177,21 @@ class ModelsOwnTables(unittest.TestCase):
         self.assertNotIn("\x1b", done.out)
         return shown[next(n for n, line in enumerate(shown) if line.startswith("Your team now")):]
 
-    def took(self, currency="USD"):
-        """Each row in use's usage per task live in `self.used`, wide, in `currency`, by its
-        model's name's first word."""
-        akconfig.write(self.used, MODELS, orchestrator="nova", workers=["bolt"],
+    def priced(self, currency="USD", columns=WIDE, home=None):
+        """`own` of `home` (`self.used`) on `columns` cells, its plans priced in `currency`."""
+        home = home or self.used
+        akconfig.write(home, MODELS, orchestrator="nova", workers=["bolt"],
                        reviewers=["crux"], settings={"money": {"currency": currency}},
                        providers={"anthropic": {"mode": "subscription", "accounts": ["default"]},
                                   "openai": {"mode": "subscription",
                                              "accounts": ["default", "second"]}})
+        return self.own(columns, home)
+
+    def took(self, currency="USD"):
+        """Each row in use's usage per task live in `self.used`, wide, in `currency`, by its
+        model's name's first word."""
         return {line.split()[1]: line.split("2.8 h")[1].strip()
-                for line in self.own(WIDE, self.used) if line.startswith(("●", "■"))}
+                for line in self.priced(currency) if line.startswith(("●", "■"))}
 
     def test_on_a_wide_page_each_role_s_rows_stand_under_their_headings(self):
         shown = self.own(WIDE)
@@ -250,6 +263,26 @@ class ModelsOwnTables(unittest.TestCase):
 
     def test_euros_read_with_the_euro_sign(self):
         self.assertEqual(self.took("EUR")["Acme"], "€0.15 · 0.4%")
+
+    def test_the_team_s_line_says_what_a_task_live_took_in_all_and_by_role(self):
+        # crux reviewing 3 of the $500 plan's 4 points: 3 * $500 / 20 tasks / 100 * 12 / 52 to
+        # the cent; the sum is the cents shown, though all of it, $0.669..., would read $0.67
+        spent = ["$0.66 per task live:", "orchestrating $0.16,", "building $0.33,",
+                 "reviewing $0.17"]
+        with used_home("executor", *["reviewer"] * 3) as home:
+            self.assertEqual(self.priced(home=home)[:2], [f"{USED_TEAM}, {spent[0]}",
+                                                          " ".join(spent[1:])])
+            # on 40 cells it breaks between its clauses
+            self.assertEqual(self.priced(columns=40, home=home)[:6], [
+                "Your team now: 20 of 20 tasks went live,", "2.8 h per task live,",
+                "1.0 h of it waiting,", spent[0], " ".join(spent[1:3]), spent[3]])
+
+    def test_a_role_that_took_no_points_is_left_out_of_the_team_s_line(self):
+        self.assertEqual(self.priced()[:2], [f"{USED_TEAM}, $0.67 per task live:",
+                                             "orchestrating $0.16, building $0.51"])
+
+    def test_a_plan_with_no_price_leaves_the_team_s_line_its_hours(self):
+        self.assertEqual(self.priced("EUR")[:2], [USED_TEAM, ""])
 
 if __name__ == "__main__":
     unittest.main()
