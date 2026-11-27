@@ -238,6 +238,12 @@ run)
   exit $rc ;;
 interactive)
   [ $# -ge 2 ] || { echo "opencode.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
+  # A seat's window is wider than 120 columns, where OpenCode 2.4.2 draws a sidebar and the screen
+  # reads as no rule.  The command line hides it by the variable OpenCode lays, whole, over its
+  # cli.json: a value that would replace is refused, the seat's own, which its children hold, not.
+  sidebar='{"session":{"sidebar":"hide"}}'
+  [ "${OPENCODE_CLI_CONFIG_CONTENT:-$sidebar}" = "$sidebar" ] || {
+    echo "opencode.sh interactive: OPENCODE_CLI_CONFIG_CONTENT is set, and a seat sets it itself: put your settings in ~/.config/opencode/cli.json" >&2; exit 2; }
   # `--session` reopens a conversation that exists; nothing names one that does not, so an id
   # of the launcher's making is refused here rather than swallowed.  The id a seat comes back
   # on is the one OpenCode made for it, which ak wrote into that launch's receipt as the seat
@@ -273,7 +279,7 @@ interactive)
       --argjson more "$(turn_variants "$1")" \
       '{model: $model, agents: {build: {model: $model, system: .}}, plugins: [$plugin]} + $more' <"$rb") || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
-  rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q ' "$content")
+  rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q OPENCODE_CLI_CONFIG_CONTENT=%q ' "$content" "$sidebar")
   # The seat's first message, when its launch carries one, goes in as the TUI's `--prompt`:
   # sent once the conversation has loaded, never typed into a TUI still loading it.
   # Joined by `=`, so a message starting with `-` is still its value; in single quotes, not
