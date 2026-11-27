@@ -24,7 +24,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, EVALUATIONS, aa, boards
+from fixtures.akboards import ENV, EVALUATIONS, aa, boards
 
 ROLES = ("orchestrate", "execute", "review")
 # Release, name, effort, quality in every role (every measure the share quality / 100 - 0.1,

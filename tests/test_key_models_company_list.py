@@ -22,12 +22,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
-from test_key_models_answer import ENV, aa, lines
+from fixtures.akboards import ENV, aa, lines
 from test_key_models_on import MODELS, boards as listed
 
 SAID = ("ak uses only the models that are on. Space marks one on or off, or, on a company's "
         "name, all of them. A company with none on leaves the list.")
-TITLE = "agentkit · config · recommended · new seats · models"
+TITLE = "agentkit · config · your runs · new seats · models"
 KEYS = "  ↑↓←→ move   ␣ mark   a add a company   esc back"
 ADDING = "  ↑↓←→ move   ⏎ add   a add a company   esc back"     # on `+ add a company`
 ADD_KEYS = "  ↑↓ company   ⏎ add   esc back"     # `a`'s list of the other companies
@@ -72,7 +72,7 @@ class Opened(unittest.TestCase):
     def open(self, width=100, last=KEYS, **settings):
         """`p` on the models screen (`menu`); the terminal and its screen, its key line `last`."""
         term = self.menu(width, **settings)
-        for wait, key in (("esc leave", "c"), ("r recommended", "r"), ("boards read", "p")):
+        for wait, key in (("esc leave", "c"), ("r your runs", "r"), ("p models", "p")):
             term.wait(wait)
             term.keys(key)
         return term, self.whole(term, last=last)
@@ -120,7 +120,7 @@ class CompanyList(Opened):
         self.assertEqual(self.saved(), (["Acme", "Crux", "Fenix"],
                                         ["acme-max-5", "crux-2", "crux-flash-1"]))
         term.keys("Escape")
-        term.wait("comparing 1 of 2 models")
+        term.wait("p models")
         self.assertEqual(self.saved(), (["Acme"], ["acme-max-5"]))
         done = self.home.ak("models", "--json", env=ENV)
         self.assertEqual(done.code, 0, done.out + done.err)

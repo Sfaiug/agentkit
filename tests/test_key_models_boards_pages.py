@@ -19,7 +19,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, EVALUATIONS, SAME, boards
+from fixtures.akboards import ENV, EVALUATIONS, SAME, boards
 
 # (slug, name, release, intelligence index, frontier-code and terminal shares, cost a task)
 LISTED = [("acme-mid-5", "Acme Mid 5 (Max)", "acme-mid-5", 68, 0.79, 16.0),

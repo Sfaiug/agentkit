@@ -38,7 +38,7 @@ MODELS = {"fable": {"harness": "claude", "effort": "xhigh", "x_custom": 1},
 # does
 CATALOG = "m1\tModel One\tlow medium high\nclaude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 HEADER = "# agentkit's config, written by the menu's `c` screen."
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # on a mark
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   esc back"   # on a mark
 PAGE_KEYS = "  ↑↓←→ move   ⏎ open   esc back"   # a page under it, with no `r`
 
 def rows(screen):

@@ -24,7 +24,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   a apply to all sessions   esc back"
 NO_LOGIN = "token expired; run claude, type /login and sign in again to open a seat here"
 # named so long that their reason, every name before it, takes two lines
 SIX = [f"acme-fix-{number}" for number in range(1, 7)]

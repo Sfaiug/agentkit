@@ -25,7 +25,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, meters
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, EVALUATIONS, aa, boards
+from fixtures.akboards import ENV, EVALUATIONS, aa, boards
 
 NOW = time.time()
 DAY = 86400

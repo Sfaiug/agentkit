@@ -510,26 +510,6 @@ class Screens(Sandbox):
         screens = run(choose, move(5, 5), b"\x1b[<0;1;1M\x1b[<0;1;1m", move(2, 1), ESC)[1]
         self.assertEqual(highlighted(screens[-1]), [])
 
-    def test_the_models_screen_draws_no_highlight_off_every_row(self):
-        said = [(role, {"name": "Alpha", "effort": "high"}, ("100.0", "$1.00"))
-                for role in menu.quality.ROLES]
-        empty = {role: {"choices": [], "others": [], "whys": {}} for role in menu.quality.ROLES}
-        for name, value in (("stored", {}), ("refresh", ({}, None)), ("answer", empty),
-                            ("uses", dict.fromkeys(menu.quality.ROLES, (None, None, None)))):
-            self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))
-        self.stack.enter_context(patch.object(menu, "models_said", return_value=said))
-        # the boards' read lands before the screen first draws: landing later, on a loaded host,
-        # it would draw the screen once more between the screens counted below
-        self.stack.enter_context(patch.object(
-            menu.Fetch, "start", lambda fetch: (threading.Thread.start(fetch), fetch.join())))
-        # the pointer on the header puts `›` out, and a key brings it back where it was
-        screens = run(lambda: menu.models_screen(self.cfg, None, {}, {}), move(1, 1), b"\x1b[A",
-                      ESC)[1]
-        highlighted = lambda grid: [line for line in texts(grid) if "›" in line]
-        self.assertEqual(len(highlighted(screens[0])), 1)
-        self.assertEqual(highlighted(screens[1]), [])
-        self.assertEqual(highlighted(screens[2]), highlighted(screens[0]))
-
     def test_a_screens_key_line_lights_the_item_under_the_pointer(self):
         def screen():
             while True:
@@ -553,7 +533,7 @@ class Screens(Sandbox):
         # each key ends its line on the terminal's last column, `esc back` after another and
         # `a apply to all sessions` alone: its light ends there, never past the edge, where it
         # would wrap onto the row under it
-        for line, cols, key in (("r recommended   esc back", 26, "esc back"),
+        for line, cols, key in (("r your runs   esc back", 24, "esc back"),
                                 (f"{menu.APPLY_KEY}   esc back", 25, menu.APPLY_KEY)):
             def screen():
                 while True:

@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from test_key_models_answer import ENV
+from fixtures.akboards import ENV
 from test_key_models_own_tables import MODELS, used_home
 
 ASCII = [{"LC_ALL": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"},

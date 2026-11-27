@@ -113,7 +113,7 @@ class NoNameHasAColour(unittest.TestCase):
         ready = cls.rest(lambda text: "config · models" in text
                          and all(name in text for name in HARNESSES))
         screens["models away"] = cls.away("esc back", ready)
-        for back in ("r recommended", "esc leave"):        # onto `c`, then the ak screen
+        for back in ("r your runs", "esc leave"):        # onto `c`, then the ak screen
             term.keys("Escape")
             cls.rest(lambda text: back in text)
         term.keys("c", *["Down"] * (len(MODELS) + 1))       # past the models and `Models`
@@ -126,7 +126,7 @@ class NoNameHasAColour(unittest.TestCase):
         term.keys("Right")
         screens["page keyed"] = keyed = cls.rest(lambda text: "⏎ remove" in text)
         screens["page act"] = cls.point(cls.away("esc back", keyed), "Gemini", "⏎ remove")
-        for back in ("r recommended", "esc leave"):        # onto `c`, then the ak screen
+        for back in ("r your runs", "esc leave"):        # onto `c`, then the ak screen
             term.keys("Escape")
             cls.rest(lambda text: back in text)
 

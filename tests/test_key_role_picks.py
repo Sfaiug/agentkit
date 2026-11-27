@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, EVALUATIONS, aa, boards
+from fixtures.akboards import ENV, EVALUATIONS, aa, boards
 
 # Every role has qualities 70, 90, 99, 100: the second row is farthest above the line.
 # Only the last two cannot be told from the best; their cheaper row wins the tie.

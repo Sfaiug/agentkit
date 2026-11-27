@@ -147,9 +147,9 @@ class ConfigScreen(Sandbox):
         for place in (label, (at(first, "orch")[0] + 1, label[1]), at(first, "Claude", 1)):
             with self.subTest(place=place):
                 # the keys for what the pointer moved the highlight onto, and nothing else:
-                # the seat's `r recommended` stands wherever the highlight is
+                # the seat's `r your runs` stands wherever the highlight is
                 self.assertRegex(keys_of(self.matrix(move(*place), ESC)[1]),
-                                 r"^  ↑↓←→ move   (␣ mark|⏎ open)   r recommended   esc back$")
+                                 r"^  ↑↓←→ move   (␣ mark|⏎ open)   r your runs   esc back$")
 
     def test_the_worker_token_stands_under_the_rows_from_fourteen_days_out(self):
         later = "claude worker token expires 2027-09-22 (in 356 days)"

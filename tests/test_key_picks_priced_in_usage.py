@@ -16,7 +16,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, EVALUATIONS, aa, boards
+from fixtures.akboards import ENV, EVALUATIONS, aa, boards
 from test_key_config_save_keeps import UNKNOWN
 from test_key_role_cost_from_runs import NOW, History
 

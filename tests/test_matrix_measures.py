@@ -1,7 +1,7 @@
-"""What `ak models` rates each role on is pinned here, so it changes only with a visible test
-change: the roles, each role's measures in order with the kind of number each is and its weight,
-the cost of a role's task (`quality`), how many tasks or questions a measure's error counts, and
-that every measure says what it tests in plain words and has a name on the models screen."""
+"""What `ak models --json` rates each role on is pinned here, so it changes only with a visible
+test change: the roles, each role's measures in order with the kind of number each is and its
+weight, the cost of a role's task (`quality`), how many tasks or questions a measure's error
+counts, and that every measure says what it tests in plain words."""
 
 from pathlib import Path
 import sys
@@ -9,7 +9,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import menu, quality
+from agentkit import quality
 
 # what `quality` rates each role on, and the cost of its task
 QUALITY = {
@@ -35,8 +35,6 @@ class MatrixMeasures(unittest.TestCase):
         self.assertEqual(quality.COSTS, COSTS)
         self.assertEqual(quality.TASKS, TASKS)
         self.assertEqual(quality.OMNISCIENCE[-1], OMNISCIENCE_QUESTIONS)
-        self.assertEqual(set(menu.MEASURES), {column for measures in QUALITY.values()
-                                              for column, _, _ in measures})
         for measures in quality.ROLES.values():
             for column, kind, _, why in measures:
                 self.assertRegex(column, r"^(aa|arena)\.[A-Za-z0-9_.]+$")

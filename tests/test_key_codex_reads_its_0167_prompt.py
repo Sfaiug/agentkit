@@ -24,7 +24,7 @@ from fixtures.akterm import SERVER, Terminal
 FIELD = re.compile(r"^\s+(\w+):\s+(.*?)\s*$")
 DECIDED = re.compile(r"^(\S+)\s+rule:\s+(\S+)$")
 SEAT = "acme-fix"
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   esc back"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 # Each screen with its composer's prompt mark as the capture draws it, its colours before it,
