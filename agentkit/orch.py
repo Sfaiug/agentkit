@@ -183,14 +183,15 @@ def in_order(cfg):
 
 
 def refuse_start(cfg, model):
-    """Refuse a new seat on `model` that cannot open here: `model` off (`matrix.refuse_off`)
-    or its harness not installed (`config.harness_present`) -- a seat on that one opens a pane
-    saying only that the harness ended.  Asked by `create` and its previews once the name is
-    free and the model is known, before anything is saved or started for the seat; a move asks
-    `orch.move`."""
+    """Refuse a new seat on `model` whose harness is not installed (`config.harness_present`):
+    a seat on that one opens a pane saying only that the harness ended.  Where `model` is also
+    off (`matrix.refuse_off`), that refusal still comes first; with the harness installed,
+    `create`'s existing refusals keep their order (login before off in `command`).  Asked by
+    `create` and its previews once the name is free and the model is known, before anything is
+    saved or started for the seat; a move asks `orch.move`."""
     harness = config.model(cfg, model)["harness"]
-    matrix.refuse_off(cfg, model)
     if not config.harness_present(harness):
+        matrix.refuse_off(cfg, model)
         raise config.Error(f"{model}: {harness} is not installed on this machine; "
                            f"./install.sh, run in a terminal, installs it")
 

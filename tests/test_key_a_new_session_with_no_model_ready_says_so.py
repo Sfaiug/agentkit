@@ -121,11 +121,19 @@ class NoModelReady(unittest.TestCase):
         menu.keys("Enter")
         path = self.home.path / ".agentkit/state/session-fix-api.json"
         deadline = time.monotonic() + 30
-        while not path.exists():
+        while True:
+            listed = self.home.tmux("list-sessions", "-F", "#{session_name} #{session_attached}")
+            if "fix-api 1" in listed.out.splitlines() and path.exists():
+                break
+            screen = menu.screen()
+            self.assertNotIn("new session:", screen,
+                             f"fix-api was refused; the terminal shows:\n{screen}")
             self.assertLess(time.monotonic(), deadline,
-                            f"fix-api never started; the terminal shows:\n{menu.screen()}")
+                            f"fix-api never started; tmux holds {listed.out!r} and the terminal "
+                            f"shows:\n{screen}")
             time.sleep(0.05)
         self.assertEqual(json.loads(path.read_text())["orchestrator"], "opus")
+        self.assertTrue(self.fakes["claude"].calls("interactive"))
 
     def refused_by_orch(self, picked, said, answers):
         """`ak orch fix-api` and `picked` say `said`, a dry run or not, saving and starting
@@ -171,6 +179,15 @@ class NoModelReady(unittest.TestCase):
         done = self.home.ak("orch", "fix-api", "--model", "astra", "--dry-run")
         self.assertEqual(done.code, 2, done.out + done.err)
         self.assertIn("astra is off in the model list", done.err)
+
+    def test_with_the_harness_installed_existing_refusal_order_stays_unchanged(self):
+        akconfig.write(self.home, ["opus", "astra"],
+                       providers={"anthropic": {"mode": "subscription", "accounts": ["acme"]}},
+                       settings={"models_off": ["claude-opus-5-5"]})
+        self.fakes["claude"].answer("auth", "signed out", code=1, given=("seat",))
+        done = self.home.ak("orch", "fix-api", "--model", "opus", "--workers", "astra", "--dry-run")
+        self.assertEqual(done.code, 2, done.out + done.err)
+        self.assertEqual(done.err, "ak orch: anthropic: no account has a working seat login\n")
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_a_name_held_by_tmux_is_still_said_first(self):
