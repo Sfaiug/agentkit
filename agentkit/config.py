@@ -1196,7 +1196,12 @@ def efforts(harness, model=None, listing=None):
 def _toml_key(key):
     if isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_-]+", key):
         return key
-    return json.dumps(key, ensure_ascii=False)
+    return _toml_string(key)
+
+
+def _toml_string(text):
+    # json.dumps escapes every control character a TOML string forbids but DEL
+    return json.dumps(text, ensure_ascii=False).replace("\x7f", "\\u007f")
 
 
 def read_whole(digits):
@@ -1230,11 +1235,11 @@ def _toml_value(value):
     if isinstance(value, int):
         return whole(value)
     if isinstance(value, float):
-        if not math.isfinite(value):
-            raise Error(f"cannot write {value!r} to {CONFIG_NAME}: not a TOML number")
-        return repr(value)
+        if math.isnan(value):       # repr drops the sign tomllib reads of -nan
+            return "-nan" if math.copysign(1, value) < 0 else "nan"
+        return repr(value)      # inf and -inf as TOML spells them too
     if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
+        return _toml_string(value)
     if isinstance(value, list):
         return "[" + ", ".join(_toml_value(item) for item in value) + "]"
     if isinstance(value, dict):
@@ -1262,35 +1267,20 @@ _MODEL_ORDER = ("harness", "model", "effort", "exec_effort", "review_effort", "p
 _PROVIDER_ORDER = ("mode", "usage_model", "usage_effort")
 
 
-def _dump_table(path, value, chunks):
-    """One TOML table and whatever it holds, appended to chunks; unknown shapes included.
+def _dump_table(path, table, chunks):
+    """One TOML table and the tables it holds, appended to chunks; unknown ones included.
 
     Tables the schema knows are ordered canonically by the caller; anything else -- a new
-    top-level table, a nested table, an array of tables -- is written in place, so a setting
-    this writer never heard of still survives a menu edit with its value unchanged.
+    top-level table, a nested table -- is written in place and every array inline, which holds
+    any mix of values and tables, so a setting this writer never heard of still survives a menu
+    edit with its value unchanged.
     """
-    if isinstance(value, dict):
-        head = "[" + ".".join(_toml_key(part) for part in path) + "]"
-        pairs = [(key, item) for key, item in value.items() if not isinstance(item, dict)
-                 and not (isinstance(item, list) and any(isinstance(bit, dict) for bit in item))]
-        chunks.append([head] + [f"{_toml_key(key)} = {_toml_value(item)}" for key, item in pairs])
-        for key, item in value.items():
-            if isinstance(item, dict):
-                _dump_table([*path, key], item, chunks)
-            elif isinstance(item, list) and any(isinstance(bit, dict) for bit in item):
-                for bit in item:
-                    if not isinstance(bit, dict):
-                        raise Error(f"cannot write {CONFIG_NAME}: [{key}] mixes tables and values")
-                    head = "[[" + ".".join(_toml_key(part) for part in [*path, key]) + "]]"
-                    chunks.append([head] + [f"{_toml_key(k)} = {_toml_value(v)}"
-                                            for k, v in bit.items()])
-    elif isinstance(value, list) and all(isinstance(bit, dict) for bit in value):
-        for bit in value:
-            head = "[[" + ".".join(_toml_key(part) for part in path) + "]]"
-            chunks.append([head] + [f"{_toml_key(k)} = {_toml_value(v)}"
-                                    for k, v in bit.items()])
-    else:
-        raise Error(f"cannot write {CONFIG_NAME}: [{path[-1]}] is not a table")
+    chunks.append(["[" + ".".join(_toml_key(part) for part in path) + "]"] +
+                  [f"{_toml_key(key)} = {_toml_value(item)}"
+                   for key, item in table.items() if not isinstance(item, dict)])
+    for key, item in table.items():
+        if isinstance(item, dict):
+            _dump_table([*path, key], item, chunks)
 
 
 def dump(cfg):
