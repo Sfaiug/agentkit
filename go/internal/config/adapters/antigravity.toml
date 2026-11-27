@@ -79,16 +79,22 @@ words = ["content"]
 # The composer is a bare `>` between two rules; a typed line reads `> text`, and so does every
 # prompt the transcript echoes, which is why only the empty one is chrome.
 composer = '^>$'
+# Before a conversation's first prompt agy 1.5 draws a mode hint in its theme's muted colour
+# (`90` on terminal, `38;5;241`/`66`/`109`/`246`/`103` across its other built-in themes), and
+# typed text in the terminal's own colour: those muted colours read as faint, so empty.
+faint = ["90", "38;5;66", "38;5;103", "38;5;109", "38;5;241", "38;5;246"]
 # Ctrl-G hands the composer to $VISUAL, ak's editor, mid-turn too (agy 1.4.2)
 editor = ["C-g"]
 # and the line under it: a key hint on the left -- `? for shortcuts` at rest, `esc to cancel`
 # while a turn runs or a chooser is open, `press ctrl+c again to exit` after one Ctrl-C, nothing
-# over a draft -- and on the right the model and effort (`Gemini 3.8 Flash · low`), or, on a
+# over a draft -- and on the right an optional non-default mode (`plan` or `accept-edits`, alone
+# or ` · ` before the rest, agy 1.5), the model and effort (`Gemini 3.8 Flash · low`), or, on a
 # seat opened with `--agent`, the agent with them once agy has resolved the model (`agentkit
 # (Gemini 3.8 Flash · low)  /agents`, and `agentkit (GPT-OSS 120B (Medium))  /agents` for a
 # label with brackets of its own), then ` · 1 task(s) · /tasks` while a command agy moved to the
 # background runs.  Below about 58 columns only the key hint is drawn (agy 1.3.5, captured).
-footer = ['(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)?\s*(?:[^·]+ · (?:low|medium|high|xhigh|max)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)',
+footer = ['(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)?\s*(?:(?:plan|accept-edits) · )?(?:[^·]+ · (?:low|medium|high|xhigh|max)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)',
+          '(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)\s+(?:plan|accept-edits)',
           '\? for shortcuts']
 # What the composer holds: everything after its `>` down to the last rule on the screen, so a
 # `>` in a wrapped line is the line's own and a chooser's `> /usage` under that rule is not it,
@@ -174,7 +180,7 @@ state = "draft"
 lines = 2
 none = ["esc to cancel"]
 row = '^─+$'
-newest = '^(?:[^·?]+ · (?:low|medium|high|xhigh|max)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)$'
+newest = '^(?:(?:(?:plan|accept-edits) · )?(?:[^·?]+ · (?:low|medium|high|xhigh|max)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)|plan|accept-edits)$'
 
 # The footer with the empty composer drawn over it; the terms pages of agy's first run keep
 # the footer and draw no composer, `press ctrl+c again to exit` under them included (captured).

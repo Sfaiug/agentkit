@@ -1456,8 +1456,10 @@ def _faint_runs(raw, state=(False, False), colours=()):
             reverse = True if code == 7 else False if code in (0, 27) else reverse
             if isinstance(code, str):
                 muted = code in colours if code.startswith("38;") else muted
-            elif code in (0, 39) or 30 <= code <= 37 or 90 <= code <= 97:
+            elif code in (0, 39):
                 muted = False
+            elif 30 <= code <= 37 or 90 <= code <= 97:
+                muted = str(code) in colours
         at = found.end()
     return [*runs, (raw[at:], faint or muted, reverse)], (faint, muted)
 
@@ -1470,18 +1472,24 @@ def _faint_drawn(raw, state=(False, False), colours=()):
     return any(dim and text.strip() for text, dim, _ in runs), state
 
 
-def _bright_rows(raws, colours=()):
-    """Each raw `-e` row as plain text, its faint text blanked, the state carried as `dim_rows`
-    carries it: what is left is what was typed, a suggestion drawn on after it none of it, nor
-    the cursor's cell, drawn reversed, on its first letter."""
+def _bright_drawn(raws, colours=()):
+    """Each raw `-e` row as plain text, its faint text blanked in place so every character keeps
+    its column (`len(row) == len(strip_sgr(raw))`), the state carried as `dim_rows` carries it:
+    what is left is what was typed, a suggestion drawn on after it none of it, nor the cursor's
+    cell, drawn reversed, on its first letter."""
     state, rows = (False, False), []
     for raw in raws:
         runs, state = _faint_runs(raw, state, colours)
         shown = [at for at, (text, _, _) in enumerate(runs) if strip_sgr(text).strip()]
         under = {at for at, after in zip(shown, shown[1:]) if runs[at][2] and runs[after][1]}
-        rows.append(strip_sgr("".join(" " * len(text) if dim or at in under else text
-                                      for at, (text, dim, _) in enumerate(runs))).strip())
+        rows.append("".join(" " * len(strip_sgr(text)) if dim or at in under else strip_sgr(text)
+                            for at, (text, dim, _) in enumerate(runs)))
     return rows
+
+
+def _bright_rows(raws, colours=()):
+    """Each raw `-e` row as plain text, its faint text blanked (`_bright_drawn`), stripped."""
+    return [row.strip() for row in _bright_drawn(raws, colours)]
 
 
 def has_dim(line, colours=()):
@@ -2130,6 +2138,7 @@ def screen_rule(harness, pane):
         if (above and not above[0].isspace() and above[0] not in "│┃║"
                 and not re.match(rf"[>{PROMPT}]", above) and not drawn_rule(above.strip())):
             newest = lines[-2]
+    bright_lines = None
     for rule in chrome["rules"]:
         region = lines[-rule["lines"]:]
         raws = raw_lines[-rule["lines"]:]
@@ -2197,9 +2206,19 @@ def screen_rule(harness, pane):
             elif _suggestion_line(raws[at], region[at], chrome["faint"]):
                 return rule, region[at][:160]
             continue
-        # a row pattern reads its rows as drawn, indented or from the left edge
-        drawn = [line for raw, line in zip(raws, region)
-                 if rule["row"] and rule["row"].search(strip_sgr(raw).rstrip())]
+        # a row pattern reads its rows as drawn, indented or from the left edge; at an empty
+        # prompt, faint or muted hint text in the composer is blanked so its prompt mark still reads
+        if rule["row"] and rule["chrome"] and rule["state"] == "at_prompt" and bright_lines is None:
+            bright_lines = [row.rstrip() for row in _bright_drawn(raw_lines, chrome["faint"])]
+        brights = (bright_lines[-rule["lines"]:]
+                   if rule["row"] and rule["chrome"] and rule["state"] == "at_prompt" else None)
+        drawn = [line for at, (raw, line) in enumerate(zip(raws, region))
+                 if rule["row"] and (
+                     rule["row"].search(strip_sgr(raw).rstrip())
+                     or brights is not None
+                     and not (chrome["scrolled"]
+                              and chrome["scrolled"].search(strip_sgr(raw).rstrip()))
+                     and rule["row"].search(brights[at]))]
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
                 or (rule["none"] and any(mark in low for mark in rule["none"]))
@@ -4309,28 +4328,40 @@ def _composer_rows(harness, pane, *, exact=False):
         # screen, a row its pattern names; with none there, a blank capture above all, nothing
         # was read.  Its rows are read as drawn, the tail's blank rows among them: their inset
         # tells its prompt row from text, and a blank row ends a box, so an older one framed
-        # above it is none of it while a bare row inside it can be a draft's own.
-        drawn = [strip_sgr(row).rstrip() for row in pane.splitlines()]
+        # above it is none of it while a bare row inside it can be a draft's own.  Faint or
+        # muted text (`[screen] faint`) inside the block is blanked as a placeholder, while
+        # the frame itself stays plain so a grey rule still bounds the composer.
+        raw_all = pane.splitlines()
+        drawn = [strip_sgr(row).rstrip() for row in raw_all]
         top = [at for at, row in enumerate(drawn) if row.strip()][-PANE_LINES:]
-        source = "\n".join(drawn[top[0]:] if top else [])
+        start = top[0] if top else len(drawn)
+        source = "\n".join(drawn[start:])
         found = list(chrome["draft"].finditer(source))
         if exact and not found:
             return None
         if not found and not (chrome["composer"]
                               and any(chrome["composer"].fullmatch(row) for row in rows)):
             return None
+        bright = "\n".join(row[:len(plain)] for row, plain in zip(
+            _bright_drawn(raw_all, chrome["faint"])[start:], drawn[start:]))
         parts = []
         for match in found:
             edge = match.groupdict().get("edge") or ""
             before = source[:match.start()].splitlines()
+            plain_rows = [row[len(edge):].strip() for row in match["text"].splitlines()]
             # A block read without its opening is the end of one cropped above the read, a
             # padding row inside a draft is not its opening edge, nor is an edge at the start
-            # of a cropped read proof that none of the draft sits above it.
-            if exact and (not match.groupdict().get("opening") or edge and (
-                    before and before[-1].startswith(edge)
-                    or not before and len(_content_rows(pane)) > PANE_LINES)):
+            # of a cropped read proof that none of the draft sits above it.  A scroll marker
+            # painted faint (`[screen] faint`) still proves the draft is cropped before blanking.
+            if exact and (not match.groupdict().get("opening")
+                          or chrome["scrolled"] is not None
+                          and any(chrome["scrolled"].search(row) for row in plain_rows)
+                          or edge and (
+                              before and before[-1].startswith(edge)
+                              or not before and len(_content_rows(pane)) > PANE_LINES)):
                 return None
-            parts.extend(row[len(edge):].strip() for row in match["text"].splitlines())
+            text = bright[match.start("text"):match.end("text")]
+            parts.extend(row[len(edge):].strip() for row in text.splitlines())
         return _unscrolled(chrome, parts, exact=exact)
 
     def end(at):
