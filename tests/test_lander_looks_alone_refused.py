@@ -2,7 +2,8 @@
 
 Offline, in process, as tests/test_lander.py: a member of looks alone (`land._looks`) whose record
 changes while its `# once` commands run gets no verdict this pass, and the members behind it are
-checked on the target alone, never on its refused tree.
+checked on the target alone, never on its refused tree.  Each member's review ran its chosen tests
+green on its head, as a reviewer's PASS runs them.
 """
 
 from pathlib import Path
@@ -11,7 +12,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import SUITE, LanderFixture
-from agentkit import config, gitcall, land, record, run
+from agentkit import config, gitcall, history, land, record, run
 
 IMAGE = {"site.png": "teal\n"}
 
@@ -29,6 +30,14 @@ class ARefusedLooksVerdict(LanderFixture, unittest.TestCase):
         (config.STATE / f"test-times-{gitcall.repository_id(self.repo)}.json").write_text(
             '{"t/ok.sh": 1}')
         self.moved = None
+
+    def member(self, name, *args, **kw):
+        directory = super().member(name, *args, **kw)
+        history.start_run(name, repo=str(self.repo))
+        head = record.read_state(directory)["review"]["head_sha"]
+        with history.check((directory, 1, "chosen", head), SUITE, 0) as ended:
+            ended["exit"] = 0
+        return directory
 
     def check(self, cmds, cwd, log_path, *args, **kw):
         if self.moved:

@@ -9,8 +9,8 @@ PASS runs, so it waits on a busy host and lands through the whole suite, its mer
 `Looks-Alone-Tree` trailer (`Suite-Passed-Tree: <tree>`).  A verdict of looks alone an older lander
 saved for such a run never lands it: its resume, or a retry of its failed delivery, runs the
 installed ak, never the older one the run is pinned to, and rejoins the line with no verdict.  The
-same change on a target without the mark, reviewed, lands as looks alone with no whole run and
-`Looks-Alone-Tree: <tree>`.
+same change on a target without the mark, reviewed, its review running the test a landing on
+record was red on, lands as looks alone with no whole run and `Looks-Alone-Tree: <tree>`.
 
 Black-box, on the fixtures of tests/test_key_a_change_of_looks_alone_lands_on_its_quick_checks.py:
 the program `AK_BIN` names, through tests/fixtures/akline.py, fakeadapter.py and fakegh.py's
@@ -133,6 +133,7 @@ class ARunWithoutReviewIsNotLandedAsLooksAlone(unittest.TestCase):
 
     def test_without_the_mark_a_reviewed_image_lands_as_looks_alone(self):
         line = self.line()
+        quick.red(line)
         reviews, tree, message = self.deliver(line, quick.BUSY)
         self.assertEqual(reviews, 1)
         self.assertEqual(line.whole(), 0, line.runs())
