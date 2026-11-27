@@ -6414,9 +6414,10 @@ def config_machines(cfg):
 
     def runs_row(where, held, *said):
         """`runs at once` (the owner, 25 Nov 2026: "one number per machine"), `max_runs` in the
-        table of cfg at the keys `where` names, its top for none: `held`, the number in force,
-        or `no limit`, then `said`, dim.  Enter opens a field: a whole number of 1 or more is
-        saved there, 0 or nothing typed takes it off, anything else is refused in a sentence."""
+        table of cfg at the keys `where` names as the field saves, its top for none: `held`, the
+        number in force, or `no limit`, then `said`, dim.  Enter opens a field: a whole number
+        of 1 or more is saved there, 0 or nothing typed takes it off, anything else is refused
+        in a sentence."""
         def field(draw):
             typed = terminal.field("    ", "a whole number, or 0 for no limit",
                                    around=lambda line: draw([line]))
@@ -6441,10 +6442,15 @@ def config_machines(cfg):
         return ("runs at once", [(config.whole(held) if held else "no limit", None),
                                  *((words, "dim") for words in said)], field)
 
+    # the keys of the table whose number this one's row last drew, where its field saves: a
+    # tick may find this host a listed machine, or no longer one, while the field is open
+    here = []
+
     def home_page():
-        held = config.max_runs()
+        where, held = config.max_runs_at()
+        here[:] = where
         config.load()       # as on Machines' own page
-        return [runs_row((), held, *["set by AK_MAX_RUNS"] * ("AK_MAX_RUNS" in os.environ))], ""
+        return [runs_row(here, held, *["set by AK_MAX_RUNS"] * ("AK_MAX_RUNS" in os.environ))], ""
 
     def work_page(name):
         def flip(word):

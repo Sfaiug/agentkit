@@ -155,7 +155,23 @@ def max_runs():
         if not override.isascii() or not override.isdigit():
             raise Error("AK_MAX_RUNS must be a non-negative integer (0 disables the cap for tests)")
         return read_whole(override)
-    return _count_setting("max_runs")
+    return max_runs_at()[1]
+
+
+def max_runs_at():
+    """(the keys of config.toml's table whose `max_runs` caps this host, the cap in force, 0 for
+    none): the top's, but on a host that is a listed machine (machines.itself) that machine's,
+    the top line then a stand-in's copy of the home's, another machine's number; AK_MAX_RUNS's
+    where it is set, the table's then unread.  Both from one reading of the file and of the
+    record, so a save or a tick meanwhile is read whole."""
+    from . import machines      # here, not at the top: machines imports this module
+    cfg = _read_toml(HOME / CONFIG_NAME) or {}
+    own = machines.itself(cfg)
+    if "AK_MAX_RUNS" in os.environ:
+        return ("machines", own) if own else (), max_runs()
+    if own:
+        return ("machines", own), machines.max_runs(own, cfg) or 0
+    return (), _count_setting("max_runs", cfg)
 
 
 def max_gates():
@@ -175,12 +191,12 @@ def max_gates():
     return value
 
 
-def _count_setting(key):
-    """A non-negative integer at the top of the home config file, or the shipped default."""
-    path = HOME / CONFIG_NAME
-    value = (_read_toml(path) or {}).get(key, RUN_DEFAULTS[key])
+def _count_setting(key, cfg):
+    """A non-negative integer at the top of `cfg`, the home config file, or the shipped
+    default."""
+    value = cfg.get(key, RUN_DEFAULTS[key])
     if type(value) is not int or value < 0:
-        raise Error(f"{path}: {key} must be a non-negative integer")
+        raise Error(f"{HOME / CONFIG_NAME}: {key} must be a non-negative integer")
     return value
 
 
@@ -2237,11 +2253,11 @@ def live_host():
     return alias or None
 
 
-def suite_helper():
+def suite_helper(cfg=None):
     """The ssh alias of the machine that runs suite pieces beside this one (agentkit/helper.py),
-    from `suite_helper` in config.toml, or None when the owner has named none."""
+    from `suite_helper` in config.toml or `cfg`, or None when the owner has named none."""
     try:
-        alias = (_read_toml(HOME / CONFIG_NAME) or {}).get("suite_helper")
+        alias = ((_read_toml(HOME / CONFIG_NAME) or {}) if cfg is None else cfg).get("suite_helper")
     except Error:
         return None
     return alias if isinstance(alias, str) and alias else None

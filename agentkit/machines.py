@@ -74,10 +74,19 @@ def helpers():
             if last.get("name") != here and not (last.get("battery") and not last.get("power"))]
 
 
-def _listed():
-    """Every machine listed: config.toml's as is, not `config.load`'s."""
-    named = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machines")
-    names = [*(named if isinstance(named, dict) else ()), config.suite_helper()]
+def itself(cfg):
+    """The listed machine of `cfg` that is this host, the first helpers leaves out as one, or
+    None."""
+    record, here = _record(), socket.gethostname()
+    return next((name for name in _listed(cfg)
+                 if (record.get(name, {}).get("said") or {}).get("name") == here), None)
+
+
+def _listed(cfg=None):
+    """Every machine listed: config.toml's as is, not `config.load`'s, or `cfg`'s."""
+    cfg = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}) if cfg is None else cfg
+    named = cfg.get("machines")
+    names = [*(named if isinstance(named, dict) else ()), config.suite_helper(cfg)]
     return [name for name in dict.fromkeys(names) if name]
 
 
@@ -259,10 +268,15 @@ def _probe(name, *options):
 
 
 def _record():
+    """The record, of each machine whose entry is a table, its last answer none where that is
+    not one: ak writes neither, and a check it keeps stays."""
     try:
-        return json.loads(_path().read_text(encoding="utf-8"))
+        record = json.loads(_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    return {name: was if isinstance(was.get("said") or {}, dict) else {**was, "said": None}
+            for name, was in record.items() if isinstance(was, dict)} \
+        if isinstance(record, dict) else {}
 
 
 def _write(change):
