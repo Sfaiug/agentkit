@@ -11,12 +11,14 @@ combination of models, and I would like to see why, in numbers".
 
 from fractions import Fraction
 import math
+import re
 
 from . import config, menu, terminal, usage
 from .ledger import HOURS, ROLES, recorded
 
 FEW = 20        # a row of fewer tasks says only how many: a few tasks say nothing yet
 WORDS = {"orchestrator": "ORCHESTRATOR", "executor": "BUILDER", "reviewer": "REVIEWER"}
+DOING = {"orchestrator": "orchestrating", "executor": "building", "reviewer": "reviewing"}
 
 
 def share(part, whole):
@@ -104,20 +106,21 @@ def by_role(teams, now):
 
 def lines(own, cfg, room, paid):
     """`own` (`by_role`) as `ak models` draws it on `room` cells, its plans costing what `paid`
-    (`money.month`'s) says: a line on the team now, then a table a role of its rows in `own`'s
-    order under its role's COLUMNS, each in use marked as docs/cli-design.md marks one
-    (menu.config_audit's `●` for the one orchestrator, `■` for any of several), named as every
-    screen names it (`named`), and under the last table a muted line saying what the short
-    headings count.  The name and LEAD's columns are sized once for the three tables, to stand
-    under each other, each other column for its own; where a table passes the edge every row
-    folds, no column headed: its model's line, then its numbers indented, each after its column's
-    name, wrapped between two of them."""
+    (`money.month`'s) says: a line on the team now (`spent` among its clauses), then a table a
+    role of its rows in `own`'s order under its role's COLUMNS, each in use marked as
+    docs/cli-design.md marks one (menu.config_audit's `●` for the one orchestrator, `■` for any of
+    several), named as every screen names it (`named`), and under the last table a muted line
+    saying what the short headings count.  The name and LEAD's columns are sized once for the
+    three tables, to stand under each other, each other column for its own; where a table passes
+    the edge every row folds, no column headed: its model's line, then its numbers indented, each
+    after its column's name, wrapped between two of them."""
     team, tasks = own["team"], own["team"]["tasks"]
     said = [f"{team['live']} of {tasks} tasks went live", *(
-        [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting"]
-        if team["live"] else [])] if tasks >= FEW else [f"{tasks} task{'s' * (tasks > 1)}"]
-    # a line too wide breaks between its clauses
-    shown = menu.packed(["Your team now:", *(part + "," for part in said[:-1]), said[-1]]
+        [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting",
+         *spent(team, paid)] if team["live"] else [])] if tasks >= FEW else [
+        f"{tasks} task{'s' * (tasks > 1)}"]
+    # a line too wide breaks between its clauses, each ending in `,` or `:`
+    shown = menu.packed(re.split(r"(?<=[,:]) ", f"Your team now: {', '.join(said)}")
                         if tasks else ["Your team now has no task yet"], " ", room)
     marks = ("●○", "■□") if terminal.utf8() else ("*.", "#-")
     tables = {role: [((marks[role != "orchestrator"][0], "accent") if row["in_use"] else
@@ -157,6 +160,18 @@ def lines(own, cfg, room, paid):
 def per_live(counts, parts=HOURS):
     """`2.7 h`: the hours a row's or the team's tasks spent on `parts` per task that went live."""
     return f"{math.fsum(counts['hours'][part] for part in parts) / counts['live']:.1f} h"
+
+
+def spent(team, paid):
+    """[`$0.60 per task live: orchestrating $0.20, building $0.27, reviewing $0.13`]: what the
+    team's tasks took per task live in all, then in each role that took points (`took`'s money);
+    none where they took none or a plan they took points of has no price at `paid`, as a sum of
+    some roles would read as all."""
+    total, *each = (took(team, role, paid, share=False) for role in (ROLES, *ROLES))
+    if total == "-":
+        return []
+    return [f"{total} per task live: " + ", ".join(
+        f"{DOING[role]} {cost}" for role, cost in zip(ROLES, each) if cost != "-")]
 
 
 def took(row, role, paid, *, per=None, share=True):
