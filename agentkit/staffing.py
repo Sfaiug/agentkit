@@ -371,7 +371,8 @@ def run_refusal(cfg, providers, workers, want_exec=None, want_review=None, revie
 def same_model(cfg, first, second):
     """Whether two worker names are the same model: the same name, or the same provider
     and model id under another name -- the `sonnet-2` the `c` screen adds an already
-    configured model as at another effort."""
+    configured model as at another effort.  Entries naming no model id of their own
+    (`config.model_id` is None) match only on the same harness."""
     if not first or not second:
         return False
     if first == second:
@@ -380,7 +381,8 @@ def same_model(cfg, first, second):
         one, two = config.model(cfg, first), config.model(cfg, second)
     except config.Error:
         return False
-    return one["provider"] == two["provider"] and one["model"] == two["model"]
+    return (one["provider"] == two["provider"] and one["model"] == two["model"]
+            and (config.model_id(one) is not None or one["harness"] == two["harness"]))
 
 
 def known(cfg, names):
@@ -521,7 +523,7 @@ def review_pair(state):
 
 def self_reviewed(state, cfg=None):
     """Whether this run's review pair is one model. With no config only the same name counts;
-    with it, aliases of the same provider and model id count too."""
+    with it, aliases `same_model` matches count too."""
     executor, reviewer = review_pair(state)
     if not reviewer or not executor or reviewer == executor:
         return bool(reviewer and reviewer == executor)

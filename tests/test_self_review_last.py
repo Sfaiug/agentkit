@@ -174,6 +174,21 @@ class SelfReviewLast(unittest.TestCase):
         self.assertEqual(run.reviewer_order(self.cfg, "acme-one", ["acme-one", "beta-one"]),
                          ["beta-one", "acme-one"])
 
+    def test_a_harness_default_on_another_harness_is_another_model(self):
+        self.cfg["models"]["acme-one"]["model"] = "default"
+        self.cfg["models"]["acme-two"].update(harness="other", model="default")
+        self.assertFalse(staffing.same_model(self.cfg, "acme-one", "acme-two"))
+        self.assertFalse(staffing.self_reviewed({"executor": "acme-one", "reviewer": "acme-two"},
+                                                self.cfg))
+        self.assertEqual(run.reviewer_order(self.cfg, "acme-one", ["acme-one", "acme-two"]),
+                         ["acme-two", "acme-one"])
+        # an explicit model id on one provider stays the same model across harnesses
+        self.cfg["models"]["acme-one"]["model"] = "acme-1"
+        self.cfg["models"]["acme-two"]["model"] = "acme-1"
+        self.assertTrue(staffing.same_model(self.cfg, "acme-one", "acme-two"))
+        self.assertTrue(staffing.self_reviewed({"executor": "acme-one", "reviewer": "acme-two"},
+                                               self.cfg))
+
     def test_a_launch_with_one_worker_is_not_refused(self):
         self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, ["acme-one"]))
         self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, ["acme-one"],
