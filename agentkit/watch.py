@@ -759,7 +759,8 @@ def prompted_since(name, at):
 
 def continue_turns(cfg, log, accounts=False, names=None):
     """Continue rebooted seats or have them ask again, or (`accounts`) continue seats reopened
-    on another subscription; of `names` only, where given. Return seats observed taking a prompt.
+    on another subscription; of `names` only, where given. Return seats observed taking a prompt
+    and publish their new screens on account moves.
 
     The mark goes on once the relaunch is back and comes off once the line has landed, so a
     send that failed -- or a tick killed in the warmup -- is tried again by the next tick,
@@ -778,7 +779,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
     till the prompt is stamped, or for MIDTURN_TRIES passes.
     """
     boot = boot_id()
-    prompted = set()
+    prompted = {}
     for name in config.session_records() if names is None else names:
         mark = seat_read(name).get("midturn")
         if not isinstance(mark, dict) or bool(mark.get("account")) != accounts:
@@ -790,7 +791,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
             waited = (mark.get("tries") or 0) + 1
             if session and not session.get("exited"):
                 if prompted_since(name, at):
-                    prompted.add(name)
+                    prompted[name] = session
                 elif waited < MIDTURN_TRIES:
                     replace_midturn(name, mark, {**mark, "tries": waited})
                     continue
@@ -815,7 +816,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
                     return quiet == [False] or taken(held)
                 sent = type_into(session, line, log, stale, asked=True)
                 if sent:
-                    prompted.add(name)
+                    prompted[name] = session
                     log(f"told {name}: {line}")
                 elif taken(config.resolve_session(name)):
                     log(f"{name} was prompted or renamed since it came back: no line")
@@ -828,7 +829,11 @@ def continue_turns(cfg, log, accounts=False, names=None):
                 else:
                     log(f"WARN {name}: its line did not land in {tries} tries")
         replace_midturn(config.resolve_session(name), mark)
-    return prompted
+    if accounts and prompted:
+        records = _health_records()
+        for session in prompted.values():
+            announce_state(session, cfg=cfg, records=records, look=True)
+    return set(prompted)
 
 
 def finish_own_lines(cfg, log):
@@ -5670,6 +5675,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
     id the running pane is the only copy: wait for its own account, then continue in place.
     A closed pane is never a request to start a turn. Report a relaunch out of a usage
     wait as "relaunched": its replacement pane can still be drawing when the wait clears.
+    Report a prompt sent in place as "continued" so health reads the screen after Enter.
     """
     name = session["name"]
     record = config.session_records().get(name)
@@ -5876,12 +5882,23 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
                     if type_into(session, keystroke(harness, cue), log):
                         seat_write(name, usage_refusal={**observed, "nudged_at": now})
                 return True
-        if owned and target is not None and not field_empty(harness, pane):
-            # The respawn would end the owner's text (5 and 12 Nov 2026): the first look at an
-            # empty field moves the seat, its refusal left unparked for that look to act on.
-            if waiting and not waiting.get("field_deferred"):
-                log(f"{name}: usage is back; waiting for an empty input field before resuming")
-                seat_write(name, usage_wait={**waiting, "field_deferred": True})
+        # An unrecognized screen can count as in flight with no known start. It does
+        # not turn an idle seat's existing wait into a cut-off turn.
+        continuing = bool((waiting or {}).get("continue") or refusal
+                          or flight and not own_turn and (not waiting or began is not None)
+                          or limit_ended(harness, name))
+        if (target is not None and (owned or continuing)
+                and (draft := composer_draft(harness, pane)) != ""):
+            if waiting:
+                action = ("clear the screen or input field" if draft is None
+                          else "empty the input field")
+                deferred = {**waiting, "reason": f"{provider} usage is back; {action} to resume",
+                            "field_deferred": True}
+                deferred.pop("until", None)
+                if not waiting.get("field_deferred"):
+                    log(f"{name}: usage is back; waiting for an empty input field before resuming")
+                if waiting != deferred:
+                    seat_write(name, usage_wait=deferred)
             return True
         marked = None
         if parks:
@@ -5890,9 +5907,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
         if refusal:
             observed = {"line": line, "at": now, "handled": True}
             seat_write(name, usage_refusal=observed)
-        continuing = bool((waiting or {}).get("continue") or refusal
-                          or flight and not own_turn or limit_ended(harness, name))
-        wait = {**(waiting or {"since": now}), "continue": continuing}
+        wait = {"since": waiting["since"] if waiting else now, "continue": continuing}
         if target is not None:
             try:
                 if owned:
@@ -5906,11 +5921,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
                 reason = f"{provider} account reopen failed: {exc}"
                 if not waiting or waiting["reason"] != reason:
                     log(f"WARN {name}: {reason}")
-                wait.pop("until", None)
                 seat_write(name, usage_wait={**wait, "reason": reason})
                 return True
             seat_write(name, usage_wait=None, usage_refusal=observed or None)
-            return "relaunched" if owned else True
+            if owned:
+                return "relaunched"
+            return "continued" if continuing else True
         # Each account needs all of this model's spent windows and parking refusals back, as read.
         # Scoped meters and refusals belonging to another model, and the part of a week held for
         # one, postpone no reset.
@@ -5991,23 +6007,25 @@ def usage_waits(cfg, state, log):
     """Settle each seat waiting for usage again, on the reading the usage refresh has just made:
     seat health settled it on the one before, so a seat this one frees goes on in this tick, not
     the next.  One out of login (an `auth` stall) is left alone, as `health` leaves it."""
-    reopened = {}
+    changed, reopened = {}, []
     for session in orch.sessions():
         name = session["name"]
-        if (seat_read(name).get("usage_wait")
-                and state["stalls"].get(name, {}).get("kind") != "auth"):
+        waiting = seat_read(name).get("usage_wait")
+        if waiting and state["stalls"].get(name, {}).get("kind") != "auth":
             relaunched = settle_account(cfg, session, log) == "relaunched"
-            if not seat_read(name).get("usage_wait"):
-                reopened[name] = session, relaunched
+            after = seat_read(name).get("usage_wait")
+            if after != waiting:
+                changed[name] = session, not after and not relaunched
+                if not after:
+                    reopened.append(name)
     # ... and told to go on now where its harness took no first prompt: `switched turns`, which
     # tells seat health's, has run this tick, and no other mark may have a second try in it
-    prompted = continue_turns(cfg, log, accounts=True, names=reopened)
-    if reopened:
+    for name in continue_turns(cfg, log, accounts=True, names=reopened):
+        del changed[name]    # the prompt already published the new screen
+    if changed:
         records = _health_records()
-        for name, (session, relaunched) in reopened.items():
-            # The existing pane may have taken its retry key. A replacement pane may
-            # still be loading unless it has already accepted a prompt.
-            _announce_health(session, cfg, state, records, look=not relaunched or name in prompted)
+        for session, look in changed.values():
+            _announce_health(session, cfg, state, records, look=look)
 
 
 def _health_records(dry_run=False):
@@ -6079,6 +6097,7 @@ def health(cfg, state, dry_run, log):
         # found or cleared and after the stall it recorded -- and on every path out of
         # the body below, including a capture that came back blank on a closed seat.
         live = {}
+        account = None
         try:
             if name in sync_seen(state, load_state()):
                 continue
@@ -6197,7 +6216,8 @@ def health(cfg, state, dry_run, log):
                     "cleared needs login")
                 entry = {}
             # Account recovery, like other capacity recovery, leaves closed seats alone.
-            if seat_account(cfg, session, harness, provider, pane, dry_run, log):
+            account = seat_account(cfg, session, harness, provider, pane, dry_run, log)
+            if account:
                 continue
             if blank:
                 continue        # no screen: nothing below this can be decided on one
@@ -6354,8 +6374,8 @@ def health(cfg, state, dry_run, log):
             if not dry_run:
                 # decided on the seat's record as it stands under the lock, not on `live`: the
                 # pass wrote its own look there, and a look the seat's own hook has published
-                # since is newer -- and nothing captures the pane a second time
-                _announce_health(session, cfg, state, records, harness)
+                # since is newer. A prompt sent in place changed the pane after that look.
+                _announce_health(session, cfg, state, records, harness, look=account == "continued")
 
 
 # --- silent runs: the tick recovers what the loop cannot --------------------

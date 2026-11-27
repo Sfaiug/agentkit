@@ -70,6 +70,15 @@ def refill(home, fakes, now):
     return home.tick()
 
 
+def resume_pane(home, seat, harness, adapter):
+    pane = [seat.screen_file, seat.typed_file]
+    if harness == "muse":
+        # Its prompt turns into a working screen only after Enter lands.
+        working = (FIXTURES / "muse-working-pane.txt").read_text()
+        pane.extend(["❯", home.write("acme-screens.json", {ACCOUNT_LINE: working})])
+    adapter.answer("interactive", shlex.join([sys.executable, str(PANE), *map(str, pane)]))
+
+
 @unittest.skipUnless(REAL_TMUX and boxable(), "needs tmux and a boxed watch tick")
 class UsageReturnResumesEveryHarness(unittest.TestCase):
     def test_each_seat_publishes_and_continues_on_the_refresh(self):
@@ -80,13 +89,7 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
             seats = {}
             for harness, adapter in fakes.items():
                 seat = seats[harness] = parked(home, harness, now)
-                pane = [seat.screen_file, seat.typed_file]
-                if harness == "muse":
-                    # Its prompt turns into a working screen only after Enter lands.
-                    working = (FIXTURES / "muse-working-pane.txt").read_text()
-                    pane.extend(["❯", home.write("acme-screens.json", {ACCOUNT_LINE: working})])
-                adapter.answer("interactive", shlex.join(
-                    [sys.executable, str(PANE), *map(str, pane)]))
+                resume_pane(home, seat, harness, adapter)
 
             tick = refill(home, fakes, now)
             self.assertEqual(tick.code, 0, tick.out + tick.err)
