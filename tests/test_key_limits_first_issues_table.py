@@ -48,18 +48,26 @@ def ended(table, *rows):
 
 
 def open_at(case, limit, rows=ROWS, paid="fix-api-0-0", size=(100, 40)):
-    """A Home of its own with a task per `rows`, `paid` building 12 points of ChatGPT Pro,
-    and `rescope_findings = limit`, opened on that row."""
+    """A Home of its own (`paid_home`) with a task per `rows` and `rescope_findings = limit`,
+    opened on that row."""
+    names = [(issues, f"fix-api-{issues}-{n}", n < live)
+             for issues, tasks, live in rows for n in range(tasks)]
+    home = paid_home(case, {"rescope_findings": limit},
+                     [run(name, 1 + at / 10, **({} if live else FAILED))
+                      for at, (_, name, live) in enumerate(names)],
+                     [(name, 1, "medium", "FAIL", issues) for issues, name, _ in names], paid)
+    return opened(case, home, "Findings that end a run for rescoping", size=size)
+
+
+def paid_home(case, settings, runs, reviews, paid):
+    """A Home of its own holding `runs` and `reviews` (`history`), `paid` building 12 points of
+    ChatGPT Pro, its config.toml setting `settings`."""
     home = Home()
     case.addCleanup(home.close)
     fakeadapter.install(home, claude="pass", codex="pass")
-    akconfig.write(home, MODELS, settings={"rescope_findings": limit},
+    akconfig.write(home, MODELS, settings=settings,
                    providers={"openai": {"mode": "subscription", "accounts": ["default"]}})
-    names = [(issues, f"fix-api-{issues}-{n}", n < live)
-             for issues, tasks, live in rows for n in range(tasks)]
-    history(home, [run(name, 1 + at / 10, **({} if live else FAILED))
-                   for at, (_, name, live) in enumerate(names)],
-            [(name, 1, "medium", "FAIL", issues) for issues, name, _ in names])
+    history(home, runs, reviews)
     week = {"name": "weekly", "used": 50, "window_secs": 7 * DAY, "resets_at": NOW + DAY}
     home.write(".agentkit/state/usage.json", {"fetched_at": NOW, "providers": {
         "openai": {"accounts": {"default": {"meters": [week]}}}}})
@@ -75,7 +83,7 @@ def open_at(case, limit, rows=ROWS, paid="fix-api-0-0", size=(100, 40)):
         for table, items in used.items():
             db.execute(f"CREATE TABLE {table} ({TABLES[table]})")
             db.executemany(f"INSERT INTO {table} VALUES ({', '.join('?' * len(items[0]))})", items)
-    return opened(case, home, "Findings that end a run for rescoping", size=size)
+    return home
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

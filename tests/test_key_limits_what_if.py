@@ -1,6 +1,8 @@
 """Under each limit on `config · limits`, a few plain sentences say what your runs would have
 done at the value in force, said again as ← and → move it.  M is the last round a counted run
-merged in, F the number that failed (the runs tests/test_key_limits_rounds_chart.py counts).
+merged in, F the number that failed: counted are the finished runs that are not stopped, from
+the first that carries changed_lines on, merged in the round rounds_used names (0, review off)
+when changed_lines is set, failed when final_state is `fail`.
 
 `Review rounds` at 0 says review is off and no run went that way; under M, the changes merged
 after that round and the F failed would have gone back to their orchestrator; at M, F went
@@ -44,14 +46,14 @@ BUILDS = {1: (40, 90, 120, 180, 220, 350), 2: (150, 260, 310), 3: (300, 450, 190
           None: (330, 410, 240, 60)}
 OWN = {1: (25, 30, 50, 70), 2: (60, 90), None: (20, 55, 120)}
 # passed in round 1 and merged nothing, as a --no-merge run does: a build's first review passed,
-# an own pull request's round 1 merged nothing, and neither is in the rounds chart
+# an own pull request's round 1 merged nothing, and neither counts in M or F
 UNMERGED = {None: 200, "fable": 40}
 # (final_state, rounds_used, first_review_lines, own): none counted, each would move a number
 LEFT_OUT = [("stopped", 1, 900, None), ("running", 2, 700, None), ("error", 1, 800, None),
             ("stopped", 1, 300, "fable")]
 # reviews of a pull request no orchestrator of yours wrote, (final_state, rounds_used,
 # first_review_lines): no build nor own pull request, as the size bars leave them out, each
-# moving a number if counted; neither merged nor failed, so the rounds chart leaves them out
+# moving a number if counted; neither merged nor failed, so M and F leave them out
 REVIEWS = [("pass", 1, 500), ("blocked", 2, 20)]
 # 25 runs: merged in round 1 10, round 2 5, round 3 3 (M), and 7 failed (F)
 ROUNDS = {

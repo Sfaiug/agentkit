@@ -43,11 +43,11 @@ RUNS = [("20261001-1200-fix-api-1", None, "task", None, "pass", 1, 40, 40, FIRST
         ("20261004-1200-review-pr-api-1", "acme/api#1", "seat PR", "fable", "pass", 1, 60, 60,
          FIRST + 3 * DAY)]
 # What each limit's lines under the rows say over RUNS, in order: what it means, its chart's
-# heading, and what the runs would have done at ak's default and at 0.  The executor's table
-# holds the last 30 days, which RUNS are older than.
+# heading, and what the runs would have done at ak's default and at 0.  The tables hold the last
+# 30 days, which RUNS are older than.
 SAYS = {"review_rounds": (
             "The review rounds a change has before it goes back to its orchestrator to split or "
-            "re-scope.", "how your 4 runs ended, since 1 Oct",
+            "re-scope.", "What your tasks took, by the review rounds they went through · none yet",
             {3: "1 change (25%) went back to their orchestrator after 3 rounds.",
              0: "Off: no reviewer, so a change lands when its checks pass. None of your runs went "
                 "that way, so they can't say how it would go."}),
@@ -68,7 +68,7 @@ SAYS = {"review_rounds": (
 # The same with no run in the history, each limit at 0: its chart says it has none, and what
 # off does is still said.
 UNRUN = {key: (SAYS[key][0], heading, {0: off}) for key, heading, off in (
-    ("review_rounds", "no finished runs yet", SAYS["review_rounds"][2][0]),
+    ("review_rounds", SAYS["review_rounds"][1], SAYS["review_rounds"][2][0]),
     ("executor_lines", SAYS["executor_lines"][1], SAYS["executor_lines"][2][0]),
     ("orchestrator_lines", "how often an orchestrator's own pull request merged in its first "
      "round, by size · none yet", "Off: orchestrators build nothing themselves."))}

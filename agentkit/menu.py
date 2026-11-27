@@ -138,7 +138,6 @@ import threading
 import time
 from contextlib import closing
 from pathlib import Path
-from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import carried, done_check, logins, look, machines, money, open_runs, parsed, readings, record
@@ -6540,29 +6539,6 @@ def bar_chart(heading, bars):
     return lines
 
 
-def rounds_chart(runs):
-    """How `runs` (history.round_endings) ended, drawn under `Review rounds`: the evidence
-    its number is set from (the owner's design of 5 Nov 2026).  Under a heading, a bar of each
-    ending -- each round from round 1, or a merge with review off, up to the last a run merged
-    in, then `failed` -- its share of the runs (terminal.share_line) taking the room the columns
-    after it leave: its count, that share as a whole percent and its median hours from start to
-    finish (bar_chart)."""
-    if not runs:
-        return bar_chart("no finished runs yet", [])
-    merged = [ending for *_, ending in runs if ending is not None]
-    endings = [*((f"merged in round {n}" if n else "merged with no review", n, "done")
-                 for n in range(min([*merged, 1]), max([*merged, 0]) + 1)),
-               ("failed", None, "FAIL")]
-    hours = [[(end - start) / 3600 for start, end, ending in runs if ending == at]
-             for _, at, _ in endings]
-    return bar_chart(f"how your {len(runs)} run{'s' * (len(runs) != 1)} ended, since "
-                     + time.strftime("%-d %b", time.localtime(runs[0][0])),
-                     [(name, len(each) / len(runs), word, str(len(each)),
-                       f"{round(100 * len(each) / len(runs))}%",
-                       f"median {median(each):.1f} h" if each else "")
-                      for (name, _, word), each in zip(endings, hours)])
-
-
 def size_chart(runs, limit):
     """How orchestrators' own pull requests of each size did (`runs`,
     history.first_review_sizes) under `orchestrator_lines`, the evidence it is set from (the
@@ -6598,10 +6574,10 @@ def limit_step(key, held, step):
 
 def rounds_said(runs, held):
     """What `runs` (history.round_endings) would have done at `held` review rounds, said under
-    rounds_chart, M the last round one merged in and F the number that failed.  Off, how many
-    went that way; under M, those merged after `held`, and F, back to their orchestrator sooner;
-    at M, F back; one past M, a guess that F merge at the share round M merged of its merges and
-    F; further, nothing they can say.  None with no run, unless off."""
+    size_table.rounds, M the last round one merged in and F the number that failed.  Off, how
+    many went that way; under M, those merged after `held`, and F, back to their orchestrator
+    sooner; at M, F back; one past M, a guess that F merge at the share round M merged of its
+    merges and F; further, nothing they can say.  None with no run, unless off."""
     merged = [ending for *_, ending in runs if ending is not None]
     if held == 0:
         bare = merged.count(0)
@@ -6670,7 +6646,7 @@ def lines_said(key, runs, held):
 def config_limits(cfg):
     """`Limits`: each of LIMIT_NAMES' numbers a row (config_page) under its name there,
     its value and `default N` where that is not ak's default, then under each
-    what it means and, where it has them, how its runs did (rounds_chart, size_table, size_chart)
+    what it means and, where it has them, how its runs did (size_table, size_chart)
     and what they would have done at its value (rounds_said, lines_said), read as the page opens
     and said again as the value moves: each explanation before its evidence.  ← and → move the
     pointed one a step (limit_step), saved to config.toml at once where config.host_policy takes
@@ -6680,7 +6656,9 @@ def config_limits(cfg):
     runs, _, paid = matrix.counted(cfg)
     # each number's chart and what its runs would have done at `held`; one no run records how
     # it did yet has neither
-    evidence = {"review_rounds": lambda held: (rounds_chart(ended), rounds_said(ended, held)),
+    evidence = {"review_rounds": lambda held: (
+                    size_table.rounds(runs["rounds"], held, terminal.layout_width(), paid),
+                    rounds_said(ended, held)),
                 "executor_lines": lambda held: (
                     size_table.lines(runs["sizes"], held, terminal.layout_width(), paid),
                     lines_said("executor_lines", builds, held)),
