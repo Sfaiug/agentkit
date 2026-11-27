@@ -100,7 +100,7 @@ def drawn(screen, draft, composer, height):
         at += len(rows) - 1
     frame = "\r\n".join(lines).rstrip("\r\n")
     row = None if at is None else at - max(0, frame.count("\n") + 1 - height)
-    return ("\x1b[H\x1b[2J" + frame
+    return ("\x1b[0m\x1b[H\x1b[2J" + frame
             + (f"\x1b[{row + 1};{len(lines[at]) + 1}H" if row is not None and row >= 0 else ""))
 
 

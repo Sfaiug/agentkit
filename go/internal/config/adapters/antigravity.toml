@@ -79,6 +79,9 @@ words = ["content"]
 # The composer is a bare `>` between two rules; a typed line reads `> text`, and so does every
 # prompt the transcript echoes, which is why only the empty one is chrome.
 composer = '^>$'
+# Before a conversation's first prompt agy 1.5 draws a mode hint in this grey (`\x1b[90m`),
+# and typed text in the terminal's own colour: the grey reads as faint, so empty.
+faint = ["90"]
 # Ctrl-G hands the composer to $VISUAL, ak's editor, mid-turn too (agy 1.4.2)
 editor = ["C-g"]
 # and the line under it: a key hint on the left -- `? for shortcuts` at rest, `esc to cancel`
