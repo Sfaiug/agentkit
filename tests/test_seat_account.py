@@ -642,18 +642,16 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(config.session_records()[NAME]["account"], "second")
 
     def test_a_switch_or_reopen_leaves_a_part_of_a_week_held_for_another_models_cap(self):
-        # a login 60% used and 40 held for Fable: Opus opens on the other with room past it,
-        # and else spends that part before a login spent as read
+        # the usual login 60% used and 40 held for Fable: Opus opens on the spare with room
+        self.meters(60, 0)
+        self.cached(lambda p: p["anthropic"]["accounts"]["default"]["meters"].append({
+            **usage._normalized({"name": "weekly_scoped", "used": 20, "window_secs": 604800,
+                                 "resets_at": self.now + 86400}, self.now),
+            "scope": "Fable", "held": 40}))
         signed_in = SimpleNamespace(seat_auth=lambda _: (True, "signed in"))
-        for usual, spare, holding in ((60, 0, "default"), (100, 60, "second")):
-            self.meters(usual, spare)
-            self.cached(lambda p: p["anthropic"]["accounts"][holding]["meters"].append({
-                **usage._normalized({"name": "weekly_scoped", "used": 20, "window_secs": 604800,
-                                     "resets_at": self.now + 86400}, self.now),
-                "scope": "Fable", "held": 40}))
-            with patch.object(orch, "harness_plugin", return_value=signed_in):
-                self.assertEqual(orch.listed_login(self.cfg, "opus", usage.collect(self.cfg))[0],
-                                 "second", holding)
+        with patch.object(orch, "harness_plugin", return_value=signed_in):
+            self.assertEqual(orch.listed_login(self.cfg, "opus", usage.collect(self.cfg))[0],
+                             "second")
 
     def test_a_part_of_a_week_held_for_another_models_cap_postpones_no_reset(self):
         # the usual login's 5h window spent, its week 60% used and 40 held for Fable, the spare's

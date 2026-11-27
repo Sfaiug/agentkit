@@ -5,15 +5,17 @@ A Claude login's kept reading holds its shared week (`weekly_all`) and Fable's o
 (`weekly_scoped`, scope `Fable`), which carries `held`: the points of that week held for it.  To
 an open seat of any other model the login runs low by what it has left past that part, and the
 rule for a login running low holds: an idle Opus seat moves to a login with room past the part
-held there, and stays where every other login is as low.  That part parks no seat: one waiting
-for usage on a login only it fills goes on there.  A Fable seat reads the week as it is.
+held there, and stays where every other login is as low, its next turn running there.  That part
+parks no seat: one waiting for usage on a login only it fills goes on there.  A Fable seat reads
+the week as it is.
 
 The owner (26 Nov 2026): "ideally we want all to run out when both fable and other model usage
 are at 0. Fable should not still have usage left".
 
 Black-box: the program `AK_BIN` names runs `ak watch` from outside through
-tests/fixtures/akbin.py, beside seats of tests/fixtures/akseat.py, on fake harnesses of
-fakeadapter.py and the usage readings the test writes.  Fails against /bin/false.
+tests/fixtures/akbin.py, beside seats of tests/fixtures/akseat.py whose owner's prompt is fired
+as Claude fires it (tests/fixtures/hookdrive.py), on fake harnesses of fakeadapter.py and the
+usage readings the test writes.  Fails against /bin/false.
 """
 
 import json
@@ -31,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import PANE, Seat
+from fixtures.hookdrive import Hooks
 
 PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 REFUSED = {"type": "assistant", "isApiErrorMessage": True, "apiError": "usage_limit_reached",
@@ -106,9 +109,16 @@ class ASeatLeavesALoginOnlyACapsPartIsLeftOn(unittest.TestCase):
         self.assertEqual(self.state("acme-fable"), ("default", "idle"))
 
     def test_with_every_other_login_as_low_it_stays_and_its_next_turn_runs(self):
-        self.seat("acme")
+        seat = self.seat("acme")
         self.assertEqual(self.tick(default=(60, 40), second=(60, 40)), [])
         self.assertEqual(self.state("acme"), ("default", "idle"))
+        # the owner's next prompt, as Claude fires it: its turn runs where the seat is
+        fired = Hooks(self.home).prompt("Add a retry button to the upload page.", seat)
+        self.assertEqual(fired.code, 0, fired)
+        seat.show("claude-working-pane.txt")
+        self.assertEqual(self.tick(default=(60, 40), second=(60, 40)), [])
+        self.assertEqual(self.state("acme"), ("default", "working"))
+        self.assertEqual(seat.lines(), [])      # nothing typed into it
 
     def test_a_login_only_its_held_part_fills_is_not_waited_on_for_a_reset(self):
         self.seat("acme", last=REFUSED)
