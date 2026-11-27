@@ -932,7 +932,7 @@ def screen(harness):
     built = {"composer": _pattern(block.get("composer"), path),
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
              "ruled": bool(block.get("ruled")),
-             "boxed": bool(block.get("boxed")),
+             "sidebar": bool(block.get("sidebar")),
              "folds_over": block.get("folds_over") if isinstance(block.get("folds_over"), int)
              else None,
              "folded": _pattern(block.get("folded"), path),
@@ -1517,21 +1517,32 @@ def dim_rows(raws, colours=()):
     return dims
 
 
-def _boxed(pane):
-    """That `-e` capture with each row cut where a box drawn on it ends: where, after cells on
-    another background, the background of its first cell comes back.  A composer drawn as a
-    box on its own background (`[screen] boxed`) ends there, and what is drawn beside it, a
-    sidebar, is none of it -- whatever columns its characters take."""
-    back, rows = None, []
-    for raw in pane.splitlines():
-        first, away, cut, at = True, False, None, 0
+def _without_sidebar(chrome, text):
+    """That `-e` text, a capture or rows of one, without the sidebar its harness draws beside
+    them (`[screen] sidebar`).
+
+    A sidebar stands on a background of its own, and tmux carries one on until a cell's
+    differs, so a row's first cell stands on the last one set before it, in its row or the
+    rows above.  A row is cut where it last leaves that one, whatever columns its characters
+    take, unless it ends on it -- in cells or, right-stripped as a tail's rows are, in none
+    -- or keeps no more than half the cells of the text's widest row: a column down the left
+    on a background of its own, as tabs stand there, is no sidebar, and a sidebar, the
+    narrower side of its pane, is cut from any rows of a capture as from the whole.  A row
+    whose first cell comes before any background the text sets is left whole.
+    """
+    if not chrome["sidebar"]:
+        return text
+    raws = text.splitlines()
+    wide = max((terminal_mod.cells(strip_sgr(raw)) for raw in raws), default=0)
+    back, rows = False, []
+    for raw in raws:
+        start, cut, at = None, None, 0
         for found in [*SGR_ALL.finditer(raw), None]:
-            if cut is None and raw[at:found.start() if found else len(raw)]:
-                if first:
-                    start, first = back, False
-                elif back != start:
-                    away = True
-                elif away:
+            if found is None or raw[at:found.start()]:
+                start = back if start is None else start
+                if not start or back == start:
+                    cut = None
+                elif cut is None:
                     cut = at
             if found is None:
                 break
@@ -1541,9 +1552,11 @@ def _boxed(pane):
                 if isinstance(code, str):
                     back = code if code.startswith("48;") else back
                 elif code in (0, 49):
-                    back = None
+                    back = 49
                 elif 40 <= code <= 47 or 100 <= code <= 107:
                     back = code
+        if cut is not None and 2 * terminal_mod.cells(strip_sgr(raw[:cut])) <= wide:
+            cut = None
         rows.append(raw[:cut])
     return "\n".join(rows)
 
@@ -1625,10 +1638,11 @@ def _plain_lines(tail):
 
 def content_lines(harness, tail):
     """Trim known bottom chrome, preserving newer output after an old error."""
+    chrome = screen(harness)
+    tail = _without_sidebar(chrome, tail)
     lines = _plain_lines(tail)
     # The composer box and key hints are chrome, not progress. Strip only known harness
     # chrome at the bottom; arbitrary output below an old error still means it has moved on.
-    chrome = screen(harness)
     lines = lines[:chrome_below(chrome, [line for line in tail.splitlines()
                                          if strip_sgr(line).strip()])]
     while lines and chrome_line(chrome, lines[-1]):
@@ -2095,11 +2109,12 @@ def screen_rule(harness, pane):
     one, while whatever the harness draws between its composer and its footer, a user's
     status line, never hides it or reads as it, even where it starts with a prompt mark.
     """
+    chrome = screen(harness)
+    pane = _without_sidebar(chrome, pane)
     tail = pane_tail(pane)
     raw_lines, lines = _screen_rows(tail)
     if not lines:
         return None, ""
-    chrome = screen(harness)
 
     def drawn_rule(row):
         # a bare rule, or a rule the harness's own chrome names, as one carrying a session's name
@@ -4334,7 +4349,7 @@ def _composer_rows(harness, pane, *, exact=False):
     the rule never is, whatever its mark.
     """
     chrome = screen(harness)
-    pane = _boxed(pane) if chrome["boxed"] else pane
+    pane = _without_sidebar(chrome, pane)
     raws, rows = _screen_rows(pane_tail(pane))
     if chrome["draft"]:
         # A composer no prompt mark finds: its manifest finds the framed block it holds,
@@ -4426,7 +4441,7 @@ def _cropped_composer_rows(harness, pane):
     """A composer's top is above the read: every row over its bottom chrome is its text,
     read inside a box's edges and without scroll marks, as rows under its prompt are."""
     chrome = screen(harness)
-    tail = content_lines(harness, pane_tail(_boxed(pane) if chrome["boxed"] else pane))
+    tail = content_lines(harness, pane_tail(pane))
     return _unscrolled(chrome, [_inside_box(row) for row in tail])
 
 

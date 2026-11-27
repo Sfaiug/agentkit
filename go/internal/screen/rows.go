@@ -52,7 +52,7 @@ func plains(raws []string) []string {
 // old error means the seat has moved on (watch.content_lines).
 func (r *Rules) Said(tail string) []string {
 	var rows, lines []string
-	for _, line := range config.SplitLines(tail) {
+	for _, line := range config.SplitLines(r.withoutSidebar(tail)) {
 		if plain := Plain(line); plain != "" {
 			rows, lines = append(rows, line), append(lines, plain)
 		}

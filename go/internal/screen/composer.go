@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/terminal"
 )
 
 // atComposer is what a draft or suggestion rule reads: only the composer, so a transcript echoing
@@ -314,9 +315,7 @@ func (r *Rules) draftWords(each rule, tail string, rows int) string {
 // composerRows are the rows of text in the composer, from its prompt row down to the chrome under
 // it; false where none is found.
 func (r *Rules) composerRows(pane string) ([]string, bool) {
-	if r.boxed {
-		pane = cutBoxes(pane)
-	}
+	pane = r.withoutSidebar(pane)
 	raws := contentRows(Tail(pane))
 	rows := plains(raws)
 	if r.draft != nil {
@@ -384,9 +383,6 @@ func (r *Rules) framedRows(pane string, rows []string) ([]string, bool) {
 // croppedRows is a composer whose top is above the read: every row over its bottom chrome is its
 // text.
 func (r *Rules) croppedRows(pane string) []string {
-	if r.boxed {
-		pane = cutBoxes(pane)
-	}
 	return r.unscrolled(mapped(r.Said(Tail(pane)), insideBox))
 }
 
@@ -405,29 +401,39 @@ func (r *Rules) unscrolled(rows []string) []string {
 	return kept
 }
 
-// cutBoxes is the capture with each row cut where a box drawn on it ends: where, after cells on
-// another background, the background of its first cell comes back.  What is drawn beside a
-// composer on its own background, a sidebar, is none of it (watch._boxed).
-func cutBoxes(pane string) string {
-	back := ""
-	rows := mapped(config.SplitLines(pane), func(raw string) string {
-		first, away, cut, at := true, false, -1, 0
-		start := ""
-		look := func(upto int) {
-			if cut >= 0 || raw[at:upto] == "" {
-				return
+// withoutSidebar is that text, a capture or rows of one, without the sidebar its harness draws
+// beside them (`[screen] sidebar`).  A sidebar stands on a background of its own, and tmux carries
+// one on until a cell's differs, so a row's first cell stands on the last one set before it, in
+// its row or the rows above.  A row is cut where it last leaves that one, whatever columns its
+// characters take, unless it ends on it -- in cells or, right-stripped as a tail's rows are, in
+// none -- or keeps no more than half the cells of the text's widest row: a column down the left on
+// a background of its own, as tabs stand there, is no sidebar, and a sidebar, the narrower side of
+// its pane, is cut from any rows of a capture as from the whole.  A row whose first cell comes
+// before any background the text sets is left whole (watch._without_sidebar).
+func (r *Rules) withoutSidebar(text string) string {
+	if !r.sidebar {
+		return text
+	}
+	raws, wide, back := config.SplitLines(text), 0, ""
+	for _, raw := range raws {
+		wide = max(wide, terminal.Cells(strip(raw)))
+	}
+	return strings.Join(mapped(raws, func(raw string) string {
+		begun, cut, at, start := false, -1, 0, ""
+		look := func() {
+			if !begun {
+				start, begun = back, true
 			}
-			switch {
-			case first:
-				start, first = back, false
-			case back != start:
-				away = true
-			case away:
+			if start == "" || back == start {
+				cut = -1
+			} else if cut < 0 {
 				cut = at
 			}
 		}
 		for _, found := range sgrAll.FindAllStringIndex(raw, -1) {
-			look(found[0])
+			if found[0] > at {
+				look()
+			}
 			at = found[1]
 			sgr := sgrSeq.FindStringSubmatch(raw[found[0]:found[1]])
 			if sgr == nil || len(sgr[0]) != found[1]-found[0] {
@@ -446,19 +452,18 @@ func cutBoxes(pane string) string {
 				codes = codes[1:]
 				switch {
 				case code == 0 || code == 49:
-					back = ""
+					back = "49"
 				case code >= 40 && code <= 47 || code >= 100 && code <= 107:
 					back = strconv.Itoa(code)
 				}
 			}
 		}
-		look(len(raw))
-		if cut >= 0 {
+		look()
+		if cut >= 0 && 2*terminal.Cells(strip(raw[:cut])) > wide {
 			return raw[:cut]
 		}
 		return raw
-	})
-	return strings.Join(rows, "\n")
+	}), "\n")
 }
 
 func mapped(rows []string, each func(string) string) []string {

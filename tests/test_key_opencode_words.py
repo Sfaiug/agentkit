@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import FIXTURES, Seat
 
+SIDEBAR = "opencode-prompt-beside-sidebar-pane.txt"     # 2.4.2 past its first turn, 240 columns
+
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class OpencodeWords(unittest.TestCase):
@@ -76,18 +78,56 @@ class OpencodeWords(unittest.TestCase):
     def test_the_composer_at_rest_beside_the_sidebar_is_idle_at_the_composer(self):
         # 2.4.2 at 240 columns ends its footer on the sidebar's path: read by no rule, a seat
         # opened that wide took no line after its first turn (27 Nov 2026)
-        self.assertWhy("theta", "opencode-prompt-beside-sidebar-pane.txt", "idle", "screen",
-                       "prompt.composer", "-")
+        self.assertWhy("theta", SIDEBAR, "idle", "screen", "prompt.composer", "-")
 
-    def test_a_reply_ending_on_the_key_hints_and_a_command_is_idle_over_an_older_error(self):
-        # a reply's sentence goes on one space after the hints, the sidebar's path four cells:
-        # read as that path, the reply was chrome and the spent window above it was retried
+    def test_a_sidebar_path_behind_an_ellipsis_is_idle_at_the_composer(self):
+        # one under the owner's home is shortened to open on the ellipsis, no `/` before it
+        wide = (FIXTURES / SIDEBAR).read_text(encoding="utf-8")
+        path = "/…/code/fix-api".ljust(38)
+        self.assertIn(path, wide)
+        self.assertWhy("iota", wide.replace(path, "…/acme-with-a-very-long-name-…/fix-api"),
+                       "idle", "screen", "prompt.composer", "-")
+
+    def test_a_spent_window_beside_the_sidebar_is_working_and_retrying_on_its_status(self):
+        # the path after the key hints is no output newer than the error, nor the usage beside it
+        wide = (FIXTURES / SIDEBAR).read_text(encoding="utf-8")
+        spent, replies = re.subn(r"(?<=m)ok(\x1b\[[\d;]*m) {26}",
+                                 r"Error: 429 Too Many Requests\1", wide)
+        self.assertEqual(replies, 1)
+        self.assertWhy("kappa", spent, "working", "screen", "prompt.composer", "retrying: 429")
+
+    def test_a_reply_going_on_after_the_key_hints_is_idle_over_an_older_error(self):
+        # the sidebar's path follows the hints on their row, and a footer read with it there
+        # read this reply as chrome too: the spent window above it was retried
         status = "     Build · mimo-v2.6-pro · 166ms\n"
         stall = (FIXTURES / "opencode-stall-pane.txt").read_text(encoding="utf-8")
-        later = ("\n  ┃\n  ┃  Which keys open the menu?\n  ┃\n\n"
-                 "     It shows ctrl+p commands /help\n\n" + status)
-        self.assertWhy("iota", stall.replace(status, status + later), "idle", "screen",
+        later = ("\n  ┃\n  ┃  Show the shortcuts as aligned columns\n  ┃\n\n"
+                 "     ctrl+p commands    /help\n\n" + status)
+        self.assertWhy("lambda", stall.replace(status, status + later), "idle", "screen",
                        "prompt.composer", "-")
+
+    def test_a_reply_on_a_background_of_its_own_is_idle_over_an_older_error(self):
+        # a blank row's codes go on at the head of the row under it, so the reply's sets the
+        # screen's background first, as a row beside the sidebar does, and it comes back to it
+        # in cells a tail's rows are stripped of: cut as a sidebar, the reply was no output and
+        # the spent window above it was retried
+        status = "     Build · mimo-v2.6-pro · 166ms\n"
+        stall = (FIXTURES / "opencode-stall-pane.txt").read_text(encoding="utf-8")
+        row = "     \x1b[48;2;20;20;20m{:60}\x1b[49m  \n"
+        later = ("\n  ┃\n  ┃  Show what changed\n  ┃\n\n" + row.format("")
+                 + row.format("  1 file changed") + "\n" + status)
+        self.assertWhy("mu", stall.replace(status, status + later), "idle", "screen",
+                       "prompt.composer", "-")
+
+    def test_a_spent_window_beside_tabs_down_the_left_is_working_and_retrying_on_its_status(self):
+        # 2.4.2 can stand its tabs down the left, on the sidebar's background: every row sets
+        # that first and leaves it for the screen's, and cut there, as one beside the sidebar
+        # is, the seat showed no row at all
+        tabs = "\x1b[48;2;20;20;20m" + " " * 42 + "\x1b[48;2;8;8;8m"
+        stall = (FIXTURES / "opencode-stall-pane.txt").read_text(encoding="utf-8").splitlines()
+        wide = max(map(len, stall))
+        self.assertWhy("nu", "".join(f"{tabs}{row:{wide}}\n" for row in stall), "working",
+                       "screen", "prompt.composer", "retrying: 429")
 
 
 if __name__ == "__main__":

@@ -29,7 +29,8 @@ type Rules struct {
 	composer, footer, tray *pyre.Regexp // each reads a whole row
 	away, scrolled, draft  *pyre.Regexp
 	held                   *pyre.Regexp // the background work it draws running
-	ruled, boxed, scrolls  bool
+	ruled, scrolls         bool
+	sidebar                bool // it draws one beside its rows, which is none of them
 	faint                  []string
 	rules                  []rule
 }
@@ -72,7 +73,7 @@ func Compile(chrome map[string]any, rules []map[string]any) (*Rules, error) {
 			parts = append(parts, "(?:"+part+")")
 		}
 	}
-	read := Rules{ruled: chrome["ruled"] == true, boxed: chrome["boxed"] == true, scrolls: chrome["scrolls"] == true}
+	read := Rules{ruled: chrome["ruled"] == true, sidebar: chrome["sidebar"] == true, scrolls: chrome["scrolls"] == true}
 	if listed, ok := chrome["faint"].([]any); ok {
 		for _, colour := range listed {
 			if colour, ok := colour.(string); ok {
@@ -178,6 +179,7 @@ func Drawn(pane string) string {
 
 // Read is the first rule, in the manifest's order, that the pane's tail matches.
 func (r *Rules) Read(pane string) Reading {
+	pane = r.withoutSidebar(pane)
 	tail := Tail(pane)
 	raws := contentRows(tail)
 	if len(raws) == 0 {

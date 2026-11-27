@@ -15083,7 +15083,7 @@
   {
    "harness": "opencode",
    "key": "footer",
-   "pattern": "(?:(?:.*ctrl\\+p commands(?: {4}[/~].*)?)|(?:.*\\d+\\.\\d+\\.\\d+)|(?:[\\w-]+ · [^·]+( · \\d+(ms|\\.\\ds|m \\d+s|h \\d+m|d \\d+h))?( · \\d+\\.\\d+ tok/s)?( · interrupted)?))$",
+   "pattern": "(?:(?:.*ctrl\\+p commands)|(?:.*\\d+\\.\\d+\\.\\d+)|(?:[\\w-]+ · [^·]+( · \\d+(ms|\\.\\ds|m \\d+s|h \\d+m|d \\d+h))?( · \\d+\\.\\d+ tok/s)?( · interrupted)?))$",
    "flags": "i",
    "matches": [
     {

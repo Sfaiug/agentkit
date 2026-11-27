@@ -135,9 +135,6 @@ editor = ["C-x", "e"]
 # is typed and whose Enter picks a row (2.0.32)
 cursor = true
 # and the key hints under it: the working, resting and fresh footers all end on this --
-# or, in a window wide enough for its sidebar (2.4.2 at 240 columns), on that sidebar's path
-# four cells on, the screen's margin and its own: a reply going on from the hints after one
-# space, `ctrl+p commands /help`, is output and no footer --
 # and the release stamp alone on the fresh prompt's last line, `2.0.13` bottom-right --
 # and the finished-turn footer under a turn's last line: `<agent> · <model> · <duration>`,
 # with an optional `· <tps> tok/s` tail and an optional `· interrupted`, all read out of the
@@ -147,7 +144,7 @@ cursor = true
 # completed -- an error before its first step, `Build · mimo-v2.6-pro` -- so it is optional.
 # Step lines (`+ Thought · 3.0s`) open on their mark, never on a bare word, so a turn still in
 # flight is never trimmed as chrome.
-footer = ['.*ctrl\+p commands(?: {4}[/~].*)?', '.*\d+\.\d+\.\d+',
+footer = ['.*ctrl\+p commands', '.*\d+\.\d+\.\d+',
           '[\w-]+ · [^·]+( · \d+(ms|\.\ds|m \d+s|h \d+m|d \d+h))?( · \d+\.\d+ tok/s)?( · interrupted)?']
 # The input box through its `╹` bottom edge. `edge` names the inset and frame removed from
 # every `text` row; placeholder-like owner rows inside a draft stay text. `opening` proves
@@ -155,10 +152,14 @@ footer = ['.*ctrl\+p commands(?: {4}[/~].*)?', '.*\d+\.\d+\.\d+',
 # draft. Its text runs from its first typed row to the padding row over the agent line,
 # the draft's blank rows among it; an older prompt above empty input, a blank row apart, is
 # not its draft. The grey `Ask anything… "…"` placeholder holds nothing typed.
-# The box is drawn on a background of its own, and its rows end where the screen's comes
-# back: beside them its sidebar draws a `Getting started` card, until dismissed, wherever no
-# provider is connected (2.0.32).
-boxed = true
+# A window wide enough has its sidebar down its right, on a background of its own: beside the
+# box a `Getting started` card, until dismissed, wherever no provider is connected, and after
+# the key hints its folder's path, shortened behind an ellipsis to fit there (2.0.32 at 200
+# columns, 2.4.2 at 240).  No pattern tells that path from a reply going on after the hints,
+# so its rules, its output and its composer are read without the sidebar.  2.4.2 set to stand
+# its tabs down its left draws that column on that background too, and a row beside both is
+# read whole, the sidebar with it.
+sidebar = true
 draft = '^(?=(?P<edge> *┃))(?P<opening>(?P=edge)\n)?(?P<text>(?P=edge) +(?!Ask anything… ")\S.*\n(?:(?P=edge).*\n)*)(?P=edge)\n(?P=edge) .*\n *╹'
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
