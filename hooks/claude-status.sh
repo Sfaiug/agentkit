@@ -2,13 +2,13 @@
 # The report belongs to the status render's conversation,
 # never its launch name; a detached look reads whatever report stands when it gets there.
 set -u
-# The moment this render began, by which its limits and pane state are judged, taken before
+# The moment this render began, by which its limits are judged, taken before
 # anything the hook reads: bash 5's clock.  An older bash (macOS's 3.2) has none, and no moment
-# would leave a Mac's seats never reporting their login's usage or state, so there it is perl's
+# would leave a Mac's seats never reporting their login's usage, so there it is perl's
 # Time::HiRes, which macOS ships, to the microsecond: one more process a render, only there,
 # beside the cat and jq every render runs.  `date`'s whole second would let an older render pass
 # as newer, and jq's `now` comes after the payload is read.  A perl that gives no such number
-# leaves no moment, and no moment hands in no limits or state.
+# leaves no moment, and no moment hands in no limits.
 rendered=${EPOCHREALTIME:-}
 if [[ -z $rendered ]]; then
   rendered=$(perl -MTime::HiRes=gettimeofday -e 'printf "%d.%06d", gettimeofday' 2>/dev/null) &&
@@ -19,46 +19,29 @@ payload=${payload%.}
 # A status command that ignores stdin must not end reporting by closing its pipe.
 trap '' PIPE
 printf '%s' "$payload" 2>/dev/null
-# Close stdout at once so a piped owner command receives EOF without waiting on jq or tmux.
+# Close stdout at once so a piped owner command receives EOF without waiting on jq.
 exec >/dev/null
 [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || exit 0
-# Every render runs this one streaming jq with tagged lines: `w:` is the state word (`idle`, or
-# `busy` for any other string); `c:`, `r:` and `l:` are the first valid conversation, model report
-# and login limit windows in $1 (`<window> <used%> <resets_at>`, arithmetic spelling).  Streaming
+# Every render runs this one streaming jq with tagged lines: `c:`, `r:` and `l:` are the first
+# valid conversation, model report and login limit windows in $1 (`<window> <used%> <resets_at>`, arithmetic spelling).  Streaming
 # keeps a valid object before malformed trailing text; tagging stops empty objects shifting fields.
-word= conversation= report=
+conversation= report=
 found=0
 windows=()
 while IFS= read -r line; do
   case $line in
-    w:*) word=${line#w:} ;;
     c:*) (( found += 1 )); (( found == 1 )) && conversation=${line#c:} ;;
     r:*) (( found == 1 )) && report=${line#r:} ;;
     l:*) (( found == 1 )) && windows+=("${line#l:}") ;;
   esac
 done < <(jq -r --arg limits "${1:-}" '
     objects
-    | (select((.agent_state | type) == "string") | if .agent_state == "idle" then "w:idle" else "w:busy" end),
-      (select(.session_id | strings | test("^[A-Za-z0-9_-]+$"))
+    | (select(.session_id | strings | test("^[A-Za-z0-9_-]+$"))
        | select(.model | objects | .id | strings | length > 0)
        | "c:\(.session_id)", "r:\({model: .model.id, effort: (.model.effort // .effort.level // null)} | tojson)",
          (.[$limits] | objects | {five_hour, seven_day} | to_entries[]
           | select(.value | objects | [.used_percentage, .resets_at] | all(type == "number"))
           | "l:\(.key) \(.value.used_percentage + 0) \(.value.resets_at + 0)"))' <<<"$payload" 2>/dev/null)
-launch=${AGENTKIT_PANE_LAUNCH:-}
-if [[ ( $word = idle || $word = busy ) && -n $rendered && -n ${TMUX:-} && ${TMUX_PANE:-} =~ ^%[0-9]+$ && $launch =~ ^[A-Za-z0-9_-]*$ ]]; then
-  # TMUX is `<socket path>,<server pid>,<session>`, and the path may hold commas: read from the right.
-  rest=${TMUX%,*}; server_pid=${rest##*,}; socket=${rest%,*}; stamp=${rendered/[!0-9]/.}
-  if [[ -n $socket && $socket != "$rest" && $server_pid =~ ^[0-9]+$ && $stamp =~ ^[0-9]+[.][0-9]+$ ]]; then
-    # Fixed-width text stamp orders as text (`#{<:...}`); comparing `$stamp` alone skips ties.
-    # Matching `#{pid}` and `@ak_pane_launch` blocks delayed writes from earlier servers or launches.
-    sec="000000000000${stamp%%.*}"; frac="${stamp#*.}000000"; stamp="${sec:${#sec}-12}.${frac:0:6}"
-    # Clear AGENTKIT_SESSION so a seat's PATH tmux-shim execs the real tmux without Python.
-    ( AGENTKIT_SESSION= tmux -S "$socket" if-shell -F -t "$TMUX_PANE" \
-        "#{&&:#{==:#{pid},$server_pid},#{&&:#{==:#{@ak_pane_launch},$launch},#{<:#{@ak_agent_state},$stamp}}}" \
-        "set-option -p -t $TMUX_PANE @ak_agent_state '$stamp $word'" </dev/null >/dev/null 2>&1 & )
-  fi
-fi
 [[ -n $conversation && -n $report ]] || exit 0
 dir="$HOME/.agentkit/state"
 # start CODE ARG...: agentkit's CODE, its words in sys.argv[2:], in a session of its own

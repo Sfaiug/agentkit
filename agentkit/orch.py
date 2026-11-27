@@ -64,9 +64,6 @@ TMUX_CEILING = 15          # seconds: tmux answers in milliseconds, so one silen
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
 PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of the active window
 INPUT_TTY_OPTION = "@ak_input_tty"   # the current harness wrapper's inner tty, reset on respawn
-AGENT_STATE_OPTION = "@ak_agent_state"  # the harness's last status word and moment (`watch.pane_word`), reset on respawn
-PANE_LAUNCH_OPTION = "@ak_pane_launch"  # the pane's current launch token; blocks stale renders after respawn
-PANE_LAUNCH_ENV = "AGENTKIT_PANE_LAUNCH"
 SOCKET_ENV = "AGENTKIT_TMUX_SOCKET"   # the test suite's way to a server of its own
 SOCKET = "agentkit"        # the toolkit's own tmux server, never the user's default one
 CONTROL = "_ak"            # the Go port's hidden control session there: never a seat, never swept
@@ -2352,7 +2349,7 @@ def seat_command(name, cmd, socket=None):
     # new-session -e can set a variable, but cannot remove one inherited from its server.
     # Clear absent overrides before the harness starts; the session is refreshed below too.
     absent = [key for key, value in seat_env(name, socket_name() if socket is None else socket).items()
-              if value is None and key != PANE_LAUNCH_ENV]
+              if value is None]
     unset = "unset " + " ".join(absent) + "\n" if absent else ""
     path.write_text('rm -f -- "$0"\n' + unset + 'exec ' + shlex.join(cmd) + "\n")
     return shlex.join(["sh", str(path)]), path
@@ -2368,8 +2365,7 @@ def seat_env(name, server):
     from . import notify
     values = {"HOME": str(Path.home()), config.SESSION_ENV: name,
               SOCKET_ENV: None if server == home_socket() else server,
-              owner.MARK: None, guard.TMUX_OWNER: None, versions.CODE_ENV: None,
-              PANE_LAUNCH_ENV: None}
+              owner.MARK: None, guard.TMUX_OWNER: None, versions.CODE_ENV: None}
     for key in sorted(config.state_env_names() | set(notify.ENV_NAMES)):
         if key not in values:
             values[key] = os.environ.get(key)
@@ -2411,13 +2407,11 @@ def start(name, cwd, cmd, orchestrator, started=lambda: None):
     # that is not up this says so and does nothing, and `-f` below is what dresses that one.
     # Its answer is also what says whether this command is the one starting the server: only
     # that one can put the server in agentkit's slice.  The harness goes in either way.
-    token = uuid.uuid4().hex
     running = tmux_out("source-file", str(conf))[0] == 0
     command, launch = seat_command(name, cmd)
     rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
-                       *pane_env({**values, PANE_LAUNCH_ENV: token}), command,
-                       ";", "set-option", "-p", "-t", f"={name}:", PANE_LAUNCH_OPTION, token,
-                       path_shim=True, unit=None if running else f"agentkit-seat-{name}")
+                       *pane_env(values), command, path_shim=True,
+                       unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
         launch.unlink(missing_ok=True)
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
@@ -2942,14 +2936,10 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
         # One command list: a failed respawn keeps the old tty, and a new wrapper's
         # publishing client cannot run before the old name is removed.  A frozen pane's list
         # stops at its first command once the freeze has run out: keys may have reached it.
-        token = uuid.uuid4().hex
         rc, out = tmux_out(*(("show-options", "-pv", "-t", target, FROZEN_OPTION, ";")
                              if still else ()),
-                           "respawn-pane", "-k", "-t", target,
-                           *pane_env({**values, PANE_LAUNCH_ENV: token}), command,
+                           "respawn-pane", "-k", "-t", target, *pane_env(values), command,
                            ";", "set-option", "-pu", "-t", target, INPUT_TTY_OPTION,
-                           ";", "set-option", "-pu", "-t", target, AGENT_STATE_OPTION,
-                           ";", "set-option", "-p", "-t", target, PANE_LAUNCH_OPTION, token,
                            *((";", *thaw) if still else ()), socket=server,
                            path_shim=True, timeout=5)
         if rc != 0:
