@@ -29,6 +29,7 @@ ASK_WATCH = (
     "    if kind == 'draft': return watch.composer_draft('antigravity', pane)\n"
     "    if kind == 'exact': return watch._composer_rows('antigravity', pane, exact=True)\n"
     "    if kind == 'rows': return watch._composer_rows('antigravity', pane)\n"
+    "    if kind == 'stall': return watch.stall_mark('antigravity', pane, None, lambda _: None)\n"
     "    state = watch.classify('antigravity', pane, None, None, {}, 10)\n"
     "    return {'free': watch._free('antigravity', state), 'state': state['state'],\n"
     "            'authority': state['authority'], 'rule': state['rule']}\n"
@@ -127,6 +128,15 @@ class FreshAgyComposerHint(unittest.TestCase):
         for at, (mode, agent) in enumerate(labels):
             with self.subTest(mode=mode, agent=agent):
                 self.assertEqual(got[2 * at:2 * at + 2], want)
+
+    def test_bare_mode_words_in_transcript_still_supersede_an_old_stall(self):
+        pane = (REPO / "tests/fixtures/antigravity-stall-pane.txt").read_text(encoding="utf-8")
+        error = next(row for row in pane.splitlines() if row.startswith("Error ID: "))
+        recovered = [pane.replace(error + "\n", f"{error}\n\n  {word}\n", 1)
+                     for word in ("Plan", "accept-edits")]
+        got = self.ask_many([("stall", pane), *(("stall", text) for text in recovered)])
+        self.assertTrue(got[0])
+        self.assertEqual(got[1:], [None, None])
 
     def test_a_capture_without_colours_reads_as_today(self):
         self.assertEqual(self.ask_many([("draft", framed(f"> {HINT_WORDS}"))]),
