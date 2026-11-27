@@ -35,7 +35,7 @@ class RepoLineBadHome(Sandbox):
         self.acme = self.checkout("acme")
         config.save_session(self.cfg, "fix-api", "fable", ["opus"],
                             {"cwd": str(config.CODE), "repo": None})
-        plan.write("fix-api", [plan_line("true")])
+        plan.write("fix-api", [plan_line(f'test -d "{repo}"') for repo in (self.acme, BAD)])
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[{
             "name": "fix-api", "path": str(config.CODE), "created": 9000, "attached": False,
             "exited": False, "legacy": False, "resumable": False}]))
@@ -55,7 +55,7 @@ class RepoLineBadHome(Sandbox):
     def task(self, path, repo):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"---\nrepo: {repo}\n---\n# Fix the API\n\n"
-                        "## Done when\n```bash\ntrue\n```\n")
+                        f'## Done when\n```bash\ntest -d "{repo}"\n```\n')
         return path
 
     def waiting(self, name, repo):

@@ -269,11 +269,10 @@ def job_create(cfg, task_paths, opts, parallel, *, plan_lines=None):
         if plan_lines:
             taken = run.claimed_plan_lines(seat)
             for info in infos:
-                line = run.claim_plan_line(seat, info["path"], info["cmds"], taken)
-                if not line:
+                if not (line := run.claim_plan_line(seat, info["path"], info["cmds"], taken)):
                     raise config.Error(run.missing_plan_line(info["path"]))
                 plan_lines[info["path"]] = line
-        return write_job(infos, seat, opts, parallel, plan_lines or {})
+        return write_job(infos, seat, opts, parallel, plan_lines)
 
 
 def write_job(infos, seat, opts, parallel, plan_lines):
@@ -288,7 +287,7 @@ def write_job(infos, seat, opts, parallel, plan_lines):
            "tasks": [{"name": info["name"], "title": info["title"], "state": "queued",
                       "run_id": None, "executor": None, "reviewer": None,
                       "started_at": None, "finished_at": None, "task_file": str(info["path"]),
-                      "plan_line": plan_lines.get(info["path"])}
+                      "plan_line": (plan_lines or {}).get(info["path"])}
                      for info in infos]}
     save_job(job_dir, job)
     return job_dir, job

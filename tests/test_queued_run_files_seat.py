@@ -32,7 +32,6 @@ class QueuedRunFilesSeat(Sandbox):
         self.acme, self.beta = self.checkout("acme"), self.checkout("beta")
         config.save_session(self.cfg, "fix-api", "fable", ["opus"],
                             {"cwd": str(config.CODE), "repo": None})
-        plan.write("fix-api", [plan_line("true")])
         self.seat = {"name": "fix-api", "path": str(config.CODE), "created": 9000,
                      "attached": False, "exited": False, "legacy": False, "resumable": False}
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[self.seat]))
@@ -51,11 +50,12 @@ class QueuedRunFilesSeat(Sandbox):
         directory.mkdir(parents=True)
         front = f"---\nrepo: {repo}\n---\n" if repo is not None else ""
         (directory / "task.md").write_text(f"{front}# Fix the API\n\n"
-                                           "## Done when\n```bash\ntrue\n```\n")
+                                           f"## Done when\n```bash\ntest -f {name}.txt\n```\n")
         return directory
 
     def launch(self, name, repo, task_file=None, where=REPO):
         """`ak run` from the seat, standing in `where`: the receipt waits for a slot."""
+        plan.write("fix-api", [*plan.lines("fix-api"), plan_line(f"test -f {name}.txt")])
         directory = self.task(name, repo)
         opts = {"--no-merge": False, "--no-worktree": False, "--anyway": False, "--bg": False}
         with chdir(where), patch.dict(os.environ, {config.SESSION_ENV: "fix-api",

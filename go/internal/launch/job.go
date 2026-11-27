@@ -75,11 +75,10 @@ func Job(paths []string, values map[string]string, flags map[string]bool, out io
 	if value, given := values["--parallel"]; given {
 		asked, _ = strconv.Atoi(value)
 	}
-	err := publishLaunch(tasks, func() error { return j.create(tasks, asked) })
-	if refused, ok := err.(*refusedOutright); ok {
-		return 2, refused.why, nil
-	}
-	if err != nil {
+	if err := publishLaunch(tasks, func() error { return j.create(tasks, asked) }); err != nil {
+		if refused, ok := err.(*refusedOutright); ok {
+			return 2, refused.why, nil
+		}
 		return 0, "", err
 	}
 	if flags["--bg"] {

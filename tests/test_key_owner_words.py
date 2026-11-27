@@ -33,7 +33,7 @@ from fixtures.akseat import Seat
 KEY = "sk-acme-0000000000000000000000"
 SAID = f"Build the API. Use {KEY} for the sandbox."
 CURSOR = {"at": 30, "count": 1}
-TASK = "---\nrepo: none\n---\n# {}\n\n## Done when\n```bash\ntrue\n```\n"
+TASK = "---\nrepo: none\n---\n# {}\n\n## Done when\n```bash\n{}\n```\n"
 MODEL = ('\n[models.echo]\nharness = "echo"\nmodel = "echo-1"\neffort = "low"\n'
          'provider = "test"\n\n[providers.test]\nmode = "subscription"\n')
 # A turn keeps its prompt and hands in at once: an executor's work done, a reviewer's pass.
@@ -41,7 +41,7 @@ MODEL = ('\n[models.echo]\nharness = "echo"\nmodel = "echo-1"\neffort = "low"\n'
 TURN = """#!/bin/sh
 case "$1" in
   run) mkdir -p -- "$6"; cp -- "$5" "$(mktemp {dir}/prompt-XXXXXX)"
-       (cd -- "$4" && {ak} hand-in done) >"$6/stderr.log" 2>&1
+       (cd -- "$4" && cp -- "$5" prompt.txt && {ak} hand-in done) >"$6/stderr.log" 2>&1
        printf '## Summary\\nnothing to change\\n' >"$6/final.md"; : >"$6/session_id" ;;
   auth) echo "the fixture needs no login" ;;
   *) echo "the fixture never speaks $1" >&2; exit 2 ;;
@@ -82,7 +82,8 @@ class Launch(unittest.TestCase):
         script.chmod(0o755)
         config = home.path / ".agentkit/config.toml"
         config.write_text(config.read_text() + MODEL)
-        seat = Seat(home, "lagoon", record={"workers": ["echo"]}, planned=("true",))
+        checks = {title: f"grep -Fq '{title}' prompt.txt" for title in ("Fix API", "Fix UI")}
+        seat = Seat(home, "lagoon", record={"workers": ["echo"]}, planned=checks.values())
         # what the owner typed into the seat a minute ago, where Claude Code keeps it
         project = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(seat.cwd))
         at = datetime.fromtimestamp(time.time() - 60, timezone.utc).isoformat()
@@ -100,9 +101,9 @@ class Launch(unittest.TestCase):
                 "run_depth": 0, "started_at": time.time(), "slot_started_at": time.time(),
                 **owner(sleep.pid)})
         tasks = []
-        for title in ("Fix API", "Fix UI"):
+        for title, check in checks.items():
             tasks.append(seat.cwd / f"{title.lower().replace(' ', '-')}.md")
-            tasks[-1].write_text(TASK.format(title))
+            tasks[-1].write_text(TASK.format(title, check))
         cls.done = sealed(home, "run", *map(str, tasks), cwd=seat.cwd, timeout=300, env={
             "AGENTKIT_SESSION": "lagoon", "AGENTKIT_ADAPTER_DIR": str(cls.adapters)})
         cls.receipts = sorted((home.path / ".agentkit/jobs").glob("*/job.json"))
