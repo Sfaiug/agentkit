@@ -263,14 +263,16 @@ def account_order(cfg, model, readings, first=None):
     login -- first while it has room for this model, the rest by room: a seat lives where
     its owner follows it, and only spills over when that one runs low.  An account on
     credits (`usage.on_credits`) has room only after every one with a window left, and one
-    running low (`usage.model_low`) only after every one that is not.
+    running low (`usage.model_low`) only after every one that is not.  Its room and running
+    low are past the part of its week held for another model's cap, but it is spent only as
+    read (`usage.unheld`): a seat spends that part where every login runs low, waiting on none.
     """
     provider = config.model(cfg, model)["provider"]
 
     def rank(account):
         providers = {provider: readings[account]}
         amount, unknown = usage.model_budget(cfg, model, providers)
-        return (usage.model_exhausted(cfg, model, providers)[0],
+        return (usage.model_exhausted(cfg, model, usage.unheld(providers))[0],
                 usage.on_credits(cfg, model, providers),
                 usage.model_low(cfg, model, providers), unknown is not None, -amount)
     accounts = config.accounts(cfg, provider) or list(readings)
@@ -4630,15 +4632,14 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
 
 def listed_login(cfg, model, providers):
     """(account, (ok, why)): the first login `model`'s provider lists whose seat login passes
-    (`seat_auth`), in the seat's order (`account_order` of the readings `providers` holds, as a
-    seat reads them: `usage.unheld`), else the first of them, with what its harness said of it;
-    None, and what it says of its one login, for a provider listing none.  A seat it serves is
-    one already open, switched or reopened, and the part of a week held for a cap moves none."""
+    (`seat_auth`), in the seat's order (`account_order` of the readings `providers` holds),
+    else the first of them, with what its harness said of it; None, and what it says of its
+    one login, for a provider listing none."""
     entry = config.model(cfg, model)
     plugin = harness_plugin(entry["harness"])
     accounts = config.accounts(cfg, entry["provider"])
-    order = account_order(cfg, model, usage.unheld(providers).get(entry["provider"], {})
-                          .get("accounts") or {}) if accounts else []
+    order = account_order(cfg, model, providers.get(entry["provider"], {}).get("accounts")
+                          or {}) if accounts else []
     first = None
     for account in [*order, *(a for a in accounts if a not in order)]:
         said = plugin.seat_auth(account)

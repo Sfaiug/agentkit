@@ -1689,7 +1689,7 @@ def _leaving(week, caps):
 
 def unheld(providers):
     """`providers` as they are read, each login's too: no cap holding a part of its week
-    (`held`).  How a seat reads them, which the held part neither refuses nor moves -- the
+    (`held`).  How a seat reads them spent, which the held part neither refuses nor parks -- the
     owner, 12 Nov 2026: "Regardless of remaining usage I want to be able to switch model and
     effort of any role" -- and wherever the provider alone decides: its credits, its refusal."""
     def bare(reading):     # a provider, a login or a meter; whatever else, a bad reading as it is

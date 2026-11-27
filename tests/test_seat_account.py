@@ -641,22 +641,32 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.tick()
         self.assertEqual(config.session_records()[NAME]["account"], "second")
 
-    def test_a_part_of_its_week_held_for_another_models_cap_neither_parks_nor_moves_a_seat(self):
-        # 60% used and 40 held for Fable: spent for an Opus turn, never for the Opus seat on it
-        self.meters(60, 0)
-        self.cached(lambda p: p["anthropic"]["accounts"]["default"]["meters"].append({
-            **usage._normalized({"name": "weekly_scoped", "used": 20, "window_secs": 604800,
-                                 "resets_at": self.now + 86400}, self.now),
-            "scope": "Fable", "held": 40}))
-        self.tick()
-        self.assertEqual(self.commands, [])
-        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
-        self.assertEqual(config.session_records()[NAME]["account"], "default")
-        # nor the login a switch onto Opus, or a reopen, takes
+    def test_a_switch_or_reopen_leaves_a_part_of_a_week_held_for_another_models_cap(self):
+        # a login 60% used and 40 held for Fable: Opus opens on the other with room past it,
+        # and else spends that part before a login spent as read
         signed_in = SimpleNamespace(seat_auth=lambda _: (True, "signed in"))
-        with patch.object(orch, "harness_plugin", return_value=signed_in):
-            self.assertEqual(orch.listed_login(self.cfg, "opus", usage.collect(self.cfg))[0],
-                             "default")
+        for usual, spare, holding in ((60, 0, "default"), (100, 60, "second")):
+            self.meters(usual, spare)
+            self.cached(lambda p: p["anthropic"]["accounts"][holding]["meters"].append({
+                **usage._normalized({"name": "weekly_scoped", "used": 20, "window_secs": 604800,
+                                     "resets_at": self.now + 86400}, self.now),
+                "scope": "Fable", "held": 40}))
+            with patch.object(orch, "harness_plugin", return_value=signed_in):
+                self.assertEqual(orch.listed_login(self.cfg, "opus", usage.collect(self.cfg))[0],
+                                 "second", holding)
+
+    def test_a_part_of_a_week_held_for_another_models_cap_postpones_no_reset(self):
+        # the usual login's 5h window spent, its week 60% used and 40 held for Fable, the spare's
+        # week spent: the seat waits for that 5h window alone
+        self.meters(60, 100)
+        self.cached(lambda p: p["anthropic"]["accounts"]["default"]["meters"].extend([
+            usage._normalized({"name": "session", "used": 100, "window_secs": usage.SESSION_SECS,
+                               "resets_at": self.now + 1800}, self.now),
+            {**usage._normalized({"name": "weekly_scoped", "used": 20, "window_secs": 604800,
+                                  "resets_at": self.now + 86400}, self.now),
+             "scope": "Fable", "held": 40}]))
+        self.tick()
+        self.assertEqual(watch.seat_read(NAME)["usage_wait"]["until"], self.now + 1800)
 
     def test_reset_deadline_ignores_other_models_scoped_meter(self):
         self.meters(100, 100)
