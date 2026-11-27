@@ -388,8 +388,17 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
     fi
   done
   if have gh && ! gh auth status >/dev/null 2>&1; then
-    if [ "$TTY" = 1 ]; then $GH_LOGIN || note "$GH_LOGIN did not finish"
-    else note "gh is not logged in; run \`$GH_LOGIN\` so runs can push, open and merge PRs"; fi
+    if [ "$TTY" = 1 ]; then
+      # Ctrl-C ends gh, not the installer: a non-empty trap keeps SIG_DFL across exec
+      # (`trap '' INT` would hand SIG_IGN to gh) and keeps bash running after gh exits.
+      gh_rc=0
+      trap ':' INT
+      $GH_LOGIN || gh_rc=$?
+      trap - INT
+      [ "$gh_rc" = 0 ] || note "$GH_LOGIN did not finish"
+    else
+      note "gh is not logged in; run \`$GH_LOGIN\` so runs can push, open and merge PRs"
+    fi
   fi
   # What a logged-in gh still leaves for git to fail on later, both of them three model calls
   # into the first run: no credential helper, so the push cannot authenticate, and no author,
