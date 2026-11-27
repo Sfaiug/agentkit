@@ -126,8 +126,17 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 				pieced, asked = &text, clock()
 				break
 			}
-			l.say("check runs here: command is not sent to the suite helper (does not name AK_SHARD)")
 			shard, only := selection.request()
+			if selection.pinned() {
+				// a piece of its suite, not a check: named by its share, as Python's run_suite names it
+				label := shard
+				if only != nil {
+					label += ", its failed tests alone"
+				}
+				l.say("AK_SHARD=" + label + " runs here: command is not sent to the suite helper (pinned piece)")
+			} else {
+				l.say("check runs here: command is not sent to the suite helper (does not name AK_SHARD)")
+			}
 			row := history.Check(rows, cmd, asked, "", l.say)
 			kills := host.MemoryEvent("oom_kill")
 			outcome, err = l.boxed(cwd, cmd, shard, suitetimes.Handed(cwd), remaining, progress, path, false, at.holds(), only)
