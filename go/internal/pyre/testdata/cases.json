@@ -2860,7 +2860,7 @@
   {
    "harness": "claude",
    "key": "rule asking.survey rows",
-   "pattern": "^ *(?:[●⏺] +)?How is Claude doing this session\\? \\(optional\\)\\n *1: Bad +2: Fine +3: Good +(?:4: Unsure +)?0: Dismiss(?:\n─{3,}(?: [^\\n]+ ─+)?\\n❯\\n─{3,}(?:\\n(?! *[❯─])[^\\n]+){0,2})?\\Z",
+   "pattern": "^ *(?:[●⏺] +)?How is Claude doing this session\\? \\(optional\\)\n *1: Bad +2: Fine +3: Good +(?:4: Unsure +)?0: Dismiss(?x:\n  \\n ─{3,} (?: [ ][^\\n]+[ ]─+ )?\n  \\n ❯\n  \\n ─{3,}\n  (?: (?: \\n (?![ ]*[❯─]) [^\\n]+ )?\n      \\n [ ]* (?: ⏵⏵ | ⏸ | \\?[ ]for[ ]shortcuts | \\d+%[ ]context[ ]left ) [^\\n]* )?\n)?\\Z",
    "flags": "m",
    "matches": []
   },

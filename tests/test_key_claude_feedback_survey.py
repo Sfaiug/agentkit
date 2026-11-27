@@ -56,11 +56,12 @@ class ClaudeFeedbackSurvey(unittest.TestCase):
         empty = BOX.format(draft="") + FOOTER
         cases = (
             ("survey", survey() + empty, "0"),
-            ("unsure", survey(unsure=True) + empty, "0"),
+            ("unsure", survey(unsure=True) + BOX.format(draft="") + "\nacme | ready" + FOOTER, "0"),
             ("plain survey below effort", EFFORT + plain + empty, "0"),
             ("bottom row", plain, "0"),
             ("quote above effort", plain + "\n" + EFFORT + empty, ""),
             ("quote next to empty composer", plain + empty, ""),
+            ("quote in one colour", INK + plain + "\x1b[39m" + empty, ""),
             ("coloured quote in transcript", survey() + "\n  End of quote." + empty, ""),
             ("draft", survey() + BOX.format(draft="finish acme") + FOOTER, ""),
         )

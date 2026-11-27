@@ -5954,7 +5954,7 @@ def dismiss(session, harness):
     def drawn(timeout=None):
         # whether tmux gave a screen, not blank, and the rule with an `answer` it reads as
         rc, rows = orch.tmux_out("capture-pane", "-p", "-e", "-t", _pane(session),
-                                 socket=orch.seat_socket(session), timeout=timeout)
+                                 socket=orch.seat_socket(session), timeout=timeout, rows=True)
         shown = rc == 0 and bool(strip_sgr(rows).strip())
         rule = screen_rule(harness, rows)[0] if shown else None
         return shown, rule if rule and rule["answer"] else None
