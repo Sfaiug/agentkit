@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import resource
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -166,6 +167,9 @@ class OpenCodeFreeLimitDialog(unittest.TestCase):
                 ("leading_zero_true", '{"lastSeenAt":001795717297316,"dontShow":true}'),
                 ("leading_zero", '{"lastSeenAt":001795717297316}'),
                 ("invalid_utf8", b'{"lastSeenAt":1795717297316,"label":"\xff","dontShow":true}'),
+                ("above_unicode", b'{"lastSeenAt":1795717297316,"label":"\xf4\x90\x80\x80","dontShow":true}'),
+                ("five_byte_utf8", b'{"lastSeenAt":1795717297316,"label":"\xf8\x88\x80\x80\x80"}'),
+                ("utf8_surrogate", b'{"lastSeenAt":1795717297316,"label":"\xed\xa0\x80","dontShow":true}'),
                 ("raw_nul", b'{"lastSeenAt":1795717297316,"label":"\x00"}'),
             ]
             for channel, raw in invalid_notes:
@@ -186,7 +190,29 @@ class OpenCodeFreeLimitDialog(unittest.TestCase):
                 tui.mkdir(parents=True)
                 (tui / "go-upsell.json").write_text(json.dumps(content))
 
-            proc = _launch(env)
+            escaped_backslash_notes = [
+                ("u005c_val", br'{"lastSeenAt":1795717297316,"label":"\u005cu0001d800"}',
+                 {"lastSeenAt": 1795717297316, "label": r"\u0001d800", "dontShow": True}),
+                ("u005c_and_surr",
+                 br'{"lastSeenAt":1795717297316,"label":"\u005cu0001d800","surrogate":"\udc00"}',
+                 {"lastSeenAt": 1795717297316, "label": r"\u0001d800", "surrogate": "\udc00",
+                  "dontShow": True}),
+                ("u005c_keys",
+                 br'{"lastSeenAt":1795717297316,"\u005cu0001d800":"kept","\u005cud800":"separate"}',
+                 {"lastSeenAt": 1795717297316, r"\u0001d800": "kept", r"\ud800": "separate",
+                  "dontShow": True}),
+            ]
+            for channel, raw, _ in escaped_backslash_notes:
+                tui = state / channel / "tui"
+                tui.mkdir(parents=True)
+                (tui / "go-upsell.json").write_bytes(raw)
+
+            minimal = Path(temp) / "minimal-bin"
+            minimal.mkdir()
+            for name in ("bash", "dirname", "jq", "mktemp", "mv", "rm"):
+                (minimal / name).symlink_to(shutil.which(name))
+
+            proc = _launch({**env, "PATH": str(minimal)})
             self.assertEqual(proc.returncode, 0, proc.stderr)
             for channel, _ in invalid_notes:
                 self.assertEqual(
@@ -198,6 +224,12 @@ class OpenCodeFreeLimitDialog(unittest.TestCase):
                 self.assertEqual(
                     json.loads((state / channel / "tui/go-upsell.json").read_text()),
                     {**content, "dontShow": True},
+                    channel,
+                )
+            for channel, _, expected in escaped_backslash_notes:
+                self.assertEqual(
+                    json.loads((state / channel / "tui/go-upsell.json").read_text()),
+                    expected,
                     channel,
                 )
 

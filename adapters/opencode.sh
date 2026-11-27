@@ -299,8 +299,12 @@ interactive)
     src=/dev/null
     if [ -f "$note" ]; then
       [ -r "$note" ] || continue
-      if ! command -v iconv >/dev/null || iconv -f UTF-8 -t UTF-8 <"$note" >/dev/null 2>&1; then
-        src=$note
+      raw=""
+      if ! { LC_ALL=C IFS= read -r -d '' raw <"$note"; } 2>/dev/null; then
+        # No NUL byte in $note; jq decodes strict RFC 3629 UTF-8 and replaces any invalid
+        # sequence with U+FFFD, so round-tripping matches byte-for-byte iff $note is UTF-8.
+        decoded=$(LC_ALL=C jq -jRs '. + "x"' <"$note" 2>/dev/null) || continue
+        [ "${raw}x" = "$decoded" ] && src=$note
       fi
     fi
     # Strict RFC 8259 check (jq accepts leading zeroes and BOM) and lone-surrogate preservation
@@ -320,7 +324,9 @@ interactive)
         | (protect($s) | try fromjson catch null)
         | if type == "object" then
             if .dontShow == true then empty
-            else (.dontShow = true | tojson | gsub($re + "(?<h>[0-9a-fA-F]{4})"; "\\u" + .h)) end
+            else (.dontShow = true | tojson
+              | gsub("(?<p>" + $re + "(?<h>[0-9a-fA-F]{4}))|(?<e>\\\\.)";
+                  if .h then "\\u" + .h else .e end)) end
           else "{\"dontShow\":true}" end
       else "{\"dontShow\":true}" end' <"$src"; } 2>/dev/null) || continue
     [ -n "$body" ] || continue
