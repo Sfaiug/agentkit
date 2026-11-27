@@ -30,20 +30,18 @@ const (
 // starts (\G), as Python's re.finditer searches again where an empty match ended.
 type Regexp struct{ engine, advancing *regexp2.Regexp }
 
-// A Match is where a pattern matched, in bytes, and its named groups.
+// A Match is where a pattern matched, in bytes, and where its named groups did.
 type Match struct {
 	Start, End int
 	Text       string
-	named      map[string]*string
+	named      map[string][2]int
 }
 
-// Group is the text a named group took, false where it took part in no match.
-func (m Match) Group(name string) (string, bool) {
-	text := m.named[name]
-	if text == nil {
-		return "", false
-	}
-	return *text, true
+// Group is where a named group took part, in bytes of the text searched, as Python's span(name);
+// false where it took part in no match.
+func (m Match) Group(name string) (start, end int, ok bool) {
+	span, ok := m.named[name]
+	return span[0], span[1], ok
 }
 
 // Python's \s and \w, as members of a class: the engine's own classes read other characters.
@@ -414,12 +412,11 @@ func (r *Regexp) FindAll(text string, n int) []Match {
 			break
 		}
 		start, end := bytes[match.Index], bytes[match.Index+match.Length]
-		each := Match{Start: start, End: end, Text: text[start:end], named: map[string]*string{}}
+		each := Match{Start: start, End: end, Text: text[start:end], named: map[string][2]int{}}
 		for _, group := range match.Groups() {
 			// the engine names a numbered group by its number, which no Python name can be
 			if _, numbered := strconv.Atoi(group.Name); numbered != nil && len(group.Captures) > 0 {
-				taken := text[bytes[group.Index]:bytes[group.Index+group.Length]]
-				each.named[group.Name] = &taken
+				each.named[group.Name] = [2]int{bytes[group.Index], bytes[group.Index+group.Length]}
 			}
 		}
 		found = append(found, each)

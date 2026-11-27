@@ -195,7 +195,10 @@ interactive)
   # shlex.split, which `ak orch` parses this line with, reads no $'...'.
   first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
     { sq="'"; first=" -- '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
-  printf "python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"' %s%s\n" \
+  # Codex asks `Update available` at start when a newer one is out, and a seat left at that
+  # question takes no line of ak's: `ak update` is how a harness moves.  Off for this launch,
+  # whatever the login's config.toml says (codex 0.172.0).
+  printf "python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"' -c check_for_update_on_startup=false %s%s\n" \
       "$REPO/tools/idle-compact.py" "$REPO/tools/codex-seat.py" "$rules" \
       "$resume" "$mflag" "$2" "$OWN_RULES_OFF" "$first" ;;
 usage)

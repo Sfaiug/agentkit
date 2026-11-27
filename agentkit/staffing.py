@@ -425,6 +425,11 @@ def review_writers(state):
     return [] if state.get("review_pr") and not state.get("own_pr") else head_writers(state)
 
 
+def _lineup_row(entry, rows):
+    mine = {"harness": entry["harness"], "model": entry["model"]}
+    return next((row for row in rows if mine in row["yours"]), None)
+
+
 def lab(cfg, name, lineup=None):
     """Who makes the configured model `name`: the maker of the row of `lineup`, else of the
     lineup last stored (`matrix.listed`), whose `yours` holds its harness and model, as the
@@ -436,9 +441,8 @@ def lab(cfg, name, lineup=None):
     word, its provider.  A provider running several makers' models is then as many labs, and one
     maker's models under two providers one lab."""
     entry = config.model(cfg, name)
-    mine = {"harness": entry["harness"], "model": entry["model"]}
     rows = matrix.listed()[0] if lineup is None else lineup
-    row = next((row for row in rows if mine in row["yours"]), None)
+    row = _lineup_row(entry, rows)
     if row is not None:
         return config.company(cfg, row.get("maker")) or entry["provider"]
     model = config.model_id(entry)
@@ -458,18 +462,29 @@ def pair_tier(cfg, executor, reviewer, lineup=None):
     """This pair's tier, in the owner's order of 21 Oct and 18 Nov
     (tests/test_key_reviewer_other_provider_first.py, tests/test_key_a_lab_is_a_models_maker.py):
     0 a model of another lab (`lab`), 1 another model of the executor's lab, 2 the executor's
-    own model.  Own is `same_model`'s: one model id under two providers is two models.
-    `lineup` is `lab`'s: a pick weighing several pairs reads it once.
+    own model.  Own is `same_model`'s: one model id under two providers is two models.  Where
+    the two entries are not `same_model` and differ in `lab`, they are tier 1 when they share
+    `harness` and `provider` and at least one names no model id of its own (`config.model_id`
+    is None) and no row of the lineup holds it: what the harness's default runs is unknown, so
+    it is not counted as another lab than its sibling
+    (tests/test_key_a_default_model_is_no_other_lab_than_its_sibling.py).  `lineup` is `lab`'s: a
+    pick weighing several pairs reads it once.
 
     None when either name is unknown: no pick weighs a pair it cannot name.
     """
     if same_model(cfg, executor, reviewer):
         return 2
     try:
-        same = lab(cfg, executor, lineup) == lab(cfg, reviewer, lineup)
+        one, two = config.model(cfg, executor), config.model(cfg, reviewer)
+        rows = matrix.listed()[0] if lineup is None else lineup
+        same = lab(cfg, executor, rows) == lab(cfg, reviewer, rows)
     except config.Error:
         return None
-    return 1 if same else 0
+    if same or (one["harness"] == two["harness"] and one["provider"] == two["provider"]
+                and any(config.model_id(entry) is None and _lineup_row(entry, rows) is None
+                        for entry in (one, two))):
+        return 1
+    return 0
 
 
 def best_pair(cfg, executors, reviewers, allow_self=True):

@@ -21,6 +21,7 @@ from test_close_and_info import ENTER, ESC, Menu
 from agentkit import menu, orch, terminal
 
 MADE = """
+config.harness_present = lambda _: True
 orch.create = lambda cfg, name, cwd, **kw: print(
     f"<made {name} under {kw.get('repo')} by {kw['selection'][1][0]}>", flush=True) or ["true"]
 """
@@ -177,6 +178,7 @@ class Row(unittest.TestCase):
                 patch.object(orch, "CHARACTERS", ("new",)), \
                 patch.object(orch, "alias_names", lambda names=None: set()), \
                 patch.object(orch, "held_names", set), \
+                patch.object(orch, "refuse_start", lambda *_args, **_kw: None), \
                 patch.object(menu, "open_session", lambda *_args: None), \
                 redirect_stdout(printed):
             self.assertEqual(menu.start_born(born, dry_run=True, give=lambda: None), "new-2")

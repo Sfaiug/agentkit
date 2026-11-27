@@ -2217,12 +2217,13 @@ def screen_rule(harness, pane):
             elif _suggestion_line(raws[at], region[at], chrome["faint"]):
                 return rule, region[at][:160]
             continue
-        # a row pattern reads its rows as drawn, indented or from the left edge; at an empty
-        # prompt, faint or muted hint text in the composer is blanked so its prompt mark still reads
+        # a row pattern reads its rows as drawn, indented or from the left edge; at a composer
+        # holding nothing, faint or muted hint text is blanked so its prompt mark still reads
         if rule["row"] and rule["chrome"] and rule["state"] == "at_prompt" and bright_lines is None:
-            bright_lines = [row.rstrip() for row in _bright_drawn(raw_lines, chrome["faint"])]
-        brights = (bright_lines[-rule["lines"]:]
-                   if rule["row"] and rule["chrome"] and rule["state"] == "at_prompt" else None)
+            bright_lines = ([row.rstrip() for row in _bright_drawn(raw_lines, chrome["faint"])]
+                            if composer_draft(harness, tail) == "" else [])
+        brights = (bright_lines[-rule["lines"]:] if rule["row"] and rule["chrome"]
+                   and rule["state"] == "at_prompt" and bright_lines else None)
         drawn = [line for at, (raw, line) in enumerate(zip(raws, region))
                  if rule["row"] and (
                      rule["row"].search(strip_sgr(raw).rstrip())

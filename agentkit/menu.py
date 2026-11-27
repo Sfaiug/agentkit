@@ -2377,6 +2377,8 @@ def new_session(cfg, dry_run, keyboard=None, found=None):
         taken = orch.taken_names()        # its name is chosen now: the questions may have waited
         name = orch.character_name(taken)
     if dry_run:
+        orch.refuse_name(name, taken)         # a preview refuses what `orch.create` would
+        orch.refuse_start(cfg, selected[0], providers, True)
         reviewers = cfg["defaults"].get("reviewers")
         print(f"would start {name}: {selected[0]}, workers {' '.join(selected[2])}"
               + (f", reviewers {' '.join(reviewers)}" if reviewers is not None else ""))
@@ -2508,6 +2510,9 @@ def start_born(born, dry_run, give):
             if born["name"] not in taken else orch.character_name(taken))
     selected = born["selected"]
     if dry_run:
+        orch.refuse_name(name, taken)         # as `orch.create` would
+        orch.refuse_start(born["cfg"], selected["orchestrator"],
+                          born.get("providers") or {}, True)
         print(f"would start {name}: {selected['orchestrator']}, workers "
               f"{' '.join(selected['workers'])}, reviewers {' '.join(selected['reviewers'])}")
     elif orch.create(born["cfg"], name, orch.seat_cwd(), prompting=True,
@@ -3887,7 +3892,7 @@ def models_standing(found, kept, unit):
         choices, shaded = (choices, shaded[:-1]) if shaded else (choices[1:], shaded)
 
 
-def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True, price=""):
+def models_bars(found, role, used, kept, unit, room, marked=True, why=True, price=""):
     """`role`'s answer `found` (matrix.answer) drawn as bars under the role lines, the owner's
     design of 5 Nov 2026: under a heading counting them and ending with `price`, what the role
     keeps where it keeps one (models_screen), those that stand (models_standing), side by
@@ -3899,9 +3904,9 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
     shade still says it is one; `used`, the row the role uses, is in the accent colour, `━`
     under its name.  No axis line: the numbers say what the heights measure, as a shaded bar on
     the right is dearer, not better.  On a narrow screen the two-cell gutters, then the indent,
-    give way to the labels.  Given `room` lines, the tallest stands as tall as the rest leaves
-    room for, TALL cells at most and one at least, else TALL; `marked` false leaves the `━` out,
-    `why` false the whys, their columns as wide."""
+    give way to the labels.  The tallest stands as tall as the rest leave of `room` lines, TALL
+    cells at most and one at least; `marked` false leaves the `━` out, `why` false the whys,
+    their columns as wide."""
     utf8, width = terminal.utf8(), terminal.layout_width()
     solid, shade, mark = GLYPHS[utf8]
     size, rows, labels, words, widths = models_standing(found, kept, unit)
@@ -3919,7 +3924,7 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
               in zip(rows, labels, words, widths)]
     # the heading, the tallest's number over it and what stands under the bars take their lines
     taken = len(lines) + 1 + sum(max(map(len, part)) for part in zip(*unders))
-    tall = TALL if room is None else max(1, min(TALL, room - taken))
+    tall = max(1, min(TALL, room - taken))
     numbers = [cost_in(found, row, unit) for row, _ in rows]
     largest = max(filter(None, numbers), default=0) or 1
     # an eighth of a cell; a whole one without UTF-8, and on a shaded bar, as no glyph shades a
@@ -6430,9 +6435,12 @@ def machines_value():
     return f"{count} machine{'' if count == 1 else 's'}"
 
 
-def machine_value(machine, cfg):
-    """What the tick last found, and the work this machine's marks allow."""
+def machine_value(machine, cfg, stand_in=None):
+    """What the tick last found, the work this machine's marks allow, then `stand_in`, its words
+    as the stand-in where it is one; another machine that answered on battery takes no work now
+    (machines.helpers), its row ending so in place of its work."""
     here, said = machine.name == machines.HERE, machine.said
+    also = [stand_in] if stand_in else []
     words = ["home" if here else machine.kind]
     if said:
         total, free = said["memory_mb"], said["free_mb"]
@@ -6448,9 +6456,11 @@ def machine_value(machine, cfg):
         busy = min(100, max(0, round(100 * said["load"] / max(1, said["cores"]))))
         used = machines._gb(total - free).removesuffix(" GB")
         words += [f"{busy}% busy · {used} of {machines._gb(total)} used"]
+        if not here and machines.on_battery(said):
+            return " · ".join([*words, *also, "on battery · no work until on power"])
     else:
         words += ["never answered"]
-    return " · ".join([*words, work_words(machine.name, cfg)])
+    return " · ".join([*words, work_words(machine.name, cfg), *also])
 
 
 def stand_in_value(age, takes, own=True):
@@ -6491,8 +6501,8 @@ def machine_hours(name):
 def config_machines(cfg):
     """Recorded machines; Enter opens each one's cap on runs at once (runs_row), the home's with
     how many sessions it carries at once under it (carried.value), another's under its work
-    marks.  Each machine that copies this one (standby.copies) is said at the end of the row of
-    the first listed machine but the home whose last reading names its host, one machine one
+    marks.  Each machine that copies this one (standby.copies) is said on the row of the first
+    listed machine but the home whose last reading names its host (machine_value), one machine one
     row, else under them on a row that opens nothing; why they cannot be read under the rows.
     Last, `+ add a machine` takes an ssh address, or with none typed finds those that ran the
     line making a new machine one it adds (machines.join_line, under its field; machines.found),
@@ -6615,10 +6625,10 @@ def config_machines(cfg):
             same = next((machine.name for machine in known if machine.name != machines.HERE
                          and (machine.said or {}).get("name") == host), None)
             if same:
-                joined[same] = f" · {stand_in_value(age, takes, own=False)}"
+                joined[same] = stand_in_value(age, takes, own=False)
             else:
                 apart.append((host, stand_in_value(age, takes), None))
-        rows = [(machine.name, machine_value(machine, cfg) + joined.get(machine.name, ""),
+        rows = [(machine.name, machine_value(machine, cfg, joined.get(machine.name)),
                  opens(machine.name)) for machine in known] + apart
         # a file that will not load closes the page, saying why on `c`; read last, so one
         # breaking under the reads above does too

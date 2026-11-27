@@ -1,28 +1,28 @@
-"""`ak models` prints under its boards a line on the team now, a table a role of `own`, as
-`--json` gives it (tests/test_key_models_json_own_rows.py), and one muted line under the last
-table saying what their short headings count: the team now's tasks, those that went live and per
-task live the hours they spent and of them waiting and, where every plan they took points of has a
-price, what they took per task live in money, in all and by role, a role that took none left out;
-then each role's rows in `own`'s order, those in use marked, each with its tasks, the share that
-went live, its role's own numbers, time (per task live, every hour its tasks spent), and usage
-(per task live, what its model took of its plans in that role over all its tasks, in money and as
-a share of a week — the share alone where a plan it took points of has no price, a dash where it
-holds no points): a builder's share that passed its first review and reviews per task, a
-reviewer's issues per task and the share of them it took back (false alarms, a dash where it
-counts none).  A row of fewer than 20 tasks shows its tasks alone, one with none live neither time
-nor usage.  A model is named as every screen names it at its effort, plain whatever its label
-holds, by the name its runs kept once no longer configured or where its label drawn plain is
-empty.  All three tables print, a history of one role's former model alone too, the names, tasks
-and went live standing under each other; where a table's columns pass the edge every row folds,
-no column headed: its model's line, then each number it shows after its column's name, indented,
-an over-wide pair wrapping onto indented lines, no line passing the edge and no word that fits
-cut.
+"""`ak models` prints a line on the team now, a table a role of `own`, as `--json` gives it
+(tests/test_key_models_json_own_rows.py), and one muted line under the last table saying what
+their short headings count, and nothing over them: it asks no board and needs none held.  The
+line on the team now: the team now's tasks, those that went live and per task live the hours
+they spent and of them waiting and, where every plan they took points of has a price, what they
+took per task live in money, in all and by role, a role that took none left out; then each
+role's rows in `own`'s order, those in use marked, each with its tasks, the share that went live,
+its role's own numbers, time (per task live, every hour its tasks spent), and usage (per task
+live, what its model took of its plans in that role over all its tasks, in money and as a share
+of a week — the share alone where a plan it took points of has no price, a dash where it holds
+no points): a builder's share that passed its first review and reviews per task, a reviewer's
+issues per task and the share of them it took back (false alarms, a dash where it counts none).
+A row of fewer than 20 tasks shows its tasks alone, one with none live neither time nor usage.
+A model is named as every screen names it at its effort, plain whatever its label holds, by the
+name its runs kept once no longer configured or where its label drawn plain is empty.  All three
+tables print, a history of one role's former model alone too, the names, tasks and went live
+standing under each other; where a table's columns pass the edge every row folds, no column
+headed: its model's line, then each number it shows after its column's name, indented, an
+over-wide pair wrapping onto indented lines, no line passing the edge and no word that fits cut.
 
-Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
-tasks and their reviews written into the Home's history.db as
-tests/test_key_models_json_counts_tasks_by_team.py writes them, what they took as
-tests/test_key_models_json_run_usage.py writes it; judged by the output and exit code.  Fails
-against /bin/false.
+Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, no
+board held and the boards' proxy answering nobody, the tasks and their reviews written into the
+Home's history.db as tests/test_key_models_json_counts_tasks_by_team.py writes them, what they
+took as tests/test_key_models_json_run_usage.py writes it; judged by the output, the exit code
+and the boards' and the matrix's files left unwritten.  Fails against /bin/false.
 """
 
 from contextlib import closing
@@ -34,7 +34,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, boards
+from test_key_models_answer import ENV
 from test_key_models_json_counts_tasks_by_team import FAILED, history, run
 from test_key_models_json_run_usage import TABLES
 from test_key_models_json_week_meters import DAY, HOUR, NOW, THEN
@@ -111,7 +111,6 @@ def home_of(teams, reviewed=reviews, findings=None):
     home = Home()
     fakeadapter.install(home, claude="pass", codex="pass")
     akconfig.write(home, MODELS, orchestrator="nova", workers=["bolt"], reviewers=["crux"])
-    home.write(".agentkit/state/boards.json", boards())
     runs = [run(f"fix-{name}-{n}", n / 24, **fields, **({} if n < live else FAILED))
             for name, tasks, live, fields in teams for n in range(tasks)]
     history(home, runs, [review for name, tasks, live, _ in teams for n in range(tasks)
@@ -168,14 +167,14 @@ class ModelsOwnTables(unittest.TestCase):
         cls.addClassCleanup(cls.used.close)
 
     def own(self, columns, home=None):
-        """What `ak models` prints on `columns` cells from its line on the team now on, every
-        line it prints as wide as the terminal at most and none holding a terminal style."""
+        """What `ak models` prints on `columns` cells, every line as wide as the terminal at most
+        and none holding a terminal style."""
         done = (home or self.home).ak("models", env={**ENV, "COLUMNS": str(columns)})
         self.assertEqual(done.code, 0, done.err)
         shown = done.out.splitlines()
         self.assertEqual([line for line in shown if len(line) > columns], [], columns)
         self.assertNotIn("\x1b", done.out)
-        return shown[next(n for n, line in enumerate(shown) if line.startswith("Your team now")):]
+        return shown
 
     def priced(self, currency="USD", columns=WIDE, home=None):
         """`own` of `home` (`self.used`) on `columns` cells, its plans priced in `currency`."""
@@ -201,6 +200,12 @@ class ModelsOwnTables(unittest.TestCase):
         # other in all three
         self.assertEqual({line.index("went live") for line in shown
                           if line.startswith(tuple(HEADS))}, {32})
+
+    def test_it_asks_no_board(self):
+        self.own(WIDE)
+        state = self.home.path / ".agentkit/state"
+        self.assertEqual([name for name in ("boards.json", "matrix.json")
+                          if (state / name).exists()], [])
 
     def test_on_40_cells_each_number_follows_its_model_s_line_with_its_name(self):
         self.assertEqual(self.own(40), FOLDED)

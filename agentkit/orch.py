@@ -163,7 +163,7 @@ def seat_models(cfg):
     orchestrator, then every other offered model in list order -- and, by name, why each of
     the rest may not: off in the model list (matrix.off), or its harness not installed
     (`config.harness_present`) while a model not off has its own installed.  Where none has,
-    none is left out for that: no seat could run anyway, and a pick still has its default."""
+    none is left out for that: a pick still has its default, which `refuse_start` refuses."""
     default, off = cfg["defaults"]["orchestrator"], matrix.off(cfg)
     names = [default, *(name for name in config.offered(cfg) if name != default)]
     out = {name: matrix.OFF for name in names if name in off}
@@ -180,6 +180,22 @@ def seat_models(cfg):
 def in_order(cfg):
     """The models a seat may run on, as a pick tries them (`seat_models`)."""
     return seat_models(cfg)[0]
+
+
+def refuse_start(cfg, model, providers, prompting=True):
+    """The account a new seat on `model` opens on (`opening_account`), refusing one that
+    cannot open here in `create`'s order: no working seat login, `model` off
+    (`matrix.refuse_off`), then its harness not installed (`config.harness_present`) -- a seat
+    on that one opens a pane saying only that the harness ended.  Asked by `create` and its
+    previews once the name is free and the model is known, before anything is saved or started
+    for the seat; a move asks `orch.move`."""
+    account = opening_account(cfg, model, providers, prompting)
+    harness = config.model(cfg, model)["harness"]
+    matrix.refuse_off(cfg, model)
+    if not config.harness_present(harness):
+        raise config.Error(f"{model}: {harness} is not installed on this machine; "
+                           f"./install.sh, run in a terminal, installs it")
+    return account
 
 
 def choose(cfg, providers):
@@ -1998,6 +2014,18 @@ def held_names():
     """Every session name agentkit's own tmux server holds, a seat's or not."""
     rc, out = tmux_out("list-sessions", "-F", "#{session_name}", socket=socket_name())
     return set(out.splitlines()) - {CONTROL} if rc == 0 else set()
+
+
+def refuse_name(name, taken=None):
+    """Refuse a new seat a name it may not have, the first thing `create` and its previews ask:
+    none, one a rename still leads from (`alias_names`, `taken` its listing) or one tmux holds."""
+    if not name:
+        raise config.Error("a session needs a name")
+    if name in alias_names(taken):
+        raise config.Error(f"{name!r} is what the session {config.resolve_session(name)!r} used "
+                           f"to be called, and the orchestrator in it still answers to it; "
+                           f"pick another name")
+    refuse_held(name)
 
 
 def refuse_held(name):
@@ -4956,14 +4984,17 @@ def unhanded(path, before):
 
 def default_crew(cfg, providers, default):
     """What a new seat starts from: `default` orchestrating, and [defaults]' executors and
-    reviewers, each with something left to spend.  A group [defaults] leaves empty stays empty:
-    with no executor the orchestrator builds everything, with no reviewer a change lands on its
-    checks.  A group all spent falls back by tier -- a fresh model not the other group's own
-    first -- among those a run could start from, else any fresh one; with every model spent,
-    `default`, launched anyway as `choose` launches it, reviews and nobody builds."""
+    reviewers, each with something left to spend and not left out by `seat_models` as not
+    installed.  A group [defaults] leaves empty stays empty: with no executor the orchestrator
+    builds everything, with no reviewer a change lands on its checks.  A group with none left
+    falls back by tier -- a fresh model not the other group's own first -- among those a run
+    could start from, else any fresh one; with none left at all, `default`, launched anyway as
+    `choose` launches it, reviews and nobody builds."""
     names, (lineup, _) = config.offered(cfg), matrix.listed()
-    fresh = [name for name in names if not spent_note(cfg, name, providers)]
-    model = next((name for name in [default, *in_order(cfg)] if name in fresh), None)
+    order, out = seat_models(cfg)
+    fresh = [name for name in names if out.get(name) in (None, matrix.OFF)
+             and not spent_note(cfg, name, providers)]
+    model = next((name for name in [default, *order] if name in fresh), None)
     base = cfg["defaults"]
     marked = {"workers": base["workers"], "reviewers": base.get("reviewers", base["workers"])}
     selected = {"orchestrator": model or default,
@@ -5059,13 +5090,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     holds them, the orchestrator launched at its own.  `give` gives back the terminal a caller
     holds, called before a harness with no tmux takes this terminal in its place."""
     name = session_name(name)
-    if not name:
-        raise config.Error("a session needs a name")
-    if name in alias_names(taken):
-        raise config.Error(f"{name!r} is what the session {config.resolve_session(name)!r} used "
-                           f"to be called, and the orchestrator in it still answers to it; "
-                           f"pick another name")
-    refuse_held(name)
+    refuse_name(name, taken)
     if selection is None:
         providers = usage.collect(cfg)
         selected = select(cfg, providers, forced, forced_workers, prompting)
@@ -5074,7 +5099,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         selection = providers, selected
     providers, selected = selection
     model, reason, workers = selected[:3]
-    account = opening_account(cfg, model, providers, prompting)
+    account = refuse_start(cfg, model, providers, prompting)
     # where and when, because that is what opens the seat again once tmux has lost it -- and the
     # conversation it owns, written down before it starts wherever its harness can be told one.
     # Not for a dry run: a record of a seat nothing opened is one the next `ak orch` resumes.

@@ -415,6 +415,7 @@ class PlanLines(Sandbox):
         # under its own name, and under a name a pointer still leads to it from
         self.gone_seat_with_plans()
         with patch.object(usage, "collect", return_value={}), \
+                patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "launch"), redirect_stdout(io.StringIO()):
             orch.create(self.cfg, "fix-api", self.root, forced="astra", forced_workers="opus")
         self.assertEqual(watch.plan_text("fix-api"), "")

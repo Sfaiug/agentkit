@@ -50,7 +50,8 @@ printf '{"limits":[]}\n200\n'
 
 # with what every session ak starts runs with (adapters/claude.sh's PINS)
 TURN = ("[-p][--model][haiku][--tools][][--no-session-persistence][--settings]"
-        '[{"permissions":{"defaultMode":"bypassPermissions"},"crossSessionInbound":"refuse",'
+        '[{"permissions":{"defaultMode":"bypassPermissions"},'
+        '"skipDangerousModePermissionPrompt":true,"crossSessionInbound":"refuse",'
         '"switchModelsOnFlag":true}]')
 LAPSED = 1_000_000_000_000        # 2001, in milliseconds
 FRESH = 4_102_444_800_000         # 2100

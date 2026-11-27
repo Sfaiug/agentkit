@@ -148,7 +148,7 @@ func (r *Rules) ruledComposer(rows []string) (int, int) {
 // none empty: bright text only, and a box's edges, chrome on every row, left out.
 func (r *Rules) composerParts(raws, rows []string, at, stop int) []string {
 	boxed := strings.HasPrefix(rows[at], "│") && strings.HasSuffix(rows[at], "│")
-	bright := r.brightRows(raws)
+	bright := mapped(r.brightRows(raws), Plain)
 	first := bright[at]
 	if boxed {
 		first = strings.TrimRightFunc(strings.TrimSuffix(first, "│"), config.Space)
@@ -259,8 +259,11 @@ func (r *Rules) faintRuns(raw string, state faintState) ([]faintRun, faintState)
 			case 0, 27:
 				reversed = false
 			}
-			if code == 0 || code == 39 || code >= 30 && code <= 37 || code >= 90 && code <= 97 {
+			switch {
+			case code == 0 || code == 39:
 				state.muted = false
+			case code >= 30 && code <= 37 || code >= 90 && code <= 97:
+				state.muted = slices.Contains(r.faint, strconv.Itoa(code))
 			}
 		}
 		at = found[1]
@@ -268,9 +271,9 @@ func (r *Rules) faintRuns(raw string, state faintState) ([]faintRun, faintState)
 	return append(runs, faintRun{raw[at:], state.faint || state.muted, reversed}), state
 }
 
-// brightRows is each raw row as plain text, its faint text blanked: what is left is what was
-// typed, a suggestion drawn on after it none of it, nor the cursor's reversed cell on its first
-// letter.
+// brightRows is each raw row as plain text, its faint text blanked in place so every character
+// keeps its column: what is left is what was typed, a suggestion drawn on after it none of it, nor
+// the cursor's reversed cell on its first letter.
 func (r *Rules) brightRows(raws []string) []string {
 	state := faintState{}
 	return mapped(raws, func(raw string) string {
@@ -290,13 +293,13 @@ func (r *Rules) brightRows(raws []string) []string {
 		}
 		var row strings.Builder
 		for at, each := range runs {
+			text := strip(each.text)
 			if each.faint || under[at] {
-				row.WriteString(strings.Repeat(" ", utf8.RuneCountInString(each.text)))
-			} else {
-				row.WriteString(each.text)
+				text = strings.Repeat(" ", utf8.RuneCountInString(text))
 			}
+			row.WriteString(text)
 		}
-		return Plain(row.String())
+		return row.String()
 	})
 }
 
@@ -347,35 +350,46 @@ func (r *Rules) composerRows(pane string) ([]string, bool) {
 
 // framedRows is a composer no mark finds: its manifest finds the framed block it holds, read as
 // drawn, the tail's blank rows among them; finding none reads as empty only where the composer's
-// own row is on the screen.
+// own row is on the screen.  Faint or muted text in the block is a placeholder, blanked, while its
+// frame is read as drawn, so a grey rule still bounds it.
 func (r *Rules) framedRows(pane string, rows []string) ([]string, bool) {
-	drawn := mapped(config.SplitLines(pane), func(row string) string {
+	raws := config.SplitLines(pane)
+	drawn := mapped(raws, func(row string) string {
 		return strings.TrimRightFunc(strip(row), config.Space)
 	})
+	bright := r.brightRows(raws)
 	var top []int
 	for at, row := range drawn {
 		if strings.TrimFunc(row, config.Space) != "" {
 			top = append(top, at)
 		}
 	}
-	source := ""
+	source, shown := "", []rune{}
 	if top = top[max(0, len(top)-tailRows):]; len(top) > 0 {
 		source = strings.Join(drawn[top[0]:], "\n")
+		for at := top[0]; at < len(drawn); at++ {
+			shown = append(shown, []rune(bright[at])[:utf8.RuneCountInString(drawn[at])]...)
+			shown = append(shown, '\n')
+		}
 	}
 	found := r.draft.FindAll(source, -1)
 	if len(found) == 0 && (r.composer == nil || !slices.ContainsFunc(rows, r.composer.MatchString)) {
 		return nil, false
 	}
 	var parts []string
+	at := func(byte int) int { return utf8.RuneCountInString(source[:byte]) }
 	for _, match := range found {
-		edge, _ := match.Group("edge")
-		text, ok := match.Group("text")
+		start, end, ok := match.Group("text")
 		if !ok {
 			return nil, false
 		}
-		for _, row := range config.SplitLines(text) {
+		edge := 0
+		if from, to, framed := match.Group("edge"); framed {
+			edge = at(to) - at(from)
+		}
+		for _, row := range config.SplitLines(string(shown[at(start):at(end)])) {
 			runes := []rune(row)
-			parts = append(parts, strings.TrimFunc(string(runes[min(utf8.RuneCountInString(edge), len(runes)):]), config.Space))
+			parts = append(parts, strings.TrimFunc(string(runes[min(edge, len(runes)):]), config.Space))
 		}
 	}
 	return r.unscrolled(parts), true

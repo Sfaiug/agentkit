@@ -1,9 +1,10 @@
-"""`ak models` reads the two public boards once a day into `state/boards.json`.
+"""`ak models --json` reads the two public boards once a day into `state/boards.json`.
 
 Artificial Analysis is read off its models list and each listed release's own page, Arena
 through its dataset's pages, each of its boards at its category; a board's row is one model at
 one effort, or at none where the board names no effort; within a day nothing is asked again,
-`--refresh` asks now, and a board that fails keeps its last rows with the error beside them.
+`--refresh` beside `--json` asks now, alone is refused, and a board that fails keeps its last
+rows with the error beside them.
 An install upgraded from before 20 Oct 2026 reads them once out of `state/matrix.json`, where
 they were kept beside the matrix, whole.
 
@@ -246,15 +247,17 @@ class ModelBoards(Sandbox):
     def test_the_command_asks_the_boards_again_on_refresh(self):
         self.stack.enter_context(patch.object(config, "manifests", return_value=[]))
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(matrix.main([]), 0)
+            self.assertEqual(matrix.main(["--json"]), 0)
         self.boards.down.add("datasets-server.huggingface.co")
         with redirect_stdout(io.StringIO()):
             self.assertEqual(matrix.main(["--refresh", "--json"]), 0)
         held = json.loads(boards.cache_path().read_text())["arena.ai"]
         self.assertEqual(held["error"], "datasets-server.huggingface.co refused")
         self.assertEqual(len(held["rows"]), 3)                   # what it last said stays
-        with self.assertRaises(config.Error):
-            matrix.main(["--all"])
+        # the boards are read with --json alone, so asking them again means nothing without it
+        for refused in (["--all"], ["--refresh"]):
+            with self.assertRaisesRegex(config.Error, r"^usage: ak models "):
+                matrix.main(refused)
 
 
 class Asking(unittest.TestCase):
