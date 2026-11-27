@@ -19,7 +19,7 @@ first_prompt = true
 # (`config.Words` in go/).  CLAUDE_CODE_DISABLE_AGENT_VIEW keeps a seat's conversation in the
 # seat: `/background` moved it into a daemon that spoke for whichever seat had started it.
 env = ["-u", "CLAUDE_CODE_OAUTH_TOKEN", "-u", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_DISABLE_AGENT_VIEW=1",
-       "{off}"]
+       "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1", "{off}"]
 # its own rules off: no CLAUDE.md, .claude/rules or auto-memory, the user's or the repository's
 off = ["CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"]
 # what every session ak starts runs with, outranking the login's settings file
@@ -297,6 +297,29 @@ state = "asking"
 lines = 6
 rows = '^(?= *(?:❯ +)?1\. )(?: *(?:❯ +)?\d+\. .+\n)*? *(?:❯ +)?\d+\. Stop and wait for limit to reset\n(?: *(?:❯ +)?\d+\. .+\n)* *Enter to confirm · Esc to cancel\Z'
 answer = "Escape"
+
+# 2.1.332 draws the survey above the empty composer. Its shortcut digits have their own
+# foreground colour. In a plain capture the effort indicator above it locates the survey
+# outside the transcript. A draft or another row between the controls and the box rules it out.
+[[rule]]
+id = "asking.survey"
+state = "asking"
+lines = 8
+rows = '''^ *(?:[●⏺] +)?How is Claude doing this session\? \(optional\)
+ *1: Bad +2: Fine +3: Good +(?:4: Unsure +)?0: Dismiss(?x:
+  \n ─{3,} (?: [ ][^\n]+[ ]─+ )?
+  \n ❯
+  \n ─{3,}
+  (?: (?: \n (?![ ]*[❯─]) [^\n]+ )?
+      \n [ ]* (?: ⏵⏵ | ⏸ | \?[ ]for[ ]shortcuts | \d+%[ ]context[ ]left ) [^\n]* )?
+)?\Z'''
+raw_rows = '''(?mx)
+  ^[ ]*How[ ]is[^\n]*\n[ ]*1:[ ]Bad[^\n]*0:[ ]Dismiss\Z
+| (?: ^[ ]+●[ ]\w+[ ]·[ ]/effort\n[ ]*(?:[●⏺][ ]+)?How[ ]is[^\n]*\n[ ]*1:[ ]Bad
+    | (?P<ink>\x1b\[(?:3[0-7]|9[0-7]|38;[0-9;]+)m)1(?P<reset>\x1b\[[0-9;]*m):[ ]Bad
+      (?:[ ]+(?P=ink)[0234](?P=reset):[ ]\w+){3,4}
+  )[^\n]*\n(?:\x1b\[[0-9;]*m)*─{3,}'''
+answer = "0"
 
 # The workspace-trust dialog: three of its own controls, in the last few lines, with its final
 # control line newest.  Transcript text quoting one of them is above a composer, not below it.

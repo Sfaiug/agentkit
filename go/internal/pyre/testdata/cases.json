@@ -2859,6 +2859,20 @@
   },
   {
    "harness": "claude",
+   "key": "rule asking.survey rows",
+   "pattern": "^ *(?:[●⏺] +)?How is Claude doing this session\\? \\(optional\\)\n *1: Bad +2: Fine +3: Good +(?:4: Unsure +)?0: Dismiss(?x:\n  \\n ─{3,} (?: [ ][^\\n]+[ ]─+ )?\n  \\n ❯\n  \\n ─{3,}\n  (?: (?: \\n (?![ ]*[❯─]) [^\\n]+ )?\n      \\n [ ]* (?: ⏵⏵ | ⏸ | \\?[ ]for[ ]shortcuts | \\d+%[ ]context[ ]left ) [^\\n]* )?\n)?\\Z",
+   "flags": "m",
+   "matches": []
+  },
+  {
+   "harness": "claude",
+   "key": "rule asking.survey raw_rows",
+   "pattern": "(?mx)\n  ^[ ]*How[ ]is[^\\n]*\\n[ ]*1:[ ]Bad[^\\n]*0:[ ]Dismiss\\Z\n| (?: ^[ ]+●[ ]\\w+[ ]·[ ]/effort\\n[ ]*(?:[●⏺][ ]+)?How[ ]is[^\\n]*\\n[ ]*1:[ ]Bad\n    | (?P<ink>\\x1b\\[(?:3[0-7]|9[0-7]|38;[0-9;]+)m)1(?P<reset>\\x1b\\[[0-9;]*m):[ ]Bad\n      (?:[ ]+(?P=ink)[0234](?P=reset):[ ]\\w+){3,4}\n  )[^\\n]*\\n(?:\\x1b\\[[0-9;]*m)*─{3,}",
+   "flags": "",
+   "matches": []
+  },
+  {
+   "harness": "claude",
    "key": "rule asking.trust newest",
    "pattern": "(?i)enter to confirm",
    "flags": "",
