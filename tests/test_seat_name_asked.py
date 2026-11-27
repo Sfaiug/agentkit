@@ -26,6 +26,8 @@ RULE = "This seat is unnamed."
 class SeatNameAsked(Sandbox):
     def setUp(self):
         super().setUp()
+        # every harness installed here, whatever PATH holds: a pick passes over one that is not
+        self.stack.enter_context(patch.object(config, "harness_present", return_value=True))
         self.rules = []
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))

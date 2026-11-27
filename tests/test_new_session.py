@@ -29,6 +29,8 @@ COLLECT, SESSIONS = usage.collect, orch.sessions    # the real ones, for the dry
 class NewSession(Sandbox):
     def setUp(self):
         super().setUp()
+        # every harness installed here, whatever PATH holds: a pick passes over one that is not
+        self.stack.enter_context(patch.object(config, "harness_present", return_value=True))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(orch, "fresh_command", return_value=(["fake"], None)))
         self.stack.enter_context(patch.object(orch, "launch"))

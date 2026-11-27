@@ -303,9 +303,14 @@ def harness_binary(name):
     absolute path answers itself when it is executable, and anything unanswered is "",
     the way shutil.which says it with None.
     """
+    def runnable(path):
+        try:
+            return path.is_file() and os.access(path, os.X_OK)
+        except OSError:     # past a directory this user may not search: nothing it can run
+            return False
+
     if "/" in name:
-        path = Path(name)
-        return name if path.is_file() and os.access(path, os.X_OK) else ""
+        return name if runnable(Path(name)) else ""
     found = shutil.which(name)
     if found:
         return found
@@ -314,7 +319,7 @@ def harness_binary(name):
     for directory in (home / ".opencode/bin", grok_bin,
                       home / ".local/bin", home / ".npm-global/bin"):
         candidate = directory / name
-        if candidate.is_file() and os.access(candidate, os.X_OK):
+        if runnable(candidate):
             return str(candidate)
     return ""
 

@@ -71,6 +71,8 @@ class Defaults(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_SESSION": "", "NO_COLOR": "1"}))
+        # every harness installed here, whatever PATH holds: a pick passes over one that is not
+        self.stack.enter_context(patch.object(config, "harness_present", return_value=True))
         self.home = self.root / ".agentkit"
         self.stack.enter_context(patch.object(config, "HOME", self.home))
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
