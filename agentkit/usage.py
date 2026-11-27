@@ -561,12 +561,13 @@ def _as_read(meter):
             _number(meter.get("resets_at")))
 
 
-def _holding_week(meters):
+def _holding_week(meters, now=None):
     """The shared week a cap's hold is in points of among `meters`: their `weekly_all`, no
     model's own cap, still running now; None where they hold none."""
-    now = time.time()
-    return next((m for m in meters if m.get("name") == "weekly_all" and not m.get("scope")
-                 and not _past(m, now)), None)
+    now = time.time() if now is None else now
+    return next((m for m in (meters if isinstance(meters, list) else ())
+                 if isinstance(m, dict) and m.get("name") == "weekly_all"
+                 and not m.get("scope") and not _past(m, now)), None)
 
 
 def _keep(provider, account, meters, at, source, beside=()):
@@ -1690,18 +1691,21 @@ def _gating_meters(cfg, name, providers):
     return [m for m in meters if m.get("scope") or m["name"] not in claimed], PROVIDER_METERS
 
 
-def _leaving(week, caps):
+def _leaving(week, caps, now=None):
     """`week`, a login's shared week, as a model none of `caps` gates reads it: used as well by
     the points of it each holds for its own model (`held`), at most 100, with `read`, what it
     read, and `held_for`, whose that part is; as read where they hold none.  A copy, so no
     reading changes: the held part decides what a model may spend, never what a meter says."""
-    now = time.time()     # a cap whose window has rolled over holds nothing it read
-    holding = [cap for cap in caps if (_number(cap.get("held")) or 0) > 0 and not _past(cap, now)]
-    used = _number(week.get("used"))
+    now = time.time() if now is None else now   # a cap whose window has rolled over holds nothing
+    used = _number(week.get("used")) if isinstance(week, dict) else None
+    holding = [cap for cap in (caps if isinstance(caps, list) else ())
+               if isinstance(cap, dict) and _text(cap.get("scope"))
+               and (_number(cap.get("held")) or 0) > 0 and not _past(cap, now)]
     if not holding or used is None or used >= 100:
         return week
     return {**week, "used": min(100, used + sum(cap["held"] for cap in holding)),
-            "read": week["used"], "held_for": " and ".join(str(cap["scope"]) for cap in holding)}
+            "read": week["used"],
+            "held_for": " and ".join(dict.fromkeys(str(cap["scope"]) for cap in holding))}
 
 
 def unheld(providers):
@@ -2457,9 +2461,26 @@ def review_pair(cfg, providers):
             "self_reviewed": staffing.same_model(cfg, executor, reviewer)}
 
 
+def _kept_rows(cfg, name, prov, now):
+    """[(label, pct)] under `left` for the part of this login's shared week `_leaving` holds for
+    caps, empty where `left` is not that week or nothing is held."""
+    shared = shared_week(cfg, name, prov, now)
+    if shared is None or shared is not _holding_week(prov.get("meters"), now):
+        return []
+    held = _leaving(shared, prov.get("meters"), now)
+    if "held_for" not in held:
+        return []
+    return [(terminal.plain(f"kept for {held['held_for']}"), _pct(held["used"] - held["read"]))]
+
+
 def render(cfg, providers, order, *, repo=None):
     now = _now()
     table = [HEADERS] + rows(cfg, providers)
+    # read off each login's full meters before _as_shared drops scoped caps: shows why another
+    # model leaves part of what `left` reads for the cap's model
+    kept = [_kept_rows(cfg, name, prov, now) for _, name, prov, _ in _accounts(cfg, providers)]
+    kept_need = max((2 + terminal.cells(label) + 2 for held_rows in kept for label, _ in held_rows),
+                    default=0)
     widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
     if width >= 60 and sum(widths) + len(widths) - 1 > width:
@@ -2467,24 +2488,54 @@ def render(cfg, providers, order, *, repo=None):
                     "session", "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     if sum(widths) + len(widths) - 1 <= width:
-        lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip()
-                 for row in table]
-        lines[0] = terminal.styled(lines[0], "dim")
+        # widen `model(s)` for held sub-rows only while the table still fits, never pushing
+        # other logins out of the table into cards
+        extra = kept_need - (widths[0] + 1 + widths[1] + 1)
+        if extra > 0 and sum(widths) + len(widths) - 1 + extra <= width:
+            widths[1] += extra
+        left_col = widths[0] + 1 + widths[1] + 1
+        lines = [terminal.styled(" ".join(terminal.pad(cell, w)
+                                          for cell, w in zip(table[0], widths)).rstrip(), "dim")]
+        for row, held_rows in zip(table[1:], kept):
+            lines.append(" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip())
+            for label, value in held_rows:
+                gap = left_col - 2 - terminal.cells(label)
+                if gap >= 2:
+                    lines.append(f"  {label}{' ' * gap}{value}")
+                else:
+                    for part in terminal.wrap(label, max(1, width - 2)):
+                        lines.append("  " + part)
+                    lines.append(" " * left_col + value)
     else:
         # The full headings and all the meters still fit on a phone, as aligned label/value
         # pairs under each provider. Nothing is silently cut to squeeze a row.
         lines = []
         sep = " · " if terminal.utf8() else " - "
-        label_width = max(len(label) for label in HEADERS[2:])
-        for row in table[1:]:
+        base_label = max(terminal.cells(label) for label in HEADERS[2:])
+        # leave room for values so a long cap scope folds onto its own line instead of crushing them
+        max_label = max(base_label, width - 20)
+        cards = [(row[0], row[1], [(HEADERS[2], row[2]), *held_rows, *zip(HEADERS[3:], row[3:])])
+                 for row, held_rows in zip(table[1:], kept)]
+        label_width = max((terminal.cells(label) for _, _, pairs in cards for label, _ in pairs
+                           if terminal.cells(label) <= max_label), default=base_label)
+        pad_width = 2 + label_width + 2
+        value_room = max(1, width - pad_width)
+        for name, models, pairs in cards:
             if lines:
                 lines.append("")
             lines.extend(terminal.styled(line, "bold")
-                         for line in terminal.wrap(f"{row[0]}{sep}{row[1]}", width))
-            for label, value in zip(HEADERS[2:], row[2:]):
-                prefix = "  " + label.ljust(label_width) + "  "
-                for n, part in enumerate(terminal.wrap(value, width - len(prefix))):
-                    lines.append((prefix if n == 0 else " " * len(prefix)) + part)
+                         for line in terminal.wrap(f"{name}{sep}{models}", width))
+            for label, value in pairs:
+                wrapped = terminal.wrap(value, value_room)
+                if terminal.cells(label) <= label_width:
+                    prefix = "  " + terminal.pad(label, label_width) + "  "
+                    for n, part in enumerate(wrapped):
+                        lines.append((prefix if n == 0 else " " * pad_width) + part)
+                else:
+                    for part in terminal.wrap(label, max(1, width - 2)):
+                        lines.append("  " + part)
+                    for part in wrapped:
+                        lines.append(" " * pad_width + part)
     for name, prov in providers.items():
         split = _split_week(cfg, name, prov)
         if split is None:
