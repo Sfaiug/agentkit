@@ -280,9 +280,14 @@ interactive)
   # %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
   sq="'"; first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
     first=" --prompt='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"
+  # A seat's window is 240 columns wide, and at 160 and wider OpenCode (2.4.2) draws a sidebar
+  # once a conversation has a turn: its rows sit beside the footer's and the transcript's, the
+  # screen read as no rule's, and ak typed no line into that seat (27 Nov 2026).  This launch
+  # hides it: OpenCode lays the setting over the owner's cli.json, which ak does not write.
+  cli="OPENCODE_CLI_CONFIG_CONTENT='{\"session\":{\"sidebar\":\"hide\"}}'"
   # The pane does not inherit the adapter's fallback PATH.
-  printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %s%s %s--standalone --auto%s\n' \
-      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "'${binary//$sq/$sq\\$sq$sq}'" "$resume" "$first" ;;
+  printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %s %s%s %s--standalone --auto%s\n' \
+      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$cli" "$rules" "'${binary//$sq/$sq\\$sq$sq}'" "$resume" "$first" ;;
 variants)
   [ $# -ge 1 ] || { echo "opencode.sh variants needs <model>" >&2; exit 2; }
   turn_variants "$1"; echo ;;
