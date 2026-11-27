@@ -170,7 +170,7 @@ interactive)
               "${TOKEN%/*}/settings.json" 2>/dev/null) || status=
   script=$(printf '%q' "$REPO/hooks/claude-status.sh")
   settings=$(jq -cn --arg model "$model" --argjson status "${status:-null}" --arg script "$script" '
-    {model: $model,
+    {model: $model, showFeedbackSurvey: false,
      statusLine: (if $status then $status | .command = ($script + " | { " + .command + "\n}")
                   else {type: "command", command: ($script + " >/dev/null")} end)}') || exit 2
   # The orchestrator rulebook this launch is handed.  agy 1.2.9 takes no system-prompt or
