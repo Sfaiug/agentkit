@@ -3002,7 +3002,7 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
             break
         time.sleep(0.05)
     if hook_state(harness, hook_facts(name))[1] in failed:
-        settle_account(cfg, session, lambda _: None, records)
+        settle_account(cfg, session, note, records)
     # A limit menu drawn once another event's fact replaced the failed turn's stood until the
     # tick's pass, three minutes at most, the seat `needs you` (measured 22 Nov 2026).  The owner,
     # 19 Nov: "Should always pick stop and wait for limit to reset"; asked whether ak should check
@@ -5823,8 +5823,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)
+        current_live = seat_read(name)
         if (seat_closed_by_owner(name) or config.session_records().get(name) != record
-                or seat_read(name).get("opened_at") != live.get("opened_at")
+                or current_live.get("opened_at") != live.get("opened_at")
+                or current_live.get("usage_wait") != waiting
                 or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)):
             return True
         if own_turn and target is not None:
@@ -5860,6 +5862,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
         if owned and target is not None and not field_empty(harness, pane):
             # The respawn would end the owner's text (5 and 12 Nov 2026): the first look at an
             # empty field moves the seat, its refusal left unparked for that look to act on.
+            if waiting and not waiting.get("field_deferred"):
+                log(f"{name}: usage is back; waiting for an empty input field before resuming")
+                seat_write(name, usage_wait={**waiting, "field_deferred": True})
             return True
         marked = None
         if parks:
@@ -5870,6 +5875,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
             seat_write(name, usage_refusal=observed)
         continuing = bool((waiting or {}).get("continue") or refusal
                           or flight and not own_turn or limit_ended(harness, name))
+        wait = {**(waiting or {"since": now}), "continue": continuing}
         if target is not None:
             try:
                 if owned:
@@ -5883,9 +5889,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
                 reason = f"{provider} account reopen failed: {exc}"
                 if not waiting or waiting["reason"] != reason:
                     log(f"WARN {name}: {reason}")
-                seat_write(name, usage_wait={"reason": reason,
-                                            "since": waiting["since"] if waiting else now,
-                                            "continue": continuing})
+                wait.pop("until", None)
+                seat_write(name, usage_wait={**wait, "reason": reason})
                 return True
             seat_write(name, usage_wait=None, usage_refusal=observed or None)
             return True
@@ -5911,9 +5916,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
         reason = f"{provider} out of usage until {when}"
         if not waiting:
             log(f"{name}: {reason}")
-        seat_write(name, usage_wait={"reason": reason, "until": until,
-                                    "since": waiting["since"] if waiting else now,
-                                    "continue": continuing})
+        seat_write(name, usage_wait={**wait, "reason": reason, "until": until})
         return True
 
 
@@ -5971,30 +5974,44 @@ def usage_waits(cfg, state, log):
     """Settle each seat waiting for usage again, on the reading the usage refresh has just made:
     seat health settled it on the one before, so a seat this one frees goes on in this tick, not
     the next.  One out of login (an `auth` stall) is left alone, as `health` leaves it."""
-    reopened = []
+    reopened = {}
     for session in orch.sessions():
         name = session["name"]
         if (seat_read(name).get("usage_wait")
                 and state["stalls"].get(name, {}).get("kind") != "auth"):
             settle_account(cfg, session, log)
             if not seat_read(name).get("usage_wait"):
-                reopened.append(name)
+                reopened[name] = session
     # ... and told to go on now where its harness took no first prompt: `switched turns`, which
     # tells seat health's, has run this tick, and no other mark may have a second try in it
     continue_turns(cfg, log, accounts=True, names=reopened)
+    if reopened:
+        records = _health_records()
+        for session in reopened.values():
+            _announce_health(session, cfg, state, records)
+
+
+def _health_records(dry_run=False):
+    from . import menu as menu_mod   # here, not at the top: the menu draws without the tick
+    # one pass over run.json serves every live seat; a failed read is None, never a seat
+    # with no runs
+    try:
+        return menu_mod.run_records(cache=not dry_run)
+    except (config.Error, OSError, ValueError):
+        return None
+
+
+def _announce_health(session, cfg, state, records, harness=None):
+    announce_state(session, cfg=cfg, harness=harness, auth_out=state.get("auth_out") or {},
+                   gh_out=state.get("gh_out") or {}, token_out=state.get("worker_tokens"),
+                   stalls=state["stalls"], records=records)
 
 
 def health(cfg, state, dry_run, log):
     """One pass over the toolkit's seats: nudge the stalled ones, leave the working ones be."""
-    from . import menu as menu_mod   # here, not at the top: the menu draws without the tick
     poll_worker_token(state)   # each declared worker token, once a day: the ak screen says it
     stalls, seats = state["stalls"], orch.sessions()
-    # one pass over run.json serves every live seat; a failed read is None, never a seat
-    # with no runs
-    try:
-        records = menu_mod.run_records(cache=not dry_run)
-    except (config.Error, OSError, ValueError):
-        records = None
+    records = _health_records(dry_run)
     # The login each seat's runs wait on their owner for (`owed_login`), oldest first: the
     # harness, when it parked and what it said.  The seat that launched one has to read the
     # login it waits for even when it runs another harness itself, and the run is the whole of
@@ -6319,11 +6336,7 @@ def health(cfg, state, dry_run, log):
                 # decided on the seat's record as it stands under the lock, not on `live`: the
                 # pass wrote its own look there, and a look the seat's own hook has published
                 # since is newer -- and nothing captures the pane a second time
-                announce_state(session, cfg=cfg,
-                               harness=harness, auth_out=state.get("auth_out") or {},
-                               gh_out=state.get("gh_out") or {},
-                               token_out=state.get("worker_tokens"),
-                               stalls=state["stalls"], records=records)
+                _announce_health(session, cfg, state, records, harness)
 
 
 # --- silent runs: the tick recovers what the loop cannot --------------------
