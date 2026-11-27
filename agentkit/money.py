@@ -1,8 +1,9 @@
-"""Where a plan's price a month in a currency comes from: the `price` on its provider's table in
-the config where it is one number (the owner's own word in what they pay in), else the plan's list
-price before tax on the manifest table of that currency (`TABLES`) of the harness that asks the
-provider's logins.  No price is ever converted from another currency: a plan no table of that
-currency lists has none.
+"""Where a plan's price a month in a currency comes from: first what config.toml keeps for that
+currency, provider and plan under `[money.paid.<currency>.<provider>]`; else the `price` on its
+provider's table in the config where it is one number (the owner's own word in what they pay in);
+else the plan's list price before tax on the manifest table of that currency (`TABLES`) of the
+harness that asks the provider's logins.  No price is ever converted from another currency: a plan
+none of these holds in that currency has none.
 """
 
 import math
@@ -20,10 +21,23 @@ def currency(cfg):
     return cfg.get("money", {}).get("currency", "USD")
 
 
+def typed(cfg, provider, plan, paid="USD"):
+    """The price kept in `[money.paid.<currency>.<provider>]` for one login of `provider` on
+    `plan` in `paid`, or None where none is kept."""
+    table = cfg.get("money")
+    for key in ("paid", paid, provider):
+        table = table.get(key) if isinstance(table, dict) else None
+    return _price(table.get(plan), positive=True) if isinstance(table, dict) else None
+
+
 def price(cfg, provider, plan, paid="USD"):
-    """What one login of `provider` on `plan` costs a month in `paid`, or None: the provider's
-    own numeric `price` in `cfg` (never a `price` table by login, as usage is kept by plan), else
-    the plan's list price in `paid` on the manifest of the harness that asks its logins."""
+    """What one login of `provider` on `plan` costs a month in `paid`, or None: the price kept
+    for it in `paid` (`typed`), else the provider's own numeric `price` in `cfg` (never a `price`
+    table by login, as usage is kept by plan), else the plan's list price in `paid` on the
+    manifest of the harness that asks its logins."""
+    given = typed(cfg, provider, plan, paid)
+    if given is not None:
+        return given
     table = (cfg.get("providers") or {}).get(provider)
     own = _price(table.get("price")) if isinstance(table, dict) else None
     if own is not None:
@@ -41,11 +55,12 @@ def month(cfg, plans):
         for provider, found in plans.items()}}
 
 
-def _price(value):
-    """`value`, as the table holds it, when it is a finite number (no boolean) from 0 to
-    MAX_PRICE, else None."""
+def _price(value, *, positive=False):
+    """`value`, as the table holds it, when it is a finite number (no boolean) up to MAX_PRICE,
+    at least 0 or above 0 with `positive`, else None."""
+    ok = (lambda n: 0 < n <= MAX_PRICE) if positive else (lambda n: 0 <= n <= MAX_PRICE)
     if type(value) is int:
-        return value if 0 <= value <= MAX_PRICE else None
-    if isinstance(value, float) and math.isfinite(value) and 0 <= value <= MAX_PRICE:
+        return value if ok(value) else None
+    if isinstance(value, float) and math.isfinite(value) and ok(value):
         return value
     return None
