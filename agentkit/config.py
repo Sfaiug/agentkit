@@ -1555,6 +1555,19 @@ def families():
     return look.once("families", lambda: [found.get("family") for _, found in manifests()])
 
 
+def family_maker(word):
+    """Whose the family `word` is, in the boards' spelling: the `maker` of the first manifest
+    that declares that family, matched under `str.casefold`, and names one; None where none
+    does."""
+    if not isinstance(word, str) or not word:
+        return None
+    target = word.casefold()
+    return next((found["maker"] for _, found in manifests()
+                 if isinstance(found.get("family"), str)
+                 and found["family"].casefold() == target
+                 and isinstance(found.get("maker"), str) and found["maker"]), None)
+
+
 def family(name, words=None):
     """The first of `words` (else `families()`) that `name` opens with, matched without case
     before the end, `-` or a space; None where none matches."""

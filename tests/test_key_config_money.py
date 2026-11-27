@@ -2,11 +2,13 @@
 `[money]` in config.toml, and Enter there opens `config · money`: `Currency`, Space on it switching
 to `€ euros` and back, each written to `[money] currency` at once.  Without UTF-8 the currency
 reads its ISO code for its sign: `USD US dollars`, `EUR euros`.  Under it a row each provider and
-plan the logins are on as kept, in the order `config · subscriptions` lists them: its price a
-month in that currency (with `your price` where `[money.paid.<currency>.<provider>]` keeps one)
-and its logins where more than one, else `no price in` it, or `plan not read yet` by its provider
-alone; then `In all`, each price times its logins, naming the logins it did not count.  Claude's
-Max 20x is $200 or 180 euros, Pro $20; ChatGPT's Plus $20 and no euro price.
+plan the logins were on when the page opened, in the order `config · subscriptions` lists them:
+its price a month in that currency (with `your price` where `[money.paid.<currency>.<provider>]`
+keeps one) and its logins where more than one, else `no price in` it, or `plan not read yet` by
+its provider alone; Enter on a plan's row opens a field for what you pay a month in that currency,
+written at once, empty taking it out again, while a row with no plan stays one that only shows;
+then `In all`, each price times its logins, naming the logins it did not count.  Claude's Max 20x
+is $200 or 180 euros, Pro $20; ChatGPT's Plus $20 and no euro price.
 
 The owner, 24 Nov 2026: "user should be able to choose euro or dollar"; "we want to know how
 much is the user paying per month".  Black-box: `AK_BIN`'s
@@ -146,6 +148,9 @@ class ConfigMoney(unittest.TestCase):
                             ("Anthropic · pro", "$20 a month"),
                             ("OpenAI", "plan not read yet"),
                             ("In all", "$20 a month · 1 login not counted")))
+        self.term.keys("Down", "Down")
+        shown = self.term.wait(shows(r"› OpenAI +plan not read yet"))
+        self.assertNotIn("⏎ open", shown)
 
     def test_a_kept_price_reads_your_price_and_is_counted_in_all(self):
         self.plans({"anthropic": {"default": "max 20x", "second": "max 20x"},
@@ -173,6 +178,119 @@ class ConfigMoney(unittest.TestCase):
                             ("Anthropic · max 20x", "$200 a month"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$220 a month")))
+
+    def test_a_price_typed_is_shown_as_your_price_kept_and_counted_in_all(self):
+        self.plans({"anthropic": {"default": "max 20x", "second": "max 20x"},
+                    "openai": {"default": "plus"}})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("Anthropic · max 20x", "$200 a month · 2 logins"),
+                            ("OpenAI · plus", "$20 a month"),
+                            ("In all", "$420 a month")))
+        self.term.keys("Down", "Enter")
+        self.term.wait(shows(r"    a month · empty: the list price", r"  ⏎ save   esc back"))
+        self.term.type("175.50")
+        self.term.keys("Enter")
+        self.term.wait(shows(r"› Anthropic · max 20x +\$175\.50 a month · your price · 2 logins",
+                             r"  OpenAI · plus +\$20 a month",
+                             r"  In all +\$371 a month"))
+        self.assertEqual(self.currency(), {"paid": {"USD": {"anthropic": {"max 20x": 175.5}}}})
+        self.term.keys("Up", "Space")
+        self.term.wait(shows(r"› Currency +€ euros", r"  OpenAI · plus +no price in euros"))
+        self.term.keys("Down", "Down", "Enter")
+        self.term.wait(shows(r"    a month · empty: the list price", r"  ⏎ save   esc back"))
+        self.term.type("180")
+        self.term.keys("Enter")
+        self.term.wait(shows(r"› OpenAI · plus +€180 a month · your price",
+                             r"  In all +€540 a month"))
+        self.assertEqual(self.currency(), {
+            "currency": "EUR",
+            "paid": {"USD": {"anthropic": {"max 20x": 175.5}},
+                     "EUR": {"openai": {"plus": 180}}}})
+
+    def test_nothing_typed_puts_the_list_price_back(self):
+        self.plans({"anthropic": {"default": "max 20x"}, "openai": {"default": "plus"}},
+                   money={"paid": {"USD": {"anthropic": {"max 20x": 180}}}})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("Anthropic · max 20x", "$180 a month · your price"),
+                            ("OpenAI · plus", "$20 a month"),
+                            ("In all", "$200 a month")))
+        self.term.keys("Down", "Enter")
+        self.term.wait("⏎ save")
+        self.term.keys("Escape")
+        self.term.wait(shows(r"› Anthropic · max 20x +\$180 a month · your price"))
+        self.term.keys("Enter")
+        self.term.wait("⏎ save")
+        self.term.keys("Enter")
+        self.term.wait(shows(r"› Anthropic · max 20x +\$200 a month",
+                             r"  In all +\$220 a month"))
+        self.assertIsNone(self.currency())
+
+    def test_a_text_that_is_no_price_writes_nothing_and_says_why(self):
+        self.plans({"anthropic": {"default": "max 20x"}, "openai": {"default": "plus"}})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("Anthropic · max 20x", "$200 a month"),
+                            ("OpenAI · plus", "$20 a month"),
+                            ("In all", "$220 a month")))
+        config = self.home.path / ".agentkit/config.toml"
+        before = config.read_bytes()
+        self.term.keys("Down")
+        self.term.wait(shows(r"› Anthropic · max 20x +\$200 a month"))
+        for bad in ("abc", " 180", "0", "1.234", "1000001", " ", "18\t0", "\t"):
+            with self.subTest(bad=bad):
+                self.term.keys("Enter")
+                self.term.wait("⏎ save")
+                self.term.type(bad)
+                self.term.keys("Enter")
+                self.term.wait(shows(r"› Anthropic · max 20x +\$200 a month",
+                                     r"  a price is a number like 180 or 180\.50"))
+                self.assertEqual(config.read_bytes(), before)
+
+    def test_a_plan_changed_while_the_field_is_open_leaves_it_under_its_row(self):
+        self.plans({"anthropic": {"default": "max 20x", "second": "pro"},
+                    "openai": {"default": "plus"}})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("Anthropic · max 20x", "$200 a month"),
+                            ("Anthropic · pro", "$20 a month"),
+                            ("OpenAI · plus", "$20 a month"),
+                            ("In all", "$240 a month")))
+        self.term.keys("Down", "Enter")
+        self.term.wait(shows(r"    a month · empty: the list price", r"  ⏎ save   esc back"))
+        # Move the login onto `pro` while the field is open: the row stays and saves for `max 20x`.
+        self.home.write(".agentkit/state/logins.json", {
+            "anthropic": {
+                "default": {"email": None, "ends": None, "plan": "pro", "checked_at": time.time()},
+                "second": {"email": None, "ends": None, "plan": "pro", "checked_at": time.time()},
+            },
+            "openai": {
+                "default": {"email": None, "ends": None, "plan": "plus", "checked_at": time.time()},
+            },
+        })
+        self.term.type("175")
+        shown = lines(self.term.wait(shows(r"    175")))
+        at = next(number for number, line in enumerate(shown)
+                  if line.startswith("  Anthropic · max 20x"))
+        self.assertEqual(shown[at + 1], "    175", shown)
+        self.term.keys("Enter")
+        self.term.wait(shows(r"› Anthropic · max 20x +\$175 a month · your price",
+                             r"  In all +\$215 a month"))
+        self.assertEqual(self.currency(), {"paid": {"USD": {"anthropic": {"max 20x": 175}}}})
+
+    def test_a_plan_named_with_del_takes_a_price_and_the_config_still_loads(self):
+        self.plans({"anthropic": {"default": "pro\x7f"}, "openai": {"default": "plus"}})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("Anthropic · pro", "no price in US dollars"),
+                            ("OpenAI · plus", "$20 a month"),
+                            ("In all", "$20 a month · 1 login not counted")))
+        self.term.keys("Down", "Enter")
+        self.term.wait("⏎ save")
+        self.term.type("42")
+        self.term.keys("Enter")
+        self.term.wait(shows(r"› Anthropic · pro +\$42 a month · your price",
+                             r"  In all +\$62 a month"))
+        self.assertIn(r"\u007f", (self.home.path / ".agentkit/config.toml").read_text())
+        self.assertEqual(self.currency(), {"paid": {"USD": {"anthropic": {"pro\x7f": 42}}}})
+        done = self.home.ak("orch", "list")
+        self.assertEqual(done.code, 0, done.err)
 
 
 if __name__ == "__main__":

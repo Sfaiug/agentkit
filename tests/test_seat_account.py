@@ -755,6 +755,8 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
                 self.tick()
                 self.assertIn(f"{provider} out of usage until", self.answer()["reason"])
                 self.now += 61
+                harness = config.model(self.cfg, model)["harness"]
+                self.pane = (REPO / f"tests/fixtures/{harness}-prompt-pane.txt").read_text()
                 self.tick()
                 self.assertIsNone(watch.seat_read(NAME)["usage_wait"])
         self.assertEqual(self.commands, [])

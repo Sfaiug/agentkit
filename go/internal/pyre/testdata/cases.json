@@ -1485,6 +1485,13 @@
   },
   {
    "harness": "antigravity",
+   "key": "rule draft.typed rows",
+   "pattern": "^─+\\n>(?:\\n(?!─+$).*)*\\n(?!─+$).*\\S.*(?:\\n(?!─+$).*)*\\n─+(?:(?:\\n\\s*● \\[\\d\\d:\\d\\d:\\d\\d\\] .+)+(?:\\n\\s*↓ \\d+ more *)?\\n─+)?\\Z",
+   "flags": "m",
+   "matches": []
+  },
+  {
+   "harness": "antigravity",
    "key": "rule prompt.composer row",
    "pattern": "^>$",
    "flags": "",
@@ -1526,6 +1533,13 @@
      "groups": {}
     }
    ]
+  },
+  {
+   "harness": "antigravity",
+   "key": "rule draft.typed rows",
+   "pattern": "^─+\\n>.*\\S.*(?:\\n(?!─+$).*)*\\n─+(?:(?:\\n\\s*● \\[\\d\\d:\\d\\d:\\d\\d\\] .+)+(?:\\n\\s*↓ \\d+ more *)?\\n─+)?\\Z",
+   "flags": "m",
+   "matches": []
   },
   {
    "harness": "claude",

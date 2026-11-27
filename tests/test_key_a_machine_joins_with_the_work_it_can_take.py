@@ -64,8 +64,8 @@ class AMachineJoinsWithTheWorkItCanTake(unittest.TestCase):
                   f"acme-mac new · {USED} · tests",
                   "acme-new new · never answered · tests")
         self.term.keys("Down", "Enter")
-        own = self.term.wait("config · machines · acme-box")
-        self.assertIn("builds and reviews ● on", " ".join(own.split()))
+        self.term.wait(lambda screen: "config · machines · acme-box" in screen
+                       and "builds and reviews ● on" in " ".join(screen.split()))
         self.leave(4)
         self.assertEqual(config.read_bytes(), before)
 

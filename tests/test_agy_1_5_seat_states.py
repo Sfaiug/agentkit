@@ -55,7 +55,7 @@ class AgySeatStates(unittest.TestCase):
         idle = ("at_prompt", "prompt.composer")
         for rows, expected in (
                 (["  " + SPINNER, composer()], idle),
-                ([composer("> " + SPINNER)], (None, "")),
+                ([composer("> " + SPINNER)], ("draft", "draft.typed")),
                 ([SPINNER, composer("> earlier turn"), composer()], idle),
                 ([SPINNER, composer(), "? for shortcuts"], idle)):
             with self.subTest(rows=rows):

@@ -27,7 +27,7 @@ line parts projects.
 Rows are tables of fixed columns, sized once per draw and split by two-space gutters,
 never ` · `: number, name, model, state, and a last that takes the rest.
 
-Nothing is cut inside a word, a glyph or a sentence. A column gives way first,
+Nothing is cut inside a word, glyph or sentence. A column gives way first,
 a long line wraps at words, and below 60 a row folds onto an indented second line. No
 line keeps trailing space. Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`,
 `terminal.cells`, `terminal.plain`, `terminal.styled`.
@@ -102,7 +102,7 @@ Colour says where a thing stands, never who.
 ## Motion
 
 Something moves only while worked on, once when it changes, or under the pointer: work breathes,
-news pulses, settles or nudges, the highlight glows in, fades out. Each takes
+news pulses, settles, nudges, a meter glides, the highlight glows in, fades out. Each takes
 one time (`motion.py`):
 
 - **Coming up:** a row's line, page, card, screens opening.

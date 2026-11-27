@@ -140,7 +140,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import carried, done_check, logins, look, machines, money, open_runs, parsed, readings, record
+from . import carried, done_check, logins, look, machines, money, open_runs, parsed, readings, record, releases
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -1907,11 +1907,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     # sentence column starts at the same column under every project.
     widths = v5o_column_widths([seat for project in ordered
                                 for seat in project["seats"]], width)
-    # one reading of the cached meters and logins for the whole draw, so the grid the screen is
-    # laid out around is the one the pointer lights, and a click signs in what was drawn amber
+    # one reading of the wall clock, cached meters and logins for the whole draw, so the grid
+    # the screen is laid out around, its news and every frame of a gliding meter are of those
+    # cells, and a click signs in what was drawn amber
+    now = time.time()
     rows = usage_rows(cfg)
-    ending = login_notes(rows)
-    meters_full = usage_lines(cfg, layout, rows=rows, ending=ending)
+    ending = login_notes(rows, now)
+    cells = usage_cells(cfg, now, rows=rows)
+    meters_full = usage_lines(cfg, layout, rows=rows, ending=ending, cells=cells)
     # Height is budgeted the way width is: the frame, the usage and the keys always, and the
     # rows in what is left, a page at a time. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
@@ -1988,7 +1991,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     # the blank lines too (compact), and only one with no room for a seat under its heading
     # even then cuts the readings.
     least = LEAST * (2 if width < 60 else 1)
-    summary = usage_summary(cfg, layout, rows=rows)
+    summary = usage_summary(cfg, layout, rows=rows, cells=cells)
     block = meters_full or summary     # a width with no grid says the readings
     meters, compact = next((meters, compact) for meters, compact
                            in ((block, False), (summary, False), (summary, True))
@@ -1998,7 +2001,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         # the screen's size too; else what leaves one row
         spare = _room(meters, True, True, 0) - 3
         if spare < 0 and len(meters) > 1:
-            meters = usage_summary(cfg, layout, max(1, len(meters) + spare), rows)
+            meters = usage_summary(cfg, layout, max(1, len(meters) + spare), rows, cells=cells)
         meters = meters[:max(0, len(meters) + _room(meters, True, True, 0) - 1)]
     paged = len(flat) > 1 and len(flat) > _room(meters, False, compact)     # one page first
     room = _room(meters, paged, compact)
@@ -2116,8 +2119,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         # the one the pointer or the highlight is on lit, and under the grid what its cell has
         # no room for
         out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, lit=pointed, rows=rows,
-                                                           ending=ending)
-        out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows,
+                                                           ending=ending, cells=cells)
+        out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, now=now, rows=rows,
                                                           ending=ending)
     out = terminal.lit(out, spots)
     moved, rising = "", False
@@ -2132,7 +2135,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             moves.append((("born",), True, None, False))
         if at:            # the card `x` asks on: its news touched as it is asked (`asking`)
             moves.append((("asked",), True, None, False))
-        news = clock.look({key: shown for key, shown, _, _ in moves})
+        # each meter's (left, said), by its subscription, and the whole grid's cells, while drawn
+        # as a grid (None without one, so a draw with no grid at this width changes at once)
+        prev = clock.seen and clock.seen.get(("usage",), (None,))[0]
+        readings = [(("usage", subscription(row)), cell[2:] if grid else None)
+                    for row, cell in zip(rows, cells)]
+        news = clock.look({key: shown for key, shown, _, _ in moves} | dict(readings)
+                          | {("usage",): tuple(cells) if grid else None})
 
         def line(name, moving, counted=None):
             row, span = bars[name]
@@ -2179,6 +2188,42 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 if shown == "done" and key[1] in bars:
                     clock.grows.pop(key[1], None)
                     line(key[1], lambda cells: motion.sweeping(cells, since))
+        # Each gliding meter is news of `clock.look` alone (nothing kept on `clock`), as a seat's
+        # line is: timed from the draw that saw the change, a reading landing mid-glide gliding
+        # from the reading the draw before was gliding to, a draw at a new width before a resize
+        # is noticed gliding on at that width where both draws have a grid there, arrows leaving
+        # it gliding, and `Clock.settle`/`Clock.forget` ending it; where motion is off nothing
+        # glides (`clock.start`).  A meter this draw shows at once is settled in `seen` so a
+        # later draw never revives a change it already jumped to.
+        moment = motion.moment()
+        glides = {}
+        if (grid and prev and motion.movable() and usage_lines(
+                cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev)):
+            for n, (key, shown) in enumerate(readings):
+                since, before = news.get(key, (None, None))
+                if (shown and shown[0] and before and (before[0] or before[1][:1] != "—")
+                        and since + motion.GLIDE > moment):
+                    at_now = meter_at(shown[0], since, before, moment)
+                    probe = [*cells[:n], (*cells[n][:2], *at_now), *cells[n + 1:]]
+                    if usage_lines(cfg, layout, rows=rows, ending=ending, cells=probe):
+                        glides[n] = since, before
+        for n, (key, shown) in enumerate(readings):
+            if n not in glides and key in news:
+                clock.seen[key] = (shown, None, None)
+        if glides:
+            until = max(since for since, _ in glides.values()) + motion.GLIDE
+
+            def grid_at(when):
+                if when >= until:
+                    return [terminal.cleared(text)
+                            for text in out[grid - 1:grid - 1 + len(meters)]]
+                shown = [(*cell[:2], *meter_at(cell[2], *glides[n], when)) if n in glides else cell
+                         for n, cell in enumerate(cells)]
+                return [terminal.cleared(text) for text in usage_lines(
+                    cfg, layout, lit=pointed, rows=rows, ending=ending, cells=shown)]
+
+            for n in range(len(meters)):
+                clock.start([(grid + n, 1)], lambda when, n=n: grid_at(when)[n], until)
         for cell, char, bright in breaths:
             breathe, growing = motion.breathing(char, "working", bright), clock.cells.get(cell)
             if growing:       # a tip still growing in breathes once it is there
@@ -2825,7 +2870,7 @@ def restored(handed, meter, cfg):
     return Path(cursor) if cursor.startswith("/") else cursor
 
 
-def usage_summary(cfg, width, most=None, rows=None):
+def usage_summary(cfg, width, most=None, rows=None, cells=None):
     """The usage block folded, for a screen too short for it and a few rows under it: each
     subscription's label and what it has left -- `17%`, a spent week's credits where they fit,
     else `0%`, as on its row, `0%` once spent until its reset, `—` with no reading -- whole, as
@@ -2843,7 +2888,7 @@ def usage_summary(cfg, width, most=None, rows=None):
                 lines.append([])
             lines[-1].append(part)
         return [line for line in lines if line]
-    found = usage_cells(cfg, rows=rows)
+    found = usage_cells(cfg, rows=rows) if cells is None else cells
     lines = fill(found, width - 2)
     if most is not None and len(lines) > most:
         # the last line keeps room for ` · …`, a label giving way to it as to the width
@@ -2884,6 +2929,14 @@ def usage_cells(cfg, now=None, rows=None):
     return found
 
 
+def meter_at(left, since, before, now):
+    """(left, said), as `usage_cells` says them, of a meter gliding (`draw`) to `left` from
+    `before` at `now`, eased in GLIDE seconds from `since`, and `before` while that is 0."""
+    first = before[0] or 0
+    shown = round(first + (left - first) * motion.eased((now - since) / motion.GLIDE))
+    return (shown, f"{shown}% left") if shown else before
+
+
 METER = 10        # cells of a subscription's meter on the ak screen
 COLUMN = 33       # ... and of its whole cell, its label, meter and share or `empty until` date
 
@@ -2900,7 +2953,7 @@ def usage_cell(width, n):
     return 3 + n * (room + 2), 2 + n * (room + 2) + room
 
 
-def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None):
+def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cells=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
     a meter -- the bar (terminal.share_parts), full for what is left -- and what its cell says.
@@ -2910,9 +2963,11 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None):
     (`usage_detail`).  What each cell says is whole: the labels give way to the longest, and a
     width with no room for a label beside it has no grid (`[]`), the screen saying the readings
     (`usage_summary`).  `ending`, `login_notes` of `rows` where the caller has read them already;
-    `columns`, as many to a line as `Subscriptions` draws, one."""
+    `columns`, as many to a line as `Subscriptions` draws, one; `cells`, `usage_cells`' answer
+    already in hand, or with gliding meters at their frame's reading (`draw`)."""
     rows = usage_rows(cfg) if rows is None else rows
-    found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
+    found = [(*cell[:3], terminal.plain(cell[3]))
+             for cell in (usage_cells(cfg, rows=rows) if cells is None else cells)]
     if not found:
         return []
     columns, room = columns or usage_columns(width), min(COLUMN, width - 2)
@@ -5065,16 +5120,16 @@ def _logs_in(takes):
     return {"sign-in": "sign in", "key": "API key"}.get(takes, "log in")
 
 
-def _through_choices(cfg, harness, listed, screen):
+def _through_choices(cfg, harness, listed, screen, offered=None):
     """`add a subscription`'s first list for `harness`, as OpenCode's own `/models` lists them:
-    every model its catalog lists (_offered) of a provider in `listed` with a mode, which it
-    runs now, beside that provider's name; then each provider it lists with none, to log in
-    to, by what it takes (_logs_in).  Each is ((harness, provider), the model, or None for a
-    login) and the columns it shows, so typing a model's name after `/` finds it before a
-    provider that shares it."""
+    every model its catalog lists (_offered, or `offered` where read already) of a provider in
+    `listed` with a mode, which it runs now, beside that provider's name; then each provider it
+    lists with none, to log in to, by what it takes (_logs_in).  Each is ((harness, provider),
+    the model, or None for a login) and the columns it shows, so typing a model's name after `/`
+    finds it before a provider that shares it."""
     ready = {provider: name for provider, name, mode, _ in listed if mode}
     choices = []
-    for model in _offered(harness, *screen, cfg=cfg):
+    for model in (_offered(harness, *screen, cfg=cfg) if offered is None else offered):
         provider = model["id"].partition("/")[0]
         if provider in ready:
             choices.append((((harness, provider), model),
@@ -5957,9 +6012,10 @@ DONE_CHECK_NOTE = "A model reads what you asked a seat and names what its work d
 
 def models_page(cfg, keyboard):
     """`Models`: a row per harness the config's providers run on (config.provider_harnesses),
-    opening `■` each model the config runs there and `□` each other its catalog offers
-    (_offered), or for a harness that logs in to providers (config.provider_hosts) each it runs
-    now, then each of the config's providers it lists with no login (_through_choices).  Space
+    opening `■` each model the config runs there and `□` only the newest release of each line its
+    catalog offers (_offered, releases.newest), or for a harness that logs in to providers
+    (config.provider_hosts) each newest it runs now, then each of the config's providers it lists
+    with no login (_through_choices).  Space
     takes one out (remove_model), the last model kept, or in: one taken out here as it was, its
     provider's table as the page opened; any other named from its label (config.short_name), at
     its harness's first model's effort, else `high`, as near as it goes (_nearest), under that
@@ -6015,17 +6071,20 @@ def models_page(cfg, keyboard):
     ran = {}
 
     def listing(harness):     # what a harness's row opens onto: (model, the provider it is
-        said = ""             # listed under) each, (None, one to log in), and why none is, or ""
+        said, catalog = "", []  # listed under) each, (None, one to log in), offered ids, and note
         try:
             if harness not in config.provider_hosts():
-                rows = [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
+                catalog = _offered(harness, "config · models", cfg=cfg)
+                rows = [(model, None) for model in catalog]
             else:
                 listed = waited(lambda: config.listed_providers(harness), "config · models",
                                 doing=f"asking {config.provider_hosts()[harness]} "
                                       "which providers it has")
+                catalog = _offered(harness, "config · models", cfg=cfg)
                 by = {row[0]: row for row in listed}
                 rows = [(model, by[provider]) for (((_, provider), model), _)
-                        in _through_choices(cfg, harness, listed, ("config · models",))
+                        in _through_choices(cfg, harness, listed, ("config · models",),
+                                            offered=catalog)
                         if model or provider in cfg["providers"]]
         except config.Error as exc:     # what the config runs there comes out with no listing
             rows, said = [], f"config: {exc}"
@@ -6036,7 +6095,12 @@ def models_page(cfg, keyboard):
         ids = {model["id"] for model, _ in rows if model}
         rows += [({"id": model, "label": label}, None)
                  for model, label in ran[harness].items() if model not in ids]
-        return rows, said or ("" if rows else "its catalog lists no model")
+        # catalog models compete only among what the harness lists; unlisted history rows are
+        # offered `□` only for lines the catalog does not list, so they never hide a listed release
+        catalog_ids = {model["id"] for model in catalog}
+        extras = [model for model, _ in rows if model and model["id"] not in catalog_ids]
+        offered = {model["id"] for model in releases.newest(catalog, extras=extras)}
+        return rows, offered, bool(catalog), said
 
     def ticks(harness):       # the list a harness's row opens
         got = []
@@ -6051,14 +6115,18 @@ def models_page(cfg, keyboard):
         def choices():
             if not got:
                 got.append(listing(harness))
-            rows, said = got[0]
+            rows, offered, has_catalog, said = got[0]
+            shown = [(model, row) for model, row in rows
+                     if not model or on(harness, model["id"]) or model["id"] in offered]
+            note = said or ("" if shown else
+                            "no model to offer" if has_catalog else "its catalog lists no model")
             return [([(full, "accent") if on(harness, model["id"]) else (empty, "dim"),
                       (model["label"], None)],
                      lambda model=model, row=row: tick(harness, model, row),
                      bool(on(harness, model["id"]))) if model else
                     ([(row[1], None), (_logs_in(row[3]), "dim")], lambda row=row: log_in(row),
                      "log in")
-                    for model, row in rows] + ([([(said, "dim")], lambda: "", "")] if said else [])
+                    for model, row in shown] + ([([(note, "dim")], lambda: "", "")] if note else [])
         return choices, True
 
     def page():
@@ -6146,7 +6214,10 @@ def setting(cfg, page, table, read):
         except config.Error as exc:
             return f"{page}: {exc}"
         before = copy.deepcopy(cfg)
-        cfg[table] = changed
+        if changed:
+            cfg[table] = changed
+        else:
+            cfg.pop(table, None)
         return _saved(cfg, cfg, before)
     try:
         return read(cfg), "", write
@@ -6252,30 +6323,70 @@ def money_value(cfg):
 
 def config_money(cfg):
     """`Money`: `Currency`, the currency prices are in (config_page), Space switching it to the
-    next of money.TABLES, written to `[money]` in config.toml at once (setting); under it what
-    the logins pay a month in it (plan_rows)."""
+    next of money.TABLES, written to `[money]` in config.toml at once (setting); under it the
+    plans the logins were on when the page opened (usage_rows, usage.plan), their prices read
+    at each draw (plan_rows)."""
+    counts = {}
+    for provider, _, _, account in usage_rows(cfg):
+        on = provider, usage.plan(provider, account)
+        counts[on] = counts.get(on, 0) + 1
+
     def page():
         held, _, write = setting(cfg, "money", "money", money.currency)
         codes = list(money.TABLES)
         return [("Currency", money_value(cfg), ("mark", lambda: write(
-            "currency", codes[(codes.index(held) + 1) % len(codes)]))), *plan_rows(cfg)], ""
+            "currency", codes[(codes.index(held) + 1) % len(codes)]))),
+            *plan_rows(cfg, counts, write)], ""
     config_page("money", page)
 
 
-def plan_rows(cfg):
-    """Rows that only show each provider and plan a login is on now, in the order `config ·
-    subscriptions` lists the logins (usage_rows), plans read as kept (usage.plan), so no
-    provider is asked: named as that page names the provider (company_name), then the plan, or
-    alone, `plan not read yet`, where the plan is not known; its price a month in the config's
-    currency (money.price, `amount`), with `your price` when kept under `[money.paid]`
-    (money.typed), else `no price in` the currency, its logins counted where more than one; then
-    `In all`, each price times its logins, the logins of a row with no price `not counted`.  None
-    where no login is configured."""
-    code, counts = money.currency(cfg), {}
-    for provider, _, _, account in usage_rows(cfg):
-        on = provider, usage.plan(provider, account)
-        counts[on] = counts.get(on, 0) + 1
-    rows, total, missed = [], 0, 0
+def plan_rows(cfg, counts, write):
+    """One row per `(provider, plan)` in `counts`, named as `config · subscriptions` names the
+    provider (company_name), then the plan, or alone, `plan not read yet`, where the plan is not
+    known; its price a month in the config's currency (money.price, `amount`), with `your price`
+    when kept under `[money.paid]` (money.typed), else `no price in` the currency, its logins
+    counted where more than one.  Enter on a plan's row opens a field for what you pay a month
+    in that currency, written to `[money.paid.<currency>.<provider>]` at once through `write`,
+    or empty takes it out; a row with no plan stays one that only shows.  Then `In all`, each
+    price times its logins, the logins of a row with no price `not counted`.  None where
+    `counts` is empty."""
+    code, rows, total, missed = money.currency(cfg), [], 0, 0
+
+    def take(provider, plan):
+        def field(draw):
+            typed = terminal.field("    ", "a month · empty: the list price",
+                                   around=lambda line: draw([line]), tabs=True)
+            if typed is None or terminal.is_esc(typed):
+                return ""
+            value = money.parse(typed) if typed else None
+            if typed and value is None:
+                return "a price is a number like 180 or 180.50"
+            held = cfg.get("money", {}).get("paid") if isinstance(cfg.get("money"), dict) else None
+            if value is None:
+                if money.typed(cfg, provider, plan, code) is None:
+                    return ""
+                updated = copy.deepcopy(held)
+                del updated[code][provider][plan]
+                if not updated[code][provider]:
+                    del updated[code][provider]
+                if not updated[code]:
+                    del updated[code]
+                return write("paid", updated or None)
+            if held is not None and not isinstance(held, dict):
+                return "money: [money.paid] must be a table"
+            updated = copy.deepcopy(held) if isinstance(held, dict) else {}
+            table = updated
+            for depth, key in enumerate((code, provider)):
+                if key in table and not isinstance(table[key], dict):
+                    where = ".".join(("money", "paid", *(code, provider)[:depth + 1]))
+                    return f"money: [{where}] must be a table"
+                table = table.setdefault(key, {})
+            if isinstance(table.get(plan), dict):
+                return f"money: [money.paid.{code}.{provider}] {plan} is a table"
+            table[plan] = value
+            return write("paid", updated)
+        return field
+
     for (provider, on), count in counts.items():
         yours = None if on is None else money.typed(cfg, provider, on, code)
         price = (None if on is None
@@ -6291,7 +6402,7 @@ def plan_rows(cfg):
         parts = [said, *(["your price"] if yours is not None else []),
                  *([f"{count} logins"] if count > 1 else [])]
         rows.append((company_name(cfg, provider) + ("" if on is None else f" · {on}"),
-                     " · ".join(parts), None))
+                     " · ".join(parts), None if on is None else take(provider, on)))
     if rows:
         rows.append(("In all", amount(code, total) + (
             f" · {missed} login{'s' if missed > 1 else ''} not counted" if missed else ""), None))
@@ -6342,12 +6453,13 @@ def machine_value(machine, cfg):
     return " · ".join([*words, work_words(machine.name, cfg)])
 
 
-def stand_in_value(age, takes):
+def stand_in_value(age, takes, own=True):
     """A machine that copies this one, from its record (standby.copies): its copy's age, or why
-    that cannot be said, and whether it takes over."""
+    that cannot be said, and on a row of its `own` whether it takes over and home goes back to
+    it: on a listed machine's row, `this one` and `it` would read as that machine."""
     return " · ".join(["stand-in", f"copy {age}" if takes else age,
-                       *["takes over when this one stops"] * (takes in standby.OVER),
-                       *["home goes back to it once it is steady"] * (takes == "back")])
+                       *["takes over when this one stops"] * (own and takes in standby.OVER),
+                       *["home goes back to it once it is steady"] * (own and takes == "back")])
 
 
 def work_words(name, cfg):
@@ -6379,11 +6491,12 @@ def machine_hours(name):
 def config_machines(cfg):
     """Recorded machines; Enter opens each one's cap on runs at once (runs_row), the home's with
     how many sessions it carries at once under it (carried.value), another's under its work
-    marks.  Under them, each machine that copies this one (standby.copies), whose row opens
-    nothing, or under the rows why they cannot be read.  Last, `+ add a machine` takes an
-    ssh address, or with none typed finds those that ran the line making a new machine one it
-    adds (machines.join_line, under its field; machines.found), and writes each to config.toml
-    once it answers (machines.add), else says why not."""
+    marks.  Each machine that copies this one (standby.copies) is said at the end of the row of
+    the first listed machine but the home whose last reading names its host, one machine one
+    row, else under them on a row that opens nothing; why they cannot be read under the rows.
+    Last, `+ add a machine` takes an ssh address, or with none typed finds those that ran the
+    line making a new machine one it adds (machines.join_line, under its field; machines.found),
+    and writes each to config.toml once it answers (machines.add), else says why not."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def add_field(draw):
@@ -6492,13 +6605,21 @@ def config_machines(cfg):
         return open_page
 
     def page():
-        rows = [(machine.name, machine_value(machine, cfg), opens(machine.name))
-                for machine in machines.known()]
+        known = machines.known()
         try:
             stand_ins, why = standby.copies(), ""
         except config.Error as exc:
             stand_ins, why = [], str(exc)
-        rows += [(host, stand_in_value(age, takes), None) for host, age, takes in stand_ins]
+        joined, apart = {}, []
+        for host, age, takes in stand_ins:
+            same = next((machine.name for machine in known if machine.name != machines.HERE
+                         and (machine.said or {}).get("name") == host), None)
+            if same:
+                joined[same] = f" · {stand_in_value(age, takes, own=False)}"
+            else:
+                apart.append((host, stand_in_value(age, takes), None))
+        rows = [(machine.name, machine_value(machine, cfg) + joined.get(machine.name, ""),
+                 opens(machine.name)) for machine in known] + apart
         # a file that will not load closes the page, saying why on `c`; read last, so one
         # breaking under the reads above does too
         config.load()
