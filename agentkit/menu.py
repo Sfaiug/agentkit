@@ -140,7 +140,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import carried, done_check, logins, look, machines, money, open_runs, parsed, readings, record
+from . import carried, done_check, logins, look, machines, money, open_runs, parsed, readings, record, releases
 from . import size_table, standby, takers, warm
 from .harness import load as harness_plugin
 
@@ -6012,9 +6012,10 @@ DONE_CHECK_NOTE = "A model reads what you asked a seat and names what its work d
 
 def models_page(cfg, keyboard):
     """`Models`: a row per harness the config's providers run on (config.provider_harnesses),
-    opening `■` each model the config runs there and `□` each other its catalog offers
-    (_offered), or for a harness that logs in to providers (config.provider_hosts) each it runs
-    now, then each of the config's providers it lists with no login (_through_choices).  Space
+    opening `■` each model the config runs there and `□` only the newest release of each line its
+    catalog offers (_offered, releases.newest), or for a harness that logs in to providers
+    (config.provider_hosts) each newest it runs now, then each of the config's providers it lists
+    with no login (_through_choices).  Space
     takes one out (remove_model), the last model kept, or in: one taken out here as it was, its
     provider's table as the page opened; any other named from its label (config.short_name), at
     its harness's first model's effort, else `high`, as near as it goes (_nearest), under that
@@ -6088,6 +6089,10 @@ def models_page(cfg, keyboard):
             rows, said = [], "not read: esc and open it again"
         ran.setdefault(harness, {}).update((cfg["models"][name]["model"],
                                             config.model_name(cfg, name)) for name in on(harness))
+        # only the newest release of each line is offered `□`; what ran here stays so it can come out
+        newest = {model["id"] for model in releases.newest([model for model, _ in rows if model])}
+        rows = [(model, row) for model, row in rows
+                if not model or model["id"] in newest or model["id"] in ran[harness]]
         ids = {model["id"] for model, _ in rows if model}
         rows += [({"id": model, "label": label}, None)
                  for model, label in ran[harness].items() if model not in ids]
