@@ -298,12 +298,21 @@ lines = 6
 rows = '^(?= *(?:❯ +)?1\. )(?: *(?:❯ +)?\d+\. .+\n)*? *(?:❯ +)?\d+\. Stop and wait for limit to reset\n(?: *(?:❯ +)?\d+\. .+\n)* *Enter to confirm · Esc to cancel\Z'
 answer = "Escape"
 
-# Seats launched before the survey was disabled can still draw it in place of the composer.
+# 2.1.332 draws the survey above the empty composer. Its shortcut digits have their own
+# foreground colour. In a plain capture the effort indicator above it locates the survey
+# outside the transcript. A draft or another row between the controls and the box rules it out.
 [[rule]]
 id = "asking.survey"
 state = "asking"
-lines = 2
-rows = '^ *How is Claude doing this session\? \(optional\)\n *1: Bad +2: Fine +3: Good +(?:4: Unsure +)?0: Dismiss\Z'
+lines = 8
+rows = '''^ *(?:[●⏺] +)?How is Claude doing this session\? \(optional\)\n *1: Bad +2: Fine +3: Good +(?:4: Unsure +)?0: Dismiss(?:
+─{3,}(?: [^\n]+ ─+)?\n❯\n─{3,}(?:\n(?! *[❯─])[^\n]+){0,2})?\Z'''
+raw_rows = '''(?mx)
+  ^[ ]*How[ ]is[^\n]*\n[ ]*1:[ ]Bad[^\n]*0:[ ]Dismiss\Z
+| (?: ^[ ]+●[ ]\w+[ ]·[ ]/effort\n[ ]*(?:[●⏺][ ]+)?How[ ]is[^\n]*\n[ ]*1:[ ]Bad
+    | (?P<ink>\x1b\[(?:3[0-7]|9[0-7]|38;[0-9;]+)m)1(?P<reset>\x1b\[[0-9;]*m):[ ]Bad
+      (?:[ ]+(?P=ink)[0234](?P=reset):[ ]\w+){3,4}
+  )[^\n]*\n(?:\x1b\[[0-9;]*m)*─{3,}'''
 answer = "0"
 
 # The workspace-trust dialog: three of its own controls, in the last few lines, with its final

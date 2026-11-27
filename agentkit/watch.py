@@ -914,6 +914,7 @@ def _rule(entry, path):
             "any": marks("any"), "none": marks("none"), "row": _pattern(entry.get("row"), path),
             # one pattern over the window's rows as drawn, read together: a frame no row alone is
             "rows": _pattern(entry.get("rows"), path, re.M),
+            "raw_rows": _pattern(entry.get("raw_rows"), path, re.M),
             "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer")),
             "picker": bool(entry.get("picker")),
             # the key that puts away what it reads, sent before a look (`dismiss`)
@@ -2229,6 +2230,7 @@ def screen_rule(harness, pane):
                 or (rule["none"] and any(mark in low for mark in rule["none"]))
                 or (rule["row"] and not drawn)
                 or (rule["rows"] and not rule["rows"].search(together))
+                or (rule["raw_rows"] and not rule["raw_rows"].search("\n".join(raws)))
                 or (rule["newest"] and not rule["newest"].search(newest))
                 or (rule["chrome"] and not chrome_line(chrome, lines[-1]))):
             continue

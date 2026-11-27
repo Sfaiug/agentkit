@@ -1,5 +1,6 @@
 """Claude seats disable session feedback on launch and dismiss a survey already on screen."""
 
+import re
 import shlex
 import unittest
 
@@ -9,10 +10,18 @@ from fixtures.akseat import Seat
 from fixtures.hookdrive import Hooks, conversation
 
 DISABLED = "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1"
-SURVEY = ("  How is Claude doing this session? (optional)\n"
-          "  1: Bad  2: Fine  3: Good  {unsure}0: Dismiss")
-DRAFT = ("\n──────────────────────────\n❯ finish acme\n──────────────────────────\n"
-         "  ⏵⏵ bypass permissions on (shift+tab to cycle)")
+QUESTION = "How is Claude doing this session? (optional)"
+OPTIONS = "  1: Bad    2: Fine   3: Good   {unsure}0: Dismiss"
+INK = "\x1b[38;5;153m"
+EFFORT = "                                      ● high · /effort\n"
+BOX = "\n──────────────────────────────────── acme ─\n❯ {draft}\n───────────────────────────────────────────"
+FOOTER = "\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"
+
+
+def survey(unsure=False):
+    keys = OPTIONS.format(unsure="4: Unsure " if unsure else "")
+    tinted = re.sub(r"\d(?=:)", lambda m: INK + m[0] + "\x1b[39m", keys)
+    return f"{INK}●\x1b[39m \x1b[1m{QUESTION}\x1b[0m\n{tinted}"
 
 
 class ClaudeFeedbackSurvey(unittest.TestCase):
@@ -43,9 +52,20 @@ class ClaudeFeedbackSurvey(unittest.TestCase):
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_only_a_survey_at_the_bottom_gets_the_dismiss_key(self):
-        for unsure, composer, keys in (("", "", "0"), ("4: Unsure  ", "", "0"), ("", DRAFT, "")):
-            with self.subTest(unsure=unsure, composer=composer), Home() as home:
-                screen = "● Checking acme.\n" + SURVEY.format(unsure=unsure) + composer
+        plain = f"  {QUESTION}\n" + OPTIONS.format(unsure="")
+        empty = BOX.format(draft="") + FOOTER
+        cases = (
+            ("survey", survey() + empty, "0"),
+            ("unsure", survey(unsure=True) + empty, "0"),
+            ("plain survey below effort", EFFORT + plain + empty, "0"),
+            ("bottom row", plain, "0"),
+            ("quote above effort", plain + "\n" + EFFORT + empty, ""),
+            ("quote next to empty composer", plain + empty, ""),
+            ("coloured quote in transcript", survey() + "\n  End of quote." + empty, ""),
+            ("draft", survey() + BOX.format(draft="finish acme") + FOOTER, ""),
+        )
+        for label, screen, keys in cases:
+            with self.subTest(label), Home() as home:
                 seat = Seat(home, "acme", screen=screen)
                 fired = Hooks(home).fire("Notification", {"notification_type": "idle_prompt"},
                                          pane=seat, finished=True)

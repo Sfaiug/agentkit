@@ -106,8 +106,8 @@ class ClaudeCode(Line, unittest.TestCase):
     def env(self, account):
         # an account's login is the wrapper's to pick, from AGENTKIT_ACCOUNT
         return ["env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "-u", "CLAUDE_CONFIG_DIR",
-                "CLAUDE_CODE_DISABLE_AGENT_VIEW=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
-                "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"]
+                "CLAUDE_CODE_DISABLE_AGENT_VIEW=1", "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1",
+                "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"]
 
     def words(self):
         return ["--append-system-prompt-file", str(self.rulebook), "--model", MODEL,

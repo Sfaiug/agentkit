@@ -35,11 +35,11 @@ type Rules struct {
 }
 
 type rule struct {
-	id, state         string
-	lines             int
-	all, some, none   []string
-	row, rows, newest *pyre.Regexp
-	atComposer        bool
+	id, state                  string
+	lines                      int
+	all, some, none            []string
+	row, rows, rawRows, newest *pyre.Regexp
+	atComposer                 bool
 }
 
 // tailRows is how much of a pane's tail says what it is doing (watch.PANE_LINES).
@@ -132,6 +132,9 @@ func compileRule(entry map[string]any) (rule, error) {
 	if found.rows, err = pattern(entry["rows"], pyre.Multiline, false); err != nil {
 		return rule{}, err
 	}
+	if found.rawRows, err = pattern(entry["raw_rows"], pyre.Multiline, false); err != nil {
+		return rule{}, err
+	}
 	found.newest, err = pattern(entry["newest"], 0, false)
 	return found, err
 }
@@ -215,7 +218,8 @@ func (r *Rules) Read(pane string) Reading {
 		contains := func(mark string) bool { return strings.Contains(low, mark) }
 		if len(each.all) > 0 && !allOf(each.all, contains) || len(each.some) > 0 && !slices.ContainsFunc(each.some, contains) ||
 			slices.ContainsFunc(each.none, contains) || each.row != nil && len(drawn) == 0 ||
-			each.rows != nil && !each.rows.MatchString(whole) || each.newest != nil && !each.newest.MatchString(newest) ||
+			each.rows != nil && !each.rows.MatchString(whole) || each.rawRows != nil && !each.rawRows.MatchString(strings.Join(rows, "\n")) ||
+			each.newest != nil && !each.newest.MatchString(newest) ||
 			each.atComposer && !r.chromeLine(lines[len(lines)-1]) {
 			continue
 		}
