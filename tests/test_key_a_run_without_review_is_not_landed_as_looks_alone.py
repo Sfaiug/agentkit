@@ -34,23 +34,23 @@ class ARunWithoutReviewIsNotLandedAsLooksAlone(unittest.TestCase):
     line, join, land, checked = (vars(quick.AChangeOfLooksAloneLandsOnItsQuickChecks)[name]
                                  for name in ("line", "join", "land", "checked"))
 
-    def task(self, line, settings=None):
-        """The restyle's task, its run worked and reviewed by scripted harnesses."""
+    def task(self, line, settings=None, files=quick.IMAGE):
+        """The task to write `files`, its run worked and reviewed by scripted harnesses."""
         home = line.home
         GitHub(home).grant(line.rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"],
                        settings=settings)
-        self.fakes = fakeadapter.install(home, claude={**fakeadapter.WORK, "write": quick.STYLE,
-                                                       "commit": "restyle"}, codex="pass")
-        return str(taskfile.write(home, line.rig.path, "Restyle the site",
-                                  done_when=("test -f site.css",)))
+        self.fakes = fakeadapter.install(home, claude={**fakeadapter.WORK, "write": files,
+                                                       "commit": "look"}, codex="pass")
+        return str(taskfile.write(home, line.rig.path, "Change the looks",
+                                  done_when=tuple(f"test -f {path}" for path in files)))
 
     def deliver(self, line, readings, *, settings=None):
         home = line.home
         home.env["AK_HOST_READINGS"] = json.dumps(readings)
         done = home.ak("run", self.task(line, settings), timeout=300)
         self.assertEqual(done.code, 0, done.out + done.err)
-        run_dir, = (path for path in taskfile.runs(home) if path.name.endswith("-restyle-the-site"))
+        run_dir, = (path for path in taskfile.runs(home) if path.name.endswith("-change-the-looks"))
         self.assertTrue(quick.record(run_dir).get("merged"), quick.record(run_dir))
         tree = line.rig.origin("rev-parse", "main^{tree}")
         return (self.fakes["codex"].n, tree,
@@ -67,15 +67,15 @@ class ARunWithoutReviewIsNotLandedAsLooksAlone(unittest.TestCase):
             time.sleep(0.2)
         return state
 
-    def test_marked_stylesheets_land_through_the_whole_suite(self):
-        line = self.line(**{".gitattributes": "*.css ak-checks-only\n"})
+    def test_marked_images_land_through_the_whole_suite(self):
+        line = self.line(**{".gitattributes": "*.png ak-checks-only\n"})
         reviews, tree, message = self.deliver(line, quick.IDLE)
         self.assertEqual(reviews, 0)
         self.assertEqual(line.whole(), 1, line.runs())
         self.assertTrue(message.endswith(f"\n\nSuite-Passed-Tree: {tree}"), message)
         self.assertNotIn("Looks-Alone-Tree", message)
 
-    def test_review_off_stylesheet_lands_through_the_whole_suite(self):
+    def test_review_off_image_lands_through_the_whole_suite(self):
         line = self.line()
         reviews, tree, message = self.deliver(line, quick.IDLE, settings={"review_rounds": 0})
         self.assertEqual(reviews, 0)
@@ -83,30 +83,36 @@ class ARunWithoutReviewIsNotLandedAsLooksAlone(unittest.TestCase):
         self.assertTrue(message.endswith(f"\n\nSuite-Passed-Tree: {tree}"), message)
         self.assertNotIn("Looks-Alone-Tree", message)
 
-    def test_an_unreviewed_stylesheet_waits_on_a_busy_host_while_a_reviewed_one_lands(self):
+    def test_an_unreviewed_image_waits_on_a_busy_host_while_a_reviewed_one_lands(self):
         line = self.line()
-        self.join(line, quick.STYLE)
+        self.join(line, quick.IMAGE)
         state = quick.record(line.members[0])
         state["review"]["no_review"] = True
         (line.members[0] / "run.json").write_text(json.dumps(state))
-        self.join(line, quick.STYLE)
+        self.join(line, quick.IMAGE)
         self.land(line, quick.BUSY)
         self.assertEqual(self.checked(line), (0, [False, True]), line.runs())
 
     def test_an_older_landers_verdict_of_looks_alone_is_delivered_by_the_installed_ak(self):
+        self.rejoins_under_the_installed_ak(quick.IMAGE, {"review_rounds": 0})
+
+    def rejoins_under_the_installed_ak(self, files, settings=None):
+        """A run writing `files` under `settings`, parked, rejoins the line with no verdict from
+        the verdict of looks alone an older lander saved for it."""
         # a resume, and a retry of a delivery that failed, of a run pinned to the older ak
         for command, ended in (("resume", {}), ("merge", {"state": "pass", "merge_failed": True})):
             with self.subTest(command):
-                self.rejoins_under_the_installed_ak(command, ended)
+                self.rejoins(command, ended, files, settings)
 
-    def rejoins_under_the_installed_ak(self, command, ended):
+    def rejoins(self, command, ended, files, settings):
         line = self.line()
-        done = line.home.ak("run", "--bg", self.task(line, {"review_rounds": 0}))
+        done = line.home.ak("run", "--bg", self.task(line, settings, files))
         self.assertEqual(done.code, 0, done.out + done.err)
         run_dir, = taskfile.runs(line.home)
-        # on the busy host the line holds its suite, and the run parks with no verdict
+        # on the busy host the line holds its suite, and the run parks with no verdict, reviewed
+        # unless `settings` turn review off
         state = self.settled(run_dir, lambda wait: "line" in wait)
-        self.assertTrue(state["review"].get("no_review"), state)
+        self.assertEqual(bool(state["review"].get("no_review")), settings is not None, state)
         older = line.home.root / "older-ak"
         (older / "bin").mkdir(parents=True)
         (older / "bin" / "ak").write_text(
@@ -125,7 +131,7 @@ class ARunWithoutReviewIsNotLandedAsLooksAlone(unittest.TestCase):
                                 gone=[older / "bin" / "ran"]).get("waiting_on")
         self.assertEqual(wait, {key: state["waiting_on"][key] for key in ("line", "joined")})
 
-    def test_without_the_mark_a_reviewed_stylesheet_lands_as_looks_alone(self):
+    def test_without_the_mark_a_reviewed_image_lands_as_looks_alone(self):
         line = self.line()
         reviews, tree, message = self.deliver(line, quick.BUSY)
         self.assertEqual(reviews, 1)
