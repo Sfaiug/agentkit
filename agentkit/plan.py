@@ -271,6 +271,22 @@ def verifying(name, wait=True):
                 return
 
 
+def _self_contained_modules(repo, source):
+    if repo.is_relative_to(source) or (source.is_relative_to(repo) and source != repo / "node_modules"):
+        return False
+    # Package managers link workspace members back to the seat's editable source.
+    pending = [source]
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                if entry.is_symlink():
+                    if not Path(entry.path).resolve(strict=True).is_relative_to(source):
+                        return False
+                elif entry.is_dir(follow_symlinks=False):
+                    pending.append(entry.path)
+    return True
+
+
 def _link_node_modules(repo, tree):
     modules = repo / "node_modules"
     if not modules.is_dir() or (tree / "node_modules").exists():
@@ -290,7 +306,9 @@ def _link_node_modules(repo, tree):
         if any(contents(repo / name) != contents(tree / name) for name in names or ["package.json"]):
             return
         source = modules.resolve(strict=True)
-    except OSError:
+        if not _self_contained_modules(repo.resolve(), source):
+            return
+    except (OSError, RuntimeError):  # unreadable entries or a symlink loop
         return
     # Node searches parent directories. A local install can shadow this link and be removed safely.
     (tree.parent / "node_modules").symlink_to(source, target_is_directory=True)

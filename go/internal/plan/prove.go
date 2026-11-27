@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -160,6 +161,31 @@ func manifestBytes(path string) ([]byte, error) {
 	return io.ReadAll(file)
 }
 
+func selfContainedModules(repo, source string) bool {
+	within := func(root, path string) bool {
+		rel, err := filepath.Rel(root, path)
+		return err == nil && filepath.IsLocal(rel)
+	}
+	if within(source, repo) || (within(repo, source) && source != filepath.Join(repo, "node_modules")) {
+		return false
+	}
+	// Package managers link workspace members back to the seat's editable source.
+	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.Type()&os.ModeSymlink == 0 {
+			return err
+		}
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return err
+		}
+		if !within(source, target) {
+			return errors.New("link leaves node_modules")
+		}
+		return nil
+	})
+	return err == nil
+}
+
 func linkNodeModules(repo, tree string) error {
 	source := filepath.Join(repo, "node_modules")
 	if info, err := os.Stat(source); err != nil || !info.IsDir() {
@@ -184,11 +210,15 @@ func linkNodeModules(repo, tree string) error {
 		}
 		matched = true
 	}
-	if matched {
-		// Node searches the parent after the checkout's own node_modules.
-		return os.Symlink(config.Resolve(source), filepath.Join(filepath.Dir(tree), "node_modules"))
+	if !matched {
+		return nil
 	}
-	return nil
+	source = config.Resolve(source)
+	if !selfContainedModules(config.Resolve(repo), source) {
+		return nil
+	}
+	// Node searches the parent after the checkout's own node_modules.
+	return os.Symlink(source, filepath.Join(filepath.Dir(tree), "node_modules"))
 }
 
 // checkout runs fn in a clean checkout of the branch made for it alone, so nothing one check
