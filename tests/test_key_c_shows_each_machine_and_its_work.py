@@ -104,7 +104,7 @@ class MachinesOnC(unittest.TestCase):
         self.assertLess(shown.index("this one"), shown.index("acme-mac"))
         self.assertLess(shown.index("acme-mac"), shown.index("acme-linux"))
         # This host has no marks; another machine opens its work with Enter.
-        self.term.keys("Enter", "Space", "Down")
+        self.term.keys("Space", "Down")
         same = self.term.wait("› acme-mac")
         keys = next(line for line in reversed(same.splitlines()) if line.strip())
         self.assertIn("⏎ open", keys)

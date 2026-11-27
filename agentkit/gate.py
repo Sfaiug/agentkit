@@ -134,7 +134,7 @@ def host_status_line():
     except config.Error:
         limit = 0
     if limit:
-        admitted += f" · at most {limit} run{'s' if limit != 1 else ''} at once"
+        admitted += f" · at most {config.whole(limit)} run{'s' if limit != 1 else ''} at once"
     try:
         pinned = config.max_gates()
     except config.Error:

@@ -155,7 +155,7 @@ def max_runs():
     if override is not None:
         if not override.isascii() or not override.isdigit():
             raise Error("AK_MAX_RUNS must be a non-negative integer (0 disables the cap for tests)")
-        return int(override)
+        return read_whole(override)
     return _count_setting("max_runs")
 
 
@@ -1182,6 +1182,16 @@ def _toml_key(key):
     if isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_-]+", key):
         return key
     return json.dumps(key, ensure_ascii=False)
+
+
+def read_whole(digits):
+    """The whole number decimal `digits` write, past the most digits Python reads in decimal
+    (sys.get_int_max_str_digits) too, as tomllib reads them and `whole` writes them."""
+    number = 0
+    for start in range(0, len(digits), 9):
+        chunk = digits[start:start + 9]
+        number = number * 10 ** len(chunk) + int(chunk)
+    return number
 
 
 def whole(value):
