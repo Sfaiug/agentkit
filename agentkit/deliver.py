@@ -947,6 +947,12 @@ def land_from_line(lp, upstream, deliver):
                     lp.state.pop("waiting_on", None)
                     forget_landing_counts(lp.state)
                     return roundloop.note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
+                if wait.get("looks") and identity["head_sha"] not in looks_alone.changes(
+                        lp.wt, tip, [identity["head_sha"]]):
+                    # saved by a lander whose `looks_alone` let through what the installed one
+                    # keeps off that lane, asked as the lander asks it: of the change on the tip
+                    return rejoin_line(lp, upstream, "the installed ak lands it through the whole "
+                                                     "suite, not as looks alone")
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],

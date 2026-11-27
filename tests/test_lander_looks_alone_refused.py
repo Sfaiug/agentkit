@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import SUITE, LanderFixture
 from agentkit import config, gitcall, land, record, run
 
-STYLE = {"site.css": "p { color: teal }\n"}
+IMAGE = {"site.png": "teal\n"}
 
 
 class ARefusedLooksVerdict(LanderFixture, unittest.TestCase):
@@ -38,7 +38,7 @@ class ARefusedLooksVerdict(LanderFixture, unittest.TestCase):
         return super().check(cmds, cwd, log_path, *args, **kw)
 
     def refused(self, **files):
-        first = self.member("fix-style", 1, once="true", **STYLE)
+        first = self.member("fix-image", 1, once="true", **IMAGE)
         behind = self.member("fix-next", 2, once="true", **files)
         self.moved = first
         land.check_line(self.turn)
@@ -48,7 +48,7 @@ class ARefusedLooksVerdict(LanderFixture, unittest.TestCase):
         return self.wait(behind)
 
     def test_a_looks_member_behind_gets_its_own(self):
-        self.assertTrue(self.refused(**{"logo.css": "h1 { color: red }\n"}).get("looks"))
+        self.assertTrue(self.refused(**{"logo.png": "red\n"}).get("looks"))
 
     def test_code_behind_is_checked_on_the_target(self):
         wait = self.refused(**{"app.js": "x\n"})
