@@ -2753,11 +2753,12 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     from the time record (`round_tests.chosen`), which holds while the round goes: the check keeps
     no times, as a resumed round chooses from it again, and the re-run of a `shard` is handed them
     less those its first go named as not there and not as run, as the record keeps a part while
-    its file exists and no change fixes one its file lost.  Its `flaky:` record names what the
-    first go lacked, and no lacked part is a flaky test: a first go that named no other failure
-    and passed all else its tree holds (`passes_what_it_holds`) leaves none, as a follow-up could
-    fix nothing.  A lander's check runs without it: it reads a red go and a green one as a flake
-    that blames nobody, and counts a part not there by that rule.
+    its file exists and no change fixes one its file lost; where that leaves none, no re-run goes,
+    as a go of none would end green on nothing, and the first go's red stands.  Its `flaky:`
+    record names what the first go lacked, and no lacked part is a flaky test: a first go that
+    named no other failure and passed all else its tree holds (`passes_what_it_holds`) leaves
+    none, as a follow-up could fix nothing.  A lander's check runs without it: it reads a red go
+    and a green one as a flake that blames nobody, and counts a part not there by that rule.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2848,6 +2849,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 first_span, first, named = (offset, end), named, []
                 if lacked:
                     handed = [test for test in only if test not in lacked]
+                    if not handed:
+                        break
                     first = [test for test in first if test not in lacked]
                     how += f", lacking {' '.join(lacked)}"
                     # red by what no change fixes, where it named no other failure and passed

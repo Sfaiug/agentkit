@@ -532,13 +532,18 @@ def chosen_tests(lp, named, head):
     `chosen`, red by its exit, a pass that does not name each one as run among them
     (`gate.unnamed`), chosen from the time record (`chosen`): it keeps no times, and its re-run
     asks for no part its tree lacks, as on 18 Nov 2026 one removed on 7 Nov, still timed, failed
-    six runs' rounds in a quarter of an hour.  A stop in it leaves the review to ask again.
+    six runs' rounds in a quarter of an hour.  Where its go named each as not there (`absent`),
+    its tree holds none of them: it answers None, neither pass nor fail, the PASS standing as for a
+    review that chose none, and its red row keeps the change off the looks-alone lane
+    (`land.check_line`), as nothing ran.  A stop in it leaves the review to ask again.
     """
     from . import gate  # here, not at the top: it reaches run
-    return gate.run_done_when(
+    absent = []
+    ok, text = gate.run_done_when(
         [named[0]], lp.wt, lp.round_dir / "donewhen.log", lp.artifacts, lp.done_when_limit,
         lp.log, silence=lp.turn_limit, run_dir=lp.run_dir, shard="1/1", only=named[1],
-        checked=(lp.run_dir, lp.rnd, "chosen", head), chosen=True)
+        checked=(lp.run_dir, lp.rnd, "chosen", head), absent=absent, chosen=True)
+    return (None if absent == named[1] else ok), text
 
 
 def passed_review_head(state):
@@ -1602,7 +1607,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                 (lp.round_dir / "donewhen.log").write_text(dw_log)
                 if lp.state.get("review_pr"):
                     restore_review_checkout(lp, "tests")
-                if not passed:
+                if passed is False:
                     failed_log = more
         if failed_log is not None:
             verdict = "FAIL"
