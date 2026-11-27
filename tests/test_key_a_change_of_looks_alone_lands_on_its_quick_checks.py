@@ -4,44 +4,66 @@ A member of a landing line whose change against its target names only raster ima
 or prose, AGENTS.md never one of them, is given its verdict to land by the line's
 next pass with no whole run of the suite, ahead of members waiting for theirs, where the target
 declares both `health:` and `deployed:`, so ak puts back a release whose health breaks, and the
-project has a time record of its suite.  Its
+project has a time record of its suite, and the tests its review chose
+(tests/test_key_the_looks_lane_takes_only_a_change_whose_chosen_tests_passed.py) ended green.  Its
 merge ends with `Looks-Alone-Tree: <tree>`.  Elsewhere, and for any other change, a member waits
 as any does, and what an image breaks the next whole run finds red on the target's tip.
 
 Black-box: the program `AK_BIN` names, on a busy host (AK_HOST_READINGS) where a whole suite
 measured at 40 minutes waits for company, checks a landing line from outside through
 tests/fixtures/akline.py; the two runs that deliver are scripted by fakeadapter.py and merged
-by fakegh.py's GitHub.  The Home here drops the test suites' `AK_MAX_RUNS=0`, which lifts every
-host gate.
+by fakegh.py's GitHub, the image's review choosing the test a landing on record was red on.  The
+Home here drops the test suites' `AK_MAX_RUNS=0`, which lifts every host gate, and their notify
+sink, under which ak keeps no history of a run, nor so of the tests its review chose.
 """
 
+import contextlib
 import json
 from pathlib import Path
+import sqlite3
 import sys
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akline import SUITE, Line
+from fixtures.akline import RUNNER, SUITE, Line
 from fixtures.fakegh import GitHub
+from test_key_history_db import ORIGINAL
 
 BUSY = {"cpus": 4, "load": 4, "free_mb": 16000}     # no processor idle
 IDLE = {"cpus": 4, "load": 0, "free_mb": 16000}
 RULES = f"---\ntests: {SUITE}\nhealth: true\ndeployed: true\n---\n# acme\n"
 IMAGE = {"logo.png": "blink\n"}
 TIMES = {"t/ok.sh": 1}
+# a test named as the record spells it, as a review hands the tests it chose, runs too
+NAMED = RUNNER.replace('"t/$t"', '"t/${t#t/}"')
 
 
 def record(directory):
     return json.loads((directory / "run.json").read_text())
 
 
+def red(line, test="t/ok.sh"):
+    """Put on ak's record a landing of an earlier run red on `test` a moment ago, so a review in
+    `line`'s project chooses that test (`round_tests`)."""
+    with contextlib.closing(sqlite3.connect(line.home.path / ".agentkit" / "history.db")) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS runs (%s)" % ", ".join(map(" ".join, ORIGINAL)))
+        db.execute("CREATE TABLE IF NOT EXISTS test_reds (run_id TEXT, round INTEGER, kind TEXT, "
+                   "tree TEXT, test TEXT, flaky INTEGER, at REAL)")
+        db.execute("INSERT INTO runs (run_id, repo, final_state) VALUES ('fix-0', ?, 'pass')",
+                   (line.rig.name,))
+        db.execute("INSERT INTO test_reds (run_id, kind, tree, test, flaky, at) "
+                   "VALUES ('fix-0', 'landing', 'tree', ?, 0, ?)", (test, time.time()))
+        db.commit()
+
+
 class AChangeOfLooksAloneLandsOnItsQuickChecks(unittest.TestCase):
     def line(self, rules=RULES, times=TIMES, **files):
-        line = Line({"AGENTS.md": rules, "t/ok.sh": "true\n", **files})
+        line = Line({"AGENTS.md": rules, "suite.sh": NAMED, "t/ok.sh": "true\n", **files})
         self.addCleanup(line.close)
         line.home.env.pop("AK_MAX_RUNS")
+        line.home.env.pop("AK_NOTIFY_SINK")
         line.home.env["AK_HOST_READINGS"] = json.dumps(BUSY)
         line.measured(40 * 60)
         if times is not None:
@@ -85,6 +107,7 @@ class AChangeOfLooksAloneLandsOnItsQuickChecks(unittest.TestCase):
         while "line" not in (run("Add the app").get("waiting_on") or {}):
             self.assertLess(time.monotonic(), deadline, "the code's run never joined the line")
             time.sleep(0.2)
+        red(line)
         worker.behave(work("logo.png"))
         done = home.ak("run", str(taskfile.write(home, line.rig.path, "Draw the logo",
                                                  done_when=("test -f logo.png",))), timeout=300)
@@ -133,6 +156,7 @@ class AChangeOfLooksAloneLandsOnItsQuickChecks(unittest.TestCase):
         state["review"].update(head_sha=head, passed_head_sha=head,
                                tree_sha=git("-C", str(clone), "rev-parse", "HEAD^{tree}"))
         (line.members[1] / "run.json").write_text(json.dumps(state))
+        line.chosen(line.members[1], head)
         self.land(line)
         self.assertEqual(self.checked(line), (0, [False, True]), line.runs())
 

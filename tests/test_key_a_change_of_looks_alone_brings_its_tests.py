@@ -56,6 +56,7 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
                      "widget.py": "x\n", **files})
         self.addCleanup(line.close)
         line.home.env.pop("AK_MAX_RUNS")
+        line.home.env.pop("AK_NOTIFY_SINK")
         line.home.env["AK_HOST_READINGS"] = json.dumps(BUSY)
         line.measured(40 * 60)
         line.rig.git("config", "ak.repository", "0123456789ab")

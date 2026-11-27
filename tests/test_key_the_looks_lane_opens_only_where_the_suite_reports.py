@@ -4,8 +4,8 @@ A target that declares both `health:` and `deployed:` lets a change of looks alo
 quick checks (tests/test_key_a_change_of_looks_alone_lands_on_its_quick_checks.py) only where the
 project has a time record of its suite.  With no record (or an empty one), a change of an image
 waits on a busy host like any member and lands through the whole suite, its merge ending with
-`Suite-Passed-Tree: <tree>`; with a time record it lands as looks alone, with no whole run and
-`Looks-Alone-Tree: <tree>`.
+`Suite-Passed-Tree: <tree>`; with a time record, its review running the test a landing on record
+was red on, it lands as looks alone, with no whole run and `Looks-Alone-Tree: <tree>`.
 
 Black-box, on the fixtures of tests/test_key_a_change_of_looks_alone_lands_on_its_quick_checks.py:
 the program `AK_BIN` names, through tests/fixtures/akline.py, fakeadapter.py and fakegh.py's
@@ -58,6 +58,7 @@ class TheLooksLaneOpensOnlyWhereTheSuiteReports(unittest.TestCase):
 
     def test_with_a_time_record_an_image_lands_as_looks_alone(self):
         line = self.line()
+        quick.red(line)
         tree, message = self.deliver(line, quick.BUSY)
         self.assertEqual(line.whole(), 0, line.runs())
         self.assertTrue(message.endswith(f"\n\nLooks-Alone-Tree: {tree}"), message)
