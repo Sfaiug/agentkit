@@ -349,7 +349,13 @@ lend)
     echo "agy: no refresh token in $TOKEN to lend; run \`$SIGNIN\` and sign in" >&2; exit 1; }
   [ "${2:-}" = own ] && [ -n "$ACCOUNT" ] && at=${TOKEN#"$HOME/"} ||
     at=.gemini/antigravity-cli/antigravity-oauth-token
-  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$1" "$at" ;;
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$1" "$at" ||
+    exit
+  # With the login go its owner's first-run answers, where they gave them: without, agy 1.5.18
+  # opens a seat on the lent login at `Choose your color scheme`, where it takes no line of ak's.
+  answers=${TOKEN%/*}/cache/onboarding.json
+  [ ! -f "$answers" ] || { mkdir -p -- "$1/${at%/*}/cache" &&
+    cp -- "$answers" "$1/${at%/*}/cache/onboarding.json"; } || exit 2 ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  A
