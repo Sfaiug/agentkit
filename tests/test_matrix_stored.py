@@ -49,7 +49,8 @@ class MatrixStored(Sandbox):
         # while the catalogs were read
         present, catalog = config.harness_present.side_effect, config.catalog.side_effect
         opus = self.cfg["models"]["opus"]["harness"]
-        config.harness_present.side_effect = lambda harness: harness != opus and present(harness)
+        config.harness_present.side_effect = (
+            lambda harness, *a, **kw: harness != opus and present(harness, *a, **kw))
         def back(harness, cfg=None):
             config.harness_present.side_effect = present
             return catalog(harness)

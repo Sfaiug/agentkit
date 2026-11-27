@@ -264,6 +264,29 @@ class NoModelReady(unittest.TestCase):
         if REAL_TMUX:
             self.assertNotEqual(self.home.tmux("has-session", "-t", "=inbox").code, 0)
 
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_automatic_seat_follows_the_installed_checkout_s_adapters(self):
+        for harness, installed in (("acme", True), ("claude", False)):
+            with self.subTest(harness=harness, installed=installed), Home() as home:
+                akconfig.write(home, {"alpha": harness}, audit=True)
+                program = (home.fake(harness, "#!/bin/sh\nexec sleep 60\n")
+                           if installed else home.path / "missing" / harness)
+                called = home.path / "interactive-called"
+                adapter = home.write(
+                    f"agentkit/adapters/{harness}.sh",
+                    f'#!/bin/sh\n[ "$1" = interactive ] || exit 2\n'
+                    f'touch "{called}"\nprintf "%s\\n" "{program}"\n')
+                adapter.chmod(0o755)
+                home.write(
+                    f"agentkit/adapters/{harness}.toml",
+                    f'[update]\nversion = [{fakeadapter.toml(str(program))}, "--version"]\n')
+                home.write(".agentkit/state/gc.json", {"started_at": time.time()})
+                done = home.ak("watch", env=OFFLINE)
+                self.assertEqual(done.code, 0, done.out + done.err)
+                saved = (home.path / ".agentkit/state/session-audit.json").is_file()
+                self.assertEqual((called.is_file(), saved), (installed, installed),
+                                 done.out + done.err)
+
 
 if __name__ == "__main__":
     unittest.main()

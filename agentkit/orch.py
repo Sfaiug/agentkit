@@ -169,7 +169,8 @@ def seat_models(cfg):
     out = {name: matrix.OFF for name in names if name in off}
     harness = {name: cfg["models"][name]["harness"] for name in names if name not in out}
     # one look a harness, so its models agree however an install moves meanwhile
-    installed = {each: config.harness_present(each) for each in set(harness.values())}
+    live = versions.live()
+    installed = {each: config.harness_present(each, live) for each in set(harness.values())}
     missing = {name: f"{harness[name]} is not installed" for name in harness
                if not installed[harness[name]]}
     if len(out) + len(missing) < len(names):
@@ -192,7 +193,7 @@ def refuse_start(cfg, model, providers, prompting=True):
     account = opening_account(cfg, model, providers, prompting)
     harness = config.model(cfg, model)["harness"]
     matrix.refuse_off(cfg, model)
-    if not config.harness_present(harness):
+    if not config.harness_present(harness, versions.live()):
         raise config.Error(f"{model}: {harness} is not installed on this machine; "
                            f"./install.sh, run in a terminal, installs it")
     return account
@@ -4624,7 +4625,7 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
         matrix.refuse_off(cfg, model)   # a move in place builds no command to refuse it
     except config.Error as exc:
         return str(exc), None
-    if not config.harness_present(harness):
+    if not config.harness_present(harness, versions.live()):
         return f"{model}: {harness} is not installed", None
     old_provider = provider_of(record["orchestrator"])
     new_provider = config.model(cfg, model)["provider"]

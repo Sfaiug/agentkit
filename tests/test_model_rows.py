@@ -39,8 +39,8 @@ def prepare(case):
     case.stack.enter_context(patch.object(config, "manifests", return_value=[
         (harness, {"family": config.manifest(harness).get("family")})
         for harness in (*CATALOGS, "acme")]))
-    case.stack.enter_context(patch.object(config, "harness_present",
-                                          side_effect=lambda harness: harness in CATALOGS))
+    case.stack.enter_context(patch.object(
+        config, "harness_present", side_effect=lambda harness, *_a, **_kw: harness in CATALOGS))
     case.stack.enter_context(patch.object(config, "catalog",
                                           side_effect=lambda harness, cfg=None: CATALOGS[harness]))
     case.stack.enter_context(patch.object(terminal, "width", return_value=100))

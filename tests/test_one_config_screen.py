@@ -60,7 +60,7 @@ usage.held = lambda cfg: down       # what `c` reads
 orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: (
     config.update_session(name, orchestrator=model), "")[1]
 orch.fresh_command = lambda cfg, name, seat=None, account=None, **_kw: (["harness"], None)
-config.harness_present = lambda harness: True   # whatever programs the host has
+config.harness_present = lambda harness, *_a, **_kw: True   # whatever programs the host has
 config.catalog_now = lambda harness, cfg=None: [{"id": "claude-fable-5-1", "label": "Fable 5.1",
                                        "efforts": ["high", "xhigh", "max"]}]
 orch.launch = lambda name, model, *args, **kwargs: print(f"<launched {name} {model}>", flush=True)
