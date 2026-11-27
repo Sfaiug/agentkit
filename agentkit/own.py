@@ -47,8 +47,9 @@ COLUMNS = {"orchestrator": {**LEAD, **last("orchestrator")},
                         "reviews": per_task("reviews"), **last("executor")},
            "reviewer": {**LEAD, "issues": per_task("issues"),
                         "false alarms": share("taken_back", "issues"), **last("reviewer")}}
-# What COLUMNS' short headings count, said once under the tables in its clauses
-NOTE = ["reviews and issues: per task ·", "time and usage: per task that went live,",
+# What COLUMNS' short headings count, said once under the tables in its clauses, the first two
+# set apart as two parts of a line are (terminal.separator)
+NOTE = ["reviews and issues: per task", "time and usage: per task that went live,",
         "usage also as a share of one login's week on its plan"]
 
 
@@ -147,8 +148,9 @@ def lines(own, cfg, room, paid):
                 first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts, sized)}", []
             shown += [terminal.styled(mark, kind) + first[len(mark):], *rest]
     # broken between its clauses as the team line is, a ` ·` that would end a line left out
-    shown += ["", *(terminal.styled(line.removesuffix(" ·"), "muted")
-                    for line in menu.packed(NOTE, " ", room))]
+    first, *rest = NOTE
+    shown += ["", *(terminal.styled(line.removesuffix(" ·"), "muted") for line in menu.packed(
+        [first + terminal.separator().rstrip(), *rest], " ", room))]
     return shown
 
 
@@ -181,8 +183,10 @@ def took(row, role, paid, *, per=None, share=True):
         return said
     cost = (sum(points * Fraction(str(price)) for points, price in priced)
             / divisor / 100 * 12 / 52)
-    text = f"{usage.SIGNS[paid['currency']]}{fixed(cost, 2)}"
-    return f"{text} · {said}" if share else text
+    # without UTF-8 the currency's ISO code, as the Money page says it (menu.money_value)
+    code = paid["currency"]
+    text = (usage.SIGNS[code] if terminal.utf8() else f"{code} ") + fixed(cost, 2)
+    return f"{text}{terminal.separator()}{said}" if share else text
 
 
 def fixed(value, places):

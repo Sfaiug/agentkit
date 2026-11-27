@@ -3861,7 +3861,7 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
     lines = ["", *("  " + line for line in packed([
         matrix.CONFIG_ROLES[role], f"{COUNTS[chosen]} choice{'s' * (chosen != 1)}",
         *([f"{COUNTS[shaded]} more shaded"] if shaded else []),
-        *([price] if price else [])], " · ", width - 2))]
+        *([price] if price else [])], terminal.separator(), width - 2))]
     unders = [[[quality], columned(name, wide) + [mark * size] * (marked and row is used),
                [effort], [line for text in whys if why for line in columned(text, wide)]]
               for (row, _), (_, quality, effort), (name, *whys), wide
@@ -3909,7 +3909,7 @@ def models_read(compared, total, fetched):
              *(["boards read " + time.strftime("%H:%M" if read[:3] == time.localtime()[:3]
                                                else "%d %b %H:%M", read)] if fetched else [])]
     return ["  " + terminal.styled(part, "dim")
-            for part in packed(parts, " · ", terminal.layout_width() - 2)]
+            for part in packed(parts, terminal.separator(), terminal.layout_width() - 2)]
 
 
 def number(count):
