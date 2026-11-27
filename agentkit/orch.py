@@ -4625,7 +4625,7 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
         matrix.refuse_off(cfg, model)   # a move in place builds no command to refuse it
     except config.Error as exc:
         return str(exc), None
-    if not config.harness_present(harness, versions.live()):
+    if not config.harness_present(harness):
         return f"{model}: {harness} is not installed", None
     old_provider = provider_of(record["orchestrator"])
     new_provider = config.model(cfg, model)["provider"]
