@@ -6,6 +6,7 @@
 version = 1
 name = "Antigravity"
 family = "Gemini"
+maker = "Google"
 
 [check]
 model = "gemini-3.8-flash"

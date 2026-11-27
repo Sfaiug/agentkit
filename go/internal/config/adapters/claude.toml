@@ -5,6 +5,7 @@
 version = 1
 name = "Claude Code"
 family = "Claude"
+maker = "Anthropic"
 
 [check]
 model = "claude-haiku-4-5"
