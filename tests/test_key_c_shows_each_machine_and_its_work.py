@@ -83,7 +83,7 @@ class MachinesOnC(unittest.TestCase):
         return self.term.wait(lambda screen: "config · machines" in screen
                               and "+ add a machine" in screen and "esc back" in screen
                               and all(row in " ".join(screen.split()) for row in (
-                                  "this one home", "acme-mac", *rows)))
+                                  "this one ● runs ● tests home", "acme-mac", *rows)))
 
     def leave(self):
         self.term.keys("Escape", "Escape", "Escape")
@@ -95,11 +95,9 @@ class MachinesOnC(unittest.TestCase):
     def test_each_machine_says_what_it_is_and_what_work_it_takes(self):
         before = [path.read_bytes() for path in (self.config, self.readings, self.route)]
         shown = " ".join(self.page(
-            "this one home · 8 cores · 16 GB · 55% busy · 7 of 16 GB used · "
-            "sessions, builds, reviews, tests",
-            "acme-mac sometimes on · 4 cores · 8 GB · 25% busy · 2 of 8 GB used · tests",
-            "acme-linux new · 16 cores · 32 GB · 50% busy · 10 of 32 GB used · "
-            "builds, reviews, tests").split())
+            "this one ● runs ● tests home · 8 cores · 16 GB · 55% busy · 7 of 16 GB used",
+            "acme-mac ○ runs ● tests sometimes on · 4 cores · 8 GB · 25% busy · 2 of 8 GB used",
+            "acme-linux ● runs ● tests new · 16 cores · 32 GB · 50% busy · 10 of 32 GB used").split())
         self.assertIn("Machines 3 machines Limits", " ".join(self.config_screen.split()))
         self.assertLess(shown.index("this one"), shown.index("acme-mac"))
         self.assertLess(shown.index("acme-mac"), shown.index("acme-linux"))
@@ -124,7 +122,7 @@ class MachinesOnC(unittest.TestCase):
         self.term.wait(lambda screen: "› this one" in screen and "─" * 25 in screen)
         self.term.keys("Down")
         # the row's next page: its later words, and no row's label
-        self.term.wait(lambda screen: "busy" in screen and "this one" not in screen
+        self.term.wait(lambda screen: "cores" in screen and "this one" not in screen
                        and "acme-" not in screen)
         self.term.keys("Up")
         self.term.wait("› this one")
@@ -132,12 +130,13 @@ class MachinesOnC(unittest.TestCase):
 
     def test_turns_off_the_other_machines_take_tests_alone(self):
         self.write_config(turns=False)
-        self.page("acme-linux new · 16 cores · 32 GB · 50% busy · 10 of 32 GB used · tests",
-                  "sessions, builds, reviews, tests")
+        self.page("acme-linux ○ runs ● tests new · 16 cores · 32 GB · 50% busy · 10 of 32 GB used",
+                  "this one ● runs ● tests home")
         self.leave()
 
     def test_a_save_before_the_first_probe_leaves_defaults_to_the_probe(self):
-        for system, work in (("macOS", "tests"), ("Linux", "builds, reviews, tests")):
+        for system, head in (("macOS", "○ runs ● tests sometimes on"),
+                             ("Linux", "● runs ● tests new")):
             with self.subTest(system=system):
                 self.write_config()
                 self.readings.unlink(missing_ok=True)
@@ -156,7 +155,7 @@ class MachinesOnC(unittest.TestCase):
                 self.leave()
                 self.home.write(".agentkit/state/machines.json", {
                     "acme-mac": self.machine(system, 4, 8, 6, 1)})
-                self.page(f"4 cores · 8 GB · 25% busy · 2 of 8 GB used · {work}")
+                self.page(f"acme-mac {head} · 4 cores · 8 GB · 25% busy · 2 of 8 GB used")
                 self.leave()
 
     def test_a_mac_cannot_be_marked_to_build_or_review(self):
@@ -192,8 +191,9 @@ class MachinesOnC(unittest.TestCase):
         self.home.write(".agentkit/state/machines.json", {
             "this one": self.machine("Linux", 8, 16, 9, 4.4),
             "acme-mac": silent})
-        screen = self.page(f"not answering since {minute(self.at)} · tests",
-                           "acme-linux new · never answered · builds, reviews, tests", width=40)
+        screen = self.page(
+            f"acme-mac ○ runs ● tests sometimes on · 4 cores · 8 GB · not answering since {minute(self.at)}",
+            "acme-linux ● runs ● tests new · never answered", width=40)
         self.assertTrue(all(len(line) <= 40 for line in screen.splitlines()))
         self.leave()
 

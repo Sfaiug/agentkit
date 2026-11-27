@@ -86,10 +86,10 @@ class TheStandInThatIsListedIsOneRow(unittest.TestCase):
         self.told()
         rows = self.rows()
         self.assertEqual(len(rows), 4, rows)
-        self.assertTrue(rows[0].startswith("this one home"), rows)
-        self.assertTrue(rows[1].startswith("acme-box new"), rows)
-        self.assertTrue(rows[1].endswith(f"builds, reviews, tests · {COPY}"), rows)
-        self.assertTrue(rows[2].startswith("acme-laptop sometimes on"), rows)
+        self.assertTrue(rows[0].startswith("this one ● runs ● tests home"), rows)
+        self.assertTrue(rows[1].startswith("acme-box ● runs ● tests new"), rows)
+        self.assertTrue(rows[1].endswith(f"used · {COPY}"), rows)
+        self.assertTrue(rows[2].startswith("acme-laptop ○ runs ● tests sometimes on"), rows)
         self.assertEqual(rows[3], "+ add a machine", rows)
         self.assertNotIn("stand-in", " ".join(rows[:1] + rows[2:]))
         self.term.keys("Down")
@@ -106,7 +106,7 @@ class TheStandInThatIsListedIsOneRow(unittest.TestCase):
         self.told(takes="back")
         rows = self.rows()
         self.assertEqual(len(rows), 3, rows)
-        self.assertTrue(rows[1].endswith(f"builds, reviews, tests · {COPY}"), rows)
+        self.assertTrue(rows[1].endswith(f"used · {COPY}"), rows)
         self.leave()
 
     def test_of_two_listed_machines_that_print_its_name_the_first_takes_it(self):
@@ -114,9 +114,9 @@ class TheStandInThatIsListedIsOneRow(unittest.TestCase):
         self.told()
         rows = self.rows()
         self.assertEqual(len(rows), 4, rows)
-        self.assertTrue(rows[1].startswith("acme-box ") and rows[1].endswith(COPY), rows)
-        self.assertTrue(rows[2].startswith("acme-twin ")
-                        and rows[2].endswith("builds, reviews, tests"), rows)
+        self.assertTrue(rows[1].startswith("acme-box ● runs ● tests ") and rows[1].endswith(COPY), rows)
+        self.assertTrue(rows[2].startswith("acme-twin ● runs ● tests ")
+                        and rows[2].endswith("used"), rows)
         self.leave()
 
     def test_a_stand_in_no_listed_machine_is_keeps_its_own_row_whatever_the_home_prints(self):

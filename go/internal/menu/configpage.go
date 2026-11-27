@@ -9,14 +9,22 @@ import (
 	"agentkit/internal/terminal"
 )
 
+// A PageMark is a display-only mark before a row's value: its word and whether it is on.
+type PageMark struct {
+	Word string
+	On   bool
+}
+
 // A PageRow is a row of a page `c` opens (menu.config_page's), or a choice of the list a row opens
 // under it: its label, its value and its Aside, dim, and what its keys do, nil where they do
 // nothing.  A mark leads the value of a row Space flips, full while On: ● on a row and on a choice
-// of a list that picks one, ■ on a choice of a list of several; a choice that acts is followed by
+// of a list that picks one, ■ on a choice of a list of several; Marks lead a row's value as
+// display-only marks (`● runs  ○ tests`) before Value; a choice that acts is followed by
 // its word, dim.  A choice no key acts on is a line saying why the list holds none, dim.  The lit
 // row's value that steps is drawn between the arrows that move it, dim.
 type PageRow struct {
 	Label, Value, Aside string
+	Marks               []PageMark
 	On                  bool
 	// while the keys are on the row: said under the page instead of the page's note, and lines
 	// drawn as they are after the rows, the row's own, paged as a tall row's
@@ -161,7 +169,7 @@ func pageTop(lines []pageEntry, at pageEntry, top, page int) int {
 func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	room, wide, clock := s.LayoutWidth(), 0, view.Motion
 	for _, row := range view.Rows {
-		if row.Value != "" || row.Aside != "" || row.Flip != nil { // a label alone lines nothing up
+		if row.Value != "" || row.Aside != "" || row.Flip != nil || len(row.Marks) > 0 { // a label alone lines nothing up
 			wide = max(wide, terminal.Cells(row.Label))
 		}
 	}
@@ -182,7 +190,8 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	var arrows []pageArrow
 	type part struct {
 		text, kind string
-		by         int // an arrow's step
+		by         int  // an arrow's step
+		whole      bool // already styled, kept whole, two-space gutter after
 	}
 	draw := func(row PageRow, entry pageEntry, marks string) {
 		lead := "  " + row.Label + strings.Repeat(" ", max(0, wide-terminal.Cells(row.Label))) + "  " // one alone may be wider: never cut
@@ -190,34 +199,50 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			lead = "    "
 		}
 		left := max(1, room-terminal.Cells(lead))
-		parts := []part{{row.Value, "", 0}, {row.Aside, "dim", 0}}
+		parts := []part{{row.Value, "", 0, false}, {row.Aside, "dim", 0, false}}
 		if row.Step != nil && entry == lit {
 			down, up := "◂", "▸"
 			if s.ASCII() {
 				down, up = "<", ">"
 			}
-			parts = slices.DeleteFunc([]part{{down, "dim", -1}, parts[0], {up, "dim", 1}, parts[1]},
+			parts = slices.DeleteFunc([]part{{down, "dim", -1, false}, parts[0], {up, "dim", 1, false}, parts[1]},
 				func(p part) bool { return p.by != 0 && row.Step(p.by) == nil })
 		}
 		if row.Flip != nil {
 			glyphs := []rune(marks)
-			mark := part{string(glyphs[1]), "dim", 0}
+			mark := part{string(glyphs[1]), "dim", 0, false}
 			if row.On {
-				mark = part{string(glyphs[0]), "accent", 0}
+				mark = part{string(glyphs[0]), "accent", 0, false}
 			}
 			// keyed by the list too: one opened again is drawn as it is, as Python's look forgets it
 			mark.text, mark.kind = clock.Mark(fmt.Sprint("mark ", entry.row, " ", entry.choice, " ", view.Lists), mark.text, mark.kind)
 			parts = append([]part{mark}, parts...)
 		} else if row.Act != nil {
-			parts = append(parts, part{row.Does, "dim", 0})
+			parts = append(parts, part{row.Does, "dim", 0, false})
 		} else if entry.choice >= 0 {
 			parts[0].kind = "dim" // why the list holds no choice
 		}
-		// what never parts across lines: each word, and a value with arrows whole, so an arrow
-		// stays beside what it steps
+		if len(row.Marks) > 0 {
+			glyphs := []rune(marks)
+			leadParts := make([]part, 0, len(row.Marks))
+			for _, m := range row.Marks {
+				glyph, kind := string(glyphs[1]), "dim"
+				if m.On {
+					glyph, kind = string(glyphs[0]), "accent"
+				}
+				leadParts = append(leadParts, part{text: s.Styled(glyph, kind) + " " + m.Word, whole: true})
+			}
+			parts = append(leadParts, parts...)
+		}
+		// what never parts across lines: each word, a mark-and-word unit, and a value with arrows
+		// whole, so an arrow stays beside what it steps
 		var whole []string
 		for _, p := range parts {
-			whole = append(whole, strings.Fields(p.text)...)
+			if p.whole {
+				whole = append(whole, p.text)
+			} else {
+				whole = append(whole, strings.Fields(p.text)...)
+			}
 		}
 		celled := slices.ContainsFunc(parts, func(p part) bool { return p.by != 0 })
 		if celled {
@@ -239,30 +264,37 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			body, lines = append(body, line), append(lines, entry)
 			lead, left = "    ", max(1, room-4)
 		}
-		wrapped, used := [][]string{nil}, 0
+		wrapped, used, gap := [][]string{nil}, 0, 0
 		for _, p := range parts {
-			for _, piece := range terminal.Wrap(p.text, left) {
-				if used > 0 && used+1+terminal.Cells(piece) > left {
-					wrapped, used = append(wrapped, nil), 0
+			if p.whole {
+				span := terminal.Cells(p.text)
+				if used > 0 && used+gap+span > left {
+					wrapped, used, gap = append(wrapped, nil), 0, 0
 				}
-				if used > 0 {
-					used++
+				wrapped[len(wrapped)-1] = append(wrapped[len(wrapped)-1], strings.Repeat(" ", gap)+p.text)
+				used, gap = used+gap+span, 2
+				continue
+			}
+			for _, piece := range terminal.Wrap(p.text, left) {
+				span := terminal.Cells(piece)
+				if used > 0 && used+gap+span > left {
+					wrapped, used, gap = append(wrapped, nil), 0, 0
 				}
 				if p.by != 0 {
-					arrows = append(arrows, pageArrow{len(body) + len(wrapped) - 1, terminal.Cells(lead) + used + 1, p.by})
+					arrows = append(arrows, pageArrow{len(body) + len(wrapped) - 1, terminal.Cells(lead) + used + gap + 1, p.by})
 				}
-				used += terminal.Cells(piece)
 				if p.kind != "" {
 					piece = s.Styled(piece, p.kind)
 				}
-				wrapped[len(wrapped)-1] = append(wrapped[len(wrapped)-1], piece)
+				wrapped[len(wrapped)-1] = append(wrapped[len(wrapped)-1], strings.Repeat(" ", gap)+piece)
+				used, gap = used+gap+span, 1
 			}
 		}
 		for number, pieces := range wrapped {
 			if number > 0 {
 				lead = strings.Repeat(" ", terminal.Cells(lead))
 			}
-			line := strings.TrimRight(lead+strings.Join(pieces, " "), " ")
+			line := strings.TrimRight(lead+strings.Join(pieces, ""), " ")
 			if entry == lit {
 				line = highlight(line, number == 0 && !folded)
 			}

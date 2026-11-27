@@ -39,7 +39,7 @@ MAC = {"uname": "case $1 in -s) echo Darwin ;; -m) echo arm64 ;; esac",
        "pmset": "echo \"Now drawing from 'AC Power'\"",
        "df": "echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'\n"
              "echo '/dev/disk3s5 971350180 700000000 220200960 77% /System/Volumes/Data'"}
-SIZE = "new · 10 cores · 16 GB · 24% busy · 13 of 16 GB used · tests"
+SIZE = "○ runs ● tests new · 10 cores · 16 GB · 24% busy · 13 of 16 GB used"
 ADD = "+ add a machine"
 
 
