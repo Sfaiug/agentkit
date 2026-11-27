@@ -6095,12 +6095,11 @@ def models_page(cfg, keyboard):
         ids = {model["id"] for model, _ in rows if model}
         rows += [({"id": model, "label": label}, None)
                  for model, label in ran[harness].items() if model not in ids]
-        # compare against the harness's full catalog (reconciling each row's id to its catalog
-        # label) plus any unlisted history rows, so two releases of one line are never both `□`
-        by_id = {model["id"]: model for model in catalog}
-        listed_models = [by_id.get(model["id"], model) for model, _ in rows if model]
-        pool = [*catalog, *(model for model in listed_models if model["id"] not in by_id)]
-        offered = {model["id"] for model in releases.newest(listed_models, among=pool)}
+        # catalog models compete only among what the harness lists; unlisted history rows are
+        # offered `□` only for lines the catalog does not list, so they never hide a listed release
+        catalog_ids = {model["id"] for model in catalog}
+        extras = [model for model, _ in rows if model and model["id"] not in catalog_ids]
+        offered = {model["id"] for model in releases.newest(catalog, extras=extras)}
         return rows, offered, bool(catalog), said
 
     def ticks(harness):       # the list a harness's row opens

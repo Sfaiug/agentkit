@@ -30,17 +30,26 @@ def _line_release(label):
     return line, tuple(_whole(part) for part in found.group(0).split("."))
 
 
-def newest(models, among=None):
-    """The models of `models` (each holding `label`) where no model in `among` (default `models`)
-    of the same line has a higher release, in `models`'s order.  A model whose label holds no
-    number is always kept."""
+def _best(models):
+    """`{line: highest release}` across `models` (each holding `label`)."""
     best = {}
-    for model in models if among is None else among:
+    for model in models:
         entry = _line_release(model["label"])
         if entry is not None:
             line, release = entry
             if line not in best or release > best[line]:
                 best[line] = release
+    return best
+
+
+def newest(models, extras=()):
+    """The models of `models` (each holding `label`) where no other of the same line has a higher
+    release, in `models`'s order, followed by each model of `extras` whose line `models` does not
+    list and has no higher release in `extras`.  A model whose label holds no number is always
+    kept."""
+    best, extra_best = _best(models), _best(extras)
     return [model for model in models
-            if (entry := _line_release(model["label"])) is None
-            or entry[0] not in best or entry[1] >= best[entry[0]]]
+            if (entry := _line_release(model["label"])) is None or entry[1] == best[entry[0]]] + [
+        model for model in extras
+        if (entry := _line_release(model["label"])) is None
+        or (entry[0] not in best and entry[1] == extra_best[entry[0]])]
