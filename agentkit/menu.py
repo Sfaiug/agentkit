@@ -6387,11 +6387,11 @@ def machine_value(machine, cfg):
 
 def stand_in_value(age, takes, own=True):
     """A machine that copies this one, from its record (standby.copies): its copy's age, or why
-    that cannot be said, and on a row of its `own` whether it takes over: on a listed machine's
-    row, `this one` would read as that machine."""
+    that cannot be said, and on a row of its `own` whether it takes over and home goes back to
+    it: on a listed machine's row, `this one` and `it` would read as that machine."""
     return " · ".join(["stand-in", f"copy {age}" if takes else age,
                        *["takes over when this one stops"] * (own and takes in standby.OVER),
-                       *["home goes back to it once it is steady"] * (takes == "back")])
+                       *["home goes back to it once it is steady"] * (own and takes == "back")])
 
 
 def work_words(name, cfg):

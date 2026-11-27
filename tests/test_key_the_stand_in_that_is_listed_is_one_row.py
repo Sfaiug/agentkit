@@ -1,6 +1,6 @@
 """`config · machines` gives a machine that is both listed and the stand-in one row: a stand-in
 whose host name is the `name` a listed machine's last reading prints has no row of its own, and
-that machine's row ends ` · stand-in · copy 3m old`, without the sentence about taking over, and
+that machine's row ends ` · stand-in · copy 3m old`, whatever its record says of taking over, and
 opens its page on Enter.  Where two listed machines' readings print the name, the first in list
 order takes it; the home's row never does, so a stand-in no listed machine's reading names keeps
 its own row.
@@ -47,12 +47,12 @@ class TheStandInThatIsListedIsOneRow(unittest.TestCase):
         self.home.write(".agentkit/state/machines.json", {
             "this one": reading(home), **{name: reading(*said) for name, said in listed.items()}})
 
-    def told(self, host="acme-vm"):
-        """`host`'s request, as its pass makes it: a stand-in that takes over."""
+    def told(self, host="acme-vm", takes="yes"):
+        """`host`'s request, as its pass makes it, its record saying `takes`."""
         self.home.env["AK_NOW"] = TOLD
         began = self.home.ak("standby", "--began")
         self.assertEqual(began.code, 0, began.out + began.err)
-        done = self.home.ak("standby", "--copied", host, *began.out.split(), "yes")
+        done = self.home.ak("standby", "--copied", host, *began.out.split(), takes)
         self.assertEqual(done.code, 0, done.out + done.err)
 
     def rows(self):
@@ -99,6 +99,14 @@ class TheStandInThatIsListedIsOneRow(unittest.TestCase):
                        and "builds and reviews" in screen)
         self.term.keys("Escape")
         self.term.wait("› acme-box")
+        self.leave()
+
+    def test_one_home_goes_back_to_says_only_its_copy_age_on_the_listed_row(self):
+        self.machines("acme-home", **{"acme-box": ("acme-vm",)})
+        self.told(takes="back")
+        rows = self.rows()
+        self.assertEqual(len(rows), 3, rows)
+        self.assertTrue(rows[1].endswith(f"builds, reviews, tests · {COPY}"), rows)
         self.leave()
 
     def test_of_two_listed_machines_that_print_its_name_the_first_takes_it(self):
