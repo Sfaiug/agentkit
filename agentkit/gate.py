@@ -2754,8 +2754,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     no times, as a resumed round chooses from it again, and the re-run of a `shard` is handed them
     less those its first go named as not there and not as run, as the record keeps a part while
     its file exists and no change fixes one its file lost; where that leaves none, no re-run goes,
-    as a go of none would end green on nothing: the first go's red row stands, and the go is
-    neither pass nor fail, the list answering None where nothing else failed.  Its `flaky:`
+    as a go of none would end green on nothing: the first go's red row stands, and where it passed
+    all else its tree holds (`passes_what_it_holds`), which is none, the go is neither pass nor
+    fail, the list answering None where nothing else failed.  Its `flaky:`
     record names what the first go lacked, and no lacked part is a flaky test: a first go that
     named no other failure and passed all else its tree holds (`passes_what_it_holds`) leaves
     none, as a follow-up could fix nothing.  A lander's check runs without it: it reads a red go
@@ -2866,7 +2867,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 if marks is not None:
                     marks.append(None)
                 break
-            if lacked and not handed:
+            if held and not handed:
                 held_none = True
             else:
                 ok &= code == 0

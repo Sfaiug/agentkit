@@ -533,9 +533,10 @@ def chosen_tests(lp, named, head):
     (`gate.unnamed`), chosen from the time record (`chosen`): it keeps no times, and its re-run
     asks for no part its tree lacks, as on 18 Nov 2026 one removed on 7 Nov, still timed, failed
     six runs' rounds in a quarter of an hour.  Where its go named each as not there and none as
-    run, its tree holds none of them: it answers None, neither pass nor fail, the PASS standing as
-    for a review that chose none, and its red row keeps the change off the looks-alone lane
-    (`land.check_line`), as nothing ran.  A stop in it leaves the review to ask again.
+    run, and passed all else its tree holds (`gate.passes_what_it_holds`), its tree holds none of
+    them: it answers None, neither pass nor fail, the PASS standing as for a review that chose
+    none, and its red row keeps the change off the looks-alone lane (`land.check_line`), as
+    nothing ran.  A stop in it leaves the review to ask again.
     """
     from . import gate  # here, not at the top: it reaches run
     return gate.run_done_when(

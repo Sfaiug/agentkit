@@ -276,9 +276,9 @@ class FlakyRerun(unittest.TestCase):
 
     def test_a_round_s_go_whose_tree_holds_none_of_its_tests_is_neither_pass_nor_fail(self):
         # A round's check (`chosen`) handed only `gone`: a first go naming it as not there and
-        # not as run runs no re-run, which would be handed none; one naming it as run and failed
-        # too is a red, its re-run going as any.
-        for end, answer, goes in (("", None, 1),
+        # not as run runs no re-run, which would be handed none, and is red where it died by a
+        # signal; one naming it as run and failed too is a red, its re-run going as any.
+        for end, answer, goes in (("", None, 1), ("kill -TERM $$", False, 1),
                                   ('echo gone >"$AK_RAN"; echo gone >"$AK_FAILED"; exit 1', False,
                                    2)):
             with self.subTest(end):
