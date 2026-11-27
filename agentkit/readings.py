@@ -21,6 +21,8 @@ import bisect
 from collections import namedtuple
 from contextlib import suppress
 import datetime
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 import json
 import math
 import os
@@ -31,12 +33,21 @@ import time
 from . import config, history
 
 HOUR = 3600
+_US = 1_000_000
+_HOUR_US = HOUR * _US
+_Num = namedtuple("_Num", "value text")  # JSON float kept as both float (`at`) and decimal text (`load`)
+PROCESSORS_SHORT = 1       # above 1, work stood in line for a processor
+# a tenth or more: on 25 Nov 2026 the busiest home's hours all read 0, and anything near a tenth
+# is an hour a person would have felt
+MEMORY_WAIT_SHORT = Fraction(1, 10)
 
 
-class Hour(namedtuple("Hour", "start processors memory")):
-    """One hour's means, starting at `start` (inclusive) for 3600 seconds:
-    `processors` is the mean of `load / cores`, `memory` the mean share of `memory_mb` in use,
-    or both None where the hour has no usable reading."""
+class Hour(namedtuple("Hour", "start processors memory memory_wait short_of")):
+    """One hour's readings, starting at `start` (inclusive) for 3600 seconds: `processors` is
+    the mean of `load / cores`, `memory` the mean share of `memory_mb` in use, `memory_wait`
+    the share of the hour work stood waiting for memory from rises of `memory_stall_us` between
+    readings, each None where the hour has no usable reading (or, for `memory_wait`, no step
+    carrying the counter), and `short_of` is `("processors",)`, `("memory",)`, both, or `()`."""
 
 
 def keep(at, said):
@@ -82,8 +93,11 @@ def hours(name, until, count, *, home):
 
     key, other = ("home", "machine") if home else ("machine", "home")
     seen = [0] * count
-    processors = [0.0] * count
-    memory = [0.0] * count
+    # exact rational sums avoid both float overflow near float max and rounding past 1 at exact 1
+    processors = [Fraction(0)] * count
+    memory = [Fraction(0)] * count
+    before = None   # latest usable reading before edges[0]: (at, stall)
+    ordered = []    # (at, stall, index) for every usable reading inside the window
     for entry in files:
         with suppress(OSError):
             # open closes an opener's descriptor it refuses (a directory); nonblocking skips a FIFO
@@ -95,43 +109,84 @@ def hours(name, until, count, *, home):
                     reading = _usable(raw, key, other, name)
                     if reading is None:
                         continue
-                    at, proc, mem = reading
+                    at, load, cores, memory_mb, free_mb, stall = reading
                     # against the very edges the hours start at, so no rounding moves a line
                     index = bisect.bisect_right(edges, at) - 1
                     if not 0 <= index < count:
+                        if at < edges[0] and (before is None or at >= before[0]):
+                            before = (at, stall)
                         continue
                     seen[index] += 1
-                    n = seen[index]
-                    # running mean stays finite even when readings are near float max
-                    processors[index] += (proc - processors[index]) / n
-                    memory[index] += (mem - memory[index]) / n
-    return [Hour(edges[i], processors[i], memory[i]) if seen[i] else Hour(edges[i], None, None)
-            for i in range(count)]
+                    processors[index] += Fraction(load) / Fraction(cores)
+                    memory[index] += (Fraction(memory_mb) - Fraction(free_mb)) / Fraction(memory_mb)
+                    ordered.append((at, stall, index))
+    wait_us = [None] * count
+    ordered.sort(key=lambda item: item[0])
+    prev = before
+    for at, stall, index in ordered:
+        if prev is not None and stall is not None and prev[1] is not None:
+            prev_at, prev_stall = prev
+            if wait_us[index] is None:
+                wait_us[index] = Fraction(0)
+            if stall > prev_stall:
+                delta = stall - prev_stall
+                dt = Fraction(at) - Fraction(prev_at)
+                # cap at dt and at one hour; checking dt >= HOUR first keeps large intervals tiny
+                limit = _HOUR_US if dt >= HOUR else dt * _US
+                wait_us[index] += delta if delta <= limit else limit
+        prev = (at, stall)
+    return [_hour(edges[i], seen[i], processors[i], memory[i], wait_us[i]) for i in range(count)]
+
+
+def _hour(start, count, proc_sum, mem_sum, wait_us):
+    """Build one `Hour`, judging shortages on the exact rational means before converting to float."""
+    if not count:
+        return Hour(start, None, None, None, ())
+    proc = proc_sum / count
+    wait = None if wait_us is None else min(wait_us, _HOUR_US) / Fraction(_HOUR_US)
+    short = (*(("processors",) if proc > PROCESSORS_SHORT else ()),
+             *(("memory",) if wait is not None and wait >= MEMORY_WAIT_SHORT else ()))
+    return Hour(start, float(proc), float(mem_sum / count),
+                None if wait is None else float(wait), short)
 
 
 def _usable(raw, key, other, name):
-    """`(at, load / cores, (memory_mb - free_mb) / memory_mb)` for a usable line matching `key`
-    == `name` without `other`, else None."""
+    """`(at, load, cores, memory_mb, free_mb, memory_stall_us)` for a usable line matching `key`
+    == `name` without `other`, else None.  `memory_stall_us` is a whole number of 0 or more, or
+    None when absent or anything else."""
     try:
-        line = json.loads(raw.decode("utf-8"))
+        line = json.loads(raw.decode("utf-8"), parse_float=lambda text: _Num(float(text), text))
     except (UnicodeDecodeError, ValueError, RecursionError):
         return None
     if not isinstance(line, dict) or line.get(key) != name or other in line:
         return None
     at = _finite(line.get("at"))
-    load = _finite(line.get("load"))
-    cores = _finite(line.get("cores"))
-    memory_mb = _finite(line.get("memory_mb"))
-    free_mb = _finite(line.get("free_mb"))
+    load = _finite(line.get("load"), exact=True)
+    cores = _finite(line.get("cores"), exact=True)
+    memory_mb = _finite(line.get("memory_mb"), exact=True)
+    free_mb = _finite(line.get("free_mb"), exact=True)
     if (at is None or load is None or cores is None or memory_mb is None or free_mb is None
             or at < 0 or load < 0 or cores < 1 or memory_mb < 1
             or not (0 <= free_mb <= memory_mb)):
         return None
-    return at, load / cores, (memory_mb - free_mb) / memory_mb
+    stall = line.get("memory_stall_us")
+    stall = stall if type(stall) is int and stall >= 0 else None
+    return at, load, cores, memory_mb, free_mb, stall
 
 
-def _finite(value):
-    """`value` when it is a finite JSON number (never a bool, never overflowing float), else None."""
+def _finite(value, *, exact=False):
+    """`value` when it is a finite JSON number (never a bool, never overflowing float), else None.
+    With `exact`, JSON floats become exact `Decimal` (folding float-underflow to 0)."""
+    if isinstance(value, _Num):
+        if not math.isfinite(value.value):
+            return None
+        if not exact:
+            return value.value
+        if value.value == 0.0:
+            return 0
+        with suppress(InvalidOperation):
+            return Decimal(value.text)
+        return value.value
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     try:
