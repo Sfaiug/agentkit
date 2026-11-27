@@ -182,18 +182,20 @@ def in_order(cfg):
     return seat_models(cfg)[0]
 
 
-def refuse_start(cfg, model):
-    """Refuse a new seat on `model` whose harness is not installed (`config.harness_present`):
-    a seat on that one opens a pane saying only that the harness ended.  Where `model` is also
-    off (`matrix.refuse_off`), that refusal still comes first; with the harness installed,
-    `create`'s existing refusals keep their order (login before off in `command`).  Asked by
-    `create` and its previews once the name is free and the model is known, before anything is
-    saved or started for the seat; a move asks `orch.move`."""
+def refuse_start(cfg, model, providers, prompting=True):
+    """The account a new seat on `model` opens on (`opening_account`), refusing one that
+    cannot open here in `create`'s order: no working seat login, `model` off
+    (`matrix.refuse_off`), then its harness not installed (`config.harness_present`) -- a seat
+    on that one opens a pane saying only that the harness ended.  Asked by `create` and its
+    previews once the name is free and the model is known, before anything is saved or started
+    for the seat; a move asks `orch.move`."""
+    account = opening_account(cfg, model, providers, prompting)
     harness = config.model(cfg, model)["harness"]
+    matrix.refuse_off(cfg, model)
     if not config.harness_present(harness):
-        matrix.refuse_off(cfg, model)
         raise config.Error(f"{model}: {harness} is not installed on this machine; "
                            f"./install.sh, run in a terminal, installs it")
+    return account
 
 
 def choose(cfg, providers):
@@ -5094,8 +5096,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         selection = providers, selected
     providers, selected = selection
     model, reason, workers = selected[:3]
-    refuse_start(cfg, model)
-    account = opening_account(cfg, model, providers, prompting)
+    account = refuse_start(cfg, model, providers, prompting)
     # where and when, because that is what opens the seat again once tmux has lost it -- and the
     # conversation it owns, written down before it starts wherever its harness can be told one.
     # Not for a dry run: a record of a seat nothing opened is one the next `ak orch` resumes.

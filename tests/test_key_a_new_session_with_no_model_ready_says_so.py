@@ -180,14 +180,38 @@ class NoModelReady(unittest.TestCase):
         self.assertEqual(done.code, 2, done.out + done.err)
         self.assertIn("astra is off in the model list", done.err)
 
-    def test_with_the_harness_installed_existing_refusal_order_stays_unchanged(self):
-        akconfig.write(self.home, ["opus", "astra"],
-                       providers={"anthropic": {"mode": "subscription", "accounts": ["acme"]}},
-                       settings={"models_off": ["claude-opus-5-5"]})
-        self.fakes["claude"].answer("auth", "signed out", code=1, given=("seat",))
-        done = self.home.ak("orch", "fix-api", "--model", "opus", "--workers", "astra", "--dry-run")
-        self.assertEqual(done.code, 2, done.out + done.err)
-        self.assertEqual(done.err, "ak orch: anthropic: no account has a working seat login\n")
+    def test_a_signed_out_account_is_still_refused_first(self):
+        for installed in (True, False):
+            if not installed:
+                self.uninstall("claude")
+            for off in (False, True):
+                with self.subTest(installed=installed, off=off):
+                    akconfig.write(
+                        self.home, ["opus", "astra"],
+                        providers={"anthropic": {"mode": "subscription", "accounts": ["acme"]}},
+                        settings={"models_off": ["claude-opus-5-5"]} if off else {})
+                    self.fakes["claude"].answer("auth", "signed out", code=1, given=("seat",))
+                    done = self.home.ak("orch", "fix-api", "--model", "opus",
+                                        "--workers", "astra", "--dry-run")
+                    self.assertEqual(done.code, 2, done.out + done.err)
+                    self.assertEqual(done.err,
+                                     "ak orch: anthropic: no account has a working seat login\n")
+
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_the_new_rows_dry_run_refuses_an_off_model_picked_on_tab_models(self):
+        path = akconfig.write(self.home, ["opus", "astra"], workers=[],
+                              settings={"models_off": ["claude-opus-5-5"]})
+        path.write_text(path.read_text().replace("[defaults]\n", "[defaults]\nreviewers = []\n", 1))
+        menu = self.row("attach", "--dry-run")
+        menu.keys("Tab")
+        menu.wait(PICKER_KEYS)
+        menu.keys("Space")
+        menu.wait(lambda screen: any("Opus 5.5" in line and "[●]" in line
+                                     for line in screen.splitlines()))
+        menu.keys("Enter")
+        menu.wait(lambda _: "new session: opus is off in the model list"
+                  in " ".join(menu.screen(copied=True).split()))
+        self.assertEqual(self.seats(), [])
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_a_name_held_by_tmux_is_still_said_first(self):
