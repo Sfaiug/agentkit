@@ -92,27 +92,40 @@ class ReadingsByTheHour(unittest.TestCase):
 
     def test_memory_wait_and_shortages(self):
         tenth = 360_000_000
+        huge_at = 10 ** 303
         with (tempfile.TemporaryDirectory(prefix="ak-readings-wait-") as tmp,
               patch.object(config, "HOME", Path(tmp)), patch.object(socket, "gethostname", return_value="acme-home")):
             folder = Path(tmp) / "state/readings"
             folder.mkdir(parents=True)
             lines = [
-                # Exact boundary: 1.0 processors is not short, 359_999_999 us (< tenth) is not short;
-                # out-of-order timestamps sort by `at`; invalid counters carry none without dropping load/memory.
+                # Exact boundary: 1.0 processors is not short (even across loads whose running
+                # mean drifts above 1), 359_999_999 us (< tenth) is not short; out-of-order lines sort by `at`.
                 raw(M + 1200, "acme-edge", 2.0, 2, stall=tenth - 1),
                 raw(M + 600, "acme-edge", 2.0, 2, stall=0),
-                *(raw(M + 700 + i, "acme-edge", 2.0, 2, stall=bad)
-                  for i, bad in enumerate((-1, True, False, 1.5, 1.0, "100", None))),
+                *(raw(M + 600 * i, "acme-exact", load, 4) for i, load in enumerate((4.25, 8.5, 0.25, 2.25, 6.25, 2.5))),
                 # Next hour: cross-hour rise counts for the later hour; exact tenth + load > cores -> both.
                 raw(M + H + 600, "acme-edge", 4.0, 2, stall=2 * tenth - 1),
+                # Invalid or absent counter carries none (keeps load/memory) and never bridges a step.
+                raw(M + 10, "acme-gap", 2.0, 2, stall=0),
+                *(raw(M + 100 + i, "acme-gap", 2.0, 2, stall=bad)
+                  for i, bad in enumerate((-1, True, False, 1.5, 1.0, "100", None))),
+                raw(M + 500, "acme-gap", 2.0, 2, stall=tenth),
+                raw(M - 350, "acme-edge-gap", 1.0, 4, stall=0),
+                raw(M - 100, "acme-edge-gap", 1.0, 4),
+                raw(M + 10, "acme-edge-gap", 1.0, 4, stall=tenth),
                 # Restart (counter lower than before) gives 0 wait; subsequent rise still counts.
                 raw(M + 100, "acme-restart", 1.0, 2, stall=900_000_000),
                 raw(M + 700, "acme-restart", 1.0, 2, stall=100_000_000),
                 raw(M + H + 100, "acme-restart", 1.0, 2, stall=100_000_000 + tenth),
-                # Clamping: rise past dt (even 10**400) caps at dt; same timestamp caps at 0.
+                # Clamping: rise past dt (even 10**400) caps at dt; same timestamp caps at 0;
+                # cross-hour rise past an hour caps memory_wait at 1.0; huge integer `at` stays finite.
                 raw(M + 100, "acme-clamp", 1.0, 2, stall=0),
                 raw(M + 160, "acme-clamp", 1.0, 2, stall=10 ** 400),
                 raw(M + 160, "acme-clamp", 1.0, 2, stall=10 ** 400 + tenth),
+                raw(M + 100, "acme-cap", 1.0, 4, stall=0),
+                raw(M + H + 1900, "acme-cap", 1.0, 4, stall=4_500_000_000),
+                raw(0, "acme-huge-at", 1.0, 4, stall=0),
+                raw(huge_at, "acme-huge-at", 1.0, 4, stall=tenth),
                 # Many small steps summing to an exact tenth avoid float drift.
                 *(raw(M + i * 50, "acme-steps", 1.0, 2, stall=i * 6_000_000) for i in range(61)),
                 # Single counter reading with no prior reading gives no wait; home stays apart from machine.
@@ -127,14 +140,19 @@ class ReadingsByTheHour(unittest.TestCase):
                     (M, 1.0, 0.5, (tenth - 1) / 3_600_000_000, ()),
                     (M + H, 2.0, 0.5, 0.1, ("processors", "memory")),
                 ]),
+                (("acme-exact", M + H, 1, False), [(M, 1.0, 0.5, None, ())]),
                 # Window starting at M + H still picks up the step from the reading before M + H.
                 (("acme-edge", M + 2 * H, 1, False), [(M + H, 2.0, 0.5, 0.1, ("processors", "memory"))]),
+                (("acme-gap", M + H, 1, False), [(M, 1.0, 0.5, None, ())]),
+                (("acme-edge-gap", M + H, 1, False), [(M, 0.25, 0.5, None, ())]),
                 (("acme-restart", M + 3 * H, 3, False), [
                     (M, 0.5, 0.5, 0.0, ()),
                     (M + H, 0.5, 0.5, 0.1, ("memory",)),
                     (M + 2 * H, None, None, None, ()),
                 ]),
                 (("acme-clamp", M + H, 1, False), [(M, 0.5, 0.5, 60 / H, ())]),
+                (("acme-cap", M + 2 * H, 2, False), [(M, 0.25, 0.5, None, ()), (M + H, 0.25, 0.5, 1.0, ("memory",))]),
+                (("acme-huge-at", huge_at + 1, 1, False), [(huge_at + 1 - H, 0.25, 0.5, 0.1, ("memory",))]),
                 (("acme-steps", M + H, 1, False), [(M, 0.5, 0.5, 0.1, ("memory",))]),
                 (("acme-one", M + H, 1, False), [(M, 0.5, 0.5, None, ())]),
                 (("acme-home", M + H, 1, True), [(M, 0.5, 0.5, 0.1, ("memory",))]),
