@@ -1,20 +1,19 @@
 """ak compares and uses only the models on in your companies.  A listed model, a current release
 with a score, is on when its maker is one of `companies` and its slug is not in `models_off`;
-without `companies`, your companies are the makers of what `[defaults]` runs.  `ak models`
-compares only the models on, and counts them among your companies' listed ones.  A configured
-model running a listed release that is off is never picked, as `ak usage` shows its pick order
-and review pair, nor does a seat start on it; with every model off `ak orch` refuses, naming
-the model list, as `ak worker` and `ak orch --model` do one named outright, reaching no harness.
-A model running a release without a score is not the list's to turn off, but for one
-`models_off` holds: that stays off once the board takes its scores, or its row, as one on stays
-on.
+without `companies`, your companies are the makers of what `[defaults]` runs.  `ak models
+--json` compares only the models on.  A configured model running a listed release that is off
+is never picked, as `ak usage` shows its pick order and review pair, nor does a seat start on
+it; with every model off `ak orch` refuses, naming the model list, as `ak worker` and `ak orch
+--model` do one named outright, reaching no harness.  A model running a release without a score
+is not the list's to turn off, but for one `models_off` holds: that stays off once the board
+takes its scores, or its row, as one on stays on.
 
 Black-box: the program `AK_BIN` names runs from outside (tests/fixtures/akbin.py), its
 harnesses fakes listing invented models and the boards held as just asked with the invented
 rows of tests/test_key_models_answer.py, each release under the maker its name starts with
 (Acme Max 5 and Acme Mid 5 under Acme, Bolt 3 under Bolt, Crux 2 under Crux), beside Crux
-Flash 1, a release of Crux's with no score.  `ak models` stores the lineup every pick reads.
-Judged by exit codes and what each command prints.  Fails against /bin/false.
+Flash 1, a release of Crux's with no score.  `ak models --json` stores the lineup every pick
+reads.  Judged by exit codes and what each command prints.  Fails against /bin/false.
 """
 
 import json
@@ -64,24 +63,22 @@ class ModelsOn(unittest.TestCase):
 
     def configure(self, models=MODELS, **given):
         """The config holding `models`, [defaults] and the top-level keys `given`, and the
-        lineup `ak models` stores off it: what it compares and the line saying how many."""
+        lineup `ak models --json` stores off it: what it compares."""
         settings = {key: given.pop(key) for key in ("companies", "models_off") if key in given}
         akconfig.write(self.home, {name: MODELS[name] for name in models}, settings=settings,
                        **given)
         answer = json.loads(self.ak("models", "--json").out)
-        line = next(line.strip() for line in self.ak("models").out.splitlines()
-                    if "comparing" in line)
         return {row["release"] for role in ("orchestrate", "execute", "review")
-                for row in answer[role]["front"]}, line.split(" · ")[0]
+                for row in answer[role]["front"]}
 
     def test_without_companies_the_defaults_makers_are_compared(self):
         # mid and bolt run Acme's and Bolt's releases; crux, in no [defaults], is not compared
         self.assertEqual(self.configure(orchestrator="mid", workers=["bolt"], reviewers=["mid"]),
-                         ({"acme-max-5", "acme-mid-5", "bolt-3"}, "comparing all 3 models"))
+                         {"acme-max-5", "acme-mid-5", "bolt-3"})
 
     def test_companies_and_models_off_say_which_are_on(self):
         self.assertEqual(self.configure(companies=["Acme", "Crux"], models_off=["acme-max-5"]),
-                         ({"acme-mid-5", "crux-2"}, "comparing 2 of 3 models"))
+                         {"acme-mid-5", "crux-2"})
 
     def test_an_off_worker_or_reviewer_is_never_picked_and_an_unlisted_one_still_is(self):
         # crux is off as Crux is no company of yours, bolt as turned off; flash runs a release

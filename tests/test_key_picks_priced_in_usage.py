@@ -107,20 +107,17 @@ class PicksPricedInUsage(unittest.TestCase):
                         reviewed=[[("default", f"{model}-1", (points * 1e6, 0, 0, 0))]])
         history.save()
 
-    def command(self, compare=None, prices=None, *args, **marks):
-        """`ak models`, comparing only the releases `compare` names where given: the rest off."""
+    def answer(self, compare=None, prices=None):
+        """`ak models --json`, comparing only the releases `compare` names where given: the rest
+        off."""
         off = [release for release in RELEASES if release not in compare] if compare else []
-        akconfig.write(self.home, self.models, **marks,
-                       settings={"models_off": off} if off else {},
+        akconfig.write(self.home, self.models, settings={"models_off": off} if off else {},
                        providers={name: {**entry, **({"price": prices[name]} if prices
                                                     and name in prices else {})}
                                   for name, entry in self.providers.items()})
-        done = self.home.ak("models", *args, env={**ENV, "COLUMNS": "100"})
+        done = self.home.ak("models", "--json", env=ENV)
         self.assertEqual(done.code, 0, done.out + done.err)
-        return done.out
-
-    def answer(self, compare=None, prices=None):
-        return json.loads(self.command(compare, prices, "--json"))
+        return json.loads(done.out)
 
     def row(self, model, role="execute", effort="high", prices=None):
         return next(row for row in self.answer([f"{model}-1"], prices)[role]["front"]
@@ -306,25 +303,6 @@ class PicksPricedInUsage(unittest.TestCase):
         dune = self.row("dune", prices=PRICES)
         self.assertAlmostEqual(dune["cost"], 10 * dollars(2, 100) / 2)
         self.assertEqual(dune["cost_rule"], "provider")
-
-    def test_every_role_is_in_dollars_a_task_none_without_a_price(self):
-        self.assertRegex(self.command(), r"quality +\$ a task\n +orchestrator +Anvil high +90\.0 +"
-                                         r"-\n +executor +Anvil high +90\.0 +-\n")
-        self.assertRegex(self.command(prices=PRICES), r"quality +\$ a task\n +orchestrator .*\n"
-                                                      r" +executor +Anvil high +90\.0 +\$0\.09\n")
-
-    def test_a_role_after_an_empty_one_stays_under_the_one_unit(self):
-        # Echo, compared alone, lacks two of execute's three measures: no builds between
-        # orchestrate's week shares and review's
-        held = json.loads((self.home.path / ".agentkit/state/boards.json").read_text())
-        held["arena.ai"]["rows"] = [row for row in held["arena.ai"]["rows"]
-                                    if row["model"] != "Echo"]
-        next(row for row in held["artificialanalysis.ai"]["rows"]
-             if row["model"] == "Echo")["values"].pop("aa.terminalBench40")
-        self.home.write(".agentkit/state/boards.json", held)
-        shown = self.command(["echo-1"], workers=["echo"], reviewers=["bloom"])
-        self.assertRegex(shown, r"quality +\$ a task\n +orchestrator .*\n +executor .* not on the "
-                                r"boards\n +reviewer ")
 
 
 if __name__ == "__main__":

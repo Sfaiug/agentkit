@@ -26,7 +26,7 @@ usage: ak [command]
   notify   record a needs-you question
   wait     end this turn waiting on a pull request or run
   usage    show provider usage and worker pick order
-  models   score every model and effort per role from the public boards, recommend one per role
+  models   show each role's models by the tasks they did with the team now
   browser  inspect the shared browser, sign in, register MCP tools, or install the stack
   fetch    copy requested Mac files to this host
 

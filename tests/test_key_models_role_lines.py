@@ -2,12 +2,11 @@
 effort -- the orchestrator's model, else the first mark; a board row
 naming no effort, or a harness taking none, that row -- its quality and cost, `≈` before one no
 runs measured, under `quality` and the cost unit.  ↑↓ move `›`, ⏎ opens that row's why; on
-40 and 28 cells each role's lines still show its quality and cost whole; `ak models` prints a
-seat's without `›`.
+40 and 28 cells each role's lines still show its quality and cost whole.
 
-Black-box: `AK_BIN` in a terminal and as `ak models`, a fake harness, the boards as
-tests/test_key_role_choices.py writes them and one measured build (test_key_role_cost_from_runs's
-History); judged by the screen and the output.  Fails against /bin/false.
+Black-box: `AK_BIN` in a terminal, a fake harness, the boards as tests/test_key_role_choices.py
+writes them and one measured build (test_key_role_cost_from_runs's History); judged by the
+screen.  Fails against /bin/false.
 """
 
 import sys
@@ -53,7 +52,7 @@ def said(screen):
     return shown[first:shown.index("", first)]
 
 
-def role_lines(answer, at=None):
+def role_lines(answer, at):
     """Each role's line, `›` before `at`'s, under the column heads: every role's in dollars."""
     return ["quality $ a task", *(" ".join(["›"] * (role == at) + list(line))
                                 for role, line in answer.items())]
@@ -151,15 +150,6 @@ class ModelsRoleLines(unittest.TestCase):
             # whole on the line under its model: a line past the edge would wrap, splitting them
             at = next(n for n, line in enumerate(shown) if word in line.split())
             self.assertEqual(shown[at + 2].split(), numbers, (word, shown))
-
-    def test_ak_models_prints_the_same_lines(self):
-        screen = said(self.models()[1])
-        done = self.home.ak("models", env={**ENV, "COLUMNS": "100"})
-        self.assertEqual(done.code, 0, done.err)
-        self.assertEqual(said(done.out), [line.replace("› ", "") for line in screen])
-        self.assertEqual(said(done.out), role_lines(NEW_SEATS))
-        done = self.home.ak("models", env={**ENV, "COLUMNS": "100", "AGENTKIT_SESSION": "acme-fix"})
-        self.assertEqual((done.code, said(done.out)), (0, role_lines(AT_SEAT)), done.err)
 
 
 if __name__ == "__main__":

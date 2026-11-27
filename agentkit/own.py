@@ -236,7 +236,7 @@ def numbers(row, columns, paid):
 
 
 def named(cfg, row):
-    """A row's model as the role lines over the boards name it (menu.models_said): its full name
+    """A row's model as the models screen's role lines name it (menu.models_said): its full name
     (config.model_name), by the name its runs kept where no longer configured or where that name
     drawn plain is empty, then its effort, `none` being none, each plain on its own (menu.named)."""
     name = config.model_name(cfg, row["name"])

@@ -130,8 +130,8 @@ class WhyNoCost(unittest.TestCase):
 
 class NotConverted(unittest.TestCase):
     # its home: Anvil, Bloom and Dune ran builds and reviews, no orchestration
-    setUp, cache, command, answer = (getattr(priced.PicksPricedInUsage, name)
-                                     for name in ("setUp", "cache", "command", "answer"))
+    setUp, cache, answer = (getattr(priced.PicksPricedInUsage, name)
+                            for name in ("setUp", "cache", "answer"))
 
     def test_with_only_releases_no_board_prices_run_one_a_board_prices_is_not_converted(self):
         path = self.home.path / ".agentkit/state/boards.json"

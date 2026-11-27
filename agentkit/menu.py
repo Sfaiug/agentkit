@@ -3892,7 +3892,7 @@ def models_standing(found, kept, unit):
         choices, shaded = (choices, shaded[:-1]) if shaded else (choices[1:], shaded)
 
 
-def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True, price=""):
+def models_bars(found, role, used, kept, unit, room, marked=True, why=True, price=""):
     """`role`'s answer `found` (matrix.answer) drawn as bars under the role lines, the owner's
     design of 5 Nov 2026: under a heading counting them and ending with `price`, what the role
     keeps where it keeps one (models_screen), those that stand (models_standing), side by
@@ -3904,9 +3904,9 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
     shade still says it is one; `used`, the row the role uses, is in the accent colour, `━`
     under its name.  No axis line: the numbers say what the heights measure, as a shaded bar on
     the right is dearer, not better.  On a narrow screen the two-cell gutters, then the indent,
-    give way to the labels.  Given `room` lines, the tallest stands as tall as the rest leaves
-    room for, TALL cells at most and one at least, else TALL; `marked` false leaves the `━` out,
-    `why` false the whys, their columns as wide."""
+    give way to the labels.  The tallest stands as tall as the rest leave of `room` lines, TALL
+    cells at most and one at least; `marked` false leaves the `━` out, `why` false the whys,
+    their columns as wide."""
     utf8, width = terminal.utf8(), terminal.layout_width()
     solid, shade, mark = GLYPHS[utf8]
     size, rows, labels, words, widths = models_standing(found, kept, unit)
@@ -3924,7 +3924,7 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
               in zip(rows, labels, words, widths)]
     # the heading, the tallest's number over it and what stands under the bars take their lines
     taken = len(lines) + 1 + sum(max(map(len, part)) for part in zip(*unders))
-    tall = TALL if room is None else max(1, min(TALL, room - taken))
+    tall = max(1, min(TALL, room - taken))
     numbers = [cost_in(found, row, unit) for row, _ in rows]
     largest = max(filter(None, numbers), default=0) or 1
     # an eighth of a cell; a whole one without UTF-8, and on a shaded bar, as no glyph shades a
