@@ -2,8 +2,9 @@
 machine builds, reviews and tests; a laptop, a Mac or one not answered yet tests alone.
 
 Black-box: AK_BIN runs under a terminal in a temporary HOME, with invented machines and their
-recorded answers. `c` shows that work without writing it; a written mark still decides, as does
-the old switch, for a machine added while config.toml holds it too.
+recorded answers, the new one's entry null: an entry that is no table is no record of it. `c`
+shows that work without writing it; a written mark still decides, as does the old switch, for a
+machine added while config.toml holds it too.
 """
 
 from pathlib import Path
@@ -29,11 +30,11 @@ class AMachineJoinsWithTheWorkItCanTake(unittest.TestCase):
         self.addCleanup(home.close)
         fakeadapter.install(home, claude="pass")
         at = time.time()
-        home.write(".agentkit/state/machines.json", {
+        home.write(".agentkit/state/machines.json", {"acme-new": None, **{
             name: {"checks": [[at, True]],
                    "said": {**SAID, "at": at, "system": system, "battery": battery}}
             for name, system, battery in (("acme-box", "Linux", 0), ("acme-laptop", "Linux", 1),
-                                          ("acme-mac", "macOS", 0))})
+                                          ("acme-mac", "macOS", 0))}})
 
     def write_config(self, box=""):
         return akconfig.write(self.home, ["fable"], extra="".join(
