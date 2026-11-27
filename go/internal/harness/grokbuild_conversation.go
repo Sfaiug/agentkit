@@ -106,7 +106,8 @@ func grokChunk(entry *run.Object, conversation string, key []any) (chunk grokMes
 	}
 	next = []any{who, meta.Get("promptIndex"), interjection}
 	ends = !spoken || !run.Equal(next, key) || meta.Truthy("interjection")
-	if !spoken || content.Get("type") != "text" || shown.Get("bashCommand") != nil {
+	// Grok Build 1.0.92 marks local shell commands with `bash_command`; earlier builds used `bashCommand`.
+	if !spoken || content.Get("type") != "text" || shown.Get("bashCommand") != nil || shown.Get("bash_command") != nil {
 		return grokMessage{}, next, ends
 	}
 	text := content.Get("text")

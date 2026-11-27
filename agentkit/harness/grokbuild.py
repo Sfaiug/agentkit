@@ -174,7 +174,9 @@ def messages(record, cwd, conversation):
             continue
         content_meta = content.get("_meta")
         content_meta = content_meta if isinstance(content_meta, dict) else {}
-        if content_meta.get("bashCommand") is not None:
+        # Grok Build 1.0.92 marks local shell commands with `bash_command`; earlier builds used `bashCommand`.
+        if (content_meta.get("bashCommand") is not None
+                or content_meta.get("bash_command") is not None):
             continue
         text = content_meta.get("displayText", content.get("text"))
         kept = user_message(entry.get("timestamp"), text)
