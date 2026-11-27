@@ -172,11 +172,16 @@ interactive)
   # The seat trusts the folder it opens in, as a Claude or a Codex seat does: agy asks "Do you
   # trust the contents of this project?" of a folder its login has not seen, and a seat left at
   # that question takes no line of ak's.  For this launch alone, like `model` (agy 1.5.18).
-  settings=$(jq -cn --arg model "$model" --argjson status "${status:-null}" --arg script "$script" \
-                --arg here "$(pwd -P)" '
+  # `cd -P` names the folder whole in $PWD, where `$(pwd -P)` drops the newlines a name ends in.
+  # `@sh` puts the settings in single quotes, as the first message below goes: %q makes $'...'
+  # of a name holding what the locale cannot print.
+  cd -P .
+  settings=$(jq -rn --arg model "$model" --argjson status "${status:-null}" --arg script "$script" \
+                --arg here "$PWD" '
     {model: $model, showFeedbackSurvey: false, trustedWorkspaces: [$here],
      statusLine: (if $status then $status | .command = ($script + " | { " + .command + "\n}")
-                  else {type: "command", command: ($script + " >/dev/null")} end)}') || exit 2
+                  else {type: "command", command: ($script + " >/dev/null")} end)}
+    | tojson | @sh') || exit 2
   # The orchestrator rulebook this launch is handed.  agy 1.2.9 takes no system-prompt or
   # instructions flag; it takes `--agent <name>`, a custom agent whose agent.md is front
   # matter and then the system prompt, found under `.agents/agents/<name>/` of any directory
@@ -231,7 +236,7 @@ interactive)
   # %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
   first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
     { sq="'"; first=" --prompt-interactive='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
-  printf 'python3 %q --harness antigravity -- env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --settings %q --dangerously-skip-permissions%s\n' \
+  printf 'python3 %q --harness antigravity -- env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --settings %s --dangerously-skip-permissions%s\n' \
       "$REPO/tools/idle-compact.py" "$acct" "${DATA:+$DATA }" "$resume" "$agents" "$model" \
       "$settings" "$first" ;;
 usage)

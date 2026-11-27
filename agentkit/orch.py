@@ -2936,9 +2936,12 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
         # One command list: a failed respawn keeps the old tty, and a new wrapper's
         # publishing client cannot run before the old name is removed.  A frozen pane's list
         # stops at its first command once the freeze has run out: keys may have reached it.
+        # In `cwd`, the folder `cmd` was built in: with no -c, tmux starts a pane whose own
+        # folder is gone in HOME, which its command never named.
         rc, out = tmux_out(*(("show-options", "-pv", "-t", target, FROZEN_OPTION, ";")
                              if still else ()),
-                           "respawn-pane", "-k", "-t", target, *pane_env(values), command,
+                           "respawn-pane", "-k", "-c", str(cwd), "-t", target,
+                           *pane_env(values), command,
                            ";", "set-option", "-pu", "-t", target, INPUT_TTY_OPTION,
                            *((";", *thaw) if still else ()), socket=server,
                            path_shim=True, timeout=5)
