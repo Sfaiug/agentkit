@@ -1,16 +1,19 @@
 package plan
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"agentkit/internal/config"
@@ -138,6 +141,56 @@ func defaultBranch(ctx context.Context, repo, root, at string, clean []string) (
 	return on, os.MkdirAll(filepath.Join(config.Home(), "wt"), 0o700)
 }
 
+func manifestBytes(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	if opened, err := file.Stat(); err != nil || !os.SameFile(info, opened) {
+		return nil, errors.New("manifest changed while opening")
+	}
+	return io.ReadAll(file)
+}
+
+func linkNodeModules(repo, tree string) error {
+	source := filepath.Join(repo, "node_modules")
+	if info, err := os.Stat(source); err != nil || !info.IsDir() {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(tree, "node_modules")); !os.IsNotExist(err) {
+		return nil
+	}
+	matched := false
+	for _, name := range []string{"package-lock.json", "npm-shrinkwrap.json", "yarn.lock",
+		"pnpm-lock.yaml", "bun.lock", "bun.lockb", "package.json"} {
+		if name == "package.json" && matched {
+			break
+		}
+		local, localErr := manifestBytes(filepath.Join(repo, name))
+		base, baseErr := manifestBytes(filepath.Join(tree, name))
+		if os.IsNotExist(localErr) && os.IsNotExist(baseErr) {
+			continue
+		}
+		if localErr != nil || baseErr != nil || !bytes.Equal(local, base) {
+			return nil
+		}
+		matched = true
+	}
+	if matched {
+		// Node searches the parent after the checkout's own node_modules.
+		return os.Symlink(config.Resolve(source), filepath.Join(filepath.Dir(tree), "node_modules"))
+	}
+	return nil
+}
+
 // checkout runs fn in a clean checkout of the branch made for it alone, so nothing one check
 // writes is there for the next, and removed after it.  It sits beside runs' checkouts in
 // ~/.agentkit/wt, where ak's history reads a test's fixtures as a run's.
@@ -160,19 +213,33 @@ func (on *branch) checkout(ctx context.Context, fn func(tree string) error) erro
 	if _, err := git(ctx, on.env, on.repo, "worktree", "add", "--detach", tree, on.sha); err != nil {
 		return fmt.Errorf("cannot check %s's default branch: %w", filepath.Base(on.repo), err)
 	}
+	if err := linkNodeModules(on.repo, tree); err != nil {
+		return err
+	}
 	return fn(tree)
 }
 
 // passes is whether check passes in tree; one that does not finish within checkLimit is an error.
 // A switch's check, which runs Python ak, is read by features instead: no Python ak may be here.
 func (on *branch) passes(ctx context.Context, tree, check string) (bool, error) {
-	if passed, ours := features.Checked(tree, check, on.env); ours {
+	env := on.env
+	bin := filepath.Join(filepath.Dir(tree), "node_modules", ".bin")
+	if info, err := os.Stat(bin); err == nil && info.IsDir() {
+		path := "/bin:/usr/bin" // Python's os.defpath when PATH is unset
+		for _, pair := range env {
+			if value, ok := strings.CutPrefix(pair, "PATH="); ok {
+				path = value
+			}
+		}
+		env = append(slices.Clip(env), "PATH="+path+string(os.PathListSeparator)+bin)
+	}
+	if passed, ours := features.Checked(tree, check, env); ours {
 		return passed, nil
 	}
 	limited, cancel := context.WithTimeout(ctx, checkLimit)
 	defer cancel()
 	cmd := exec.CommandContext(limited, "bash", "-c", check)
-	cmd.Dir, cmd.Env = tree, on.env
+	cmd.Dir, cmd.Env = tree, env
 	stop := host.Group(cmd)
 	if err := cmd.Start(); err != nil {
 		return false, err

@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import threading
@@ -270,6 +271,31 @@ def verifying(name, wait=True):
                 return
 
 
+def _link_node_modules(repo, tree):
+    modules = repo / "node_modules"
+    if not modules.is_dir() or (tree / "node_modules").exists():
+        return
+
+    def contents(path):
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+        with os.fdopen(os.open(path, flags), "rb") as file:
+            if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+                raise OSError("not a regular file")
+            return file.read()
+
+    locks = ("package-lock.json", "npm-shrinkwrap.json", "yarn.lock",
+             "pnpm-lock.yaml", "bun.lock", "bun.lockb")
+    names = [name for name in locks if any(os.path.lexists(root / name) for root in (repo, tree))]
+    try:
+        if any(contents(repo / name) != contents(tree / name) for name in names or ["package.json"]):
+            return
+        source = modules.resolve(strict=True)
+    except OSError:
+        return
+    # Node searches parent directories. A local install can shadow this link and be removed safely.
+    (tree.parent / "node_modules").symlink_to(source, target_is_directory=True)
+
+
 @contextmanager
 def default_branch(repo):
     """(its commit as `<sha12> <subject>`, the environment a check runs in, `checkout`): the
@@ -309,6 +335,7 @@ def default_branch(repo):
             tree = Path(tmp) / "main"
             try:
                 git("worktree", "add", "--detach", str(tree), at)
+                _link_node_modules(repo, tree)
                 yield tree
             finally:
                 if tree.exists():
@@ -333,6 +360,9 @@ def default_branch(repo):
 
 def fails(tree, cmd, env):
     """Whether `cmd` fails in `tree`; one that does not finish within CHECK_LIMIT is an error."""
+    bin_dir = tree.parent / "node_modules" / ".bin"
+    if bin_dir.is_dir():
+        env = {**env, "PATH": os.pathsep.join([env.get("PATH", os.defpath), str(bin_dir)])}
     proc = subprocess.Popen(["bash", "-c", cmd], cwd=tree, env=env, text=True,
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                             stderr=subprocess.STDOUT, start_new_session=True)
