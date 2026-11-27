@@ -2825,11 +2825,11 @@ NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Gro
 def provider_name(cfg, provider):
     """This provider's name wherever ak names it: its own `name` key -- the one its harness
     gives it, written by `+ add` (`Z.AI Coding Plan`) -- else the company's, else its key
-    capitalised."""
+    capitalised.  Its own is on one line, so a row naming it is one row wherever it is drawn."""
     entry = cfg["providers"].get(provider)
     own = entry.get("name") if isinstance(entry, dict) else None
-    return (own.strip() if isinstance(own, str) and own.strip()
-            else NAMES.get(provider, provider.title()))
+    return (" ".join(own.split()) if isinstance(own, str) else "") or NAMES.get(
+        provider, provider.title())
 
 
 def account_label(cfg, provider, account):
