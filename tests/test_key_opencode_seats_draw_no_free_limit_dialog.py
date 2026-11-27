@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import resource
 import subprocess
 import tempfile
 import unittest
@@ -131,6 +132,99 @@ class OpenCodeFreeLimitDialog(unittest.TestCase):
                     self.assertEqual(note.read_text(), '{"lastSeenAt": 1795717297316}\n')
             finally:
                 tui.chmod(0o755)
+
+    def test_directory_or_symlink_to_directory_at_note_receives_no_temp_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home, env = _make_home(temp)
+            state = home / ".local/state/opencode"
+            outside = Path(temp) / "elsewhere"
+            outside.mkdir()
+            (outside / "keep").write_text("keep")
+
+            latest_tui = state / "latest/tui"
+            latest_tui.mkdir(parents=True)
+            (latest_tui / "go-upsell.json").symlink_to(outside, target_is_directory=True)
+
+            beta_tui = state / "beta/tui"
+            beta_tui.mkdir(parents=True)
+            nested = beta_tui / "go-upsell.json"
+            nested.mkdir()
+
+            proc = _launch(env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(sorted(p.name for p in outside.iterdir()), ["keep"])
+            self.assertEqual(sorted(p.name for p in nested.iterdir()), [])
+            self.assertEqual(sorted(p.name for p in latest_tui.iterdir()), ["go-upsell.json"])
+            self.assertEqual(sorted(p.name for p in beta_tui.iterdir()), ["go-upsell.json"])
+
+    def test_non_rfc_json_is_replaced_and_lone_surrogates_keep_existing_fields(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home, env = _make_home(temp)
+            state = home / ".local/state/opencode"
+
+            invalid_notes = [
+                ("leading_zero_true", '{"lastSeenAt":001795717297316,"dontShow":true}'),
+                ("leading_zero", '{"lastSeenAt":001795717297316}'),
+                ("invalid_utf8", b'{"lastSeenAt":1795717297316,"label":"\xff","dontShow":true}'),
+                ("raw_nul", b'{"lastSeenAt":1795717297316,"label":"\x00"}'),
+            ]
+            for channel, raw in invalid_notes:
+                tui = state / channel / "tui"
+                tui.mkdir(parents=True)
+                note = tui / "go-upsell.json"
+                if isinstance(raw, bytes):
+                    note.write_bytes(raw)
+                else:
+                    note.write_text(raw)
+
+            surrogate_notes = [
+                ("lone_high", {"lastSeenAt": 1795717297316, "label": "\ud800"}),
+                ("lone_low", {"lastSeenAt": 1795717297316, "label": "\udc00"}),
+            ]
+            for channel, content in surrogate_notes:
+                tui = state / channel / "tui"
+                tui.mkdir(parents=True)
+                (tui / "go-upsell.json").write_text(json.dumps(content))
+
+            proc = _launch(env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            for channel, _ in invalid_notes:
+                self.assertEqual(
+                    json.loads((state / channel / "tui/go-upsell.json").read_text()),
+                    {"dontShow": True},
+                    channel,
+                )
+            for channel, content in surrogate_notes:
+                self.assertEqual(
+                    json.loads((state / channel / "tui/go-upsell.json").read_text()),
+                    {**content, "dontShow": True},
+                    channel,
+                )
+
+    def test_file_size_limit_does_not_kill_launch_or_leave_temp_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home, env = _make_home(temp)
+            baseline = _launch(env)
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+
+            tui = home / ".local/state/opencode/latest/tui"
+            tui.mkdir(parents=True)
+            note = tui / "go-upsell.json"
+            note.write_text('{"lastSeenAt":1795717297316}\n')
+
+            def forbid_file_writes():
+                resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+                resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+
+            proc = subprocess.run(
+                [str(REPO / "adapters/opencode.sh"), "interactive", "acme/flash", "high"],
+                env=env, capture_output=True, text=True, timeout=10,
+                preexec_fn=forbid_file_writes,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, baseline.stdout)
+            self.assertEqual(proc.stderr, "")
+            self.assertEqual(sorted(p.name for p in tui.glob(".go-upsell.*")), [])
 
 
 if __name__ == "__main__":

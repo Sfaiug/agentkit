@@ -294,12 +294,40 @@ interactive)
   for tui in "${XDG_STATE_HOME:-$HOME/.local/state}/opencode"/*/tui; do
     [ -d "$tui" ] || continue
     note="$tui/go-upsell.json"
-    src=/dev/null; [ -f "$note" ] && src=$note
-    body=$({ jq -cRs '(try fromjson catch null) | if type == "object" then . else {} end
-      | if .dontShow == true then empty else .dontShow = true end' <"$src"; } 2>/dev/null) || continue
+    # Skip non-files: `mv` into a directory or symlink to one drops the temp file inside it.
+    [ -e "$note" ] && [ ! -f "$note" ] && continue
+    src=/dev/null
+    if [ -f "$note" ]; then
+      [ -r "$note" ] || continue
+      if ! command -v iconv >/dev/null || iconv -f UTF-8 -t UTF-8 <"$note" >/dev/null 2>&1; then
+        src=$note
+      fi
+    fi
+    # Strict RFC 8259 check (jq accepts leading zeroes and BOM) and lone-surrogate preservation
+    # (jq errors on lone high surrogates and replaces lone low surrogates with U+FFFD).
+    body=$({ jq -rRs '
+      def strict_json:
+        [match("([ \\t\\r\\n]+|[{}\\[\\]:,]|\"(?:[^\"\\\\\\x00-\\x1f]|\\\\(?:[\"\\\\/bfnrt]|u[0-9a-fA-F]{4}))*\"|[^ \\t\\r\\n{}\\[\\]:,\"]+)"; "g")] as $t
+        | (($t | map(.length) | add // 0) == length)
+          and ($t | all(.string | test("^[ \\t\\r\\n{}\\[\\]:,\"]|^(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)$")));
+      def protect($s):
+        gsub("(?<s>\"(?:[^\"\\\\]|\\\\.)*\")";
+          .s | gsub("(?<p>\\\\u[dD][89abAB][0-9a-fA-F]{2}\\\\u[dD][cdefCDEF][0-9a-fA-F]{2})|\\\\u(?<h>[dD][89abABcdefCDEF][0-9a-fA-F]{2})|(?<e>\\\\.)";
+            if .h then $s + .h else .p // .e end));
+      if strict_json then
+        (([scan("\\\\u0001")] | length) + 1) as $n
+        | ("\\u0001" * $n) as $s | ("\\\\u0001" * $n) as $re
+        | (protect($s) | try fromjson catch null)
+        | if type == "object" then
+            if .dontShow == true then empty
+            else (.dontShow = true | tojson | gsub($re + "(?<h>[0-9a-fA-F]{4})"; "\\u" + .h)) end
+          else "{\"dontShow\":true}" end
+      else "{\"dontShow\":true}" end' <"$src"; } 2>/dev/null) || continue
     [ -n "$body" ] || continue
     tmp=$(mktemp "$tui/.go-upsell.XXXXXX" 2>/dev/null) || continue
-    if printf '%s\n' "$body" >"$tmp" 2>/dev/null && mv -f -- "$tmp" "$note" 2>/dev/null; then
+    # Write in a subshell with SIGXFSZ ignored so an RLIMIT_FSIZE cap cannot kill the launcher.
+    if ( trap '' XFSZ 2>/dev/null; printf '%s\n' "$body" >"$tmp" ) 2>/dev/null \
+        && mv -f -- "$tmp" "$note" 2>/dev/null; then
       :
     else
       rm -f -- "$tmp" 2>/dev/null || true
