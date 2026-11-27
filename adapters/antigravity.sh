@@ -350,17 +350,33 @@ lend)
     echo "agy: no refresh token in $TOKEN to lend; run \`$SIGNIN\` and sign in" >&2; exit 1; }
   [ "${2:-}" = own ] && [ -n "$ACCOUNT" ] && at=${TOKEN#"$HOME/"} ||
     at=.gemini/antigravity-cli/antigravity-oauth-token
-  place() { python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$@"; }
-  printf '%s' "$lent" | place "$1" "$at" || exit
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$1" "$at" ||
+    exit
   # With the login go its owner's first-run answers, where they gave them: without, agy 1.5.18
   # opens a seat on the lent login at `Choose your color scheme`, where it takes no line of ak's.
-  # They are placed as the login is, over nothing the home holds.  Where they are not, the login
-  # is taken back, and with it what a write that failed left of them (tools/lend.py exits 1 then;
-  # its refusal, 2, wrote nothing): a home is lent both or neither.
+  # Where they cannot be placed the login is taken back, as a home left it alone is refused the
+  # next lend, and nothing else is: a home keeps what it holds.  So none are given only where
+  # `stat` finds no file there, and any other error of it fails the lend: bash's `-f` reads
+  # answers it may not reach as none.  And they are copied whole under a name of this lend's
+  # own, then linked to their place, which fails where anything is.  Not through tools/lend.py:
+  # it leaves the part a write that failed wrote, which nothing here could tell from a file the
+  # home held.
   answers=cache/onboarding.json
-  given=$(jq -cn '{ends: null, login: input}' "${TOKEN%/*}/$answers" 2>/dev/null) || exit 0
-  printf '%s' "$given" | place "$1" "${at%/*}/$answers" || {
-    [ $? -ne 1 ] || rm -f -- "$1/${at%/*}/$answers"; rm -f -- "$1/$at"; exit 2; } ;;
+  python3 -I -c 'import os, stat, sys, tempfile
+from pathlib import Path
+answers, place = map(Path, sys.argv[1:])
+try:
+    given = stat.S_ISREG(answers.stat().st_mode)
+except (FileNotFoundError, NotADirectoryError):
+    given = False
+if given:
+    text = answers.read_bytes()
+    place.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=place.parent) as whole:
+        whole.write(text)
+        whole.flush()    # here, where it can still fail with nothing at their place
+        os.link(whole.name, place)
+' "${TOKEN%/*}/$answers" "$1/${at%/*}/$answers" || { rm -f -- "$1/$at"; exit 2; } ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  A
