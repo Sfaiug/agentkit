@@ -788,8 +788,9 @@ def main(argv):
     cfg = config.load()
     if "--json" in flags:
         # first, as the boards may take a while to answer: the seat and the runs read next are
-        # as they stand once they did
+        # as they stand once they did; the releases on read off the lineup just stored
         _, rows = refresh(cfg, refresh="--refresh" in flags)
+        marked = compared(cfg)
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     from . import own       # here, not at the top: the boards and the screen need no database
     runs, plans, paid = counted(cfg)
@@ -800,7 +801,7 @@ def main(argv):
         print("\n".join(own.lines(mine, cfg, terminal.layout_width(), paid)))
         return 0
     logins, shares = _task_usage(cfg)
-    found = answer(rows, compared(cfg), cfg=cfg, task_usage=(logins, shares))
+    found = answer(rows, marked, cfg=cfg, task_usage=(logins, shares))
 
     def drawn(row, said):
         return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
