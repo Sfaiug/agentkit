@@ -239,11 +239,26 @@ run)
 interactive)
   [ $# -ge 2 ] || { echo "opencode.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
   # A seat's window is wider than 120 columns, where OpenCode 2.4.2 draws a sidebar and the screen
-  # reads as no rule.  The command line hides it by the variable OpenCode lays, whole, over its
-  # cli.json: a value that would replace is refused, the seat's own, which its children hold, not.
-  sidebar='{"session":{"sidebar":"hide"}}'
-  [ "${OPENCODE_CLI_CONFIG_CONTENT:-$sidebar}" = "$sidebar" ] || {
-    echo "opencode.sh interactive: OPENCODE_CLI_CONFIG_CONTENT is set, and a seat sets it itself: put your settings in ~/.config/opencode/cli.json" >&2; exit 2; }
+  # reads as no rule.  OpenCode pins OPENCODE_CLI_CONFIG_CONTENT over cli.json on every update too,
+  # so a seat does not set that variable (setting it to hide makes Ctrl-x b leave cli.json stuck on
+  # auto, and stripping it in seat_env would drop a caller's own settings outside a seat).  Instead
+  # the seat sets session.sidebar in cli.json below, and refuses an inline variable only when it
+  # explicitly overrides that back to auto.
+  env_sidebar=""
+  if [ -n "${OPENCODE_CLI_CONFIG_CONTENT:-}" ] && command -v jq >/dev/null; then
+    env_sidebar=$(jq -rRs '
+      sub("^\ufeff"; "")
+      | gsub("(?<s>\"(?:[^\"\\\\]|\\\\.)*\")|//[^\\r\\n]*|/\\*(?:[^*]|\\*+[^*/])*\\*+/"; .s // " ")
+      | gsub("(?<s>\"(?:[^\"\\\\]|\\\\.)*\")|,(?=[ \\t\\r\\n]*[}\\]])"; .s // "")
+      | gsub("(?<s>\"(?:[^\"\\\\]|\\\\.)*\")";
+          .s | gsub("(?<p>\\\\u[dD][89abAB][0-9a-fA-F]{2}\\\\u[dD][cdefCDEF][0-9a-fA-F]{2})|\\\\u(?<h>[dD][89abABcdefCDEF][0-9a-fA-F]{2})|(?<e>\\\\.)";
+            if .h then "\\uFFFD" else .p // .e end))
+      | (try fromjson catch null)
+      | if type == "object" and (.session | type) == "object" and (.session.sidebar | type) == "string"
+        then .session.sidebar else "" end' <<<"$OPENCODE_CLI_CONFIG_CONTENT" 2>/dev/null) || env_sidebar=""
+    [ "$env_sidebar" != auto ] || {
+      echo "opencode.sh interactive: OPENCODE_CLI_CONFIG_CONTENT sets session.sidebar to auto, which shows the sidebar: unset it or change ~/.config/opencode/cli.json" >&2; exit 2; }
+  fi
   # `--session` reopens a conversation that exists; nothing names one that does not, so an id
   # of the launcher's making is refused here rather than swallowed.  The id a seat comes back
   # on is the one OpenCode made for it, which ak wrote into that launch's receipt as the seat
@@ -262,7 +277,7 @@ interactive)
   # OPENCODE_CONFIG_CONTENT -- the rulebook verbatim as the build agent's system prompt, the
   # model with the effort as its variant, and the seat plugin beside them -- verified by a
   # headless probe that answered out of a rulebook given it no other way, and by a seat that
-  # opened on the model it names.  The owner's own ~/.config/opencode is never written to.
+  # opened on the model it names.  The owner's own opencode.json is never written to.
   # It is named for this launch only: adapters/opencode.toml declares it under `[launch]
   # seat_env` and the top of this file drops an inherited one, so nothing a seat starts is
   # told it is the orchestrator.  No rulebook, no command line: a seat opened without the
@@ -279,13 +294,77 @@ interactive)
       --argjson more "$(turn_variants "$1")" \
       '{model: $model, agents: {build: {model: $model, system: .}}, plugins: [$plugin]} + $more' <"$rb") || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
-  rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q OPENCODE_CLI_CONFIG_CONTENT=%q ' "$content" "$sidebar")
+  rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q ' "$content")
   # The seat's first message, when its launch carries one, goes in as the TUI's `--prompt`:
   # sent once the conversation has loaded, never typed into a TUI still loading it.
   # Joined by `=`, so a message starting with `-` is still its value; in single quotes, not
   # %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
   sq="'"; first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
     first=" --prompt='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"
+  # Hide the sidebar in OpenCode's saved CLI config before launch (unless OPENCODE_CLI_CONFIG_CONTENT
+  # already hides it), so a 240-column seat opens without the sidebar and Ctrl-x b still toggles and
+  # saves normally.  Where cli.json does not exist yet and legacy tui.json or kv.json does, update
+  # kv.json instead so OpenCode's own first-run migration preserves every legacy setting into cli.json.
+  # Non-files, corrupt files and unwritable directories are left alone and never fail a launch.
+  if [ "$env_sidebar" != hide ]; then
+    oc_state="${XDG_STATE_HOME:-$HOME/.local/state}/opencode"
+    if [ ! -e "$CFGDIR/cli.json" ] && [ ! -L "$CFGDIR/cli.json" ] \
+        && { [ -f "$CFGDIR/tui.json" ] || [ -f "$oc_state/kv.json" ]; }; then
+      sb_dir="$oc_state" sb_file="$oc_state/kv.json" sb_mode=kv
+    else
+      sb_dir="$CFGDIR" sb_file="$CFGDIR/cli.json" sb_mode=cli
+    fi
+    if { [ ! -e "$sb_file" ] && [ ! -L "$sb_file" ]; } || [ -f "$sb_file" ]; then
+      sb_src=""
+      if [ ! -e "$sb_file" ]; then
+        sb_src=/dev/null
+      elif [ -r "$sb_file" ]; then
+        sb_raw=""
+        if ! { LC_ALL=C IFS= read -r -d '' sb_raw <"$sb_file"; } 2>/dev/null; then
+          sb_dec=$(LC_ALL=C jq -jRs '. + "x"' <"$sb_file" 2>/dev/null) && [ "${sb_raw}x" = "$sb_dec" ] && sb_src=$sb_file
+        fi
+      fi
+      if [ -n "$sb_src" ]; then
+        sb_body=$({ jq -rRs --arg mode "$sb_mode" '
+          def strip_jsonc:
+            sub("^\ufeff"; "")
+            | gsub("(?<s>\"(?:[^\"\\\\]|\\\\.)*\")|//[^\\r\\n]*|/\\*(?:[^*]|\\*+[^*/])*\\*+/"; .s // " ")
+            | gsub("(?<s>\"(?:[^\"\\\\]|\\\\.)*\")|,(?=[ \\t\\r\\n]*[}\\]])"; .s // "");
+          def protect($s):
+            gsub("(?<s>\"(?:[^\"\\\\]|\\\\.)*\")";
+              .s | gsub("(?<p>\\\\u[dD][89abAB][0-9a-fA-F]{2}\\\\u[dD][cdefCDEF][0-9a-fA-F]{2})|\\\\u(?<h>[dD][89abABcdefCDEF][0-9a-fA-F]{2})|(?<e>\\\\.)";
+                if .h then $s + .h else .p // .e end));
+          def restore($re):
+            gsub("(?<p>" + $re + "(?<h>[0-9a-fA-F]{4}))|(?<e>\\\\.)";
+              if .h then "\\u" + .h else .e end);
+          (([scan("\\\\u0001")] | length) + 1) as $n
+          | ("\\u0001" * $n) as $s | ("\\\\u0001" * $n) as $re
+          | (strip_jsonc | gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$"; "")) as $clean
+          | (if $clean == "" then {} else ($clean | protect($s) | try fromjson catch null) end)
+          | if type == "object" then
+              if $mode == "kv" then
+                if .sidebar == "hide" then empty
+                else (.sidebar = "hide" | tojson | restore($re)) end
+              else
+                if (.session | type) == "object" and .session.sidebar == "hide" then empty
+                else (.session = ((if (.session | type) == "object" then .session else {} end) | .sidebar = "hide")
+                  | tojson | restore($re)) end
+              end
+            else empty end' <"$sb_src"; } 2>/dev/null) || sb_body=""
+        if [ -n "$sb_body" ] && { [ -d "$sb_dir" ] || { command -v mkdir >/dev/null && mkdir -p -- "$sb_dir" 2>/dev/null; }; }; then
+          sb_tmp=$(mktemp "$sb_dir/.sidebar.XXXXXX" 2>/dev/null) || sb_tmp=""
+          if [ -n "$sb_tmp" ]; then
+            if ( trap '' XFSZ 2>/dev/null; printf '%s\n' "$sb_body" >"$sb_tmp" ) 2>/dev/null \
+                && mv -f -- "$sb_tmp" "$sb_file" 2>/dev/null; then
+              :
+            else
+              rm -f -- "$sb_tmp" 2>/dev/null || true
+            fi
+          fi
+        fi
+      fi
+    fi
+  fi
   # Keep OpenCode's TUI from drawing its `Free limit reached` upsell dialog (2.4.2, 26 Nov
   # 2026): when a turn hits the free limit with an empty composer it opens over the session
   # with `subscribe` selected, standing above the last 15 rows ak reads so no screen rule can
