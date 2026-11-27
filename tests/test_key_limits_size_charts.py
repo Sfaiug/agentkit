@@ -137,7 +137,8 @@ def opened(case, home, row, size=(100, 40)):
     term.wait("› Limits")
     term.keys("Enter")
     term.wait("› Review rounds")
-    term.keys(*["j"] * {"Max lines per executor task": 1, "Max lines per orchestrator task": 2,
+    term.keys(*["j"] * {"Review rounds": 0, "Max lines per executor task": 1,
+                        "Max lines per orchestrator task": 2,
                         "Findings that end a run for rescoping": 4}[row])
     term.wait(f"› {row}")
     return term

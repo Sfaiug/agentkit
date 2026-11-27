@@ -1568,7 +1568,7 @@ def rules_size(repo):
 
 
 def round_endings():
-    """How runs ended, for `Limits` (menu.rounds_chart): of those REAL_WORK counts that finished,
+    """How runs ended, for `Limits` (menu.rounds_said): of those REAL_WORK counts that finished,
     from the first carrying changed_lines on -- before it no row tells a merge -- each that used
     no round past its review_rounds (`extra_rounds_used`) merged in a round or failed, as it
     started: (started_at, finished_at, round), `round` the one its rounds_used names for a merge,

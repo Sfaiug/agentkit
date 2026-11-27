@@ -1,9 +1,10 @@
-"""On `config · limits`, `Review rounds` counts the runs that used no round past their own
-`review_rounds`: one that merged or failed in an extra round with one finding left
-(tests/test_key_one_finding_left_gets_extra_rounds.py) is neither drawn on its chart nor said
-under it.  A run's row in history.db keeps, as it finishes, its rounds past the
-`review_rounds` its record kept, empty for none; a row an older agentkit wrote, that column
-empty, or one in a history nothing may write, without it, is counted as it always was.
+"""On `config · limits`, what `Review rounds` says its runs would have done counts the runs that
+used no round past their own `review_rounds`: one that merged or failed in an extra round with
+one finding left (tests/test_key_one_finding_left_gets_extra_rounds.py) is not said under it,
+though its table shows its task over the rounds held (tests/test_key_limits_rounds_table.py).
+A run's row in history.db keeps, as it finishes, its rounds past the `review_rounds` its record
+kept, empty for none; a row an older agentkit wrote, that column empty, or one in a history
+nothing may write, without it, is counted as it always was.
 
 Black-box, built as tests/test_key_limits_what_if.py is: history.db's `runs` rows written into
 the Home as any program writes them, then the program `AK_BIN` names in a person's terminal
@@ -38,14 +39,13 @@ COLUMNS = ("run_id", "repo", "final_state", "rounds_used", "changed_lines", "sta
 # round and one failed after its 5th
 RUNS = [*[("pass", 1, 40, None)] * 3, *[("pass", 2, 60, None)] * 2, ("pass", 3, 80, None),
         *[("fail", 3, None, None)] * 2, ("pass", 4, 90, 1), ("fail", 5, None, 2)]
-# `Review rounds` over RUNS at ak's 3: its chart's heading, its sentence, whether it draws
-# `merged in round 4`
-REGULAR = ("how your 8 runs ended", "2 changes (25%) went back to their orchestrator after 3 "
-           "rounds.", False)
+# `Review rounds` over RUNS at ak's 3: its sentence, and whether it counts the two past round 3
+REGULAR = ("2 changes (25%) went back to their orchestrator after 3 rounds.", False)
 # the same rows, their rounds past 3 empty: as today
-TODAY = ("how your 10 runs ended", "The 1 change that merged after round 3 would have gone back "
-         "to their orchestrator instead, and the 3 that failed would have gone back after round "
-         "3.", True)
+TODAY = ("The 1 change that merged after round 3 would have gone back to their orchestrator "
+         "instead, and the 3 that failed would have gone back after round 3.", True)
+# its table's head and the row of a task that went 4 rounds, its words a space apart (`said`)
+OVER = "rounds tasks went live time usage 4 1 over"
 # The Home's notify sink marks every run a test suite's, which ak never records
 OWNERS = {"AK_NOTIFY_SINK": None}
 
@@ -74,9 +74,9 @@ def said(screen):
     return " ".join(screen.split())
 
 
-def review_rounds(test, home, heading, sentence=""):
+def review_rounds(test, home, words):
     """`config · limits` from `c` over ak's defaults, `Review rounds` pointed: the screen once
-    its chart's `heading` and `sentence` are under it, its words a space apart."""
+    `words` are under it, its words a space apart."""
     term = Terminal(home, size=(100, 40), env={"NO_COLOR": "1"})
     test.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                     server=SERVER)
@@ -87,7 +87,7 @@ def review_rounds(test, home, heading, sentence=""):
     term.wait("› Limits")
     term.keys("Enter")
     return said(term.wait(lambda screen: "› Review rounds" in screen
-                          and heading in said(screen) and sentence in said(screen)))
+                          and words in said(screen)))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -98,10 +98,9 @@ class ReviewRounds(unittest.TestCase):
         fakeadapter.install(home, claude="pass", codex="pass")
         write_runs(home, kept, writable)
         akconfig.write(home, MODELS)
-        heading, sentence, fourth = says
-        shown = review_rounds(self, home, heading, sentence)
-        self.assertEqual("merged in round 4" in shown, fourth, shown)
-        self.assertEqual("would have gone back after round 3" in shown, fourth, shown)
+        sentence, past = says
+        shown = review_rounds(self, home, sentence)
+        self.assertEqual("would have gone back after round 3" in shown, past, shown)
 
     def test_a_run_past_its_review_rounds_is_not_counted(self):
         self.reads(REGULAR, kept=True)
@@ -137,9 +136,9 @@ class ARunThatMergedInItsFourthRound(unittest.TestCase):
         self.assertEqual(row, ("pass", 4, 1))
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-    def test_it_is_not_on_the_review_rounds_chart(self):
+    def test_its_task_shows_over_the_rounds_held_and_is_not_said_under_them(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
-        review_rounds(self, self.home, "no finished runs yet")
+        self.assertNotIn("would have gone back", review_rounds(self, self.home, OVER))
 
 
 if __name__ == "__main__":

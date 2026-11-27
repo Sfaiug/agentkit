@@ -1,9 +1,10 @@
 """The tables `config · limits` draws of what your tasks took (`ledger.counted`'s rows), the
 owner's asks of 24 Nov 2026: under `executor_lines` by size (`lines`), under `rescope_findings`
-by the issues their first review found (`issues`).  Each is its rows, columns of hours and mark
-given to one drawing, rather than a module of its own writing the fold and the usage cell again:
-each number written once, then fixed columns where every row fits the page, else every row folded
-with its numbers named, so no width loses or rewrites a number another width shows.
+by the issues their first review found (`issues`), under `review_rounds` by the review rounds
+they went through (`rounds`).  Each is its rows, columns of hours and mark given to one drawing,
+rather than a module of its own writing the fold and the usage cell again: each number written
+once, then fixed columns where every row fits the page, else every row folded with its numbers
+named, so no width loses or rewrites a number another width shows.
 """
 
 from fractions import Fraction
@@ -15,7 +16,7 @@ FEW = 20        # a row of fewer tasks shows its tasks alone: a few tasks say no
 # each table's columns of hours, and the parts of `ledger.HOURS` each sums
 BY_SIZE = {"building": ("build",), "reviewing": ("review",), "own tests": ("checks",),
            "waiting": ("waiting",)}
-BY_ISSUES = {"time": tuple(ledger.HOURS)}
+IN_ALL = {"time": tuple(ledger.HOURS)}
 
 
 def lines(sizes, limit, width, paid):
@@ -39,7 +40,17 @@ def issues(first_issues, limit, width, paid):
              "ends the run" if 0 < limit <= row["issues"] else "")
             for row in sorted(first_issues, key=lambda row: row["issues"])]
     return _drawn("What your tasks took, by the issues their first review found", "issues",
-                  BY_ISSUES, rows, width, paid)
+                  IN_ALL, rows, width, paid)
+
+
+def rounds(went, limit, width, paid):
+    """`went` at `review_rounds` `limit` (`_drawn`): a row of each number of review rounds, fewest
+    first, its numbers for every task live, marked `over` above a limit on: its tasks went on
+    through a relaunch or an extra round."""
+    rows = [(str(row["rounds"]), row, row["live"], "over" if 0 < limit < row["rounds"] else "")
+            for row in sorted(went, key=lambda row: row["rounds"])]
+    return _drawn("What your tasks took, by the review rounds they went through", "rounds",
+                  IN_ALL, rows, width, paid)
 
 
 def _drawn(heading, name, hours, rows, width, paid):
