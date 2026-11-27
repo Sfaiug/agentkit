@@ -1,10 +1,10 @@
 """Every current model on the boards, a row per release and effort with the installed harnesses'
 models that are it (`lineup`), answered per role on quality and cost (`answer`), using
 `quality.pick`.  Only the models of your
-companies you left on are compared (`compared`) or used (`off`): the owner, 5 Nov 2026.  Under
-the boards `ak models` prints each role's models by the tasks they did with the team now
-(own.py); `--json` carries beside them ak's own run numbers per configured model, the effort its
-runs recorded and role, with their count, which never rank (`live`).
+companies you left on are compared (`compared`) or used (`off`): the owner, 5 Nov 2026.  `ak
+models` prints, off no board, each role's models by the tasks they did with the team now
+(own.py); `--json` carries the answer and beside it ak's own run numbers per configured model,
+the effort its runs recorded and role, with their count, which never rank (`live`).
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
 """
 
@@ -535,8 +535,8 @@ def ours(cfg, reading=None):
 
 
 def compared(cfg, reading=None):
-    """The releases on, the only ones the models screen and `ak models` compare: those of
-    `ours` (off `reading` alike) whose slug `models_off` in the config does not hold.  A
+    """The releases on, the only ones the models screen and `ak models --json` compare: those
+    of `ours` (off `reading` alike) whose slug `models_off` in the config does not hold.  A
     company's next release is on by itself."""
     return ours(cfg, reading) - set(cfg.get("models_off") or ())
 
@@ -648,8 +648,8 @@ def refresh(cfg, *, refresh=False, now=None):
     only once a board answered anew, the config's models changed, the harnesses installed are
     not the ones it rowed or ak's own build is not the one that computed it (a matching rule
     that landed holds at the next reading, not a day later), since the harness catalogs it asks
-    take time.  Asked as the models screen opens and by `ak models`, never the tick: the owner
-    wants the assessment as a feature opened, not a process running all day (22 Oct 2026).
+    take time.  Asked as the models screen opens and by `ak models --json`, never the tick: the
+    owner wants the assessment as a feature opened, not a process running all day (22 Oct 2026).
     The matrix is the lineup (`lineup`), so the models screen reads it and asks no catalog.
     Returns (boards, the lineup)."""
     from . import update        # here, not at the top: update reaches this module through orch
@@ -782,45 +782,41 @@ def main(argv):
     if command_help.show("models", argv):
         return 0
     flags = set(argv)
-    if flags - {"--json", "--refresh"}:
+    # --refresh asks the boards, which only --json reads
+    if flags - {"--json", "--refresh"} or flags == {"--refresh"}:
         raise config.Error(f"usage: ak models [--json] [--refresh]  (got {argv!r})")
-    from . import menu      # here, not at the top: the menu reaches this module as it loads
     cfg = config.load()
-    _, rows = refresh(cfg, refresh="--refresh" in flags)
-    marked = compared(cfg)
-    logins, shares = _task_usage(cfg)
-    found = answer(rows, marked, cfg=cfg, task_usage=(logins, shares))
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     from . import own       # here, not at the top: the boards and the screen need no database
     runs, plans, paid = counted(cfg)
     mine = own.by_role(runs["teams"], team_now(cfg, seat))
-    if "--json" in flags:
-        def drawn(row, said):
-            return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
-                                                 "cost", "board_cost", "cost_rule")},
-                    "notes": notes(row, said)}
-        sys.stdout.write(dumped({**{role: {
-            "best": said["best"] and said["best"]["quality"], "cost_unit": said["cost_unit"],
-            **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
-            "others": [{**drawn(row, said), "why": why, "by": by and {
-                key: by[key] for key in ("name", "effort")}}
-                for row in said["others"] for why, by in [said["whys"][id(row)]]]}
-            for role, said in found.items()},
-            # `name @ effort`, the name alone for no effort, a name's own @ doubled so that a
-            # model named `acme @ max` never takes the key of acme's runs at max
-            "live": {name.replace("@", "@@") + (f" @ {effort}" if effort else ""): roles
-                     for (name, effort), roles in live(cfg).items()},
-            "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
-                                  for effort, did in efforts.items()}
-                           for name, efforts in shares.items()},
-            "runs": runs, "own": mine, "week_meters": plans, "money": paid}))
-        print()
+    if "--json" not in flags:
+        # your own tables alone, off no board: the owner, 24 Nov 2026, "I actually dont want
+        # that we assess our decision on benchmark data at all"
+        print("\n".join(own.lines(mine, cfg, terminal.layout_width(), paid)))
         return 0
-    used, unit = uses(cfg, seat, found), menu.models_unit()     # the screen's, as it was left
-    body, _ = menu.models_body(menu.models_said(cfg, found, used, unit), unit)
-    bars = [line for role in found
-            for line in menu.models_bars(found[role], role, used[role][2], used[role][2], unit)]
-    print("\n".join([*body, *bars, "", *menu.models_read(marked, len(ours(cfg)),
-                                                   stored().get("fetched_at")),
-                      "", *own.lines(mine, cfg, terminal.layout_width(), paid)]))
+    _, rows = refresh(cfg, refresh="--refresh" in flags)
+    logins, shares = _task_usage(cfg)
+    found = answer(rows, compared(cfg), cfg=cfg, task_usage=(logins, shares))
+
+    def drawn(row, said):
+        return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
+                                             "cost", "board_cost", "cost_rule")},
+                "notes": notes(row, said)}
+    sys.stdout.write(dumped({**{role: {
+        "best": said["best"] and said["best"]["quality"], "cost_unit": said["cost_unit"],
+        **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
+        "others": [{**drawn(row, said), "why": why, "by": by and {
+            key: by[key] for key in ("name", "effort")}}
+            for row in said["others"] for why, by in [said["whys"][id(row)]]]}
+        for role, said in found.items()},
+        # `name @ effort`, the name alone for no effort, a name's own @ doubled so that a
+        # model named `acme @ max` never takes the key of acme's runs at max
+        "live": {name.replace("@", "@@") + (f" @ {effort}" if effort else ""): roles
+                 for (name, effort), roles in live(cfg).items()},
+        "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
+                              for effort, did in efforts.items()}
+                       for name, efforts in shares.items()},
+        "runs": runs, "own": mine, "week_meters": plans, "money": paid}))
+    print()
     return 0

@@ -1,8 +1,6 @@
-"""`ak models` prints the models screen's lines, what each role uses and each role's bars (tests/
-test_key_models_bars.py), how many models it compares, then each role's models by the tasks they
-did with the team now (tests/test_key_models_own_tables.py): with no task yet, the models it
-uses; `--json` gives each role's best and line of best quality for the money, and ak's own
-numbers per configured model.
+"""`ak models` prints each role's models by the tasks they did with the team now alone (tests/
+test_key_models_own_tables.py): with no task yet, the models it uses; `--json` gives each role's
+best and line of best quality for the money, and ak's own numbers per configured model.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up;
 judged by the output and exit code.  Fails against /bin/false.
@@ -11,17 +9,13 @@ judged by the output and exit code.  Fails against /bin/false.
 import json
 import sys
 from pathlib import Path
-import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, NOW, boards
+from test_key_models_answer import ENV, boards
 
-ROLES = [*(f"  {role:<12}  Acme Mid 5 low  not on the boards"
-           for role in ("orchestrator", "executor", "reviewer")), ""]
-COMPARED = f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"
 # On 100 cells the three tables fit as columns
 OWN = ["Your team now has no task yet", "",
        "ORCHESTRATOR      tasks  went live  time  usage",
@@ -51,10 +45,8 @@ class ModelsCommand(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         return done.out
 
-    def test_each_role_s_answer_then_each_role_s_models_by_their_tasks(self):
-        shown = [line.rstrip() for line in self.models().splitlines()]
-        self.assertEqual(shown[:len(ROLES)], ROLES)
-        self.assertEqual(shown[shown.index(COMPARED) - 1:], ["", COMPARED, "", *OWN])
+    def test_each_role_s_models_by_their_tasks_alone(self):
+        self.assertEqual(self.models().splitlines(), OWN)
 
     def test_json_gives_each_role_s_front_and_ak_s_own_numbers(self):
         found = json.loads(self.models("--json"))

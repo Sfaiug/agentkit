@@ -18,11 +18,10 @@ HAND_IN_CONCEDE = 'ak hand-in concede PATH:LINE "WHY"'
 # MODEL in usage/examples stands for one of that file's keys.
 COMMANDS = {
     "models": ("usage: ak models [--json] [--refresh]",
-               "Say what each role of the seat it runs in, else new seats, uses, and draw each\n"
-               "role's choices as bars, as the models screen does, off Artificial Analysis and\n"
-               "Arena, each asked once a day; then each role's models by the tasks they did with\n"
-               "the team now.  --refresh asks the boards now, --json prints each role's best and\n"
-               "its line of best quality for the money, with ak's own numbers.",
+               "Print each role's models by the tasks they did with the team now, off no board.\n"
+               "--json prints each role's best and its line of best quality for the money off\n"
+               "Artificial Analysis and Arena, each asked once a day, with ak's own numbers;\n"
+               "--refresh with it asks the boards now.",
                "ak models"),
     "usage": ("usage: ak usage [--json]", "Show provider usage and worker pick order.",
               "ak usage --json"),
