@@ -5830,7 +5830,7 @@ def page_body(rows, at=None, moves=None):
         around = [(1, room, None)] if celled else []
         whole = ([" ".join(text for text, *_ in parts)] if celled
                  else [word for part in parts for word in (
-                     [" ".join(text for text, _ in part)] if isinstance(part, list)
+                     ["".join(text for text, _ in part)] if isinstance(part, list)
                      else part[0].split())])
         if label is not None and any(terminal.cells(word) > left for word in whole):
             # too wide beside the label: the value folds under it, never cut in a word, and so
@@ -5847,8 +5847,8 @@ def page_body(rows, at=None, moves=None):
         indent, gap = terminal.cells(lead), 0
         for part in parts:
             if isinstance(part, list):
-                piece = " ".join(terminal.styled(text, kind) if kind else text
-                                 for text, kind in part)
+                piece = "".join(terminal.styled(text, kind) if kind else text
+                                for text, kind in part)
                 span = terminal.cells(piece)
                 if used and used + gap + span > left:
                     wrapped, used, gap = [*wrapped, []], 0, 0
@@ -6637,9 +6637,12 @@ def config_machines(cfg):
                 apart.append((host, stand_in_value(age, takes), None))
         def row_value(machine):
             work = machines.work(machine.name, cfg)
-            return [*([(on, "accent") if word in work else (off, "dim"), (label, None)]
-                      for word, label in (("turns", "runs"), ("tests", "tests"))),
-                    (machine_value(machine, joined.get(machine.name)), None)]
+            # kept as one unit so runs and tests stay on one line and fold together on narrow rows
+            marks = []
+            for word, label in (("turns", "runs"), ("tests", "tests")):
+                marks += [("  ", None)] * bool(marks) + [
+                    (on, "accent") if word in work else (off, "dim"), (f" {label}", None)]
+            return [marks, (machine_value(machine, joined.get(machine.name)), None)]
         rows = [(machine.name, row_value(machine), opens(machine.name))
                 for machine in known] + apart
         # a file that will not load closes the page, saying why on `c`; read last, so one

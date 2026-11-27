@@ -162,6 +162,28 @@ class MachinesPageShowsTwoMarks(unittest.TestCase):
                       self.row_of(ascii_screen, "acme-idle"))
         self.leave()
 
+    def test_narrow_screen_with_long_name_keeps_both_marks_in_two_aligned_columns(self):
+        host = "acme@acme-mini.example"
+        akconfig.write(self.home, ["fable"], extra=f'[machines."{host}"]\nwork = ["tests"]\n')
+        self.term = Terminal(self.home, "attach", "--overlay", size=(40, 40),
+                             env={"NO_COLOR": "1", "AK_NOW": LATER})
+        self.term.wait("esc leave")
+        self.term.keys("c")
+        self.term.wait(lambda screen: "agentkit · config " in screen and "Machines" in screen)
+        self.term.keys(*(["Down"] * 5))
+        self.term.wait("› Machines")
+        self.term.keys("Enter")
+        screen = self.term.wait(lambda s: "config · machines" in s and host in s
+                                and "+ add a machine" in s and "esc back" in s)
+        self.assertTrue(all(len(line) <= 40 for line in screen.splitlines()), screen)
+        columns = [(runs.start(), tests.start())
+                   for line in screen.splitlines()
+                   if (runs := re.search(r"[●○] runs\b", line))
+                   and (tests := re.search(r"[●○] tests\b", line))]
+        self.assertEqual(len(columns), 2, screen)
+        self.assertEqual(len(set(columns)), 1, screen)
+        self.leave()
+
 
 if __name__ == "__main__":
     unittest.main()

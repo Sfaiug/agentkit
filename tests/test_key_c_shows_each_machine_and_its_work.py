@@ -119,11 +119,12 @@ class MachinesOnC(unittest.TestCase):
     def test_the_keys_turn_the_pages_of_a_row_taller_than_the_page_before_leaving_it(self):
         self.page()
         self.term.resize(25, 9)
-        self.term.wait(lambda screen: "› this one" in screen and "─" * 25 in screen)
+        self.term.wait(lambda screen: "› this one" in screen and "● tests" in screen
+                       and "─" * 25 in screen)
         self.term.keys("Down")
-        # the row's next page: its later words, and no row's label
-        self.term.wait(lambda screen: "cores" in screen and "this one" not in screen
-                       and "acme-" not in screen)
+        # the row's next page: its later words, and the highlight has not moved onto the next row
+        self.term.wait(lambda screen: "busy" in screen and "this one" not in screen
+                       and "› acme-" not in screen)
         self.term.keys("Up")
         self.term.wait("› this one")
         self.leave()

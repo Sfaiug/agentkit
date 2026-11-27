@@ -106,7 +106,8 @@ class TheStandInThatIsListedIsOneRow(unittest.TestCase):
         self.told(takes="back")
         rows = self.rows()
         self.assertEqual(len(rows), 3, rows)
-        self.assertTrue(rows[1].endswith(f"used · {COPY}"), rows)
+        self.assertTrue(rows[1].startswith("acme-box ● runs ● tests new")
+                        and rows[1].endswith(f"used · {COPY}"), rows)
         self.leave()
 
     def test_of_two_listed_machines_that_print_its_name_the_first_takes_it(self):

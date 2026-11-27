@@ -224,15 +224,16 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 		}
 		if len(row.Marks) > 0 {
 			glyphs := []rune(marks)
-			leadParts := make([]part, 0, len(row.Marks))
+			// kept as one unit so runs and tests stay on one line and fold together on narrow rows
+			joined := make([]string, 0, len(row.Marks))
 			for _, m := range row.Marks {
 				glyph, kind := string(glyphs[1]), "dim"
 				if m.On {
 					glyph, kind = string(glyphs[0]), "accent"
 				}
-				leadParts = append(leadParts, part{text: s.Styled(glyph, kind) + " " + m.Word, whole: true})
+				joined = append(joined, s.Styled(glyph, kind)+" "+m.Word)
 			}
-			parts = append(leadParts, parts...)
+			parts = append([]part{{text: strings.Join(joined, "  "), whole: true}}, parts...)
 		}
 		// what never parts across lines: each word, a mark-and-word unit, and a value with arrows
 		// whole, so an arrow stays beside what it steps
