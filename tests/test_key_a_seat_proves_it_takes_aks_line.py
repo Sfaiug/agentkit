@@ -28,10 +28,6 @@ def longest():
     return min([fold for fold in folds if fold] or [8000])
 
 
-def captures(home):
-    return sum(1 for call in home.calls("tmux") if "capture-pane" in call)
-
-
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ASeatProvesItTakesAksLine(unittest.TestCase):
     def drive_probe(self, home, name, wait, drive):
@@ -58,22 +54,22 @@ class ASeatProvesItTakesAksLine(unittest.TestCase):
     def test_seat_takes_line_works_and_returns_to_prompt(self):
         with Home(tmux_log=True) as home:
             seat = Seat(home, "acme", screen=PROMPT)
+            captures = lambda: sum("capture-pane" in call for call in home.calls("tmux"))
 
             def drive(thread):
                 lines = seat.wait_lines(1)
                 seat.show(WORKING)
                 # Captures logged after _settle() read WORKING; at most one is _wait_sent and
                 # the next is step 3, so a third means step 3 passed and step 4 is polling.
-                target, deadline = captures(home) + 3, time.monotonic() + 30
-                while captures(home) < target and thread.is_alive():
+                target, deadline = captures() + 3, time.monotonic() + 30
+                while captures() < target and thread.is_alive():
                     self.assertLess(time.monotonic(), deadline, "probe stopped capturing")
                     time.sleep(0.05)
                 seat.show(PROMPT)
                 return lines
 
             done, lines = self.drive_probe(home, "acme", 30, drive)
-            self.assertEqual(done.code, 0, done.out + done.err)
-            self.assertEqual(len(lines), 1)
+            self.assertEqual((done.code, len(lines)), (0, 1), done.out + done.err)
             self.assertProbeLine(lines[0], longest())
             self.assertEqual(seat.typed(), lines[0] + "\r")
 
@@ -111,7 +107,8 @@ class ASeatProvesItTakesAksLine(unittest.TestCase):
             self.assertIn("Baking…", done.err)
 
     def test_setup_adapter_and_send_errors_report_step_and_screen_rows(self):
-        for step, kind in ((1, "config"), (2, "receipt"), (1, "claude.toml"), (2, "acme.toml")):
+        cases = ((1, "config"), (2, "receipt"), (1, "claude.toml"), (2, "acme.toml"), (2, "short"))
+        for step, kind in cases:
             with self.subTest(step=step, kind=kind), Home() as home:
                 seat, env = Seat(home, "acme", screen=PROMPT), None
                 if kind == "config":
@@ -121,7 +118,9 @@ class ASeatProvesItTakesAksLine(unittest.TestCase):
                 else:
                     adapters = home.root / "adapters"
                     adapters.mkdir()
-                    (adapters / kind).write_text('[[rule]]\nstate = "at_prompt"\nlines = "six"\n')
+                    body = ("[screen]\nfolds_over = 8\n" if kind == "short"
+                            else '[[rule]]\nstate = "at_prompt"\nlines = "six"\n')
+                    (adapters / ("acme.toml" if kind == "short" else kind)).write_text(body)
                     env = {"AGENTKIT_ADAPTER_DIR": str(adapters)}
                 done = home.run(sys.executable, str(PROBE), "acme", "--wait", "1", env=env)
                 self.assertEqual((done.code, seat.typed()), (1, ""), done.out + done.err)

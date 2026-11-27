@@ -1404,9 +1404,9 @@ def pinned(session):
     return dict(session, pane=pane, **({"pid": int(pid)} if pid.isdigit() else {}))
 
 
-def pane_text(session, *, timeout=None):
+def pane_text(session):
     """The whole pane: output above the tail must reset the quiet clock too."""
-    return (pane_capture(session) if timeout is None else pane_capture(session, timeout=timeout)) or ""
+    return pane_capture(session) or ""
 
 
 def pane_capture(session, *, timeout=None):

@@ -38,9 +38,11 @@ def whole_seconds(value):
 
 def probe_line(length):
     """One printable ASCII line of `length` chars asking for foreground `sleep 20` then `OK`."""
-    head = next((text for text in HEADS if length >= len(text)), HEADS[-1])
-    if length <= len(head):
-        return head[:length]
+    head = next((text for text in HEADS if length >= len(text)), None)
+    if head is None:
+        raise ValueError(f"watch.longest()={length} is too short for the probe instruction")
+    if length == len(head):
+        return head
     note = " Ignore this padding:"
     if length >= len(head) + len(note) + 1:
         head += note
@@ -53,15 +55,15 @@ def wait_for(seconds, check, read_pane):
     """Poll `read_pane(timeout)` for at most `seconds` until `check(pane)` holds."""
     if seconds == 0:
         pane = read_pane(None)
-        return check(pane), pane
-    deadline, last = time.monotonic() + seconds, ""
+        return (pane is not None and check(pane)), pane
+    deadline, last = time.monotonic() + seconds, None
     while (budget := deadline - time.monotonic()) > 0:
         pane = read_pane(min(orch.TMUX_CEILING, budget))
-        last = pane or last
+        last = last if pane is None else pane
         remaining = deadline - time.monotonic()
         if remaining < 0:
             return False, last
-        if check(pane):
+        if pane is not None and check(pane):
             return True, last
         if remaining == 0:
             return False, last
@@ -84,38 +86,41 @@ def probe(name, wait):
     except ERRORS as exc:
         return fail(1, str(exc))
 
-    seen = [""]
+    seen = [None]
 
     def read_pane(timeout=None):
         try:
-            pane = (watch.pane_text(session) if timeout is None
-                    else watch.pane_text(session, timeout=timeout))
+            pane = (watch.pane_capture(session) if timeout is None
+                    else watch.pane_capture(session, timeout=timeout))
         except OSError:
-            return ""
-        seen[0] = pane or seen[0]
+            return None
+        if pane is not None:
+            seen[0] = pane
         return pane
+
+    def fresh_pane():
+        return pane if (pane := read_pane()) is not None else (seen[0] or "")
 
     try:
         harness, _ = watch.seat_model(config.load(), session["name"])
     except ERRORS as exc:
-        return fail(1, str(exc), read_pane() or seen[0])
+        return fail(1, str(exc), fresh_pane())
     if not harness:
-        return fail(1, f"seat {session['name']!r} has no configured harness", read_pane() or seen[0])
+        return fail(1, f"seat {session['name']!r} has no configured harness", fresh_pane())
 
     def at_empty(pane):
-        return (watch.screen_state(harness, pane)[0] == "at_prompt"
-                and watch.composer_draft(harness, pane) == "")
+        return watch.screen_state(harness, pane)[0] == "at_prompt" and watch.composer_draft(harness, pane) == ""
 
     def wait_step(step, check, label):
         try:
             ok, pane = wait_for(wait, check, read_pane)
             if ok:
                 return None
-            pane = pane or seen[0]
+            pane = pane if pane is not None else (seen[0] or "")
             state, rule, _ = watch.screen_state(harness, pane)
             draft = watch.composer_draft(harness, pane)
         except ERRORS as exc:
-            return fail(step, str(exc), seen[0] or read_pane())
+            return fail(step, str(exc), seen[0] if seen[0] is not None else fresh_pane())
         shown = draft[:60] + "..." if isinstance(draft, str) and len(draft) > 60 else draft
         return fail(step, f"did not read {label} (state={state!r}, rule={rule!r}, draft={shown!r})", pane)
 
@@ -126,9 +131,9 @@ def probe(name, wait):
     try:
         sent = watch.type_checked(session, probe_line(watch.longest()), logs.append, harness=harness)
     except ERRORS as exc:
-        return fail(2, str(exc), read_pane() or seen[0], logs)
+        return fail(2, str(exc), fresh_pane(), logs)
     if sent is not True:
-        return fail(2, f"type_checked returned {sent!r}", read_pane() or seen[0], logs)
+        return fail(2, f"type_checked returned {sent!r}", fresh_pane(), logs)
 
     code = wait_step(3, lambda p: watch.screen_state(harness, p)[0] == "working", "working")
     return code if code is not None else (wait_step(4, at_empty, "at_prompt with an empty composer again") or 0)
