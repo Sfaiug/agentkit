@@ -126,14 +126,16 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
         long_card, long_wide, _ = self.usage({"default": (58, 3, 3 * 86400),
                                               "second": (40, None, 3 * 86400)},
                                              scope=long_scope, wide={"COLUMNS": "120"})
-        long_lines = long_wide.splitlines()
         self.assertTrue(long_wide.startswith("provider "))
         self.assertEqual(meters.cell(long_wide, "Acme II", "left"), "60%")
-        long_first = next(i for i, line in enumerate(long_lines) if line.startswith("Acme I "))
-        self.assertTrue(long_lines[long_first + 1].startswith(f"  kept for {long_scope}"))
-        value_line = (long_lines[long_first + 1] if "3%" in long_lines[long_first + 1]
-                      else long_lines[long_first + 2])
-        self.assertEqual(long_lines[0].index("left"), value_line.index("3%"))
+        self.assertIn(f"\n  kept for {long_scope}", long_wide)
+        self.assertEqual(
+            long_wide.splitlines()[0].index("left"),
+            next(val.index("3%")
+                 for lines in (long_wide.splitlines(),)
+                 for i, line in enumerate(lines) if line.startswith("Acme I ")
+                 if lines[i + 1].startswith(f"  kept for {long_scope}")
+                 for val in (lines[i + 1] if "3%" in lines[i + 1] else lines[i + 2],)))
         first_card, second_card = long_card.split("\n\n", 2)[:2]
         first_lines = first_card.splitlines()
         self.assertEqual(first_lines[1:4], [
