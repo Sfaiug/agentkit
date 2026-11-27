@@ -1762,16 +1762,17 @@ def pressed(key):
 
 
 @clicks_its_own
-def field(prompt, placeholder="", around=None):
+def field(prompt, placeholder="", around=None, tabs=False):
     """One answer typed a key at a time on a taken keyboard: `readline`'s while the menu has it.
 
     What was typed on Enter; ESC the moment Esc is pressed, which every question reads as going
     back with nothing saved; None for a keyboard that is gone.  Backspace takes the last
-    character back, and a key that types nothing is let go.  `placeholder` is the answer Enter
-    takes with nothing typed, shown dim where the answer goes until a key replaces it.  An answer
-    wider than the screen shows its end, so the line is drawn over in place and never wraps.
-    `around` draws the screen with the field's line and returns its row, counted from 1;
-    a resize draws that frame again too, keeping its keys below the field.
+    character back, and a key that types nothing is let go; with `tabs`, Tab keeps `\\t` (drawn
+    as a space) so a caller that refuses whitespace sees pasted tabs too.  `placeholder` is the
+    answer Enter takes with nothing typed, shown dim where the answer goes until a key replaces
+    it.  An answer wider than the screen shows its end, so the line is drawn over in place and
+    never wraps.  `around` draws the screen with the field's line and returns its row, counted
+    from 1; a resize draws that frame again too, keeping its keys below the field.
     """
     text = ""
     sys.stdout.write("\033[?25h")        # the cursor, where the answer goes
@@ -1785,10 +1786,11 @@ def field(prompt, placeholder="", around=None):
                 end -= 1
                 used += cells(text[end])
             shown = "" if text else cut(placeholder, room)
-            line = f"{prompt}{text[end:]}{styled(shown, 'dim')}"
+            typed = text[end:].replace("\t", " ")
+            line = f"{prompt}{typed}{styled(shown, 'dim')}"
             if around:
                 row = around(line)
-                sys.stdout.write(f"\033[{row};{cells(prompt) + cells(text[end:]) + 1}H")
+                sys.stdout.write(f"\033[{row};{cells(prompt) + cells(typed) + 1}H")
             else:
                 sys.stdout.write(f"\r{line}\033[K"
                                  + (f"\033[{cells(shown)}D" if shown else ""))
@@ -1805,8 +1807,8 @@ def field(prompt, placeholder="", around=None):
                 return None if key.name == "eof" else ESC
             if key.name == "backspace":
                 text = text[:-1]
-            elif key.name in ("char", "space"):
-                text += key.char or " "
+            elif key.name in ("char", "space") or (tabs and key.name == "tab"):
+                text += key.char or ("\t" if key.name == "tab" else " ")
     finally:
         sys.stdout.write("\r\n\033[?25l")
         sys.stdout.flush()

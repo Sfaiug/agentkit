@@ -6,7 +6,9 @@ harness that asks the provider's logins.  No price is ever converted from anothe
 none of these holds in that currency has none.
 """
 
+import decimal
 import math
+import re
 
 from . import config, logins
 
@@ -28,6 +30,17 @@ def typed(cfg, provider, plan, paid="USD"):
     for key in ("paid", paid, provider):
         table = table.get(key) if isinstance(table, dict) else None
     return _price(table.get(plan), positive=True) if isinstance(table, dict) else None
+
+
+def parse(text):
+    """`text` as a price a month: digits, with at most two more after one `.`, above zero and at
+    most MAX_PRICE, int where whole else float; None for anything else."""
+    if not isinstance(text, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,2})?", text):
+        return None
+    value = decimal.Decimal(text)
+    if not (0 < value <= MAX_PRICE):
+        return None
+    return int(value) if value == value.to_integral_value() else float(value)
 
 
 def price(cfg, provider, plan, paid="USD"):
