@@ -69,7 +69,7 @@ class ExecutorsOptional(Sandbox):
         self.assertTrue(record.review_off({"reviewers": [], "review_pr": "https://github.com/acme/api/pull/7", "own_pr": True}))
         self.assertFalse(record.review_off({"reviewers": [], "review_pr": "https://github.com/acme/api/pull/7", "own_pr": False}))
         self.assertFalse(record.review_off({"reviewers": [], "own_pr": False}))
-        self.assertFalse(record.review_off({"reviewers": [], "job_id": "batch"}))
+        self.assertTrue(record.review_off({"reviewers": [], "job_id": "batch"}))
         self.assertFalse(record.review_off({"workers": ["opus"]}))
         self.assertFalse(record.review_off({"reviewers": ["astra"]}))
 
@@ -247,14 +247,14 @@ class ExecutorsOptional(Sandbox):
             watch.resume_exhausted(cfg, providers, log=lambda _: None, now=now)
         spawn.assert_called_once()
 
-    def test_no_reviewer_run_stays_bound_to_its_receipt_and_leaves_jobs_and_other_prs_alone(self):
+    def test_no_reviewer_run_stays_bound_to_its_receipt_and_leaves_other_prs_alone(self):
         import json
         from contextlib import nullcontext
         from types import SimpleNamespace
         from agentkit import job as jobs
 
         config.save_session(self.cfg, "fix-api", "opus", ["opus"], {"reviewers": []})
-        # a job task does not inherit the seat's empty reviewers list
+        # a job task binds the seat's empty reviewers list and reviews nothing, as a lone task
         batch_dir = self.root / "batch"
         policy = {key: row[0] for key, row in config.POLICY.items()}
         policy["review_rounds"] = 3
@@ -264,8 +264,8 @@ class ExecutorsOptional(Sandbox):
                 self.cfg, batch_dir, {"name": "task.md", "task_file": str(self.task)},
                 {}, lambda _: None)
         job_receipt = record.read_state(job_run)
-        self.assertEqual(job_receipt["job_id"], "batch")
-        self.assertFalse(record.review_off(job_receipt))
+        self.assertEqual((job_receipt["job_id"], job_receipt["reviewers"]), ("batch", []))
+        self.assertTrue(record.review_off(job_receipt))
 
         # capture a task receipt and an own-PR receipt, then corrupt/edit the live seat
         task_dir, pr_dir = config.RUNS / "bound-task", config.RUNS / "bound-pr"

@@ -1422,9 +1422,12 @@ def run_job_loop(cfg, job_dir, job):
                 continue
             try:
                 kept = task.get("run_id")
-                saved = record.read_state(config.RUNS / kept) if kept else None
-                policy = record.policy_of(saved) if saved else run.launch_policy(task["task_file"])
-                want_review = False if policy["review_rounds"] == 0 else opts.get("--review")
+                # the task's run decides by its record, and one yet to launch by what it would bind;
+                # a record from before records kept their numbers holds the host's (`policy_of`)
+                state = (record.read_state(config.RUNS / kept) if kept else None) or {
+                    **run.launch_lists(cfg), "policy": run.launch_policy(task["task_file"])}
+                off = record.policy_of(state)["review_rounds"] == 0 or record.review_off(state)
+                want_review = False if off else opts.get("--review")
                 providers = staffing.collect_usage(cfg)
                 staffing.pick_models(cfg, providers, opts.get("--exec"), want_review, lambda _: None)
             except turns.Exhausted:
