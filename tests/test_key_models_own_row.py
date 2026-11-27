@@ -2,13 +2,13 @@
 bars: shaded, its why under it as `others` have theirs, `━` under it while in use, in the first
 of the shaded places, a sixth bar beside five choices.  Once shown it stays until the screen
 closes, and ← and → step onto it at its cost's place among the choices, taking the model and
-the effort the role used: the owner, 12 Nov 2026.  `ak models` draws it the same.
+the effort the role used: the owner, 12 Nov 2026.
 
 Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40 (tests/fixtures/
-akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own, and as `ak models`,
-its harness a fake, the boards held as just asked (tests/test_key_role_choices.py); judged by
-the bars (tests/test_key_models_bars.py reads them), the seat's record and config.toml.  Fails
-against /bin/false.
+akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own, its harness a
+fake, the boards held as just asked (tests/test_key_role_choices.py); judged by the bars
+(tests/test_key_models_bars.py reads them), the seat's record and config.toml.  Fails against
+/bin/false.
 """
 
 import json
@@ -46,7 +46,6 @@ BARS = [("Acme Low 1", "89.0", "≈$1.00", "░ far below", "medium"),
         ("Acme Step 1", "96.0", "≈$4.00", None, "high"),
         ("Acme Dear 1", "95.0", "≈$6.00", "░ beaten", "high"),
         ("Acme Top 1", "100.0", "≈$8.00", None, "high")]
-HEADING = "reviewer · three choices · two more shaded"
 # Low reviews at medium, on [defaults] and on the seat, Top does the rest; every choice is a
 # configured model's, as only those are choices (tests/test_key_models_choices_are_yours.py)
 MODELS = {"low": {"harness": "claude", "model": "acme-low-1", "review_effort": "medium"},
@@ -85,12 +84,14 @@ class OwnRow(unittest.TestCase):
         held(self.home, ROWS)
         self.home.write(f".agentkit/state/session-{SEAT}.json", self.seat.record)
 
-    def reviewer(self, width, seat=None):
-        """`r` on `c`, `width` cells wide, over `seat` or in a window of its own, `›` moved to
-        the reviewer once its bars stand with Low in use."""
-        term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=(width, 60),
+    def reviewer(self, width, seat=None, ready=None, home=None):
+        """`r` on `c` over `home` (the class's), `width` cells wide, over `seat` or in a window
+        of its own, `›` moved to the reviewer once `ready`, by default once its bars stand with
+        Low in use."""
+        home = home or self.home
+        term = Terminal(home, *(("attach", "--overlay") if seat else ()), size=(width, 60),
                         env={**ENV, **({"AGENTKIT_SESSION": seat} if seat else {})})
-        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
+        self.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")
         term.keys("c")
@@ -98,7 +99,7 @@ class OwnRow(unittest.TestCase):
         term.keys("r")
         term.wait("orchestrator · ")
         term.keys("Down", "Down")
-        term.wait(lambda screen: drawn(screen, "reviewer") == want("Acme Low 1"))
+        term.wait(ready or (lambda screen: drawn(screen, "reviewer") == want("Acme Low 1")))
         return term
 
     def record(self):
@@ -139,23 +140,21 @@ class OwnRow(unittest.TestCase):
         self.assertEqual(saved["models"]["low"]["review_effort"], "medium")
         term.wait(lambda screen: drawn(screen, "reviewer") == want("Acme Low 1"))
 
-    def test_ak_models_draws_it(self):
-        self.fresh()
-        done = self.home.ak("models", env={**ENV, "COLUMNS": "100"})
-        self.assertEqual(done.code, 0, done.err)
-        self.assertEqual(drawn(done.out, "reviewer"), want("Acme Low 1"), done.out)
-        self.assertIn("\n  " + HEADING + "\n", done.out)
-
     def test_beside_five_choices_it_is_a_sixth_bar(self):
-        with Home() as home:
-            held(home, FIVE)
-            done = home.ak("models", env={**ENV, "COLUMNS": "100"})
-        self.assertEqual(done.code, 0, done.err)
-        self.assertIn("\n  reviewer · five choices · one more shaded\n", done.out)
-        found = bars(done.out, "reviewer")
-        self.assertEqual([(bar["name"], bar["why"], bar["marked"]) for bar in found],
-                         [("Acme Low 1", "░ far below", True),
-                          *((name, None, False) for _, name, *_ in FIVE[1:])], done.out)
+        home = Home()
+        self.addCleanup(home.close)
+        held(home, FIVE)
+        sixth = [("Acme Low 1", "░ far below", True),
+                 *((name, None, False) for _, name, *_ in FIVE[1:])]
+
+        def ready(screen):
+            try:
+                return ("\n  reviewer · five choices · one more shaded\n" in screen
+                        and [(bar["name"], bar["why"], bar["marked"])
+                             for bar in bars(screen, "reviewer")] == sixth)
+            except (StopIteration, ValueError, IndexError):
+                return False
+        self.reviewer(100, ready=ready, home=home)
 
 
 if __name__ == "__main__":

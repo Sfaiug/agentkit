@@ -3,15 +3,13 @@ then as many of its `others`, best first, as fill five places, shaded, side by s
 the left and the dearer taller; on each its cost, under it its quality, its name wrapped at words
 in its column, on 40 cells and on 100, and its effort, and under a shaded one, standing in whole
 shaded cells and never over a dearer bar, its why led by `░`;
-`━` under the name of the row the role uses.  ↑↓ draw another role's bars; `ak models` prints
-every role's in turn under its role lines, and on 40 cells, its costs $100 and more, all five
-with every line on the screen.  On a page too short for every role's line the heading stays
+`━` under the name of the row the role uses.  ↑↓ draw another role's bars, and on 40 cells,
+its costs $100 and more, all five.  On a page too short for every role's line the heading stays
 over the roles it shows, under a role with no numbers too.
 
-Black-box: `AK_BIN` in a terminal of 40 rows (tests/fixtures/akterm.py) and as `ak models`, a
-fake harness running three of the releases, each for a role of [defaults], the boards held as
-tests/test_key_role_choices.py writes them; judged by the screen and the output.  Fails against
-/bin/false.
+Black-box: `AK_BIN` in a terminal of 40 rows (tests/fixtures/akterm.py), a fake harness running
+three of the releases, each for a role of [defaults], the boards held as
+tests/test_key_role_choices.py writes them; judged by the screen.  Fails against /bin/false.
 """
 
 import re
@@ -118,17 +116,40 @@ class ModelsBars(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         held(cls.home, ROWS)
 
-    def models(self, width=100):
-        """`r` on `c` in a window of its own, 40 rows high, and the screen once the
-        orchestrator's bars are drawn as `want` has them."""
-        term = Terminal(self.home, size=(width, 40), env=ENV)
-        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
+    def opened(self, home, width=100):
+        """`r` on `c` over `home` in a window of its own, 40 rows high."""
+        term = Terminal(home, size=(width, 40), env=ENV)
+        self.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")
         term.keys("c")
         term.wait("r recommended")
         term.keys("r")
+        return term
+
+    def models(self, width=100):
+        """`opened` over the class's home, and the screen once the orchestrator's bars are drawn
+        as `want` has them."""
+        term = self.opened(self.home, width)
         return term, term.wait(lambda screen: drawn(screen, "orchestrator") == want("orchestrator"))
+
+    def each_role(self, rows, width, said, want):
+        """`r` over a home holding `rows` (`held`), `width` cells wide, until each role's bars,
+        ↓ drawing the next, say what `want` of its word has `said` of them."""
+        home = Home()
+        self.addCleanup(home.close)
+        held(home, rows)
+        term = self.opened(home, width)
+        for n, word in enumerate(USES):
+            if n:
+                term.keys("Down")
+
+            def says(screen):
+                try:
+                    return said(bars(screen, word)) == want(word)
+                except (StopIteration, ValueError, IndexError):
+                    return False
+            term.wait(says)
 
     def test_the_role_you_are_on_draws_its_choices_then_others_shaded_the_row_in_use_marked(self):
         _, shown = self.models()
@@ -143,17 +164,13 @@ class ModelsBars(unittest.TestCase):
     def test_a_shaded_bar_stands_in_whole_shaded_cells_never_over_a_dearer_one(self):
         # 7 cells for $8: Long Name's $3 and Dear's $6 end in a part of a cell, and Long Name's
         # whole third cell would stand over Step's 2.75 at $3.20
-        home = Home()
-        self.addCleanup(home.close)
-        held(home, [(*row[:-1], 3.2 if row[1] == "Acme Step 1" else row[-1]) for row in ROWS])
-        done = home.ak("models", env={**ENV, "COLUMNS": "100"})
-        self.assertEqual(done.code, 0, done.err)
-        for word in USES:
-            found = bars(done.out, word)
-            self.assertEqual([bar["glyphs"] for bar in found if bar["shaded"]],
-                             [{"░"}, {"░"}], done.out)
+        def said(found):
             stands = [bar["eighths"] for bar in found]
-            self.assertEqual(stands, sorted(stands), done.out)
+            return ([bar["cost"] for bar in found],
+                    [bar["glyphs"] for bar in found if bar["shaded"]], stands == sorted(stands))
+        costs = ["≈$2.00", "≈$3.00", "≈$3.20", "≈$6.00", "≈$8.00"]
+        self.each_role([(*row[:-1], 3.2 if row[1] == "Acme Step 1" else row[-1]) for row in ROWS],
+                       100, said, lambda word: (costs, [{"░"}, {"░"}], True))
 
     def test_up_and_down_draw_another_roles_bars(self):
         term, _ = self.models()
@@ -198,28 +215,13 @@ class ModelsBars(unittest.TestCase):
             ["quality", "$"], ["Acme", "Top"], ["›", "reviewer"], ["Acme", "Long"],
             ["Pro", "high"]])
 
-    def test_ak_models_prints_every_roles_bars_in_turn_under_its_role_lines(self):
-        done = self.home.ak("models", env={**ENV, "COLUMNS": "100"})
-        self.assertEqual(done.code, 0, done.err)
-        shown, heads = done.out.split("\n"), ["  " + HEADING.format(word) for word in USES]
-        self.assertEqual([line for line in shown if line in heads], heads, done.out)
-        self.assertLess(next(n for n, line in enumerate(shown)
-                             if line.strip().startswith("quality ")), shown.index(heads[0]))
-        for word in USES:
-            self.assertEqual(drawn(done.out, word), want(word), done.out)
-
     def test_on_40_cells_costs_of_100_and_more_draw_all_five_on_the_screen(self):
-        with Home() as home:      # each cost fiftyfold, in whole dollars from $100 on
-            held(home, [(*row, 50 * cost) for *row, cost in ROWS])
-            done = home.ak("models", env={**ENV, "COLUMNS": "40"})
-        self.assertEqual(done.code, 0, done.err)
-        self.assertEqual([line for line in done.out.split("\n") if len(line) > 40], [], done.out)
+        # each cost fiftyfold, in whole dollars from $100 on
         costs = ["≈$100", "≈$150", "≈$200", "≈$300", "≈$400"]
-        for word in USES:
-            found = bars(done.out, word)
-            self.assertEqual([(bar["name"], bar["cost"]) for bar in found],
-                             [(name, cost) for (name, *_), cost in zip(BARS, costs)], done.out)
-            self.assertEqual([bar["name"] for bar in found if bar["marked"]], [USES[word]])
+        self.each_role([(*row, 50 * cost) for *row, cost in ROWS], 40, lambda found: (
+            [(bar["name"], bar["cost"]) for bar in found],
+            [bar["name"] for bar in found if bar["marked"]]), lambda word: (
+            [(name, cost) for (name, *_), cost in zip(BARS, costs)], [USES[word]]))
 
 
 if __name__ == "__main__":
