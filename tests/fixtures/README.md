@@ -312,6 +312,10 @@ seat opened without `--dangerously-skip-permissions`; `antigravity-question-pane
 seat at its prompt after one Ctrl-C, and `antigravity-terms-ctrl-c-pane.txt` the terms page a
 first run opens on, after one Ctrl-C.
 
+`antigravity-1.5-working-pane.txt` was captured with `tmux capture-pane -e -p -J` on
+2026-11-27 from an agy 1.5.18 seat running a command. The spinner and tip sit above the
+120-column composer, which has no footer. Only the prompt and command words were replaced.
+
 ## Seat-state captures (v5n)
 
 `claude-question-pane.txt` derives from the 2026-09-28 ANSI capture of an AskUserQuestion
