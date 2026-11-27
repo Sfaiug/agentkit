@@ -6095,11 +6095,13 @@ def models_page(cfg, keyboard):
         ids = {model["id"] for model, _ in rows if model}
         rows += [({"id": model, "label": label}, None)
                  for model, label in ran[harness].items() if model not in ids]
-        # compare against the harness's full catalog, so a model whose provider needs a login still
-        # supersedes an older release of its line, and a removed older release is not offered `□`
-        offered = {model["id"] for model in releases.newest(
-            [model for model, _ in rows if model], among=catalog)}
-        return rows, offered, said
+        # compare against the harness's full catalog (reconciling each row's id to its catalog
+        # label) plus any unlisted history rows, so two releases of one line are never both `□`
+        by_id = {model["id"]: model for model in catalog}
+        listed_models = [by_id.get(model["id"], model) for model, _ in rows if model]
+        pool = [*catalog, *(model for model in listed_models if model["id"] not in by_id)]
+        offered = {model["id"] for model in releases.newest(listed_models, among=pool)}
+        return rows, offered, bool(catalog), said
 
     def ticks(harness):       # the list a harness's row opens
         got = []
@@ -6114,10 +6116,11 @@ def models_page(cfg, keyboard):
         def choices():
             if not got:
                 got.append(listing(harness))
-            rows, offered, said = got[0]
+            rows, offered, has_catalog, said = got[0]
             shown = [(model, row) for model, row in rows
                      if not model or on(harness, model["id"]) or model["id"] in offered]
-            note = said or ("" if shown else "its catalog lists no model")
+            note = said or ("" if shown else
+                            "no model to offer" if has_catalog else "its catalog lists no model")
             return [([(full, "accent") if on(harness, model["id"]) else (empty, "dim"),
                       (model["label"], None)],
                      lambda model=model, row=row: tick(harness, model, row),
