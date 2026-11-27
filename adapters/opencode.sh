@@ -280,6 +280,65 @@ interactive)
   # %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
   sq="'"; first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
     first=" --prompt='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"
+  # Keep OpenCode's TUI from drawing its `Free limit reached` upsell dialog (2.4.2, 26 Nov
+  # 2026): when a turn hits the free limit with an empty composer it opens over the session
+  # with `subscribe` selected, standing above the last 15 rows ak reads so no screen rule can
+  # reach it, and the next Enter ak types lands on `subscribe`.  OpenCode has no flag or
+  # config key for it; setting `dontShow` in each existing channel's `tui/go-upsell.json`
+  # before launch is its only switch (27 Nov 2026, 2.4.2), picking `don't show again` ahead
+  # of time.  Owner, 19 Nov 2026 (of Claude Code's spent-window menu): "Should always pick
+  # stop and wait for limit to reset"; 26 Nov 2026: "I want you to also apply to every other
+  # harness. All should work the same way with ak."  Only `tui` folders OpenCode has already
+  # made are touched, each write is atomic via a sibling temp file, and an unwritable state
+  # folder never fails a launch.
+  for tui in "${XDG_STATE_HOME:-$HOME/.local/state}/opencode"/*/tui; do
+    [ -d "$tui" ] || continue
+    note="$tui/go-upsell.json"
+    # Skip non-files: `mv` into a directory or symlink to one drops the temp file inside it.
+    [ -e "$note" ] && [ ! -f "$note" ] && continue
+    src=/dev/null
+    if [ -f "$note" ]; then
+      [ -r "$note" ] || continue
+      raw=""
+      if ! { LC_ALL=C IFS= read -r -d '' raw <"$note"; } 2>/dev/null; then
+        # No NUL byte in $note; jq decodes strict RFC 3629 UTF-8 and replaces any invalid
+        # sequence with U+FFFD, so round-tripping matches byte-for-byte iff $note is UTF-8.
+        decoded=$(LC_ALL=C jq -jRs '. + "x"' <"$note" 2>/dev/null) || continue
+        [ "${raw}x" = "$decoded" ] && src=$note
+      fi
+    fi
+    # Strict RFC 8259 check (jq accepts leading zeroes and BOM) and lone-surrogate preservation
+    # (jq errors on lone high surrogates and replaces lone low surrogates with U+FFFD).
+    body=$({ jq -rRs '
+      def strict_json:
+        [match("([ \\t\\r\\n]+|[{}\\[\\]:,]|\"(?:[^\"\\\\\\x00-\\x1f]|\\\\(?:[\"\\\\/bfnrt]|u[0-9a-fA-F]{4}))*\"|[^ \\t\\r\\n{}\\[\\]:,\"]+)"; "g")] as $t
+        | (($t | map(.length) | add // 0) == length)
+          and ($t | all(.string | test("^[ \\t\\r\\n{}\\[\\]:,\"]|^(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)$")));
+      def protect($s):
+        gsub("(?<s>\"(?:[^\"\\\\]|\\\\.)*\")";
+          .s | gsub("(?<p>\\\\u[dD][89abAB][0-9a-fA-F]{2}\\\\u[dD][cdefCDEF][0-9a-fA-F]{2})|\\\\u(?<h>[dD][89abABcdefCDEF][0-9a-fA-F]{2})|(?<e>\\\\.)";
+            if .h then $s + .h else .p // .e end));
+      if strict_json then
+        (([scan("\\\\u0001")] | length) + 1) as $n
+        | ("\\u0001" * $n) as $s | ("\\\\u0001" * $n) as $re
+        | (protect($s) | try fromjson catch null)
+        | if type == "object" then
+            if .dontShow == true then empty
+            else (.dontShow = true | tojson
+              | gsub("(?<p>" + $re + "(?<h>[0-9a-fA-F]{4}))|(?<e>\\\\.)";
+                  if .h then "\\u" + .h else .e end)) end
+          else "{\"dontShow\":true}" end
+      else "{\"dontShow\":true}" end' <"$src"; } 2>/dev/null) || continue
+    [ -n "$body" ] || continue
+    tmp=$(mktemp "$tui/.go-upsell.XXXXXX" 2>/dev/null) || continue
+    # Write in a subshell with SIGXFSZ ignored so an RLIMIT_FSIZE cap cannot kill the launcher.
+    if ( trap '' XFSZ 2>/dev/null; printf '%s\n' "$body" >"$tmp" ) 2>/dev/null \
+        && mv -f -- "$tmp" "$note" 2>/dev/null; then
+      :
+    else
+      rm -f -- "$tmp" 2>/dev/null || true
+    fi
+  done
   # The pane does not inherit the adapter's fallback PATH.
   printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %s%s %s--standalone --auto%s\n' \
       "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "'${binary//$sq/$sq\\$sq$sq}'" "$resume" "$first" ;;
