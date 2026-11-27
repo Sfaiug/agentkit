@@ -6286,10 +6286,8 @@ def plan_rows(cfg, counts, write):
 
     def take(provider, plan):
         def field(draw):
-            fallback = ("the provider's price" if money.provider_price(cfg, provider) is not None
-                        else "the list price")
-            typed = terminal.field("    ", f"a month · empty: {fallback}",
-                                   around=lambda line: draw([line]))
+            typed = terminal.field("    ", "a month · empty: the list price",
+                                   around=lambda line: draw([line]), tabs=True)
             if typed is None or terminal.is_esc(typed):
                 return ""
             value = money.parse(typed) if typed else None

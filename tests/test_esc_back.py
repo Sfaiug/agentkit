@@ -373,15 +373,17 @@ class EscBack(unittest.TestCase):
     def test_a_field_edits_and_answers_on_the_keys(self):
         Key = terminal.Key
 
-        def typed(*keys, placeholder=""):
+        def typed(*keys, placeholder="", tabs=False):
             with patch.object(terminal, "read_key", side_effect=keys), \
                     redirect_stdout(io.StringIO()):
-                return terminal.field("Name: ", placeholder)
+                return terminal.field("Name: ", placeholder, tabs=tabs)
 
         self.assertEqual(typed(Key("char", "a"), Key("char", "b"), Key("backspace"),
                                Key("char", "c"), Key("enter")), "ac")
         self.assertEqual(typed(Key("char", "1"), Key("tab"), Key("char", "0"),
-                               Key("enter")), "1\t0")
+                               Key("enter")), "10")
+        self.assertEqual(typed(Key("char", "1"), Key("tab"), Key("char", "0"),
+                               Key("enter"), tabs=True), "1\t0")
         self.assertEqual(typed(Key("enter"), placeholder="auto"), "")   # the caller's default
         self.assertEqual(typed(Key("char", "q"), Key("esc")), terminal.ESC)
         # wide characters are two cells each: no line drawn is wider than the screen
