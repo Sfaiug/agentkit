@@ -4956,21 +4956,22 @@ def unhanded(path, before):
 
 def default_crew(cfg, providers, default):
     """What a new seat starts from: `default` orchestrating, and [defaults]' executors and
-    reviewers, each with something left to spend.  A group all spent falls back by tier -- a
-    fresh model not the other group's own first -- among those a run could start from, else any
-    fresh one."""
+    reviewers, each with something left to spend.  A group [defaults] leaves empty stays empty:
+    with no executor the orchestrator builds everything, with no reviewer a change lands on its
+    checks.  A group all spent falls back by tier -- a fresh model not the other group's own
+    first -- among those a run could start from, else any fresh one; with every model spent,
+    `default`, launched anyway as `choose` launches it, reviews and nobody builds."""
     names, (lineup, _) = config.offered(cfg), matrix.listed()
     fresh = [name for name in names if not spent_note(cfg, name, providers)]
     model = next((name for name in [default, *in_order(cfg)] if name in fresh), None)
     base = cfg["defaults"]
-    selected = {"orchestrator": model,
-                "workers": [name for name in base["workers"] if name in fresh],
-                "reviewers": [name for name in base.get("reviewers", base["workers"])
-                              if name in fresh]}
+    marked = {"workers": base["workers"], "reviewers": base.get("reviewers", base["workers"])}
+    selected = {"orchestrator": model or default,
+                **{role: [name for name in marked[role] if name in fresh] for role in marked}}
     for role, other in (("workers", "reviewers"), ("reviewers", "workers")):
-        if not selected[role]:
-            # executors left empty on purpose stay empty: the orchestrator builds everything
-            if not fresh or role == "workers" and not base["workers"]:
+        if not selected[role] and marked[role]:
+            if not fresh:
+                selected[role] = [default] if role == "reviewers" else []
                 continue
             peers = selected[other] or ([model] if role == "reviewers" and model else fresh)
             permitting = [name for name in fresh if not role_refusal(

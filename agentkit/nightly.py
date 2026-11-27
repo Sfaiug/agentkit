@@ -95,7 +95,7 @@ def _start(checkout, started, names, tests):
     if refusal or rivals:
         raise config.Error(refusal or f"{rivals[0]['id']} is under way")
     cfg = config.load()
-    defaults = cfg["defaults"]
+    defaults = config.run_defaults(cfg)
     workers = defaults["workers"] or [defaults["orchestrator"]]
     directory = handback.free_run_dir(gitcall.slugify(title))
     directory.mkdir(parents=True)
