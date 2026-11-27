@@ -3,7 +3,6 @@
 from contextlib import contextmanager, suppress
 import copy
 import datetime
-import decimal
 import fcntl
 import hashlib
 import json
@@ -415,18 +414,83 @@ def repo_env(repo):
     return env
 
 
-def _decimal_literal(raw):
-    """A TOML float literal string as an exact Decimal; an exponent past Decimal's own range
-    maps to 0, a tiny positive rate inside (0, 100), or Infinity when outside [0, 100]."""
-    try:
-        return decimal.Decimal(raw)
-    except decimal.InvalidOperation:
-        mantissa, _, exp = raw.lower().partition("e")
-        if not any(ch in "123456789" for ch in mantissa):
-            return decimal.Decimal(0)
-        if not mantissa.startswith("-") and exp.startswith("-"):
-            return decimal.Decimal("1e-999999")
-        return decimal.Decimal("Infinity")
+class ExactFloat(float):
+    """A float carrying the exact TOML literal string it was read from, so range checks, cent
+    rounding and config saves never suffer binary float conversion."""
+    __slots__ = ("raw",)
+
+    def __new__(cls, raw):
+        obj = super().__new__(cls, float(raw))
+        obj.raw = raw
+        return obj
+
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
+
+def parse_decimal(value):
+    """Exact `(sign, coeff, ndigits, exp10)` for a finite int, float or ExactFloat representing
+    `sign * coeff * 10**exp10` with canonical `coeff` (no trailing zeros, `sign = 1` when 0), or
+    None when not a finite number."""
+    if type(value) is int:
+        if value == 0:
+            return 1, 0, 1, 0
+        sign = -1 if value < 0 else 1
+        magnitude = -value if value < 0 else value
+        if magnitude >= 10 ** 4000:
+            return sign, magnitude, 4001, 0
+        digits = str(magnitude)
+        trimmed = digits.rstrip("0")
+        return sign, int(trimmed), len(trimmed), len(digits) - len(trimmed)
+    if isinstance(value, ExactFloat):
+        raw = value.raw
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        raw = str(value)
+    else:
+        return None
+    text = raw.lower().replace("_", "")
+    if "nan" in text or "inf" in text:
+        return None
+    sign = -1 if text.startswith("-") else 1
+    if text[0] in "+-":
+        text = text[1:]
+    mantissa, _, exponent = text.partition("e")
+    whole, _, frac = mantissa.partition(".")
+    digits = (whole + frac).lstrip("0")
+    if not digits:
+        return 1, 0, 1, 0
+    trimmed = digits.rstrip("0")
+    trailing = len(digits) - len(trimmed)
+    coeff = read_whole(trimmed)
+    if exponent:
+        exp_sign = -1 if exponent.startswith("-") else 1
+        exp_digits = exponent[1:] if exponent[0] in "+-" else exponent
+        exp_val = exp_sign * read_whole(exp_digits)
+    else:
+        exp_val = 0
+    return sign, coeff, len(trimmed), exp_val - len(frac) + trailing
+
+
+def in_power10(value, power, *, positive=False):
+    """Whether `value` is a finite non-boolean number at most `10**power` (above 0 with
+    `positive`, else at least 0), judged on its exact decimal literal when `ExactFloat`."""
+    if type(value) is int:
+        return (0 < value <= 10 ** power) if positive else (0 <= value <= 10 ** power)
+    parsed = parse_decimal(value)
+    if parsed is None:
+        return False
+    sign, coeff, ndigits, exp10 = parsed
+    if sign < 0 or (positive and coeff == 0):
+        return False
+    if coeff == 0:
+        return True
+    mag = ndigits - 1 + exp10
+    return mag < power or (mag == power and coeff == 1)
 
 
 def _read_toml(path):
@@ -443,11 +507,21 @@ def _read_toml(path):
         data = tomllib.loads(raw)
     except (ValueError, RecursionError) as exc:   # bad TOML, or past Python's digit or depth limit
         raise Error(f"{path}: {exc}")
-    # Keep `[money] vat` as exact Decimal so binary float conversion never rounds a written rate
-    # across 0, 100 or a half-cent boundary.
-    if isinstance(data.get("money"), dict) and isinstance(data["money"].get("vat"), float):
-        data["money"]["vat"] = _decimal_literal(
-            tomllib.loads(raw, parse_float=str)["money"]["vat"])
+    # Keep `[money] vat` and manifest plan list prices as ExactFloat so binary float conversion
+    # never rounds a written rate across 0, 100 or a half-cent boundary, or alters it on save.
+    money = data.get("money")
+    has_vat = isinstance(money, dict) and isinstance(money.get("vat"), float)
+    plan_tables = [name for name in ("plans", "plans_eur")
+                   if isinstance(data.get(name), dict)
+                   and any(isinstance(value, float) for value in data[name].values())]
+    if has_vat or plan_tables:
+        exact = tomllib.loads(raw, parse_float=ExactFloat)
+        if has_vat:
+            money["vat"] = exact["money"]["vat"]
+        for name in plan_tables:
+            for key, value in exact[name].items():
+                if isinstance(value, ExactFloat):
+                    data[name][key] = value
     return data
 
 
@@ -692,13 +766,8 @@ def load():
         raise Error(f"{held('money')}: [money] must be a table")
     if cfg.get("money", {}).get("currency", "USD") not in ("USD", "EUR"):
         raise Error(f'{held("money")}: [money] currency must be "USD" or "EUR"')
-    if "vat" in cfg.get("money", {}):
-        vat = cfg["money"]["vat"]
-        if not ((type(vat) is int
-                 or (isinstance(vat, float) and math.isfinite(vat))
-                 or (isinstance(vat, decimal.Decimal) and vat.is_finite()))
-                and 0 <= vat <= 100):
-            raise Error(f"{held('money')}: [money] vat must be a number from 0 to 100")
+    if "vat" in cfg.get("money", {}) and not in_power10(cfg["money"]["vat"], 2):
+        raise Error(f"{held('money')}: [money] vat must be a number from 0 to 100")
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
@@ -1265,16 +1334,12 @@ def _toml_value(value):
         return "true" if value else "false"
     if isinstance(value, int):
         return whole(value)
+    if isinstance(value, ExactFloat):
+        return value.raw
     if isinstance(value, float):
         if math.isnan(value):       # repr drops the sign tomllib reads of -nan
             return "-nan" if math.copysign(1, value) < 0 else "nan"
         return repr(value)      # inf and -inf as TOML spells them too
-    if isinstance(value, decimal.Decimal):
-        if value.is_nan():
-            return "-nan" if value.is_signed() else "nan"
-        if value.is_infinite():
-            return "-inf" if value.is_signed() else "inf"
-        return str(value)
     if isinstance(value, str):
         return _toml_string(value)
     if isinstance(value, list):

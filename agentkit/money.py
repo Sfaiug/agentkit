@@ -9,7 +9,6 @@ currency has none.
 """
 
 import decimal
-import math
 import re
 
 from . import config, logins
@@ -73,26 +72,27 @@ def price(cfg, provider, plan, paid="USD"):
 
 def _with_vat(found, rate):
     """`found` with `rate` percent added, rounded to the cent (a half cent up), int where whole
-    else float.  Exact in Decimal so a written rate near a half-cent boundary never crosses it."""
-    base = decimal.Decimal(str(found))
-    percent = rate if isinstance(rate, decimal.Decimal) else decimal.Decimal(str(rate))
-    with decimal.localcontext() as ctx:
-        ctx.Emin = decimal.MIN_EMIN
-        ctx.Emax = decimal.MAX_EMAX
-        ctx.prec = max(28, len(base.as_tuple().digits) + len(percent.as_tuple().digits) + 2)
-        extra = base * percent / 100
-        if extra:
-            floor = min(base.as_tuple().exponent, -3)
-            if extra.adjusted() < floor - 1:
-                total = base
-            else:
-                low = min(floor, extra.as_tuple().exponent)
-                ctx.prec = max(ctx.prec, max(base.adjusted(), extra.adjusted()) - low + 4)
-                total = base + extra
-        else:
-            total = base
-        total = total.quantize(decimal.Decimal("0.01"), rounding=decimal.ROUND_HALF_UP)
-    return int(total) if total == total.to_integral_value() else float(total)
+    else float.  Exact in decimal integers so neither a manifest price nor a written rate near a
+    half-cent boundary ever crosses it."""
+    _, f_coeff, f_ndigits, f_exp = config.parse_decimal(found)
+    _, r_coeff, r_ndigits, r_exp = config.parse_decimal(rate)
+    if f_coeff == 0:
+        return 0
+    f_mag = f_ndigits - 1 + f_exp
+    if f_mag < -3:      # under $0.001, even +100% is under 0.2 cents
+        return 0
+    r_mag = r_ndigits - 1 + r_exp
+    if r_coeff == 0 or f_mag + r_mag + 2 <= min(f_exp + 2, -1):
+        e1 = f_exp + 2
+        scale = max(0, -e1)
+        total = f_coeff * 10 ** (e1 + scale)
+    else:
+        e1, e2 = f_exp + 2, f_exp + r_exp
+        scale = max(0, -e1, -e2)
+        total = f_coeff * 10 ** (e1 + scale) + f_coeff * r_coeff * 10 ** (e2 + scale)
+    unit = 10 ** scale
+    cents = (2 * total + unit) // (2 * unit)
+    return cents // 100 if cents % 100 == 0 else cents / 100
 
 
 def month(cfg, plans):
@@ -107,9 +107,4 @@ def month(cfg, plans):
 def _price(value, *, positive=False):
     """`value`, as the table holds it, when it is a finite number (no boolean) up to MAX_PRICE,
     at least 0 or above 0 with `positive`, else None."""
-    ok = (lambda n: 0 < n <= MAX_PRICE) if positive else (lambda n: 0 <= n <= MAX_PRICE)
-    if type(value) is int:
-        return value if ok(value) else None
-    if isinstance(value, float) and math.isfinite(value) and ok(value):
-        return value
-    return None
+    return value if config.in_power10(value, 6, positive=positive) else None
