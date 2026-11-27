@@ -148,6 +148,7 @@ class InstallCtrlCSkipsGithubSignIn(unittest.TestCase):
             "--dev", "/dev",
             "--proc", "/proc",
             "--tmpfs", "/tmp",
+            "--ro-bind", str(REPO), str(REPO),
             "--bind", str(self.root), str(self.root),
             "--ro-bind", str(self.passwd), "/etc/passwd",
             "--",
