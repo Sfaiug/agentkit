@@ -133,6 +133,10 @@ background shell, a draft under the first Esc's `Esc:press again to clear`, and 
 under its one-row dropdown. Each is cut to the rows `watch.pane_tail` reads; the one workspace
 path left in them was replaced by an invented one.
 
+`grokbuild-limit-free-pane.txt` and `grokbuild-limit-weekly-pane.txt` are Grok Build 1.0.92
+80-column captures against a loopback server refusing the request (2026-11-26): the allowance
+cards for a spent free login and a spent paid week.
+
 `grok-events.jsonl` is a real headless turn (`grok -p`, one line in, `ok` out), kept whole
 so `history.event_tokens` reads the harness's own `usage` objects. `grok-hook-*.json` are
 real hook payloads from a logging hook that was removed again (home directory normalised):
