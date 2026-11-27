@@ -10,14 +10,17 @@ record holding another for the role since.
 Black-box: the program `AK_BIN` names in a terminal of 100 cells (tests/fixtures/akterm.py)
 over a seat (tests/fixtures/akseat.py), its harness a fake running three of four invented
 releases, one at two efforts, the boards held as just asked (tests/test_key_role_choices.py);
-another window's save is the config and the record rewritten behind the open screen.  Judged
-by the seat's record and the screen.  Fails against /bin/false.
+another window's save is the config and the record rewritten behind the open screen, the
+record as ak writes one.  Judged by the seat's record and the screen.  Fails against /bin/false.
 """
 
+from contextlib import contextmanager
+import fcntl
 import json
 import re
 import sys
 from pathlib import Path
+import threading
 import time
 import unittest
 
@@ -79,7 +82,7 @@ class RoleEditOnTheRecord(unittest.TestCase):
         `models`."""
         akconfig.write(self.home, MODELS, **CREW)
         hold(self.home, ROWS)
-        self.home.write(f".agentkit/state/session-{SEAT}.json", record)
+        self.save(record)
         term = Terminal(self.home, "attach", "--overlay", size=(100, 60),
                         env={**ENV, "AGENTKIT_SESSION": SEAT})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
@@ -96,10 +99,24 @@ class RoleEditOnTheRecord(unittest.TestCase):
         """Another window's save behind the open screen: the config gaining FRESH, and the
         record `record`."""
         akconfig.write(self.home, {**MODELS, **FRESH}, **CREW)
-        self.home.write(f".agentkit/state/session-{SEAT}.json", record)
+        self.save(record)
 
     def record(self):
         return json.loads(self.path.read_text())
+
+    @contextmanager
+    def locked(self):
+        """The seat's record held as each of ak's writers holds it while it reads, changes and
+        writes it (config.update_session): one at a time, under its lock."""
+        with self.path.with_name(f".{self.path.stem}.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+
+    def save(self, record):
+        """The seat's record replaced by `record` as ak writes one, under its lock through the
+        `.tmp` its writers share: an ak writing it as the save comes puts back nothing it read."""
+        with self.locked():
+            self.home.write(self.path.with_suffix(".tmp"), record).replace(self.path)
 
     def until(self, test, what):
         deadline = time.monotonic() + 30
@@ -140,6 +157,19 @@ class RoleEditOnTheRecord(unittest.TestCase):
                 opened = {**self.seat.record, field: ["step"], "efforts": {"step": {"effort": "high"}}}
                 _, record = self.take(opened, {**opened, field: ["top"]}, field, "Left")
                 self.assertEqual(record["efforts"]["step"][effort[field]], "medium")
+
+    def test_a_save_since_outlasts_a_write_under_way(self):
+        # an ak writing the record as the save comes, as an earlier screen's tick adds the `repo`
+        # a record the test wrote lacks: the save waits for it, so it puts back nothing
+        self.since(self.seat.record)
+        with self.locked():
+            read = self.record()
+            saving = threading.Thread(target=self.since, args=({**read, "workers": ["top"]},))
+            saving.start()
+            saving.join(1)          # a save that waits for no lock is written by now
+            self.home.write(self.path, {**read, "repo": None})
+        saving.join()
+        self.assertEqual(self.record()["workers"], ["top"])
 
     def test_a_flip_keeps_both_roles_marks_saved_since(self):
         crew = self.seat.record
