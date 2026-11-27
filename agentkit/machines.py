@@ -269,7 +269,7 @@ def _record():
     not one: ak writes neither, and a check it keeps stays."""
     try:
         record = json.loads(_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):     # none, or none a parser here can hold
+    except (OSError, ValueError):
         return {}
     return {name: was if isinstance(was.get("said") or {}, dict) else {**was, "said": None}
             for name, was in record.items() if isinstance(was, dict)} \
