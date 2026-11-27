@@ -2867,7 +2867,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 if marks is not None:
                     marks.append(None)
                 break
-            if held and not handed:
+            if lacked and held and not handed:
                 held_none = True
             else:
                 ok &= code == 0

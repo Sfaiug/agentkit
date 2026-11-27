@@ -290,6 +290,10 @@ class FlakyRerun(unittest.TestCase):
                                               shard="1/1", only=["gone"], chosen=True)
                 self.assertIs(ok, answer, text)
                 self.assertEqual(self.count(), goes, text)
+        # a check of no chosen tests is red by its exit, whatever an earlier go left in `absent`
+        ok, text = gate.run_done_when(["exit 7"], self.root, self.run_dir / "donewhen.log", set(),
+                                      limit=30, absent=["gone"])
+        self.assertIs(ok, False, text)
 
 
 if __name__ == "__main__":
