@@ -13,13 +13,12 @@ import (
 	"time"
 )
 
-// A helper told to end starts a child and exits: that child carries the marker too, and goes with it.
+// A helper told to end starts a child deaf to TERM and exits: that child carries the marker too, and
+// goes with it all the same.
 func TestASweepEndsWhatAProcessStartsOnItsWayOut(t *testing.T) {
-	defer func(grace time.Duration) { endGrace = grace }(endGrace)
-	endGrace = 300 * time.Millisecond
 	marker := t.TempDir()
 	child, ready := filepath.Join(marker, "child"), filepath.Join(marker, "ready")
-	cmd := exec.Command("sh", "-c", `trap 'sleep 60 & echo $! >"$1"; exit 0' TERM; : >"$2"; while :; do sleep 0.02; done`, "sh", child, ready)
+	cmd := exec.Command("sh", "-c", `trap 'trap "" TERM; sleep 60 & echo $! >"$1"; exit 0' TERM; : >"$2"; while :; do sleep 0.02; done`, "sh", child, ready)
 	cmd.Env = append(os.Environ(), Marker+"="+marker)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

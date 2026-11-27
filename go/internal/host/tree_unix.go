@@ -9,7 +9,7 @@ import (
 
 // EndTree ends that process and everything below it, Python's watch.kill_tree.
 func EndTree(pid int) {
-	end(func() []int { return below(pid) }, io.Discard)
+	end(func() ([]int, bool) { return below(pid), false }, io.Discard)
 }
 
 // below is that process and every process under it, this one aside.
