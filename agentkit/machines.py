@@ -103,7 +103,10 @@ def work(name, cfg=None):
         return ["turns", "tests"]
     named = cfg.get("machines")
     table = named.get(name, {}) if isinstance(named, dict) else {}
-    said = _record().get(name, {}).get("said") or {}
+    try:
+        said = _record().get(name, {}).get("said") or {}
+    except RecursionError:      # nested past the parser: no answer here, and no write replaces it
+        said = {}
     turns = cfg["turns_on_machines"] is True if "turns_on_machines" in cfg else \
         said.get("system") == "Linux" and not said.get("battery")
     marked = table["work"] if isinstance(table, dict) and "work" in table else \
