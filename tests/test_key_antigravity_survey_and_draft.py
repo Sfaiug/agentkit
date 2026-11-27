@@ -1,15 +1,12 @@
 """An agy feedback survey leaves the transcript visible and takes the composer's place."""
 import json
-from pathlib import Path
 import shlex
 import sys
 import time
 import unittest
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import REAL_TMUX, Home, boxable
+from fixtures.akbin import REAL_TMUX, REPO, Home, boxable
 from fixtures.akseat import FIXTURES, PANE, Seat
 
 RULE = "─" * 64
@@ -35,33 +32,49 @@ class AntigravitySurvey(unittest.TestCase):
                     settings = json.loads(args[args.index("--settings") + 1])
                     self.assertIs(settings["showFeedbackSurvey"], False)
 
+    @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
     def test_composer_absent_below_historical_prompts(self):
-        from agentkit import watch
-
         permission = ("Run this command?\n> 1. Yes, run command\n  2. No, cancel\n"
                       "  ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command")
         question = ("Question 1/1: Which acme task?\n> 1. Build\n  2. Test\n"
                     "  ↑/↓ Navigate · enter Select · esc Skip")
-        for bottom in (SURVEY, permission + "\nesc to cancel", question + "\nesc to cancel"):
-            with self.subTest(bottom=bottom.splitlines()[-1]):
-                self.assertIsNone(watch.composer_draft("antigravity", HISTORY + bottom))
-
-    def test_tip_preserves_the_quota_refusal(self):
-        from agentkit import watch
-
-        self.assertEqual(watch.stalled_on("antigravity", HISTORY + TIP + "\n" + COMPOSER,
-                                          None, self.fail), "exhausted your quota")
-        typed = f"{TIP}\n{RULE}\n> finish acme\n{RULE}\n  acme  /agents"
-        self.assertEqual(watch.screen_state("antigravity", typed), ("draft", "draft.typed",
-                                                                    "finish acme"))
+        with Home() as home:
+            akconfig.write(home, ["gemini"])
+            fakeadapter.install(home, antigravity="pass")
+            # A deferred run ending reports whether the composer is absent, empty or holding text.
+            for kind, dialog in (("permission", permission), ("question", question)):
+                name = f"acme-{kind}"
+                Seat(home, name, model="gemini", composer=">",
+                     screen=HISTORY + dialog + "\nesc to cancel")
+                home.write(f".agentkit/runs/{name}/run.json", {
+                    "run_id": name, "state": "fail", "launched_session": name,
+                    "finished_at": time.time()})
+            done = home.tick()
+            self.assertEqual(done.code, 0, done.err)
+            for kind in ("permission", "question"):
+                self.assertIn(f"asking by asking.{kind}, its composer not found", done.out)
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-    def test_dismiss_ignores_a_quoted_survey_above_the_composer(self):
+    def test_tip_preserves_the_quota_refusal_and_the_typed_draft(self):
         with Home() as home:
+            seat = Seat(home, model="gemini", composer=">", planned=True,
+                        screen=HISTORY + TIP + "\n" + COMPOSER)
+            done = home.ak("orch", "why", seat.name)
+            self.assertEqual(done.code, 0, done.err)
+            self.assertIn("retrying: exhausted your quota", done.out)
+            seat.show(f"{TIP}\n{RULE}\n> finish acme\n{RULE}\n  acme  /agents")
+            done = home.ak("orch", "why", seat.name)
+            self.assertEqual(done.code, 0, done.err)
+            self.assertIn("rule: draft.typed", done.out)
+            self.assertIn("evidence:  finish acme", done.out)
+
+    @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
+    def test_tick_ignores_a_quoted_survey_above_the_composer(self):
+        with Home() as home:
+            akconfig.write(home, ["gemini"])
+            fakeadapter.install(home, antigravity="pass")
             seat = Seat(home, model="gemini", composer=">", screen=SURVEY + "\n" + COMPOSER)
-            done = home.run(sys.executable, "-c",
-                            "from agentkit import watch; watch.dismiss({'name': 'acme'}, 'antigravity')",
-                            cwd=REPO)
+            done = home.tick()
             self.assertEqual(done.code, 0, done.err)
             self.assertEqual(seat.typed(), "")
 
