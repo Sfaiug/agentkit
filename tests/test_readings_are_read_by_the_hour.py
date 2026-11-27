@@ -12,9 +12,12 @@ from agentkit import config, machines, readings  # noqa: E402
 H, M, Y9999 = 3600, calendar.timegm((2026, 11, 26, 0, 0, 0, 0, 0, 0)), 253402300799
 
 
-def raw(at, who, load=1.0, cores=2, memory_mb=100, free_mb=50):
+def raw(at, who, load=1.0, cores=2, memory_mb=100, free_mb=50, stall=...):
     tag = {"machine": who} if isinstance(who, str) else who
-    return (json.dumps({"at": at, **tag, "load": load, "cores": cores, "memory_mb": memory_mb, "free_mb": free_mb}) + "\n").encode()
+    row = {"at": at, **tag, "load": load, "cores": cores, "memory_mb": memory_mb, "free_mb": free_mb}
+    if stall is not ...:
+        row["memory_stall_us"] = stall
+    return (json.dumps(row) + "\n").encode()
 
 
 def _no_clock(*_a, **_kw):
@@ -27,9 +30,13 @@ class ReadingsByTheHour(unittest.TestCase):
               patch.object(readings.time, "gmtime", _no_clock)):
             got = readings.hours(*query[:-1], home=query[-1])
         self.assertEqual([h.start for h in got], [e[0] for e in expected])
-        for h, (_, ep, em) in zip(got, expected):
-            for val, exp in ((h.processors, ep), (h.memory, em)):
+        for h, row in zip(got, expected):
+            _, ep, em = row[:3]
+            ew = row[3] if len(row) > 3 else None
+            es = row[4] if len(row) > 4 else (("processors",) if ep is not None and ep > 1 else ())
+            for val, exp in ((h.processors, ep), (h.memory, em), (h.memory_wait, ew)):
                 self.assertIsNone(val) if exp is None else self.assertAlmostEqual(val, exp)
+            self.assertEqual(h.short_of, es)
 
     def test_home_unusable_and_bounds(self):
         base = {"at": M + 10, "machine": "acme-bad", "load": 1, "cores": 2, "memory_mb": 100, "free_mb": 50}
@@ -82,6 +89,58 @@ class ReadingsByTheHour(unittest.TestCase):
             finally:
                 if locked.exists():
                     locked.chmod(0o600)
+
+    def test_memory_wait_and_shortages(self):
+        tenth = 360_000_000
+        with (tempfile.TemporaryDirectory(prefix="ak-readings-wait-") as tmp,
+              patch.object(config, "HOME", Path(tmp)), patch.object(socket, "gethostname", return_value="acme-home")):
+            folder = Path(tmp) / "state/readings"
+            folder.mkdir(parents=True)
+            lines = [
+                # Exact boundary: 1.0 processors is not short, 359_999_999 us (< tenth) is not short;
+                # out-of-order timestamps sort by `at`; invalid counters carry none without dropping load/memory.
+                raw(M + 1200, "acme-edge", 2.0, 2, stall=tenth - 1),
+                raw(M + 600, "acme-edge", 2.0, 2, stall=0),
+                *(raw(M + 700 + i, "acme-edge", 2.0, 2, stall=bad)
+                  for i, bad in enumerate((-1, True, False, 1.5, 1.0, "100", None))),
+                # Next hour: cross-hour rise counts for the later hour; exact tenth + load > cores -> both.
+                raw(M + H + 600, "acme-edge", 4.0, 2, stall=2 * tenth - 1),
+                # Restart (counter lower than before) gives 0 wait; subsequent rise still counts.
+                raw(M + 100, "acme-restart", 1.0, 2, stall=900_000_000),
+                raw(M + 700, "acme-restart", 1.0, 2, stall=100_000_000),
+                raw(M + H + 100, "acme-restart", 1.0, 2, stall=100_000_000 + tenth),
+                # Clamping: rise past dt (even 10**400) caps at dt; same timestamp caps at 0.
+                raw(M + 100, "acme-clamp", 1.0, 2, stall=0),
+                raw(M + 160, "acme-clamp", 1.0, 2, stall=10 ** 400),
+                raw(M + 160, "acme-clamp", 1.0, 2, stall=10 ** 400 + tenth),
+                # Many small steps summing to an exact tenth avoid float drift.
+                *(raw(M + i * 50, "acme-steps", 1.0, 2, stall=i * 6_000_000) for i in range(61)),
+                # Single counter reading with no prior reading gives no wait; home stays apart from machine.
+                raw(M + 100, "acme-one", 1.0, 2, stall=tenth),
+                raw(M + 100, {"home": "acme-home"}, 1.0, 2, stall=0),
+                raw(M + 700, {"home": "acme-home"}, 1.0, 2, stall=tenth),
+                raw(M + 100, "acme-home", 1.0, 2),
+            ]
+            (folder / "2026-11-26.jsonl").write_bytes(b"".join(lines))
+            for q, exp in (
+                (("acme-edge", M + 2 * H, 2, False), [
+                    (M, 1.0, 0.5, (tenth - 1) / 3_600_000_000, ()),
+                    (M + H, 2.0, 0.5, 0.1, ("processors", "memory")),
+                ]),
+                # Window starting at M + H still picks up the step from the reading before M + H.
+                (("acme-edge", M + 2 * H, 1, False), [(M + H, 2.0, 0.5, 0.1, ("processors", "memory"))]),
+                (("acme-restart", M + 3 * H, 3, False), [
+                    (M, 0.5, 0.5, 0.0, ()),
+                    (M + H, 0.5, 0.5, 0.1, ("memory",)),
+                    (M + 2 * H, None, None, None, ()),
+                ]),
+                (("acme-clamp", M + H, 1, False), [(M, 0.5, 0.5, 60 / H, ())]),
+                (("acme-steps", M + H, 1, False), [(M, 0.5, 0.5, 0.1, ("memory",))]),
+                (("acme-one", M + H, 1, False), [(M, 0.5, 0.5, None, ())]),
+                (("acme-home", M + H, 1, True), [(M, 0.5, 0.5, 0.1, ("memory",))]),
+                (("acme-home", M + H, 1, False), [(M, 0.5, 0.5, None, ())]),
+            ):
+                self.check(q, exp)
 
 
 if __name__ == "__main__":

@@ -31,12 +31,26 @@ import time
 from . import config, history
 
 HOUR = 3600
+_US = 1_000_000
+_HOUR_US = HOUR * _US
+PROCESSORS_SHORT = 1       # above 1, work stood in line for a processor
+# a tenth or more: on 25 Nov 2026 the busiest home's hours all read 0, and anything near a tenth
+# is an hour a person would have felt
+MEMORY_WAIT_SHORT = 0.1
 
 
-class Hour(namedtuple("Hour", "start processors memory")):
-    """One hour's means, starting at `start` (inclusive) for 3600 seconds:
-    `processors` is the mean of `load / cores`, `memory` the mean share of `memory_mb` in use,
-    or both None where the hour has no usable reading."""
+class Hour(namedtuple("Hour", "start processors memory memory_wait")):
+    """One hour's readings, starting at `start` (inclusive) for 3600 seconds: `processors` is
+    the mean of `load / cores`, `memory` the mean share of `memory_mb` in use, `memory_wait`
+    the share of the hour work stood waiting for memory from rises of `memory_stall_us` between
+    readings, each None where the hour has no usable reading (or, for `memory_wait`, no step
+    carrying the counter)."""
+
+    @property
+    def short_of(self):
+        """What this hour ran short of: `("processors",)`, `("memory",)`, both, or `()`."""
+        return (*(("processors",) if self.processors is not None and self.processors > PROCESSORS_SHORT else ()),
+                *(("memory",) if self.memory_wait is not None and self.memory_wait >= MEMORY_WAIT_SHORT else ()))
 
 
 def keep(at, said):
@@ -84,6 +98,8 @@ def hours(name, until, count, *, home):
     seen = [0] * count
     processors = [0.0] * count
     memory = [0.0] * count
+    before = None   # latest reading before edges[0] carrying memory_stall_us
+    stalls = []     # (at, stall, index) for readings inside the window carrying memory_stall_us
     for entry in files:
         with suppress(OSError):
             # open closes an opener's descriptor it refuses (a directory); nonblocking skips a FIFO
@@ -95,23 +111,51 @@ def hours(name, until, count, *, home):
                     reading = _usable(raw, key, other, name)
                     if reading is None:
                         continue
-                    at, proc, mem = reading
+                    at, proc, mem, stall = reading
                     # against the very edges the hours start at, so no rounding moves a line
                     index = bisect.bisect_right(edges, at) - 1
                     if not 0 <= index < count:
+                        if stall is not None and at < edges[0] and (before is None or at >= before[0]):
+                            before = (at, stall)
                         continue
                     seen[index] += 1
                     n = seen[index]
                     # running mean stays finite even when readings are near float max
                     processors[index] += (proc - processors[index]) / n
                     memory[index] += (mem - memory[index]) / n
-    return [Hour(edges[i], processors[i], memory[i]) if seen[i] else Hour(edges[i], None, None)
+                    if stall is not None:
+                        stalls.append((at, stall, index))
+    wait_us = [None] * count
+    wait_extra = [0.0] * count
+    stalls.sort(key=lambda item: item[0])
+    prev = before
+    for at, stall, index in stalls:
+        if prev is not None:
+            prev_at, prev_stall = prev
+            if wait_us[index] is None:
+                wait_us[index] = 0
+            if stall > prev_stall:
+                delta, dt = stall - prev_stall, at - prev_at
+                limit = dt * _US
+                if math.isfinite(limit):
+                    wait_us[index] += delta if delta <= limit else limit
+                else:
+                    try:
+                        rise = delta / _US
+                    except OverflowError:
+                        rise = dt
+                    wait_extra[index] += min(rise, dt) / HOUR
+        prev = (at, stall)
+    return [Hour(edges[i], processors[i], memory[i],
+                 None if wait_us[i] is None else wait_us[i] / _HOUR_US + wait_extra[i])
+            if seen[i] else Hour(edges[i], None, None, None)
             for i in range(count)]
 
 
 def _usable(raw, key, other, name):
-    """`(at, load / cores, (memory_mb - free_mb) / memory_mb)` for a usable line matching `key`
-    == `name` without `other`, else None."""
+    """`(at, load / cores, (memory_mb - free_mb) / memory_mb, memory_stall_us)` for a usable
+    line matching `key` == `name` without `other`, else None.  `memory_stall_us` is a whole
+    number of 0 or more, or None when absent or anything else."""
     try:
         line = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, RecursionError):
@@ -127,7 +171,9 @@ def _usable(raw, key, other, name):
             or at < 0 or load < 0 or cores < 1 or memory_mb < 1
             or not (0 <= free_mb <= memory_mb)):
         return None
-    return at, load / cores, (memory_mb - free_mb) / memory_mb
+    stall = line.get("memory_stall_us")
+    stall = stall if type(stall) is int and stall >= 0 else None
+    return at, load / cores, (memory_mb - free_mb) / memory_mb, stall
 
 
 def _finite(value):

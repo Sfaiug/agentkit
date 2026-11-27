@@ -6359,14 +6359,19 @@ def work_words(name, cfg):
 
 def machine_hours(name):
     """`name`'s last 24 hours of processors as 24 marks (EIGHTHS and GLYPHS's full cell, 1 or
-    more full, `·` with no reading), or `no readings yet` when none of the 24 has one."""
+    more full, `·` with no reading) and what those 24 hours ran short of, or `no readings yet`
+    when none of the 24 has one."""
     series = readings.hours(name, time.time(), 24, home=False)
     if not any(hour.processors is not None for hour in series):
         return "no readings yet"
     marks, empty = (EIGHTHS[1:] + GLYPHS[True][0], "·") if terminal.utf8() else ("_,-:=+*#", ".")
-    return "".join(empty if h.processors is None
+    bars = "".join(empty if h.processors is None
                    else marks[7 if h.processors >= 1 else min(6, max(0, round(8 * h.processors) - 1))]
                    for h in series)
+    short = [f"short of {what} in {n} of {len(series)} hours"
+             for what in ("processors", "memory")
+             if (n := sum(what in hour.short_of for hour in series))]
+    return f"{bars} {' · '.join(short) if short else 'never short'}"
 
 
 def config_machines(cfg):
