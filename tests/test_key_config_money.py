@@ -235,7 +235,7 @@ class ConfigMoney(unittest.TestCase):
         before = config.read_bytes()
         self.term.keys("Down")
         self.term.wait(shows(r"› Anthropic · max 20x +\$200 a month"))
-        for bad in ("abc", " 180", "0", "1.234", "1000001", " "):
+        for bad in ("abc", " 180", "0", "1.234", "1000001", " ", "18\t0", "\t"):
             with self.subTest(bad=bad):
                 self.term.keys("Enter")
                 self.term.wait("⏎ save")

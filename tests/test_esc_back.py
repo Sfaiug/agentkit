@@ -380,6 +380,8 @@ class EscBack(unittest.TestCase):
 
         self.assertEqual(typed(Key("char", "a"), Key("char", "b"), Key("backspace"),
                                Key("char", "c"), Key("enter")), "ac")
+        self.assertEqual(typed(Key("char", "1"), Key("tab"), Key("char", "0"),
+                               Key("enter")), "1\t0")
         self.assertEqual(typed(Key("enter"), placeholder="auto"), "")   # the caller's default
         self.assertEqual(typed(Key("char", "q"), Key("esc")), terminal.ESC)
         # wide characters are two cells each: no line drawn is wider than the screen

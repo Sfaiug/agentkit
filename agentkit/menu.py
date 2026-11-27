@@ -6286,7 +6286,9 @@ def plan_rows(cfg, counts, write):
 
     def take(provider, plan):
         def field(draw):
-            typed = terminal.field("    ", "a month · empty: the list price",
+            fallback = ("the provider's price" if money.provider_price(cfg, provider) is not None
+                        else "the list price")
+            typed = terminal.field("    ", f"a month · empty: {fallback}",
                                    around=lambda line: draw([line]))
             if typed is None or terminal.is_esc(typed):
                 return ""
@@ -6295,9 +6297,7 @@ def plan_rows(cfg, counts, write):
                 return "a price is a number like 180 or 180.50"
             held = cfg.get("money", {}).get("paid") if isinstance(cfg.get("money"), dict) else None
             if value is None:
-                if not (isinstance(held, dict) and isinstance(held.get(code), dict)
-                        and isinstance(held[code].get(provider), dict)
-                        and plan in held[code][provider]):
+                if money.typed(cfg, provider, plan, code) is None:
                     return ""
                 updated = copy.deepcopy(held)
                 del updated[code][provider][plan]
@@ -6306,10 +6306,18 @@ def plan_rows(cfg, counts, write):
                 if not updated[code]:
                     del updated[code]
                 return write("paid", updated or None)
+            if held is not None and not isinstance(held, dict):
+                return "money: [money.paid] must be a table"
             updated = copy.deepcopy(held) if isinstance(held, dict) else {}
-            by_code = updated[code] if isinstance(updated.get(code), dict) else {}
-            by_provider = by_code[provider] if isinstance(by_code.get(provider), dict) else {}
-            updated[code], by_code[provider], by_provider[plan] = by_code, by_provider, value
+            table = updated
+            for depth, key in enumerate((code, provider)):
+                if key in table and not isinstance(table[key], dict):
+                    where = ".".join(("money", "paid", *(code, provider)[:depth + 1]))
+                    return f"money: [{where}] must be a table"
+                table = table.setdefault(key, {})
+            if isinstance(table.get(plan), dict):
+                return f"money: [money.paid.{code}.{provider}] {plan} is a table"
+            table[plan] = value
             return write("paid", updated)
         return field
 

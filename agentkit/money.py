@@ -43,6 +43,12 @@ def parse(text):
     return int(value) if value == value.to_integral_value() else float(value)
 
 
+def provider_price(cfg, provider):
+    """The provider's own numeric `price` in `cfg`, never a `price` table by login, or None."""
+    table = (cfg.get("providers") or {}).get(provider)
+    return _price(table.get("price")) if isinstance(table, dict) else None
+
+
 def price(cfg, provider, plan, paid="USD"):
     """What one login of `provider` on `plan` costs a month in `paid`, or None: the price kept
     for it in `paid` (`typed`), else the provider's own numeric `price` in `cfg` (never a `price`
@@ -51,8 +57,7 @@ def price(cfg, provider, plan, paid="USD"):
     given = typed(cfg, provider, plan, paid)
     if given is not None:
         return given
-    table = (cfg.get("providers") or {}).get(provider)
-    own = _price(table.get("price")) if isinstance(table, dict) else None
+    own = provider_price(cfg, provider)
     if own is not None:
         return own
     listed = config.manifest(logins.harness(cfg, provider)).get(TABLES[paid])
