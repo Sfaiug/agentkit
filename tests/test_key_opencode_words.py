@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
-from fixtures.akseat import Seat
+from fixtures.akseat import FIXTURES, Seat
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -77,6 +77,16 @@ class OpencodeWords(unittest.TestCase):
         # 2.4.2 at 240 columns ends its footer on the sidebar's path: read by no rule, a seat
         # opened that wide took no line after its first turn (27 Nov 2026)
         self.assertWhy("theta", "opencode-prompt-beside-sidebar-pane.txt", "idle", "screen",
+                       "prompt.composer", "-")
+
+    def test_a_reply_ending_on_the_key_hints_and_a_command_is_idle_over_an_older_error(self):
+        # a reply's sentence goes on one space after the hints, the sidebar's path four cells:
+        # read as that path, the reply was chrome and the spent window above it was retried
+        status = "     Build · mimo-v2.6-pro · 166ms\n"
+        stall = (FIXTURES / "opencode-stall-pane.txt").read_text(encoding="utf-8")
+        later = ("\n  ┃\n  ┃  Which keys open the menu?\n  ┃\n\n"
+                 "     It shows ctrl+p commands /help\n\n" + status)
+        self.assertWhy("iota", stall.replace(status, status + later), "idle", "screen",
                        "prompt.composer", "-")
 
 
