@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 
@@ -241,13 +240,12 @@ DEPENDENCIES = (
     ("21", "22"), ("23", "23b"), ("25", "25b"),
 )
 # The checks that need the outside world: real models, GitHub, Discord, live meters, the shared
-# browser, user systemd and a bare Debian install in docker (32).  The live mode (tests/live.sh)
-# runs them and nothing else, before a host takes new code and when a harness upgrades; the
-# landing suite runs every other check and reaches nothing beyond loopback.  Their offline twins
-# run at landing: 19 the delivery path, 41 and 8a-8f the meters, 20e and 20f the seats, 31b and
-# 31c the MCP wiring.
+# browser, user systemd and docker.  The live mode (tests/live.sh) runs them and nothing else,
+# before a host takes new code and when a harness upgrades; the landing suite runs every other
+# check and reaches nothing beyond loopback.  Their offline twins run at landing: 19 the delivery
+# path, 41 and 8a-8f the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
 LIVE_CHECKS = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d", "6f", "6g",
-               "31a", "31d", "32"}
+               "31a", "31d", "52"}
 # The live checks that may start a model turn, or read the run one made (4b, 4c, 4d): a harness
 # call, an `ak run`, or an `ak usage` (1) or a seat's pick (6, 6b, 6d), which reads meters some
 # harnesses read with a turn, as Muse's is once its reading has run out.  Asked with
@@ -331,16 +329,13 @@ def smoke_share(path, left=()):
     return [f"{SMOKE}#{name}" for name, owner in owners.items() if owner == number]
 
 
-def has_docker():
-    """Whether `docker` and `timeout` are on PATH and `timeout -k 5 20 docker info` exits 0."""
-    if not (shutil.which("docker") and shutil.which("timeout")):
-        return False
+def docker_answers():
+    """Whether `timeout -k 5 20 docker info` exits 0: check 52 installs this commit in docker."""
     try:
-        return subprocess.run(
-            ["timeout", "-k", "5", "20", "docker", "info"],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        ).returncode == 0
-    except OSError:
+        return subprocess.run(["timeout", "-k", "5", "20", "docker", "info"],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode == 0
+    except OSError:     # no `timeout` to run
         return False
 
 
@@ -355,13 +350,13 @@ def main():
     live, offline = smoke_mode()
     # A whole run leaves out the blocks a change to Go alone cannot alter; AK_ONLY's run whatever
     # the change, and so does a live run, which certifies the host and its harnesses, not the
-    # change.  AK_LIVE_NO_MODEL_CALLS=1 leaves MODEL_CALLS out of any, and a live run without a
-    # working docker leaves 32 out.
+    # change.  AK_LIVE_NO_MODEL_CALLS=1 leaves MODEL_CALLS out of any, and a live run where docker
+    # does not answer leaves out 52, so a host without docker still takes new code.
     left = python_left_out(root) if listed() is None and not live else set()
     if os.environ.get("AK_LIVE_NO_MODEL_CALLS") == "1":
         left |= {f"{SMOKE}#{name}" for name in MODEL_CALLS}
-    if live and not has_docker():
-        left.add(f"{SMOKE}#32")
+    if live and not docker_answers():
+        left.add(f"{SMOKE}#52")
     print(smoke_source(path.read_text(), root, piece, live, offline, left), end="")
     return 0
 

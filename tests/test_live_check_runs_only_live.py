@@ -69,20 +69,11 @@ class LiveCheckRunsOnlyLive(unittest.TestCase):
         stub = SMOKE[:SMOKE.index('export PATH="$REPO/bin:$PATH"')]
         stub += "".join(f"# --- {name}: fixture\necho 'ran {name}'\n" for name in sorted(NAMED))
         (root / "tests/smoke.sh").write_text(stub)
-        fake_bin = root / "bin"
-        fake_bin.mkdir()
-        for name, body in (
-            ("docker", "#!/bin/sh\nexit 0\n"),
-            ("timeout", '#!/bin/sh\nwhile [ "$#" -gt 0 ]; do\n'
-                        '  case "$1" in -k|-s) shift 2 ;; -*) shift ;; *) shift; exec "$@" ;; esac\n'
-                        'done\n'),
-        ):
-            path = fake_bin / name
-            path.write_text(body)
-            path.chmod(0o755)
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AK_", "AGENTKIT_"))}
-        env["HOME"] = str(root)
-        env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
+        # a host where `timeout -k 5 20 docker info` exits 0, whose live run holds check 52
+        (root / "timeout").write_text("#!/bin/sh\n")
+        (root / "timeout").chmod(0o755)
+        env.update(HOME=str(root), PATH=f"{root}:{env['PATH']}")
         ran = {}
         for script in ("live.sh", "smoke.sh"):
             proc = subprocess.run(["bash", f"tests/{script}"], cwd=root, env=env,

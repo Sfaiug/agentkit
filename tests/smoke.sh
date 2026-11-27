@@ -4718,20 +4718,11 @@ else
   skip_checks 31d/31e "the shared browser is not on this host: nothing listens on 127.0.0.1:9222"
 fi
 
-# --- 32: bare-machine install of HEAD in a Debian container -----------------
-if (cd "$REPO" && DOCKER_CONFIG="${DOCKER_CONFIG:-${SMOKE_CALLER_HOME:-$HOME}/.docker}" \
-    bash "$REPO/tests/bare-install.sh") >"$WORK/bare-install.log" 2>&1; then
-  ok "32 bare-install.sh installed HEAD in a bare Debian container and ran ak --help"
-else
-  no "32 bare-install.sh failed"
-  sed 's/^/      /' "$WORK/bare-install.log" | tail -40
-fi
-
-# --- 52: a notification resolves only after an interactive open and fresh progress (offline) ---
+# --- 32: a notification resolves only after an interactive open and fresh progress (offline) ---
 if session_state_check >"$WORK/session-state.log" 2>&1; then
-  ok "52 stable session state: named fake-state checks for open/progress, observation, rename and usage failures"
+  ok "32 stable session state: named fake-state checks for open/progress, observation, rename and usage failures"
 else
-  no "52 stable session state"; tail -40 "$WORK/session-state.log"
+  no "32 stable session state"; tail -40 "$WORK/session-state.log"
 fi
 
 # --- 33: a run with no repository is `delivered`, not `not merged` (offline) ------------------
@@ -4966,7 +4957,7 @@ watch.health(cfg, state, False, said.append)
 assert not [line for line in said if "asked the user" in line], said    # once, and stays silent
 
 # The user takes over this watcher-authored capacity alert; orchestrator questions
-# retain their separate open-plus-progress contract, exercised by check 52.
+# retain their separate open-plus-progress contract, exercised by check 32.
 watch.save_state({"reviewed": {}, "own": {}, "stalls": dict(state["stalls"])})
 orch.seen_by_user(CLAUDE)
 assert CLAUDE not in watch.load_state()["stalls"], watch.load_state()
@@ -5538,7 +5529,17 @@ else
   no "47 host run queue"; cat "$WORK/v5am.log"
 fi
 
+# --- 52: this commit installs on a bare machine, and ak starts there ------
+# HOME is the sandbox's here: docker reads the config it answered with (suite_shares.py).
+if (cd "$REPO" && DOCKER_CONFIG=${DOCKER_CONFIG:-$SMOKE_CALLER_HOME/.docker} \
+    bash tests/bare-install.sh) >"$WORK/bare-install.log" 2>&1; then
+  ok "52 tests/bare-install.sh installed this commit in a bare Debian container, and ak started"
+else
+  no "52 tests/bare-install.sh did not install this commit and start ak"
+  cat "$WORK/bare-install.log"
+fi
+
 # --- shared result ---------------------------------------------
-echo "coverage: the checks labeled above: offline fixtures at landing, harness/GitHub/browser/bare-install checks in the live mode"
+echo "coverage: the checks labeled above: offline fixtures at landing, harness/GitHub/browser/docker checks in the live mode"
 echo "NOT EXERCISED: interactive logins (separate certification)"
 finish
