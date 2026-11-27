@@ -29,6 +29,7 @@ ID = "0b7e3c1a-5d2f-4e8a-9c6b-1f2a3b4c5d6e"
 RULES = 'Answer in "plain" words: it\'s the owner\'s call.\n'
 PROMPT = '-fix it\'s "$HOME"\nthen ship'
 CLAUDE_PINS = ('{"permissions":{"defaultMode":"bypassPermissions"},'
+               '"skipDangerousModePermissionPrompt":true,'
                '"crossSessionInbound":"refuse","switchModelsOnFlag":true}')
 
 
