@@ -42,6 +42,8 @@ SCREENS = (
     ("a fresh seat", [RULE, f"{MARK} tell me more", RULE], DRAFT),
     ("under a long reply", [ECHO, *LONG_REPLY, RULE, f"{MARK} tell me more", RULE], DRAFT),
     ("spaces after the mark", [ECHO, *LONG_REPLY, RULE, f"{MARK}   x", RULE], DRAFT),
+    ("a no-break space after the mark", [RULE, f"{MARK}  tell me more", RULE], DRAFT),
+    ("an ideographic space after the mark", [RULE, f"{MARK} 　tell me more", RULE], DRAFT),
     ("two rows", [ECHO, *LONG_REPLY, RULE, f"{MARK} tell me more", "  more", RULE], DRAFT),
     ("text under a bare mark", [ECHO, REPLY, RULE, MARK, "  later text", RULE], DRAFT),
     ("over background commands",

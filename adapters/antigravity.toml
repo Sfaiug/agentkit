@@ -237,7 +237,7 @@ row = '^>$'
 id = "draft.typed"
 state = "draft"
 lines = 15
-rows = '''^─+\n>[ \t]*\S.*(?:\n(?!─+$).*)*\n─+(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+(?:\n\s*↓ \d+ more *)?\n─+)?\Z'''
+rows = '''^─+\n>.*\S.*(?:\n(?!─+$).*)*\n─+(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+(?:\n\s*↓ \d+ more *)?\n─+)?\Z'''
 
 # A failed turn is a `⚠ <message>` line over `Error ID: <id>` (captured), and the stream-json
 # result of one carries `"status":"ERROR"` beside the same message.  The quota and transient

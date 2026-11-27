@@ -1537,7 +1537,7 @@
   {
    "harness": "antigravity",
    "key": "rule draft.typed rows",
-   "pattern": "^─+\\n>[ \\t]*\\S.*(?:\\n(?!─+$).*)*\\n─+(?:(?:\\n\\s*● \\[\\d\\d:\\d\\d:\\d\\d\\] .+)+(?:\\n\\s*↓ \\d+ more *)?\\n─+)?\\Z",
+   "pattern": "^─+\\n>.*\\S.*(?:\\n(?!─+$).*)*\\n─+(?:(?:\\n\\s*● \\[\\d\\d:\\d\\d:\\d\\d\\] .+)+(?:\\n\\s*↓ \\d+ more *)?\\n─+)?\\Z",
    "flags": "m",
    "matches": []
   },
