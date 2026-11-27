@@ -2081,6 +2081,13 @@ def tmux_text(text):
     return text.replace("#", "##")
 
 
+def tmux_folder(path):
+    """That folder as the -c of a command starting a pane takes it whole (`tmux_literal`).  -c is
+    a format, so each run of `#` is doubled, but for one before a `[`: that is a style, which
+    tmux leaves as written for the drawing no -c gets."""
+    return tmux_literal(re.sub(r"(#+)(?![#\[])", r"\1\1", str(path)))
+
+
 def popup_command():
     """What `Ctrl-b m` runs: the live checkout's `ak attach --overlay` (`versions.live`), on the
     interpreter it is installed against, from the warm server (`warm`), started bare: the client
@@ -2409,7 +2416,7 @@ def start(name, cwd, cmd, orchestrator, started=lambda: None):
     # that one can put the server in agentkit's slice.  The harness goes in either way.
     running = tmux_out("source-file", str(conf))[0] == 0
     command, launch = seat_command(name, cmd)
-    rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
+    rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", tmux_folder(cwd),
                        *pane_env(values), command, path_shim=True,
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
@@ -2936,9 +2943,12 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
         # One command list: a failed respawn keeps the old tty, and a new wrapper's
         # publishing client cannot run before the old name is removed.  A frozen pane's list
         # stops at its first command once the freeze has run out: keys may have reached it.
+        # In `cwd`, the folder `cmd` was built in: with no -c, tmux starts a pane whose own
+        # folder is gone in HOME, which its command never named.
         rc, out = tmux_out(*(("show-options", "-pv", "-t", target, FROZEN_OPTION, ";")
                              if still else ()),
-                           "respawn-pane", "-k", "-t", target, *pane_env(values), command,
+                           "respawn-pane", "-k", "-c", tmux_folder(cwd), "-t", target,
+                           *pane_env(values), command,
                            ";", "set-option", "-pu", "-t", target, INPUT_TTY_OPTION,
                            *((";", *thaw) if still else ()), socket=server,
                            path_shim=True, timeout=5)
