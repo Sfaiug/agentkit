@@ -126,7 +126,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 				pieced, asked = &text, clock()
 				break
 			}
-			l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
+			l.say("check runs here: command is not sent to the suite helper (does not name AK_SHARD)")
 			shard, only := selection.request()
 			row := history.Check(rows, cmd, asked, "", l.say)
 			kills := host.MemoryEvent("oom_kill")

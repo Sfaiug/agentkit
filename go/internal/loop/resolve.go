@@ -169,7 +169,7 @@ func (l *loop) suite(cwd, cmd, path, label string) (int, string, bool, error) {
 	if namesShard.MatchString(cmd) {
 		outcome, _, err = l.pieces(cwd, cmd, &deadline, progress, path, nil, at)
 	} else {
-		l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
+		l.say("check runs here: command is not sent to the suite helper (does not name AK_SHARD)")
 		for busy := true; busy && err == nil; {
 			left := time.Until(deadline)
 			if left <= 0 {

@@ -23,7 +23,7 @@ from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # the main checkout as the record names it; never opened
 RUN_ID = "20260101-0900-flaky-fixture"
-HERE = "suite runs here: command is not sent to the suite helper (does not name AK_SHARD)"
+HERE = "check runs here: command is not sent to the suite helper (does not name AK_SHARD)"
 
 
 class FlakyRerun(unittest.TestCase):
