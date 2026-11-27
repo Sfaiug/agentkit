@@ -2040,7 +2040,6 @@ for _ in $(seq 1 30); do
   grep -q 'Hooks need review' <<<"$PANE" && break
   grep -q 'OpenAI Codex' <<<"$PANE" && break
   grep -q 'Do you trust' <<<"$PANE" && tm send-keys -t smoke-astra Enter
-  grep -q 'Update available' <<<"$PANE" && tm send-keys -t smoke-astra Down Enter
   sleep 2
 done
 cp "$HOME/.agentkit/state/session-smoke-astra.json" "$WORK/seat-before-dry-run.json"
