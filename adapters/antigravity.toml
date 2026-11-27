@@ -212,6 +212,16 @@ none = ["esc to cancel"]
 row = '^─+$'
 newest = '^(?:(?:(?:plan|accept-edits) · )?(?:[^·?]+ · (?:low|medium|high|xhigh|max)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)|plan|accept-edits)$'
 
+# agy 1.5 draws no footer on a seat, so the composer itself tells a typed line: one holding
+# text, its opening rule among the rows read and its closing rule ending them (the background
+# commands' list under it allowed), is a draft and no turn.  Here its text starts on a row
+# under a bare `>`, which `prompt.composer` would read as empty.
+[[rule]]
+id = "draft.typed"
+state = "draft"
+lines = 15
+rows = '''^─+\n>(?:\n(?!─+$).*)*\n(?!─+$).*\S.*(?:\n(?!─+$).*)*\n─+(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+(?:\n\s*↓ \d+ more *)?\n─+)?\Z'''
+
 # The footer with the empty composer drawn over it; the terms pages of agy's first run keep
 # the footer and draw no composer, `press ctrl+c again to exit` under them included (captured).
 [[rule]]
@@ -220,6 +230,14 @@ state = "at_prompt"
 lines = 8
 at_composer = true
 row = '^>$'
+
+# Text on the `>` row itself is read after `prompt.composer`, so a fresh seat's muted hint,
+# which that rule reads as empty, is never a draft.
+[[rule]]
+id = "draft.typed"
+state = "draft"
+lines = 15
+rows = '''^─+\n>.*\S.*(?:\n(?!─+$).*)*\n─+(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+(?:\n\s*↓ \d+ more *)?\n─+)?\Z'''
 
 # A failed turn is a `⚠ <message>` line over `Error ID: <id>` (captured), and the stream-json
 # result of one carries `"status":"ERROR"` beside the same message.  The quota and transient
