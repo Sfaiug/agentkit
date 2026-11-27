@@ -2215,7 +2215,10 @@ def screen_rule(harness, pane):
         drawn = [line for at, (raw, line) in enumerate(zip(raws, region))
                  if rule["row"] and (
                      rule["row"].search(strip_sgr(raw).rstrip())
-                     or brights is not None and rule["row"].search(brights[at]))]
+                     or brights is not None
+                     and not (chrome["scrolled"]
+                              and chrome["scrolled"].search(strip_sgr(raw).rstrip()))
+                     and rule["row"].search(brights[at]))]
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
                 or (rule["none"] and any(mark in low for mark in rule["none"]))
@@ -4345,12 +4348,17 @@ def _composer_rows(harness, pane, *, exact=False):
         for match in found:
             edge = match.groupdict().get("edge") or ""
             before = source[:match.start()].splitlines()
+            plain_rows = [row[len(edge):].strip() for row in match["text"].splitlines()]
             # A block read without its opening is the end of one cropped above the read, a
             # padding row inside a draft is not its opening edge, nor is an edge at the start
-            # of a cropped read proof that none of the draft sits above it.
-            if exact and (not match.groupdict().get("opening") or edge and (
-                    before and before[-1].startswith(edge)
-                    or not before and len(_content_rows(pane)) > PANE_LINES)):
+            # of a cropped read proof that none of the draft sits above it.  A scroll marker
+            # painted faint (`[screen] faint`) still proves the draft is cropped before blanking.
+            if exact and (not match.groupdict().get("opening")
+                          or chrome["scrolled"] is not None
+                          and any(chrome["scrolled"].search(row) for row in plain_rows)
+                          or edge and (
+                              before and before[-1].startswith(edge)
+                              or not before and len(_content_rows(pane)) > PANE_LINES)):
                 return None
             text = bright[match.start("text"):match.end("text")]
             parts.extend(row[len(edge):].strip() for row in text.splitlines())

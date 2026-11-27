@@ -237,7 +237,7 @@
   {
    "harness": "antigravity",
    "key": "footer",
-   "pattern": "(?:(?:(?:\\? for shortcuts|esc to cancel|press ctrl\\+c again to exit)?\\s*(?:[^·]+ · (?:low|medium|high|xhigh|max)|[\\w.-]+(?: \\((?:[^()]|\\([^()]*\\))*\\))?\\s+/agents(?: · \\d+ task\\(s\\) · /tasks)?))|(?:\\? for shortcuts))$",
+   "pattern": "(?:(?:(?:\\? for shortcuts|esc to cancel|press ctrl\\+c again to exit)?\\s*(?:(?:(?:plan|accept-edits) · )?(?:[^·]+ · (?:low|medium|high|xhigh|max)|[\\w.-]+(?: \\((?:[^()]|\\([^()]*\\))*\\))?\\s+/agents(?: · \\d+ task\\(s\\) · /tasks)?)|plan|accept-edits))|(?:\\? for shortcuts))$",
    "flags": "i",
    "matches": [
     {
@@ -1456,7 +1456,7 @@
   {
    "harness": "antigravity",
    "key": "rule draft.typed newest",
-   "pattern": "^(?:[^·?]+ · (?:low|medium|high|xhigh|max)|[\\w.-]+(?: \\((?:[^()]|\\([^()]*\\))*\\))?\\s+/agents(?: · \\d+ task\\(s\\) · /tasks)?)$",
+   "pattern": "^(?:(?:(?:plan|accept-edits) · )?(?:[^·?]+ · (?:low|medium|high|xhigh|max)|[\\w.-]+(?: \\((?:[^()]|\\([^()]*\\))*\\))?\\s+/agents(?: · \\d+ task\\(s\\) · /tasks)?)|plan|accept-edits)$",
    "flags": "",
    "matches": [
     {
