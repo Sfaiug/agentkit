@@ -103,10 +103,7 @@ def work(name, cfg=None):
         return ["turns", "tests"]
     named = cfg.get("machines")
     table = named.get(name, {}) if isinstance(named, dict) else {}
-    try:
-        said = (config._read_json(_path()) or {}).get(name, {}).get("said") or {}
-    except config.Error:
-        said = {}
+    said = _record().get(name, {}).get("said") or {}
     turns = cfg["turns_on_machines"] is True if "turns_on_machines" in cfg else \
         said.get("system") == "Linux" and not said.get("battery")
     marked = table["work"] if isinstance(table, dict) and "work" in table else \
@@ -272,7 +269,7 @@ def _record():
     not one: ak writes neither, and a check it keeps stays."""
     try:
         record = json.loads(_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):     # none, or none a parser here can hold
         return {}
     return {name: was if isinstance(was.get("said") or {}, dict) else {**was, "said": None}
             for name, was in record.items() if isinstance(was, dict)} \
