@@ -2468,32 +2468,37 @@ def review_pair(cfg, providers):
             "self_reviewed": staffing.same_model(cfg, executor, reviewer)}
 
 
+def _kept_rows(cfg, name, prov, now):
+    """(label, pct) rows under `left` for caps holding a part of what this login's shared week
+    has left, bounded by what is left; empty where `left` is not that week or nothing is held."""
+    shared = shared_week(cfg, name, prov, now)
+    if shared is None or shared is not _holding_week(prov.get("meters"), now):
+        return []
+    room = _left(shared.get("used"))
+    return [(terminal.plain(f"kept for {cap['scope']}"), _pct(min(room, _number(cap["held"]))))
+            for cap in _holding(shared, prov.get("meters"), now)]
+
+
 def render(cfg, providers, order, *, repo=None):
     now = _now()
     table = [HEADERS] + rows(cfg, providers)
     # read off each login's full meters before _as_shared drops scoped caps: shows why another
     # model leaves part of what `left` reads for the cap's model
-    kept = [[(terminal.plain(f"kept for {cap['scope']}"), _pct(_number(cap["held"])))
-             for cap in _holding(_holding_week(prov.get("meters"), now), prov.get("meters"), now)]
-            for _, _, prov, _ in _accounts(cfg, providers)]
+    kept = [_kept_rows(cfg, name, prov, now) for _, name, prov, _ in _accounts(cfg, providers)]
     kept_need = max((2 + terminal.cells(label) + 2 for held_rows in kept for label, _ in held_rows),
                     default=0)
-
-    def col_widths(head):
-        cols = [max(terminal.cells(row[i]) for row in [head, *table[1:]])
-                for i in range(len(HEADERS))]
-        # keep every held sub-row's percentage aligned directly under `left`
-        if kept_need > cols[0] + 1 + cols[1] + 1:
-            cols[1] = kept_need - cols[0] - 2
-        return cols
-
-    widths = col_widths(table[0])
+    widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
     if width >= 60 and sum(widths) + len(widths) - 1 > width:
         table[0] = ("provider", "model(s)", "left", "holds", "month", "resets", "elapsed",
                     "session", "held", "room", "budget", "outlook")
-        widths = col_widths(table[0])
+        widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     if sum(widths) + len(widths) - 1 <= width:
+        # widen `model(s)` for held sub-rows only while the table still fits, never pushing
+        # other logins out of the table into cards
+        extra = kept_need - (widths[0] + 1 + widths[1] + 1)
+        if extra > 0 and sum(widths) + len(widths) - 1 + extra <= width:
+            widths[1] += extra
         left_col = widths[0] + 1 + widths[1] + 1
         lines = [terminal.styled(" ".join(terminal.pad(cell, w)
                                           for cell, w in zip(table[0], widths)).rstrip(), "dim")]
@@ -2501,7 +2506,12 @@ def render(cfg, providers, order, *, repo=None):
             lines.append(" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip())
             for label, value in held_rows:
                 gap = left_col - 2 - terminal.cells(label)
-                lines.append(f"  {label}{' ' * gap}{value}")
+                if gap >= 2:
+                    lines.append(f"  {label}{' ' * gap}{value}")
+                else:
+                    for part in terminal.wrap(label, max(1, width - 2)):
+                        lines.append("  " + part)
+                    lines.append(" " * left_col + value)
     else:
         # The full headings and all the meters still fit on a phone, as aligned label/value
         # pairs under each provider. Nothing is silently cut to squeeze a row.
@@ -2510,16 +2520,17 @@ def render(cfg, providers, order, *, repo=None):
         base_label = max(terminal.cells(label) for label in HEADERS[2:])
         # leave room for values so a long cap scope folds onto its own line instead of crushing them
         max_label = max(base_label, width - 20)
-        for row, held_rows in zip(table[1:], kept):
+        cards = [(row[0], row[1], [(HEADERS[2], row[2]), *held_rows, *zip(HEADERS[3:], row[3:])])
+                 for row, held_rows in zip(table[1:], kept)]
+        label_width = max((terminal.cells(label) for _, _, pairs in cards for label, _ in pairs
+                           if terminal.cells(label) <= max_label), default=base_label)
+        pad_width = 2 + label_width + 2
+        value_room = max(1, width - pad_width)
+        for name, models, pairs in cards:
             if lines:
                 lines.append("")
             lines.extend(terminal.styled(line, "bold")
-                         for line in terminal.wrap(f"{row[0]}{sep}{row[1]}", width))
-            pairs = [(HEADERS[2], row[2]), *held_rows, *zip(HEADERS[3:], row[3:])]
-            label_width = max((terminal.cells(label) for label, _ in pairs
-                               if terminal.cells(label) <= max_label), default=base_label)
-            pad_width = 2 + label_width + 2
-            value_room = max(1, width - pad_width)
+                         for line in terminal.wrap(f"{name}{sep}{models}", width))
             for label, value in pairs:
                 wrapped = terminal.wrap(value, value_room)
                 if terminal.cells(label) <= label_width:

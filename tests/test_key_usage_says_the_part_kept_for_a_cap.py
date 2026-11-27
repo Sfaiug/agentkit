@@ -43,10 +43,10 @@ def card_rows(out, heading):
 
 
 class UsageSaysThePartKeptForACap(unittest.TestCase):
-    def usage(self, logins, *, clock_offset=0, now=None, scope="Fable"):
+    def usage(self, logins, *, clock_offset=0, now=None, scope="Fable", wide=WIDE):
         """(card text, wide text, `--json` payload) for `logins`, {account: (week_used, cap_held,
-        cap_resets_offset[, week_resets_offset])} where offsets are seconds from `now`;
-        `AK_USAGE_CLOCK` stands at `now + clock_offset`."""
+        cap_resets_offset[, week_resets_offset[, extra_meters]])} where offsets are seconds from
+        `now`; `AK_USAGE_CLOCK` stands at `now + clock_offset`."""
         with Home() as home:
             meters.install(home)
             now = int(time.time()) if now is None else now
@@ -55,7 +55,7 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
             akconfig.write(home, MODELS, providers={"acme": {"mode": "subscription",
                                                              **accounts_cfg}})
 
-            def reading(week_used, held, resets_offset, week_offset=3 * 86400):
+            def reading(week_used, held, resets_offset, week_offset=3 * 86400, extra=()):
                 cap = {"name": "weekly_scoped", "scope": scope, "used": 20,
                        "window_secs": meters.WEEK, "resets_at": now + resets_offset, "elapsed": 57}
                 if held is not None:
@@ -66,6 +66,7 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
                                   "window_secs": meters.WEEK, "resets_at": now + week_offset,
                                   "elapsed": 57})
                 found.append(cap)
+                found.extend(extra)
                 return {"provider": "acme", "resets": 0, "meters": found}
 
             built = {account: reading(*spec) for account, spec in logins.items()}
@@ -73,15 +74,16 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
                     if len(logins) > 1 else built["default"])
             home.write(".agentkit/state/usage.json", {
                 "fetched_at": now, "reset_checked_at": now, "providers": {"acme": prov}})
-            card, wide, data = (home.ak("usage", env=CARD), home.ak("usage", env=WIDE),
-                                home.ak("usage", "--json"))
-            for done in (card, wide, data):
+            card, table, data = (home.ak("usage", env=CARD), home.ak("usage", env=wide),
+                                 home.ak("usage", "--json"))
+            for done in (card, table, data):
                 self.assertEqual(done.code, 0, done.out + done.err)
-            return card.out, wide.out, json.loads(data.out)
+            return card.out, table.out, json.loads(data.out)
 
     def test_a_login_whose_cap_holds_three_shows_the_row_under_left(self):
         card, wide, _ = self.usage({"default": (58, 3, 3 * 86400),
-                                    "second": (40, None, 3 * 86400)})
+                                    "second": (40, None, 3 * 86400),
+                                    "third": (98, 3, 3 * 86400)})
         rows = card_rows(card, "Acme I ")
         self.assertEqual(rows[:2], [("left", "42%"), ("kept for Fable", "3%")])
         self.assertEqual(tuple(label for label, _ in rows),
@@ -89,10 +91,14 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
         second_rows = card_rows(card, "Acme II ")
         self.assertEqual(tuple(label for label, _ in second_rows), STANDARD_LABELS)
         self.assertEqual(second_rows[0], ("left", "60%"))
+        # bounded by what is left: 2% left with 3 held keeps at most 2%
+        self.assertEqual(card_rows(card, "Acme III ")[:2],
+                         [("left", "2%"), ("kept for Fable", "2%")])
         card_lines = card.splitlines()
-        left_line = next(line for line in card_lines if line.startswith("  left "))
+        left_lines = [line for line in card_lines if line.startswith("  left ")]
         kept_line = next(line for line in card_lines if line.startswith("  kept for Fable "))
-        self.assertEqual(left_line.index("42%"), kept_line.index("3%"))
+        self.assertEqual(left_lines[0].index("42%"), left_lines[1].index("60%"))
+        self.assertEqual(left_lines[0].index("42%"), kept_line.index("3%"))
         for line in card_lines:
             self.assertLessEqual(len(line), 40, line)
             self.assertEqual(line, line.rstrip(), repr(line))
@@ -105,13 +111,16 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
         self.assertEqual(wide_lines[first_at].index("42%"), wide_lines[first_at + 1].index("3%"))
         self.assertEqual(second_at, first_at + 2)
         self.assertFalse(wide_lines[second_at + 1].startswith("  kept for"))
-        # a long scope still aligns under `left` in the table and never breaks values at 40 cols
+        # a long scope stays aligned under `left`, keeps table mode at 120 cols, and keeps 40-col cards intact
         long_scope = "Experimental Reasoning Model"
         long_card, long_wide, _ = self.usage({"default": (58, 3, 3 * 86400),
-                                              "second": (40, None, 3 * 86400)}, scope=long_scope)
+                                              "second": (40, None, 3 * 86400)},
+                                             scope=long_scope, wide={"COLUMNS": "120"})
+        self.assertTrue(long_wide.startswith("provider "))
+        self.assertEqual(meters.cell(long_wide, "Acme II", "left"), "60%")
         self.assertEqual(long_wide.splitlines()[0].index("left"),
-                         next(line for line in long_wide.splitlines()
-                              if f"kept for {long_scope}" in line).index("3%"))
+                         next(line for line in long_wide.splitlines() if line.strip() == "3%"
+                              or f"kept for {long_scope}" in line and "3%" in line).index("3%"))
         first_card, second_card = long_card.split("\n\n", 2)[:2]
         self.assertIn("  left          42%", first_card.splitlines())
         self.assertIn("  left          60%", second_card.splitlines())
@@ -121,14 +130,20 @@ class UsageSaysThePartKeptForACap(unittest.TestCase):
 
     def test_holding_nothing_and_an_ended_cap_window_show_todays_rows(self):
         # Ended windows stop at +50s (future to collect's real clock, past AK_USAGE_CLOCK at +100s)
+        now = int(time.time())
+        monthly = ({"name": "monthly", "used": 60, "window_secs": 30 * 86400,
+                    "resets_at": now + 5 * 86400, "elapsed": 50},)
         card, wide, _ = self.usage({"default": (58, None, 3 * 86400),
                                     "second": (40, 0, 3 * 86400),
                                     "third": (70, 3, 50),
                                     "fourth": (100, 3, 3 * 86400),
                                     "fifth": (58, 3, 3 * 86400, 50),
-                                    "sixth": (None, 3, 3 * 86400)}, clock_offset=100)
+                                    "sixth": (None, 3, 3 * 86400),
+                                    "seventh": (58, 3, 3 * 86400, 3 * 86400, monthly)},
+                                   clock_offset=100, now=now)
         for label, left in (("Acme I ", "42%"), ("Acme II ", "60%"), ("Acme III ", "30%"),
-                            ("Acme IV ", "0%"), ("Acme V ", "42%"), ("Acme VI ", "80%")):
+                            ("Acme IV ", "0%"), ("Acme V ", "42%"), ("Acme VI ", "80%"),
+                            ("Acme VII ", "40%")):
             rows = card_rows(card, label)
             self.assertEqual(tuple(name for name, _ in rows), STANDARD_LABELS, label)
             self.assertEqual(rows[0], ("left", left), label)
