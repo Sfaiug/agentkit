@@ -184,7 +184,8 @@ class ExecutorsOptional(Sandbox):
         self.cfg["defaults"] = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}
         config._fall_back(self.cfg["defaults"], list(self.cfg["models"]))
         self.assertEqual(self.cfg["defaults"]["workers"], [])
-        with patch.object(orch, "spent_note", return_value=""):
+        with patch.object(config, "harness_present", return_value=True), \
+                patch.object(orch, "spent_note", return_value=""):
             chosen = orch.default_crew(self.cfg, {}, "opus")
         self.assertEqual(chosen, {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]})
 

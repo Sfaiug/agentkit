@@ -4984,14 +4984,17 @@ def unhanded(path, before):
 
 def default_crew(cfg, providers, default):
     """What a new seat starts from: `default` orchestrating, and [defaults]' executors and
-    reviewers, each with something left to spend.  A group [defaults] leaves empty stays empty:
-    with no executor the orchestrator builds everything, with no reviewer a change lands on its
-    checks.  A group all spent falls back by tier -- a fresh model not the other group's own
-    first -- among those a run could start from, else any fresh one; with every model spent,
-    `default`, launched anyway as `choose` launches it, reviews and nobody builds."""
+    reviewers, each with something left to spend and not left out by `seat_models` as not
+    installed.  A group [defaults] leaves empty stays empty: with no executor the orchestrator
+    builds everything, with no reviewer a change lands on its checks.  A group with none left
+    falls back by tier -- a fresh model not the other group's own first -- among those a run
+    could start from, else any fresh one; with none left at all, `default`, launched anyway as
+    `choose` launches it, reviews and nobody builds."""
     names, (lineup, _) = config.offered(cfg), matrix.listed()
-    fresh = [name for name in names if not spent_note(cfg, name, providers)]
-    model = next((name for name in [default, *in_order(cfg)] if name in fresh), None)
+    order, out = seat_models(cfg)
+    fresh = [name for name in names if out.get(name) in (None, matrix.OFF)
+             and not spent_note(cfg, name, providers)]
+    model = next((name for name in [default, *order] if name in fresh), None)
     base = cfg["defaults"]
     marked = {"workers": base["workers"], "reviewers": base.get("reviewers", base["workers"])}
     selected = {"orchestrator": model or default,
