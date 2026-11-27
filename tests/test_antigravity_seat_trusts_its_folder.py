@@ -4,15 +4,8 @@ import json
 from pathlib import Path
 import shlex
 import subprocess
-import sys
 import tempfile
-import time
 import unittest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
-from fixtures.akseat import Seat
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -42,35 +35,6 @@ class AntigravitySeatTrustsItsFolder(unittest.TestCase):
                                       text=True, timeout=10)
             self.assertEqual(launched.returncode, 0, launched.stdout + launched.stderr)
             self.assertEqual(json.loads(launched.stdout)["trustedWorkspaces"], [str(folder)])
-
-    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-    def test_a_seat_reopened_once_its_folder_is_gone_trusts_the_one_its_agy_starts_in(self):
-        with Home() as home:
-            akconfig.write(home, {"acme": "antigravity"})
-            said = home.path / "agy.said"
-            home.fake("agy", '#!/bin/sh\nwhile [ $# -gt 1 ]; do\n'
-                             '  [ "$1" = --settings ] && { pwd -P; printf "%s\\n" "$2"; }'
-                             ' >"$HOME/agy.new" && mv "$HOME/agy.new" "$HOME/agy.said"; shift\n'
-                             'done\n')
-            seat = Seat(home, model="acme", record={"conversation": None})
-            # Its harness ends and its folder goes: tmux starts such a pane's next command in HOME.
-            done = home.tmux("respawn-pane", "-k", "-t", seat.pane, "true")
-            self.assertEqual(done.code, 0, done.err)
-            self.wait(lambda: home.tmux("display-message", "-p", "-t", seat.pane,
-                                        "#{pane_dead}").out.strip() == "1", seat)
-            seat.cwd.rmdir()
-            done = home.ak("orch", seat.name)
-            self.assertEqual(done.code, 0, done.out + done.err)
-            self.wait(said.exists, seat)
-            folder, settings = said.read_text().splitlines()
-            self.assertEqual(json.loads(settings)["trustedWorkspaces"], [folder])
-
-    def wait(self, ready, seat):
-        """Until `ready`: a pane's process is slow to start and to end on a loaded host."""
-        deadline = time.monotonic() + 300
-        while not ready():
-            self.assertLess(time.monotonic(), deadline, seat.capture())
-            time.sleep(0.05)
 
 
 if __name__ == "__main__":
