@@ -1,8 +1,8 @@
 """One probe proves on a seat that ak's longest line is sent and its turn reads as working.
 
-Runs `tests/probe_seat.py` as a program in an answer-key Home (tests/fixtures/akbin.py) against
-fake seats (tests/fixtures/akseat.py), proving the happy path, broken composer (step 2, no Enter),
-never working (step 3), step 1/4 timeouts, setup/send errors, and shorter adapter cutoffs.
+Runs `tests/probe_seat.py` in an answer-key Home against fake seats, covering the happy path,
+broken composer (step 2, no Enter), never working (step 3), step 1/4 timeouts, setup/adapter/send
+errors, and shorter adapter cutoffs.
 """
 
 from pathlib import Path
@@ -13,15 +13,12 @@ import tomllib
 import unittest
 
 TESTS = Path(__file__).resolve().parent
-REPO = TESTS.parent
-PROBE = TESTS / "probe_seat.py"
+REPO, PROBE = TESTS.parent, TESTS / "probe_seat.py"
+PROMPT, WORKING = "claude-prompt-pane.txt", "claude-working-pane.txt"
 
 sys.path.insert(0, str(TESTS))
 from fixtures.akbin import REAL_TMUX, Home  # noqa: E402
 from fixtures.akseat import Seat  # noqa: E402
-
-PROMPT = "claude-prompt-pane.txt"
-WORKING = "claude-working-pane.txt"
 
 
 def longest():
@@ -38,7 +35,6 @@ def captures(home):
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ASeatProvesItTakesAksLine(unittest.TestCase):
     def drive_probe(self, home, name, wait, drive):
-        """Run probe_seat.py on a background thread while `drive(thread)` advances the fake seat."""
         box = {}
         thread = threading.Thread(target=lambda: box.setdefault(
             "done", home.run(sys.executable, str(PROBE), name, "--wait", str(wait))))
@@ -53,13 +49,6 @@ class ASeatProvesItTakesAksLine(unittest.TestCase):
         self.assertFalse(thread.is_alive(), "probe did not finish")
         return box["done"], extra
 
-    def wait_captures(self, home, target, thread, bound=30):
-        deadline = time.monotonic() + bound
-        while captures(home) < target and thread.is_alive():
-            if time.monotonic() > deadline:
-                raise AssertionError(f"probe made {captures(home)} captures, wanted {target}")
-            time.sleep(0.05)
-
     def assertProbeLine(self, line, length):
         self.assertEqual(len(line), length)
         for token in ("sleep 20", "foreground", "OK"):
@@ -73,10 +62,12 @@ class ASeatProvesItTakesAksLine(unittest.TestCase):
             def drive(thread):
                 lines = seat.wait_lines(1)
                 seat.show(WORKING)
-                # Every capture logged after seat.show finished _settle() reads WORKING. At most
-                # one is type_checked's _wait_sent and the next is step 3; once a third starts,
-                # step 3 has already seen WORKING and the probe is polling step 4.
-                self.wait_captures(home, captures(home) + 3, thread)
+                # Captures logged after _settle() read WORKING; at most one is _wait_sent and
+                # the next is step 3, so a third means step 3 passed and step 4 is polling.
+                target, deadline = captures(home) + 3, time.monotonic() + 30
+                while captures(home) < target and thread.is_alive():
+                    self.assertLess(time.monotonic(), deadline, "probe stopped capturing")
+                    time.sleep(0.05)
                 seat.show(PROMPT)
                 return lines
 
@@ -91,20 +82,18 @@ class ASeatProvesItTakesAksLine(unittest.TestCase):
             # A composer mark absent from the screen keeps akpane.py from echoing the draft.
             seat = Seat(home, "acme", screen=PROMPT, composer="never-drawn")
             done = home.run(sys.executable, str(PROBE), "acme", "--wait", "1")
-            self.assertEqual(done.code, 1, done.out + done.err)
+            self.assertEqual((done.code, seat.lines()), (1, []), done.out + done.err)
             self.assertIn("step 2:", done.err)
             self.assertIn("bypass permissions", done.err)
-            self.assertEqual(seat.lines(), [])
             self.assertProbeLine(seat.typed(), longest())
 
-    def test_seat_never_reads_working_fails_step_3(self):
+    def test_seat_never_reads_working_fails_step_3_even_with_zero_wait(self):
         with Home() as home:
             seat = Seat(home, "acme", screen=PROMPT)
-            done = home.run(sys.executable, str(PROBE), "acme", "--wait", "1")
-            self.assertEqual(done.code, 1, done.out + done.err)
+            done = home.run(sys.executable, str(PROBE), "acme", "--wait", "0")
+            self.assertEqual((done.code, len(seat.lines())), (1, 1), done.out + done.err)
             self.assertIn("step 3:", done.err)
             self.assertIn("bypass permissions", done.err)
-            self.assertEqual(len(seat.lines()), 1)
             self.assertProbeLine(seat.lines()[0], longest())
 
     def test_seat_never_at_prompt_fails_step_1_and_never_returning_fails_step_4(self):
@@ -116,21 +105,25 @@ class ASeatProvesItTakesAksLine(unittest.TestCase):
             self.assertIn("Baking…", done.err)
         with Home() as home:
             seat = Seat(home, "acme", screen=PROMPT)
-            done, _ = self.drive_probe(
-                home, "acme", 4, lambda _t: (seat.wait_lines(1), seat.show(WORKING)))
+            done, _ = self.drive_probe(home, "acme", 4, lambda _t: (seat.wait_lines(1), seat.show(WORKING)))
             self.assertEqual(done.code, 1, done.out + done.err)
             self.assertIn("step 4:", done.err)
             self.assertIn("Baking…", done.err)
 
-    def test_setup_and_send_errors_report_step_and_screen_rows(self):
-        for step in (1, 2):
-            with self.subTest(step=step), Home() as home:
-                seat = Seat(home, "acme", screen=PROMPT)
-                if step == 1:
+    def test_setup_adapter_and_send_errors_report_step_and_screen_rows(self):
+        for step, kind in ((1, "config"), (2, "receipt"), (1, "claude.toml"), (2, "acme.toml")):
+            with self.subTest(step=step, kind=kind), Home() as home:
+                seat, env = Seat(home, "acme", screen=PROMPT), None
+                if kind == "config":
                     home.write(".agentkit/config.toml", "[providers.\n")
-                else:
+                elif kind == "receipt":
                     (home.path / ".agentkit/state/input-acme.jsonl").mkdir()
-                done = home.run(sys.executable, str(PROBE), "acme", "--wait", "1")
+                else:
+                    adapters = home.root / "adapters"
+                    adapters.mkdir()
+                    (adapters / kind).write_text('[[rule]]\nstate = "at_prompt"\nlines = "six"\n')
+                    env = {"AGENTKIT_ADAPTER_DIR": str(adapters)}
+                done = home.run(sys.executable, str(PROBE), "acme", "--wait", "1", env=env)
                 self.assertEqual((done.code, seat.typed()), (1, ""), done.out + done.err)
                 self.assertIn(f"step {step}:", done.err)
                 self.assertIn("bypass permissions", done.err)
@@ -139,16 +132,13 @@ class ASeatProvesItTakesAksLine(unittest.TestCase):
         with Home() as home:
             adapters = home.root / "adapters"
             adapters.mkdir()
-            (adapters / "claude.toml").write_text(
-                (REPO / "adapters/claude.toml").read_text(encoding="utf-8").replace(
-                    "folds_over = 800", "folds_over = 72"), encoding="utf-8")
+            (adapters / "acme.toml").write_text("[screen]\nfolds_over = 40\n")
             seat = Seat(home, "acme", screen=PROMPT)
-            done = home.run(sys.executable, str(PROBE), "acme", "--wait", "1",
+            done = home.run(sys.executable, str(PROBE), "acme", "--wait", "0",
                             env={"AGENTKIT_ADAPTER_DIR": str(adapters)})
-            self.assertEqual(done.code, 1, done.out + done.err)
+            self.assertEqual((done.code, len(seat.lines())), (1, 1), done.out + done.err)
             self.assertIn("step 3:", done.err)
-            self.assertEqual(len(seat.lines()), 1)
-            self.assertProbeLine(seat.lines()[0], 72)
+            self.assertProbeLine(seat.lines()[0], 40)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ order, else 1 naming on stderr the first unmet step and the last rows of the scr
 
 import argparse
 from pathlib import Path
+import re
 import sys
 import time
 
@@ -19,6 +20,10 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, orch, watch  # noqa: E402
 
 POLL = 0.2
+ERRORS = (config.Error, OSError, ValueError, TypeError, KeyError, re.error)
+HEADS = ("Run sleep 20 in the foreground, then reply with one word: OK.",
+         "Run sleep 20 in the foreground, then reply OK.",
+         "Run foreground sleep 20, reply OK.")
 
 
 def whole_seconds(value):
@@ -33,8 +38,7 @@ def whole_seconds(value):
 
 def probe_line(length):
     """One printable ASCII line of `length` chars asking for foreground `sleep 20` then `OK`."""
-    core = "Run sleep 20 in the foreground, then reply with one word: OK."
-    head = core if length >= len(core) else "Run sleep 20 in the foreground, then reply OK."
+    head = next((text for text in HEADS if length >= len(text)), HEADS[-1])
     if length <= len(head):
         return head[:length]
     note = " Ignore this padding:"
@@ -46,26 +50,23 @@ def probe_line(length):
 
 
 def wait_for(seconds, check, read_pane):
-    """Poll `read_pane()` for at most `seconds` until `check(pane)` holds; return (ok, pane)."""
-    deadline = time.monotonic() + seconds
-    pane = ""
-    while True:
-        pane = read_pane()
+    """Poll `read_pane(timeout)` for at most `seconds` until `check(pane)` holds."""
+    if seconds == 0:
+        pane = read_pane(None)
+        return check(pane), pane
+    deadline, last = time.monotonic() + seconds, ""
+    while (budget := deadline - time.monotonic()) > 0:
+        pane = read_pane(min(orch.TMUX_CEILING, budget))
+        last = pane or last
         remaining = deadline - time.monotonic()
         if remaining < 0:
-            return False, pane
+            return False, last
         if check(pane):
-            return True, pane
+            return True, last
         if remaining == 0:
-            return False, pane
+            return False, last
         time.sleep(min(POLL, remaining))
-        if time.monotonic() > deadline:
-            return False, pane
-
-
-def at_empty_prompt(harness, pane):
-    return (watch.screen_state(harness, pane)[0] == "at_prompt"
-            and watch.composer_draft(harness, pane) == "")
+    return False, last
 
 
 def fail(step, reason, pane="", notes=()):
@@ -80,52 +81,57 @@ def probe(name, wait):
         if session is None:
             return fail(1, f"seat {name!r} not found")
         session = watch.pinned(session)
-    except (config.Error, OSError) as exc:
+    except ERRORS as exc:
         return fail(1, str(exc))
 
-    def read_pane():
+    seen = [""]
+
+    def read_pane(timeout=None):
         try:
-            return watch.pane_text(session)
+            pane = (watch.pane_text(session) if timeout is None
+                    else watch.pane_text(session, timeout=timeout))
         except OSError:
             return ""
+        seen[0] = pane or seen[0]
+        return pane
 
     try:
         harness, _ = watch.seat_model(config.load(), session["name"])
-    except (config.Error, OSError) as exc:
-        return fail(1, str(exc), read_pane())
+    except ERRORS as exc:
+        return fail(1, str(exc), read_pane() or seen[0])
     if not harness:
-        return fail(1, f"seat {session['name']!r} has no configured harness", read_pane())
+        return fail(1, f"seat {session['name']!r} has no configured harness", read_pane() or seen[0])
+
+    def at_empty(pane):
+        return (watch.screen_state(harness, pane)[0] == "at_prompt"
+                and watch.composer_draft(harness, pane) == "")
 
     def wait_step(step, check, label):
         try:
             ok, pane = wait_for(wait, check, read_pane)
             if ok:
                 return None
+            pane = pane or seen[0]
             state, rule, _ = watch.screen_state(harness, pane)
             draft = watch.composer_draft(harness, pane)
-        except (config.Error, OSError) as exc:
-            return fail(step, str(exc), read_pane())
+        except ERRORS as exc:
+            return fail(step, str(exc), seen[0] or read_pane())
         shown = draft[:60] + "..." if isinstance(draft, str) and len(draft) > 60 else draft
-        return fail(step, f"did not read {label} (state={state!r}, rule={rule!r}, draft={shown!r})",
-                    pane)
+        return fail(step, f"did not read {label} (state={state!r}, rule={rule!r}, draft={shown!r})", pane)
 
-    if (code := wait_step(1, lambda p: at_empty_prompt(harness, p),
-                          "at_prompt with an empty composer")) is not None:
+    if (code := wait_step(1, at_empty, "at_prompt with an empty composer")) is not None:
         return code
 
     logs = []
     try:
         sent = watch.type_checked(session, probe_line(watch.longest()), logs.append, harness=harness)
-    except (config.Error, OSError) as exc:
-        return fail(2, str(exc), read_pane(), logs)
+    except ERRORS as exc:
+        return fail(2, str(exc), read_pane() or seen[0], logs)
     if sent is not True:
-        return fail(2, f"type_checked returned {sent!r}", read_pane(), logs)
+        return fail(2, f"type_checked returned {sent!r}", read_pane() or seen[0], logs)
 
-    if (code := wait_step(3, lambda p: watch.screen_state(harness, p)[0] == "working",
-                          "working")) is not None:
-        return code
-    return wait_step(4, lambda p: at_empty_prompt(harness, p),
-                     "at_prompt with an empty composer again") or 0
+    code = wait_step(3, lambda p: watch.screen_state(harness, p)[0] == "working", "working")
+    return code if code is not None else (wait_step(4, at_empty, "at_prompt with an empty composer again") or 0)
 
 
 def main(argv=None):

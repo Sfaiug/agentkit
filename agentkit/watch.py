@@ -1404,15 +1404,16 @@ def pinned(session):
     return dict(session, pane=pane, **({"pid": int(pid)} if pid.isdigit() else {}))
 
 
-def pane_text(session):
+def pane_text(session, *, timeout=None):
     """The whole pane: output above the tail must reset the quiet clock too."""
-    return pane_capture(session) or ""
+    return (pane_capture(session) if timeout is None else pane_capture(session, timeout=timeout)) or ""
 
 
-def pane_capture(session):
+def pane_capture(session, *, timeout=None):
     """The whole pane, "" where it shows nothing, or None where tmux gives no capture."""
+    extra = {} if timeout is None else {"timeout": timeout}
     rc, out = orch.tmux_out("capture-pane", "-p", "-e", "-J", "-t", _pane(session),
-                            socket=orch.seat_socket(session))
+                            socket=orch.seat_socket(session), **extra)
     return out if rc == 0 else None
 
 
