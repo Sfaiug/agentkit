@@ -759,7 +759,7 @@ def prompted_since(name, at):
 
 def continue_turns(cfg, log, accounts=False, names=None):
     """Continue rebooted seats or have them ask again, or (`accounts`) continue seats reopened
-    on another subscription; of `names` only, where given.
+    on another subscription; of `names` only, where given. Return the names we typed a line into.
 
     The mark goes on once the relaunch is back and comes off once the line has landed, so a
     send that failed -- or a tick killed in the warmup -- is tried again by the next tick,
@@ -778,6 +778,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
     till the prompt is stamped, or for MIDTURN_TRIES passes.
     """
     boot = boot_id()
+    typed = set()
     for name in config.session_records() if names is None else names:
         mark = seat_read(name).get("midturn")
         if not isinstance(mark, dict) or bool(mark.get("account")) != accounts:
@@ -812,6 +813,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
                     return quiet == [False] or taken(held)
                 sent = type_into(session, line, log, stale, asked=True)
                 if sent:
+                    typed.add(name)
                     log(f"told {name}: {line}")
                 elif taken(config.resolve_session(name)):
                     log(f"{name} was prompted or renamed since it came back: no line")
@@ -824,6 +826,7 @@ def continue_turns(cfg, log, accounts=False, names=None):
                 else:
                     log(f"WARN {name}: its line did not land in {tries} tries")
         replace_midturn(config.resolve_session(name), mark)
+    return typed
 
 
 def finish_own_lines(cfg, log):
@@ -5980,18 +5983,17 @@ def usage_waits(cfg, state, log):
         if (seat_read(name).get("usage_wait")
                 and state["stalls"].get(name, {}).get("kind") != "auth"):
             settle_account(cfg, session, log)
-            live = seat_read(name)
-            if not live.get("usage_wait"):
-                reopened[name] = session, (live.get("midturn") or {}).get("launched")
+            if not seat_read(name).get("usage_wait"):
+                reopened[name] = session
     # ... and told to go on now where its harness took no first prompt: `switched turns`, which
     # tells seat health's, has run this tick, and no other mark may have a second try in it
-    continue_turns(cfg, log, accounts=True, names=reopened)
+    typed = continue_turns(cfg, log, accounts=True, names=reopened)
     if reopened:
         records = _health_records()
-        for session, first_prompt in reopened.values():
-            # A typed line can start a turn after its preflight look. A first prompt
-            # already went in at launch, and its TUI may still be drawing.
-            _announce_health(session, cfg, state, records, look=not first_prompt)
+        for name, session in reopened.items():
+            # A typed line can start a turn after the last look. Other relaunched
+            # panes may still be drawing their first screen.
+            _announce_health(session, cfg, state, records, look=name in typed)
 
 
 def _health_records(dry_run=False):

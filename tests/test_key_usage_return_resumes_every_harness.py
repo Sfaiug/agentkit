@@ -19,7 +19,7 @@ ACCOUNT_LINE = ("Your turn was cut off when its usage ran out, and there is usag
                 "Continue that turn and finish it; do not start over.")
 
 
-def parked(home, harness, now):
+def parked(home, harness, now, continuing=True):
     name = f"fix-api-{harness}"
     cwd = home.path / "code" / name
     sid = "ses_acme" if harness == "opencode" else f"conv-{name}"
@@ -38,10 +38,9 @@ def parked(home, harness, now):
     elif harness == "muse":
         record["id_source"] = "muse-hook"
     screen = "grok" if harness == "grokbuild" else harness
-    if harness in ("antigravity", "muse"):
-        screen += "-working-pane.txt"
-    else:
-        screen += "-prompt-pane.txt"
+    screen_turn = harness in ("antigravity", "muse")
+    screen += "-working-pane.txt" if continuing and screen_turn else "-prompt-pane.txt"
+    if continuing and not screen_turn:
         home.write(f".agentkit/state/hook-{name}.json", {
             "session": name, "event": "UserPromptSubmit", "at": now - 700, "kind": "", "text": ""})
     seat = Seat(home, name, model=MODELS[harness], screen=screen, record=record)
@@ -52,11 +51,24 @@ def parked(home, harness, now):
         home.write(f".grok/sessions/{quote(str(cwd), safe='')}/{sid}/chat_history.jsonl", "")
     provider = akconfig.PROVIDER[harness]
     home.write(f".agentkit/state/seat-{name}.json", {
-        "session": name, "word": "out of usage", "state": "working",
+        "session": name, "word": "out of usage", "state": "working" if continuing else "at_prompt",
         "began": now - 700, "since": now - 700, "usage_wait": {
-            "reason": f"{provider} out of usage", "continue": True,
+            "reason": f"{provider} out of usage", "continue": continuing,
             "since": now - 600, "until": now + 10800}})
     return seat
+
+
+def refill(home, fakes, now):
+    spent = {}
+    for harness, adapter in fakes.items():
+        adapter.answer("usage", json.dumps(reading(now, 10)))
+        provider = akconfig.PROVIDER[harness]
+        spent[provider] = {**reading(now, 100), "provider": provider, "resets": 0,
+                           "probed_at": now - 3600}
+        home.write(f".agentkit/state/{provider}-probe.lock", repr(now - 3600))
+    home.write(".agentkit/state/usage.json", {"providers": spent, "fetched_at": now,
+                                              "reset_checked_at": now})
+    return home.tick()
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "needs tmux and a boxed watch tick")
@@ -66,7 +78,7 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
             akconfig.write(home, list(MODELS.values()))
             fakes = fakeadapter.install(home, **dict.fromkeys(MODELS, "pass"))
             now = time.time()
-            seats, spent = {}, {}
+            seats = {}
             for harness, adapter in fakes.items():
                 seat = seats[harness] = parked(home, harness, now)
                 if harness == "muse":
@@ -77,15 +89,8 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
                     pane = [seat.screen_file, seat.typed_file]
                 adapter.answer("interactive", shlex.join(
                     [sys.executable, str(PANE), *map(str, pane)]))
-                adapter.answer("usage", json.dumps(reading(now, 10)))
-                provider = akconfig.PROVIDER[harness]
-                spent[provider] = {**reading(now, 100), "provider": provider, "resets": 0,
-                                   "probed_at": now - 3600}
-                home.write(f".agentkit/state/{provider}-probe.lock", repr(now - 3600))
-            home.write(".agentkit/state/usage.json", {"providers": spent, "fetched_at": now,
-                                                      "reset_checked_at": now})
 
-            tick = home.tick()
+            tick = refill(home, fakes, now)
             self.assertEqual(tick.code, 0, tick.out + tick.err)
             for harness, seat in seats.items():
                 with self.subTest(harness=harness):
@@ -102,6 +107,31 @@ class UsageReturnResumesEveryHarness(unittest.TestCase):
                     else:
                         self.assertEqual(launch["env"]["AGENTKIT_FIRST_PROMPT"], ACCOUNT_LINE)
                         self.assertEqual(seat.lines(), [])
+
+    def test_idle_seats_stay_idle_while_their_relaunched_panes_are_loading(self):
+        with Home() as home:
+            harnesses = ("muse", "antigravity")
+            akconfig.write(home, [MODELS[harness] for harness in harnesses])
+            fakes = fakeadapter.install(home, **dict.fromkeys(harnesses, "pass"))
+            now = time.time()
+            loading = home.write("acme-startup.txt", "Starting session\n")
+            seats = {}
+            for harness, adapter in fakes.items():
+                seat = seats[harness] = parked(home, harness, now, continuing=False)
+                adapter.answer("interactive", shlex.join(
+                    [sys.executable, str(PANE), str(loading), str(seat.typed_file)]))
+
+            tick = refill(home, fakes, now)
+            self.assertEqual(tick.code, 0, tick.out + tick.err)
+            for harness, seat in seats.items():
+                with self.subTest(harness=harness):
+                    launch, = fakes[harness].calls("interactive")
+                    self.assertFalse(launch["env"].get("AGENTKIT_FIRST_PROMPT"))
+                    self.assertEqual(seat.lines(), [])
+                    path = home.path / f".agentkit/state/seat-{seat.name}.json"
+                    state = json.loads(path.read_text())
+                    self.assertIsNone(state["usage_wait"])
+                    self.assertEqual(state["word"], "idle")
 
     def test_an_owned_seat_explains_its_wait_for_an_empty_field_once(self):
         with Home() as home:
