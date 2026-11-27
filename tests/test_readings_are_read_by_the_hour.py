@@ -99,10 +99,14 @@ class ReadingsByTheHour(unittest.TestCase):
             folder.mkdir(parents=True)
             lines = [
                 # Exact boundary: 1.0 processors is not short (even across loads whose running
-                # mean drifts above 1), 359_999_999 us (< tenth) is not short; out-of-order lines sort by `at`.
+                # mean drifts above 1), a mean just above 1 that rounds to 1.0 in float still is,
+                # 359_999_999 us (< tenth) is not short; out-of-order lines sort by `at`.
                 raw(M + 1200, "acme-edge", 2.0, 2, stall=tenth - 1),
                 raw(M + 600, "acme-edge", 2.0, 2, stall=0),
                 *(raw(M + 600 * i, "acme-exact", load, 4) for i, load in enumerate((4.25, 8.5, 0.25, 2.25, 6.25, 2.5))),
+                *(raw(M + 300 * i, "acme-just-over", load, cores) for i, (cores, load) in enumerate((
+                    (188, 188.01), (189, 188.94), (190, 190.15), (191, 190.80),
+                    (192, 192.15), (193, 192.94), (194, 194.01)))),
                 # Next hour: cross-hour rise counts for the later hour; exact tenth + load > cores -> both.
                 raw(M + H + 600, "acme-edge", 4.0, 2, stall=2 * tenth - 1),
                 # Invalid or absent counter carries none (keeps load/memory) and never bridges a step.
@@ -141,6 +145,7 @@ class ReadingsByTheHour(unittest.TestCase):
                     (M + H, 2.0, 0.5, 0.1, ("processors", "memory")),
                 ]),
                 (("acme-exact", M + H, 1, False), [(M, 1.0, 0.5, None, ())]),
+                (("acme-just-over", M + H, 1, False), [(M, 1.0, 0.5, None, ("processors",))]),
                 # Window starting at M + H still picks up the step from the reading before M + H.
                 (("acme-edge", M + 2 * H, 1, False), [(M + H, 2.0, 0.5, 0.1, ("processors", "memory"))]),
                 (("acme-gap", M + H, 1, False), [(M, 1.0, 0.5, None, ())]),

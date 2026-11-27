@@ -37,21 +37,15 @@ _HOUR_US = HOUR * _US
 PROCESSORS_SHORT = 1       # above 1, work stood in line for a processor
 # a tenth or more: on 25 Nov 2026 the busiest home's hours all read 0, and anything near a tenth
 # is an hour a person would have felt
-MEMORY_WAIT_SHORT = 0.1
+MEMORY_WAIT_SHORT = Fraction(1, 10)
 
 
-class Hour(namedtuple("Hour", "start processors memory memory_wait")):
+class Hour(namedtuple("Hour", "start processors memory memory_wait short_of")):
     """One hour's readings, starting at `start` (inclusive) for 3600 seconds: `processors` is
     the mean of `load / cores`, `memory` the mean share of `memory_mb` in use, `memory_wait`
     the share of the hour work stood waiting for memory from rises of `memory_stall_us` between
     readings, each None where the hour has no usable reading (or, for `memory_wait`, no step
-    carrying the counter)."""
-
-    @property
-    def short_of(self):
-        """What this hour ran short of: `("processors",)`, `("memory",)`, both, or `()`."""
-        return (*(("processors",) if self.processors is not None and self.processors > PROCESSORS_SHORT else ()),
-                *(("memory",) if self.memory_wait is not None and self.memory_wait >= MEMORY_WAIT_SHORT else ()))
+    carrying the counter), and `short_of` is `("processors",)`, `("memory",)`, both, or `()`."""
 
 
 def keep(at, said):
@@ -131,17 +125,27 @@ def hours(name, until, count, *, home):
         if prev is not None and stall is not None and prev[1] is not None:
             prev_at, prev_stall = prev
             if wait_us[index] is None:
-                wait_us[index] = 0
+                wait_us[index] = Fraction(0)
             if stall > prev_stall:
-                delta, dt = stall - prev_stall, at - prev_at
-                # cap at dt and at one hour; checking dt >= HOUR first avoids overflowing dt * _US
+                delta = stall - prev_stall
+                dt = Fraction(at) - Fraction(prev_at)
+                # cap at dt and at one hour; checking dt >= HOUR first keeps large intervals tiny
                 limit = _HOUR_US if dt >= HOUR else dt * _US
                 wait_us[index] += delta if delta <= limit else limit
         prev = (at, stall)
-    return [Hour(edges[i], float(processors[i] / seen[i]), float(memory[i] / seen[i]),
-                 None if wait_us[i] is None else min(wait_us[i], _HOUR_US) / _HOUR_US)
-            if seen[i] else Hour(edges[i], None, None, None)
-            for i in range(count)]
+    return [_hour(edges[i], seen[i], processors[i], memory[i], wait_us[i]) for i in range(count)]
+
+
+def _hour(start, count, proc_sum, mem_sum, wait_us):
+    """Build one `Hour`, judging shortages on the exact rational means before converting to float."""
+    if not count:
+        return Hour(start, None, None, None, ())
+    proc = proc_sum / count
+    wait = None if wait_us is None else min(wait_us, _HOUR_US) / Fraction(_HOUR_US)
+    short = (*(("processors",) if proc > PROCESSORS_SHORT else ()),
+             *(("memory",) if wait is not None and wait >= MEMORY_WAIT_SHORT else ()))
+    return Hour(start, float(proc), float(mem_sum / count),
+                None if wait is None else float(wait), short)
 
 
 def _usable(raw, key, other, name):
