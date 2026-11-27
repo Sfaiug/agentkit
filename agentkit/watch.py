@@ -5640,16 +5640,17 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
     try:
-        prov = usage.unheld(staffing._cached_providers() if dry_run
-                            else usage.collect(cfg)).get(provider) or {}
+        prov = (staffing._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
     except (config.Error, OSError) as exc:
         log(f"WARN {name}: could not read {provider} usage: {exc}")
         return True
     readings = (prov.get("accounts") or {}) if accounts else {current: prov}
 
     def spent(account):
-        # Out of window and of credits: credits left still answer turns.
-        return usage.model_exhausted(cfg, model, {provider: readings.get(account, {})})[0]
+        # Out of window and of credits, as read: credits left still answer turns, and the part
+        # of a week held for another model's cap parks no seat, only moves it (`low`).
+        return usage.model_exhausted(cfg, model, usage.unheld(
+            {provider: readings.get(account, {})}))[0]
 
     def window(account):
         # Credits cost money, so a seat leaves them for a window that takes it.
@@ -5756,8 +5757,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
     if not waiting and not refusal and not spent(current):
         # An idle seat comes home once home has a window, and leaves credits for any window; a
         # turn the limit ended goes on there, though the meters may not show that limit yet.
-        # One whose account runs low moves to one that does not, between turns, so no turn of
-        # it is cut off when that account is spent; with every one low it spends its own, and
+        # One whose account runs low, past the part of its week held for another model's cap
+        # too (`usage.model_low`), moves to one that does not, between turns, so no turn of it
+        # is cut off when that account is spent; with every one low it spends its own, and
         # it comes home only to room it would not leave again at once.  None of it cuts off
         # background work: that waits until the account is spent (owner, 24 Oct 2026).
         return between(lambda a: a != current and window(a) and (
@@ -5856,12 +5858,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
                 return True
             seat_write(name, usage_wait=None, usage_refusal=observed or None)
             return True
-        # Each account needs all of this model's spent windows back. Scoped meters
-        # belonging to another model neither trigger a move nor postpone the reset.
+        # Each account needs all of this model's spent windows back, as read. Scoped meters
+        # belonging to another model, and the part of a week held for one, postpone no reset.
         resets = []
         for account in (accounts or [current]) if owned else [current]:
             reading = readings.get(account, {})
-            meters, _ = usage._gating_meters(cfg, model, {provider: reading})
+            meters, _ = usage._gating_meters(cfg, model, usage.unheld({provider: reading}))
             ends = [m.get("resets_at") for m in meters if m.get("used", 0) >= 100]
             ends.append(reading.get("exhausted_until"))
             ends = [end for end in ends if isinstance(end, (int, float)) and end > now]
