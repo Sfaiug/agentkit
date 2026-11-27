@@ -36,14 +36,16 @@ ABOUT_2 = [("acme-api", 0, 10, 0), ("acme-web", 2, 6, 0.1), ("acme-docs", 3, 5, 
 ALL_3 = [("acme-api", 0, 1, 99), ("acme-web", 2, 22, 0), ("acme-docs", 4, 6, 0),
          ("acme-cli", 4, 5, 0)]
 UNDER_2 = [("acme-api", 0, 4, 0), ("acme-web", 0, 4, 1)]      # two 4 h, waiting 1 h
-# Each alone half waiting, which counted would read `under 1`: (final_state, repo, run).
+# Rows not counted, each of which counted alone would read a number: (final_state, repo, run).
 LEFT_OUT = [("pass", "acme", ("acme-api", -146, -144, 1)),     # ended 8 days ago
             ("stopped", "acme", ("acme-api", 0, 2, 1)),
             ("unknown", "acme", ("acme-api", 3, 5, 1)),
             ("pass", "agentkit-smoke", ("acme-api", 6, 8, 1)),     # a suite's
             ("pass", "acme", (None, 9, 11, 1)),
             ("pass", "acme", ("acme-api", None, 14, 1)),
-            ("running", "acme", ("acme-api", 15, None, 1))]
+            ("running", "acme", ("acme-api", 15, None, 1)),
+            ("pass", "acme", ("", 18, 20, 1)),
+            ("pass", "acme", ("acme-api", 21, 23, "unavailable"))]     # text in a REAL column
 WEEK = "(last 7 days)"
 VALUE = re.compile(r"sessions at once (no runs in the last 7 days|.+? \(last 7 days\))")
 
@@ -60,7 +62,7 @@ def history(home, runs, columns=COLUMNS):
         connection.executemany(
             f"INSERT INTO runs VALUES ({', '.join('?' * len(columns))})",
             [(f"20261125-1200-fix-api-{number}", repo, state, session, at(began), at(ended),
-              waited * HOUR)[:len(columns)]
+              waited if isinstance(waited, str) else waited * HOUR)[:len(columns)]
              for number, (state, repo, (session, began, ended, waited)) in enumerate(runs)])
         connection.commit()
     finally:
