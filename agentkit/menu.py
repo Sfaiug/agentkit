@@ -2201,8 +2201,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev)):
             for n, (key, shown) in enumerate(readings):
                 since, before = news.get(key, (None, None))
-                if (shown and shown[0] and before and (before[0] or before[1][:1] != "—")
-                        and since + motion.GLIDE > moment):
+                if gliding(shown, before) and since + motion.GLIDE > moment:
                     at_now = meter_at(shown[0], since, before, moment)
                     probe = [*cells[:n], (*cells[n][:2], *at_now), *cells[n + 1:]]
                     if usage_lines(cfg, layout, rows=rows, ending=ending, cells=probe):
@@ -2935,11 +2934,55 @@ def usage_cells(cfg, now=None, rows=None):
 
 
 def meter_at(left, since, before, now):
-    """(left, said), as `usage_cells` says them, of a meter gliding (`draw`) to `left` from
+    """(left, said), as `usage_cells` says them, of a meter gliding (`gliding`) to `left` from
     `before` at `now`, eased in GLIDE seconds from `since`, and `before` while that is 0."""
     first = before[0] or 0
     shown = round(first + (left - first) * motion.eased((now - since) / motion.GLIDE))
     return (shown, f"{shown}% left") if shown else before
+
+
+def gliding(shown, before):
+    """Whether a meter glides (`meter_at`) to `shown` from `before`, the reading the draw before
+    showed, each (left, said) as `usage_cells` says them: where it has a share left now and had
+    a reading before, from `empty until …` counting up from 0; one unread (`—`) before, or
+    empty or unread now, changes at once."""
+    return bool(shown and shown[0] and before and (before[0] or before[1][:1] != "—"))
+
+
+def meter_moves(rows, cells, lines, drawing):
+    """A page's meters as its `moves` (matrix_key), hiding which glide to a new reading, from
+    where, till when and what each frame draws: one a meter, ("usage", subscription) its key
+    and its reading, of `usage_cells`' `cells` of `rows`, its value.  Meter n is on line
+    `lines[n]` of those `drawing(cells)` draws, {line: text}.  The meters gliding in one draw
+    are its moves' together, each start animating its line whole till the last of them on it
+    ends, then at rest, each frame the page's drawing of the line with every one at its reading
+    then -- the line at rest where that draws other lines, or that one wider than the screen --
+    so no frame can fail.  A meter shown at once is settled (`Clock.seen`), so no later draw
+    that can move, as a short screen grown taller, revives it."""
+    rest, glides = drawing(cells), {}
+
+    def frame(line, until, when):
+        if when < until:
+            drawn = drawing([(*cell[:2], *meter_at(cell[2], *glides[n], when)) if n in glides
+                             else cell for n, cell in enumerate(cells)])
+            if drawn.keys() == rest.keys() and terminal.cells(drawn[line]) <= terminal.width():
+                return terminal.cleared(drawn[line])
+        return terminal.cleared(rest[line])
+
+    def move(n, key, value):
+        def start(clock, row, since, before):
+            if (motion.movable() and gliding(value, before)
+                    and since + motion.GLIDE > motion.moment()):
+                glides[n] = since, before
+            else:
+                clock.seen[key] = value, None, None
+            ends = [glides[m][0] + motion.GLIDE for m in glides if lines[m] == lines[n]]
+            if ends:
+                until = max(ends)
+                clock.start([(row, 1)], lambda when: frame(lines[n], until, when), until)
+        return lines[n], key, value, start
+    return [move(n, ("usage", subscription(row)), cell[2:]) for n, (row, cell) in
+            enumerate(zip(rows, cells))]
 
 
 METER = 10        # cells of a subscription's meter on the ak screen
@@ -2969,7 +3012,7 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cell
     width with no room for a label beside it has no grid (`[]`), the screen saying the readings
     (`usage_summary`).  `ending`, `login_notes` of `rows` where the caller has read them already;
     `columns`, as many to a line as `Subscriptions` draws, one; `cells`, `usage_cells`' answer
-    already in hand, or with gliding meters at their frame's reading (`draw`)."""
+    already in hand, or with gliding meters at their frame's reading (`gliding`)."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3]))
              for cell in (usage_cells(cfg, rows=rows) if cells is None else cells)]
@@ -4763,19 +4806,30 @@ def _offered(harness, *screen, provider=None, cfg=None):
             if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
-def config_meters(cfg, at=None, rows=None):
+def config_meters(cfg, at=None, rows=None, moves=None):
     """The lines over the `c` screen's page, on every page, and where its meters are on them
     (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`, of
     `rows` where read already), and under them a line that, while `at`, from 1, has the
     highlight, says what its cell has no room for (`usage_detail`), its meter lit as the pointer
-    lights it there; none without a grid."""
+    lights it there; none without a grid.  Each meter is one of `moves` where given, gliding to
+    a new reading (`meter_moves`), the lines counted back from the page's first (matrix_key)."""
     rows, width = usage_rows(cfg) if rows is None else rows, terminal.layout_width()
-    ending = login_notes(rows)
-    meters = usage_lines(cfg, width, lit=at, rows=rows, ending=ending)
+    # one reading of the wall clock, so the meters at rest and each frame are of these cells
+    now = time.time()
+    ending, cells = login_notes(rows, now), usage_cells(cfg, now, rows)
+
+    def drawn(cells):
+        return usage_lines(cfg, width, lit=at, rows=rows, ending=ending, cells=cells)
+    meters = drawn(cells)
     if not meters:
         return [], {}
-    detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
-    return [*meters, detail], meter_spots(width, len(rows), 0)
+    detail = "  " + usage_detail(cfg, at, width, now, rows, ending) if at else ""
+    spots, first = meter_spots(width, len(rows), 0), -1 - len(meters)
+    if moves is not None:
+        moves += meter_moves(rows, cells, [first + line for line, (_, on) in spots.items()
+                                           for _ in on],
+                             lambda cells: dict(enumerate(drawn(cells), first)))
+    return [*meters, detail], spots
 
 
 def meters_led(meters, body, places, under, keys, moves=()):
@@ -4992,7 +5046,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             here = followed(here, drawn, subs)
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
-        over, meters = config_meters(cfg, lit, subs)
+        moves = []
+        over, meters = config_meters(cfg, lit, subs, moves)
         models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in under)]
         rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
@@ -5005,7 +5060,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                              *([APPLY_KEY] if fresh else []), "esc back",
                              space=None if opens else "mark" if column < 3 else "step",
                              enter="open" if opens else "start" if born else None)
-        moves, as_drawn = [], held_over(cfg, selected, held)
+        as_drawn = held_over(cfg, selected, held)
         body, places = config_body(cfg, None if terminal.away() else here, column,
                                    as_drawn, providers, moves, scope, under)
         # agentkit's build, read under the page so every page shows it, and what was said under it
