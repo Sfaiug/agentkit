@@ -155,6 +155,17 @@ class ReviewersBesideWriters(Sandbox):
         self.assertEqual(staffing.resume_models(self.cfg, self.providers, state, skip=("astra",)),
                          ("opus", "opus"))
 
+    def test_a_resumed_review_keeps_its_fallback_over_the_one_that_failed_this_round(self):
+        state = {"step": "reviewer", "executor": "opus", "reviewer": "fable",
+                 "workers": ["opus"], "reviewers": ["astra", "fable"],
+                 "review_pending": {"round": 1, "failed": ["astra"]}}
+        self.assertEqual(staffing.resume_models(self.cfg, self.providers, state),
+                         ("opus", "fable"))
+        # with every reviewer failed, the review resumes on the pick rather than waiting forever
+        state["review_pending"]["failed"].append("fable")
+        self.assertEqual(staffing.resume_models(self.cfg, self.providers, state),
+                         ("opus", "astra"))
+
     def test_a_refused_subscription_keeps_no_payg_one_out_of_the_handover_made_again(self):
         self.cfg["providers"]["acme"]["mode"] = "payg"
         self.providers = meters(acme=10, beta=10)
