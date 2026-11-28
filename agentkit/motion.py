@@ -7,7 +7,7 @@ a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles f
 light crosses its line, either's row glowing in its word's colour as it fades; the line a row
 opens comes up as the highlight comes to it, and a page's rows as it is turned to; each
 progress line grows to its length as the menu opens and glides to a new one as its plan moves,
-its count counting up with it, as a usage meter does to a new reading (menu.draw); an effort's
+its count counting up with it, as a usage meter does to a new reading (menu.gliding); an effort's
 bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes;
 a popup's content fades in once, as it opens, a card as it is asked, and a page's under its

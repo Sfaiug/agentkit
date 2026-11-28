@@ -3004,7 +3004,7 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cell
     width with no room for a label beside it has no grid (`[]`), the screen saying the readings
     (`usage_summary`).  `ending`, `login_notes` of `rows` where the caller has read them already;
     `columns`, as many to a line as `Subscriptions` draws, one; `cells`, `usage_cells`' answer
-    already in hand, or with gliding meters at their frame's reading (`draw`)."""
+    already in hand, or with gliding meters at their frame's reading (`gliding`)."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3]))
              for cell in (usage_cells(cfg, rows=rows) if cells is None else cells)]
@@ -5040,7 +5040,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
         moves = []
         over, meters = config_meters(cfg, lit, subs, moves)
-        models =[*(("model", name) for name in config_models(cfg)),
+        models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in under)]
         rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
         here = here if here in rows else models[0]    # the highlight is the row itself
