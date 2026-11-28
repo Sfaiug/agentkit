@@ -57,12 +57,12 @@ func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 				chart = func(s terminal.Screen) []string {
 					return menu.SizeChart(s, builds, limit.Value, 100, "how often a build passed its first review, by size", "build")
 				}
-				said = menu.LinesSaid(builds, limit.Value, false)
+				said = menu.LinesSaid(builds, limit.Value, false, false)
 			case "orchestrator_lines":
 				chart = func(s terminal.Screen) []string {
 					return menu.SizeChart(s, own, limit.Value, 25, "how often an orchestrator's own pull request merged in its first round, by size", "")
 				}
-				said = menu.LinesSaid(own, limit.Value, true)
+				said = menu.LinesSaid(own, limit.Value, true, numbers.ReviewLines == config.AtMost(0))
 			}
 			meant := strings.ToUpper(limit.Meaning[:1]) + limit.Meaning[1:] + "."
 			row.Under = func(s terminal.Screen) []string {
