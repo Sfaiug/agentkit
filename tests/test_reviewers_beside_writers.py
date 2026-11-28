@@ -248,6 +248,15 @@ class ReplacementBesideEarlierBuilders(Sandbox):
         self.assertEqual(pair(["a1", "b1"], ["a2"], writers=["a1"]), ("b1", "a2"))
         self.assertEqual(pair(["c1"], ["a2", "b1"], writers=["retired"]), ("c1", "a2"))
 
+    def test_an_executors_reviewed_by_ignores_reviewers_sharing_a_writers_lab(self):
+        # a1 built earlier: a2 (same lab as a1) is not a tier-0 reviewer for b1 or c1
+        order = staffing.ready_order(self.cfg, self.providers, ["a1", "b1"], role="executor",
+                                     writers=["a1"], reviewed_by=["a2"], quiet=True)
+        self.assertEqual(order, ["a1", "b1"])
+        order = staffing.ready_order(self.cfg, self.providers, ["b1", "c1"], role="executor",
+                                     writers=["a1"], reviewed_by=["a2", "b1"], quiet=True)
+        self.assertEqual(order, ["c1"])
+
     def test_two_stalls_in_a_row_hand_the_work_back_to_the_builder_a1_can_review(self):
         state = {"executor": "b1", "reviewer": "a1", "workers": ["a1", "b1", "c1"],
                  "reviewers": ["a1", "b1"]}

@@ -443,8 +443,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                         exec_order = ([executor] if answered else
                                       ready_order(as_launched, providers, workers, None,
                                                   repo=repo, reviewers=reviewers,
-                                                  reviewed_by=review_order, quiet=True,
-                                                  skip=backoff))
+                                                  writers=writers, reviewed_by=review_order,
+                                                  quiet=True, skip=backoff))
                         better = best_pair(as_launched, exec_order, review_order, writers=writers)
                     except (config.Error, OSError, ValueError, KeyError, TypeError,
                             AttributeError):

@@ -147,9 +147,9 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
     picked then from different."  So a subscription of a writer's lab keeps no payg reviewer
     of another out.  An executor's pick given `reviewed_by`, the reviewer marks of its run,
     leaves out the same way every executor with no reviewer of them at `pair_tier` 0 that is
-    not off, unready or barred, while another has one: the pick is the one a run marking only
-    those executors gets.  A pick either rule leaves empty is made again of those it left out
-    (`ready_order`).
+    not off, unready or barred (and, with `writers`, at `pair_tier` 0 beside each of them too),
+    while another has one: the pick is the one a run marking only those executors gets.  A pick
+    either rule leaves empty is made again of those it left out (`ready_order`).
     """
     return _takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)[:2]
 
@@ -166,9 +166,9 @@ def _takers(cfg, providers, workers=None, role="executor", reviewers=None, write
         skip = {name: why for name, why in skip.items() if why}
     if role == "reviewer":
         skip.update((name, why) for name in offered if (why := barred_reviewer(cfg, name)))
-    writers = known(cfg, writers) if role == "reviewer" else []
+    writers = known(cfg, writers)
     by_lab = []
-    if writers or (role == "executor" and reviewed_by is not None):
+    if (role == "reviewer" and writers) or (role == "executor" and reviewed_by is not None):
         # read here, once: `pick_order` then reads only what the other role leaves of it
         workers = usage.marked(cfg, workers, role, reviewers)
         off, (lineup, _) = matrix.off(cfg), matrix.listed()
@@ -177,12 +177,14 @@ def _takers(cfg, providers, workers=None, role="executor", reviewers=None, write
             return [name for name in names
                     if name in offered and name not in skip and name not in off]
 
-        if writers:
+        if role == "reviewer":
             far = [name for name in ready(workers)
                    if all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)]
             why = f"a reviewer of another lab than {', '.join(writers)} is marked: {', '.join(far)}"
         else:
-            reviews = [name for name in ready(reviewed_by) if not barred_reviewer(cfg, name)]
+            reviews = [name for name in ready(reviewed_by)
+                       if not barred_reviewer(cfg, name)
+                       and all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)]
             far = [name for name in ready(workers)
                    if any(pair_tier(cfg, name, reviewer, lineup) == 0 for reviewer in reviews)]
             why = f"a marked reviewer of another lab can review {', '.join(far)}"
