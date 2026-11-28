@@ -512,13 +512,15 @@ class RunTree(unittest.TestCase):
         round_dir.mkdir(parents=True)
         wt = case / "wt"
         wt.mkdir()
-        cfg = {"models": {
+        cfg = {"defaults": {"workers": ["exec", "rev", "spare"]},
+               "models": {
             "exec": {"harness": "claude", "model": "m", "effort": "e", "provider": "pa"},
             "rev": {"harness": "claude", "model": "m", "effort": "e", "provider": "pb"},
             "spare": {"harness": "claude", "model": "m", "effort": "e", "provider": "pc"}},
             "providers": {"pa": {}, "pb": {}, "pc": {}}}
         lp = SimpleNamespace(
-            cfg=cfg, run_dir=case, state={"run_id": self.run_id, "round_summaries": []},
+            cfg=cfg, run_dir=case,
+            state={"run_id": self.run_id, "round_summaries": [], "reviewers": ["rev", "spare"]},
             wt=wt, body="task", cmds=["true"], reviewer="rev", executor="exec",
             rnd=1, round_dir=round_dir, scratch=True, upstream=None, findings="",
             review_sid=None,

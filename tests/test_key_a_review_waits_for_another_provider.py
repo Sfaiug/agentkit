@@ -1,6 +1,6 @@
 """A task's review that loses its reviewer goes to a model of its writer's lab only while no
-marked reviewer of another lab can run here with usage left: with no lineup stored, as here, each
-provider is a lab.
+other marked reviewer of another lab that has not failed this round can run here with usage
+left: with no lineup stored, as here, each provider is a lab.
 
 The owner, 18 Nov 2026: "same provider or model for both roles should still be allowed if only
 picked, but if multiple picked then from different."; 22 Nov: "Own lab reviews when spent".

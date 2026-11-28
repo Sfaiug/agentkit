@@ -1369,16 +1369,15 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     def ready_reviewers(writers=None, providers=None, log=lp.log):
         """The run's marked reviewers with room, as `providers` read them, else as the meters
         read now, in pick order beside everyone who wrote part of the head (`reviewer_order`);
-        only those that already failed this round stay out.  `writers` narrow the pick as
-        `ready_order`'s do; `log`, None for a check that gives nobody the role, hears why each
-        is left out."""
+        those that already failed this round are skipped before any rule reads the list.
+        `writers` narrow the pick as `ready_order`'s do; `log`, None for a check that gives
+        nobody the role, hears why each is left out."""
         failed = lp.state["review_pending"].get("failed", [])
         ready = staffing.ready_order(lp.cfg, meters() if providers is None else providers,
                                      staffing.run_reviewers(lp.cfg, lp.state), log,
                                      role="reviewer", repo=lp.state.get("repo"), writers=writers,
-                                     quiet=log is None)
-        return [n for n in staffing.reviewer_order(lp.cfg, staffing.head_writers(lp.state), ready)
-                if n not in failed]
+                                     skip=failed, quiet=log is None)
+        return staffing.reviewer_order(lp.cfg, staffing.head_writers(lp.state), ready)
 
     def independent(names):
         """Of `names`, those that wrote no part of the head under review (`head_writers`)."""
@@ -1425,9 +1424,10 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
 
         The next one is read afresh from the run's marked reviewers and the meters as they
         read now, so a reviewer passed over while its meter was spent is picked once it has
-        refilled; only those that already failed this round stay out of it.  It is picked beside
-        the run's writers (`review_writers`): while a marked reviewer of another lab than
-        theirs can run here with usage left, none of a writer's lab is."""
+        refilled; those that already failed this round are skipped before any rule reads the
+        list (`ready_order`).  It is picked beside the run's writers (`review_writers`): while
+        another marked reviewer of another lab than theirs that has not failed this round can
+        run here with usage left, none of a writer's lab is."""
         failed = lp.state["review_pending"].setdefault("failed", [])
         if lp.reviewer not in failed:
             failed.append(lp.reviewer)
