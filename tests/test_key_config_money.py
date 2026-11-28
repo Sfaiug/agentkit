@@ -1,19 +1,21 @@
 """`c` shows `Money` last, the currency prices are in after its sign, `$ US dollars` with no
 `[money]` in config.toml, and Enter there opens `config · money`: `Currency`, Space on it switching
 to `€ euros` and back, each written to `[money] currency` at once.  Without UTF-8 the currency
-reads its ISO code for its sign: `USD US dollars`, `EUR euros`.  Under it a row each provider and
-plan the logins were on when the page opened, in the order `config · subscriptions` lists them:
-its price a month in that currency (with `your price` where `[money.paid.<currency>.<provider>]`
-keeps one) and its logins where more than one, else `no price in` it, or `plan not read yet` by
-its provider alone; Enter on a plan's row opens a field for what you pay a month in that currency,
-written at once, empty taking it out again, while a row with no plan stays one that only shows;
-then `In all`, each price times its logins, naming the logins it did not count.  Claude's Max 20x
-is $200 or 180 euros, Pro $20; ChatGPT's Plus $20 and no euro price.
+reads its ISO code for its sign: `USD US dollars`, `EUR euros`.  Under it `VAT`, `none` or
+`19% · added to list prices`, Enter opening a field for the percent added to each list price,
+written to `[money] vat` at once, empty taking it out.  Then a row each provider and plan the
+logins were on when the page opened, in the order `config · subscriptions` lists them: its price
+a month in that currency (with `your price` where `[money.paid.<currency>.<provider>]` keeps one)
+and its logins where more than one, else `no price in` it, or `plan not read yet` by its provider
+alone; Enter on a plan's row opens a field for what you pay a month in that currency, written at
+once, empty taking it out again, while a row with no plan stays one that only shows; then
+`In all`, each price times its logins, naming the logins it did not count.  Claude's Max 20x is
+$200 or 180 euros, Pro $20; ChatGPT's Plus $20 and no euro price.
 
 The owner, 24 Nov 2026: "user should be able to choose euro or dollar"; "we want to know how
-much is the user paying per month".  Black-box: `AK_BIN`'s
-menu in a terminal (tests/fixtures/akterm.py), NO_COLOR, the harnesses fakes of
-tests/fixtures/fakeadapter.py.  Fails against `/bin/false`.
+much is the user paying per month"; "user should be able to choose between net or vat
+included".  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py), NO_COLOR, the
+harnesses fakes of tests/fixtures/fakeadapter.py.  Fails against `/bin/false`.
 """
 
 import re
@@ -125,6 +127,7 @@ class ConfigMoney(unittest.TestCase):
         self.plans({"anthropic": {"default": "max 20x", "second": "pro", "third": "max 20x"},
                     "openai": {"default": "plus"}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "$200 a month · 2 logins"),
                             ("Anthropic · pro", "$20 a month"),
                             ("OpenAI · plus", "$20 a month"),
@@ -133,11 +136,13 @@ class ConfigMoney(unittest.TestCase):
     def test_space_on_currency_prices_them_again_and_in_all_names_a_login_with_no_price(self):
         self.plans({"anthropic": {"default": "max 20x"}, "openai": {"default": "plus"}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "$200 a month"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$220 a month")))
         self.term.keys("Space")
         self.term.wait(page(("Currency", "€ euros"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "€180 a month"),
                             ("OpenAI · plus", "no price in euros"),
                             ("In all", "€180 a month · 1 login not counted")))
@@ -145,10 +150,11 @@ class ConfigMoney(unittest.TestCase):
     def test_a_login_with_no_plan_kept_is_its_provider_alone(self):
         self.plans({"anthropic": {"default": "pro"}, "openai": {"default": None}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · pro", "$20 a month"),
                             ("OpenAI", "plan not read yet"),
                             ("In all", "$20 a month · 1 login not counted")))
-        self.term.keys("Down", "Down")
+        self.term.keys("Down", "Down", "Down")
         shown = self.term.wait(shows(r"› OpenAI +plan not read yet"))
         self.assertNotIn("⏎ open", shown)
 
@@ -157,6 +163,7 @@ class ConfigMoney(unittest.TestCase):
                     "openai": {"default": "plus"}},
                    money={"paid": {"USD": {"anthropic": {"max 20x": 175.5}}}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "$175.50 a month · your price · 2 logins"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$371 a month")))
@@ -165,16 +172,19 @@ class ConfigMoney(unittest.TestCase):
         self.plans({"anthropic": {"default": "max 20x"}, "openai": {"default": "plus"}},
                    money={"paid": {"EUR": {"openai": {"plus": 180}}}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "$200 a month"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$220 a month")))
         self.term.keys("Space")
         self.term.wait(page(("Currency", "€ euros"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "€180 a month"),
                             ("OpenAI · plus", "€180 a month · your price"),
                             ("In all", "€360 a month")))
         self.term.keys("Space")
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "$200 a month"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$220 a month")))
@@ -183,10 +193,11 @@ class ConfigMoney(unittest.TestCase):
         self.plans({"anthropic": {"default": "max 20x", "second": "max 20x"},
                     "openai": {"default": "plus"}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "$200 a month · 2 logins"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$420 a month")))
-        self.term.keys("Down", "Enter")
+        self.term.keys("Down", "Down", "Enter")
         self.term.wait(shows(r"    a month · empty: the list price", r"  ⏎ save   esc back"))
         self.term.type("175.50")
         self.term.keys("Enter")
@@ -194,9 +205,9 @@ class ConfigMoney(unittest.TestCase):
                              r"  OpenAI · plus +\$20 a month",
                              r"  In all +\$371 a month"))
         self.assertEqual(self.currency(), {"paid": {"USD": {"anthropic": {"max 20x": 175.5}}}})
-        self.term.keys("Up", "Space")
+        self.term.keys("Up", "Up", "Space")
         self.term.wait(shows(r"› Currency +€ euros", r"  OpenAI · plus +no price in euros"))
-        self.term.keys("Down", "Down", "Enter")
+        self.term.keys("Down", "Down", "Down", "Enter")
         self.term.wait(shows(r"    a month · empty: the list price", r"  ⏎ save   esc back"))
         self.term.type("180")
         self.term.keys("Enter")
@@ -211,10 +222,11 @@ class ConfigMoney(unittest.TestCase):
         self.plans({"anthropic": {"default": "max 20x"}, "openai": {"default": "plus"}},
                    money={"paid": {"USD": {"anthropic": {"max 20x": 180}}}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "$180 a month · your price"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$200 a month")))
-        self.term.keys("Down", "Enter")
+        self.term.keys("Down", "Down", "Enter")
         self.term.wait("⏎ save")
         self.term.keys("Escape")
         self.term.wait(shows(r"› Anthropic · max 20x +\$180 a month · your price"))
@@ -228,12 +240,13 @@ class ConfigMoney(unittest.TestCase):
     def test_a_text_that_is_no_price_writes_nothing_and_says_why(self):
         self.plans({"anthropic": {"default": "max 20x"}, "openai": {"default": "plus"}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "$200 a month"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$220 a month")))
         config = self.home.path / ".agentkit/config.toml"
         before = config.read_bytes()
-        self.term.keys("Down")
+        self.term.keys("Down", "Down")
         self.term.wait(shows(r"› Anthropic · max 20x +\$200 a month"))
         for bad in ("abc", " 180", "0", "1.234", "1000001", " ", "18\t0", "\t"):
             with self.subTest(bad=bad):
@@ -245,15 +258,83 @@ class ConfigMoney(unittest.TestCase):
                                      r"  a price is a number like 180 or 180\.50"))
                 self.assertEqual(config.read_bytes(), before)
 
+    def test_a_vat_typed_is_shown_kept_and_added_to_each_list_price_but_not_your_price(self):
+        self.plans({"anthropic": {"default": "max 20x", "second": "max 20x"},
+                    "openai": {"default": "plus"}},
+                   money={"paid": {"USD": {"openai": {"plus": 18}}}})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
+                            ("Anthropic · max 20x", "$200 a month · 2 logins"),
+                            ("OpenAI · plus", "$18 a month · your price"),
+                            ("In all", "$418 a month")))
+        self.term.keys("Down", "Enter")
+        self.term.wait(shows(r"    percent · empty: none, as for a business",
+                             r"  ⏎ save   esc back"))
+        self.term.type("8.1")
+        self.term.keys("Enter")
+        self.term.wait(shows(r"› VAT +8\.1% · added to list prices",
+                             r"  Anthropic · max 20x +\$216\.20 a month · 2 logins",
+                             r"  OpenAI · plus +\$18 a month · your price",
+                             r"  In all +\$450\.40 a month"))
+        self.assertEqual(self.currency(), {"paid": {"USD": {"openai": {"plus": 18}}}, "vat": 8.1})
+
+    def test_nothing_typed_takes_the_vat_out(self):
+        self.plans({"anthropic": {"default": "max 20x"}, "openai": {"default": "plus"}},
+                   money={"vat": 19})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "19% · added to list prices"),
+                            ("Anthropic · max 20x", "$238 a month"),
+                            ("OpenAI · plus", "$23.80 a month"),
+                            ("In all", "$261.80 a month")))
+        self.term.keys("Down", "Enter")
+        self.term.wait("⏎ save")
+        self.term.keys("Escape")
+        self.term.wait(shows(r"› VAT +19% · added to list prices"))
+        self.term.keys("Enter")
+        self.term.wait("⏎ save")
+        self.term.keys("Enter")
+        self.term.wait(shows(r"› VAT +none", r"  Anthropic · max 20x +\$200 a month",
+                             r"  OpenAI · plus +\$20 a month", r"  In all +\$220 a month"))
+        self.assertIsNone(self.currency())
+        # nothing left to take out: no save, which would replace the file (config.save)
+        config = self.home.path / ".agentkit/config.toml"
+        before = config.stat().st_ino
+        self.term.keys("Enter")
+        self.term.wait("⏎ save")
+        self.term.keys("Enter")
+        self.term.wait(shows(r"› VAT +none", r"  ↑↓←→ move   ⏎ open   esc back"))
+        self.assertEqual(config.stat().st_ino, before)
+
+    def test_a_text_that_is_no_percent_writes_nothing_and_says_why(self):
+        self.plans({"anthropic": {"default": "max 20x"}, "openai": {"default": "plus"}})
+        self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
+                            ("Anthropic · max 20x", "$200 a month"),
+                            ("OpenAI · plus", "$20 a month"),
+                            ("In all", "$220 a month")))
+        config = self.home.path / ".agentkit/config.toml"
+        before = config.read_bytes()
+        self.term.keys("Down")
+        self.term.wait(shows(r"› VAT +none"))
+        for bad in ("abc", "0", "101", "19.555", " 19"):
+            with self.subTest(bad=bad):
+                self.term.keys("Enter")
+                self.term.wait("⏎ save")
+                self.term.type(bad)
+                self.term.keys("Enter")
+                self.term.wait(shows(r"› VAT +none", r"  a VAT is a percent like 19 or 8\.1"))
+                self.assertEqual(config.read_bytes(), before)
+
     def test_a_plan_changed_while_the_field_is_open_leaves_it_under_its_row(self):
         self.plans({"anthropic": {"default": "max 20x", "second": "pro"},
                     "openai": {"default": "plus"}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · max 20x", "$200 a month"),
                             ("Anthropic · pro", "$20 a month"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$240 a month")))
-        self.term.keys("Down", "Enter")
+        self.term.keys("Down", "Down", "Enter")
         self.term.wait(shows(r"    a month · empty: the list price", r"  ⏎ save   esc back"))
         # Move the login onto `pro` while the field is open: the row stays and saves for `max 20x`.
         self.home.write(".agentkit/state/logins.json", {
@@ -278,10 +359,11 @@ class ConfigMoney(unittest.TestCase):
     def test_a_plan_named_with_del_takes_a_price_and_the_config_still_loads(self):
         self.plans({"anthropic": {"default": "pro\x7f"}, "openai": {"default": "plus"}})
         self.term.wait(page(("Currency", "$ US dollars"),
+                            ("VAT", "none"),
                             ("Anthropic · pro", "no price in US dollars"),
                             ("OpenAI · plus", "$20 a month"),
                             ("In all", "$20 a month · 1 login not counted")))
-        self.term.keys("Down", "Enter")
+        self.term.keys("Down", "Down", "Enter")
         self.term.wait("⏎ save")
         self.term.type("42")
         self.term.keys("Enter")
