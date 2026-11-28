@@ -59,7 +59,8 @@ menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason"
 menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: usage.Readings({})
-menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>", flush=True)
+menu.open_session = lambda cfg, session, dry_run, **_kw: print(f"<opened {session['name']}>",
+                                                                 flush=True)
 
 read_key, was_q = terminal.read_key, False
 def heard(*args, **kwargs):

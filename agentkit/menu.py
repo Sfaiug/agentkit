@@ -7505,7 +7505,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             act += more.char if more and more.name == "char" and more.char.isdecimal() else ""
         if act == "enter" or act.isdecimal() and act.isascii() and 1 <= int(act) <= len(past):
             open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1],
-                         dry_run, keyboard, lambda: terminal.doing("past sessions · starting"))
+                         dry_run, keyboard=keyboard,
+                         starting=lambda: terminal.doing("past sessions · starting"))
             return True
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             leaving = []
@@ -7905,8 +7906,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 live.away()
             if key.isdigit():
                 if 1 <= int(key) <= len(found):
-                    open_session(cfg, found[int(key) - 1], dry_run, keyboard,
-                                 lambda: terminal.doing("starting", drawn["titled"]))
+                    open_session(cfg, found[int(key) - 1], dry_run, keyboard=keyboard,
+                                 starting=lambda: terminal.doing("starting", drawn["titled"]))
                     if overlay:
                         return 0
                 else:
