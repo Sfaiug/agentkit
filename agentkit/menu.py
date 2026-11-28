@@ -4170,9 +4170,10 @@ def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, `config · recommended · <seat>` or `· new seats`: what each role
     of `selected` uses (models_body), the bars of the highlighted role (models_bars) as tall as
     the page leaves room for, over models_read until Esc, the boards read as it opens
-    (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
-    bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or better
-    choice for its role at once (next_choice, take_choice), keeping the price it stopped at
+    (matrix.refresh), its first answer made under `c` as drawn, its header naming what that
+    reads (terminal.doing); a page too short for one-cell bars sheds what gives way, then is cut
+    from its bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or
+    better choice for its role at once (next_choice, take_choice), keeping the price it stopped at
     (keep_price), which its bars' heading says while it holds (price_held), the owner's design
     of 5 Nov 2026, `no choice` up to a limit no choice costs as little as (price_fit), as the
     role then stays; the last row a role was shown using that is no choice staying one of its bars
@@ -4188,6 +4189,8 @@ def models_screen(cfg, session, selected, providers):
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
     clock, rows = motion.Clock(page=True), [("row", role) for role in quality.ROLES]
+    if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
+        terminal.doing("config · recommended · reading what your runs cost")
     while True:
         if fetch is not None and not fetch.is_alive():
             try:                      # a board that failed answers with its error, kept a day
