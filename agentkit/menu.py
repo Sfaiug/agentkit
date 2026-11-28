@@ -6854,12 +6854,12 @@ def rounds_said(runs, held):
 
 def lines_said(key, sizes, held, *, executors_off=False):
     """What `key`'s changes would have done at `held` lines, `sizes` its kind's of
-    history.first_review_sizes: those of `held` lines or more -- where the owner's design
-    of 5 Nov 2026 splits them -- split, for builds under `executor_lines` and for
-    orchestrators' own pull requests when `executors_off`, or made tasks, for orchestrators'
-    own pull requests under `orchestrator_lines`, and how often their first review passed, or
-    round 1 merged them, beside the rest; off, or past the largest, what they can't say.  None
-    with none, unless off."""
+    history.first_review_sizes: those of more than `held` lines, as the first review's gates
+    (transitions.first_review_refusal, seat_lines) refuse them, split, for builds under
+    `executor_lines` and for orchestrators' own pull requests when `executors_off`, or made
+    tasks, for orchestrators' own pull requests under `orchestrator_lines` -- the owner's design
+    of 5 Nov 2026 -- and how often their first review passed, or round 1 merged them, beside the
+    rest; off, or past the largest, what they can't say.  None with none, unless off."""
     own = key == "orchestrator_lines"
     if held == 0:
         return ("Off: orchestrators build nothing themselves" + (
@@ -6869,22 +6869,22 @@ def lines_said(key, sizes, held, *, executors_off=False):
                 "Off: executors build nothing, so your runs can't say how that would go.")
     if not sizes:
         return None
-    over = [passed for lines, passed in sizes if held != "no limit" and lines >= held]
+    over = [passed for lines, passed in sizes if held != "no limit" and lines > held]
     if not over:
         return (f"Your largest {'own pull request' if own else 'build'} was "
                 f"{max(lines for lines, _ in sizes)} lines, so your runs can't say how bigger "
                 "ones would go.")
-    under = [passed for lines, passed in sizes if lines < held]
+    under = [passed for lines, passed in sizes if lines <= held]
     rate = lambda each: f"{round(100 * sum(each) / len(each))}%"
     were, rest = "was" if len(over) == 1 else "were", (
-        f", and {rate(under)} below {held} lines" if under else "")
+        f", and {rate(under)} at {held} lines or fewer" if under else "")
     if own:
         fate = "split" if executors_off else ("a task" if len(over) == 1 else "tasks")
         return (f"{len(over)} of your orchestrators' {len(sizes)} own pull requests {were} "
-                f"{held} lines or more and would have been {fate}. "
+                f"more than {held} lines and would have been {fate}. "
                 f"Round 1 merged {rate(over)} of them{rest}.")
     return (f"{len(over)} of your {len(sizes)} builds ({round(100 * len(over) / len(sizes))}%) "
-            f"{were} {held} lines or more and would have been split. Their first review passed "
+            f"{were} more than {held} lines and would have been split. Their first review passed "
             f"{rate(over)} of the time{rest}.")
 
 

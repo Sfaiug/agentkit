@@ -65,11 +65,11 @@ func RoundsSaid(runs []history.Row, held int) string {
 // LinesSaid is what a line limit's changes would have done at held lines, runs the ones its
 // SizeChart draws (history.FirstReviewSizes), own for orchestrators' own pull requests under
 // `orchestrator_lines` (executorsOff when `executor_lines` is 0, so own pull requests over the
-// limit are split rather than made tasks), Python's menu.lines_said: those of held lines or more
-// -- where the owner's design of 5 Nov 2026 splits them -- split, for builds or with executors
-// off, or made tasks, for own pull requests, and how often their first review passed, or round 1
-// merged them, beside the rest; off, or past the largest, what they can't say.  "" with none,
-// unless off.
+// limit are split rather than made tasks), Python's menu.lines_said: those of more than held
+// lines, as the first review's gates refuse them, split, for builds or with executors off, or
+// made tasks, for own pull requests -- the owner's design of 5 Nov 2026 -- and how often their
+// first review passed, or round 1 merged them, beside the rest; off, or past the largest, what
+// they can't say.  "" with none, unless off.
 func LinesSaid(runs []history.Row, held any, own, executorsOff bool) string {
 	if held == 0 {
 		switch {
@@ -92,7 +92,7 @@ func LinesSaid(runs []history.Row, held any, own, executorsOff bool) string {
 		lines, _ := run.Num("lines")
 		passed, _ := run.Num("passed")
 		side := &under
-		if limited && lines >= float64(limit) {
+		if limited && lines > float64(limit) {
 			side = &over
 		}
 		side.passed, side.runs = side.passed+int(passed), side.runs+1
@@ -112,7 +112,7 @@ func LinesSaid(runs []history.Row, held any, own, executorsOff bool) string {
 		were = "was"
 	}
 	if under.runs > 0 {
-		rest = fmt.Sprintf(", and %d%% below %d lines", percent(under.passed, under.runs), limit)
+		rest = fmt.Sprintf(", and %d%% at %d lines or fewer", percent(under.passed, under.runs), limit)
 	}
 	if own {
 		fate := "tasks"
@@ -122,10 +122,10 @@ func LinesSaid(runs []history.Row, held any, own, executorsOff bool) string {
 		case over.runs == 1:
 			fate = "a task"
 		}
-		return fmt.Sprintf("%d of your orchestrators' %d own pull requests %s %d lines or more and would have been %s. Round 1 merged %d%% of them%s.",
+		return fmt.Sprintf("%d of your orchestrators' %d own pull requests %s more than %d lines and would have been %s. Round 1 merged %d%% of them%s.",
 			over.runs, len(runs), were, limit, fate, percent(over.passed, over.runs), rest)
 	}
-	return fmt.Sprintf("%d of your %d builds (%d%%) %s %d lines or more and would have been split. Their first review passed %d%% of the time%s.",
+	return fmt.Sprintf("%d of your %d builds (%d%%) %s more than %d lines and would have been split. Their first review passed %d%% of the time%s.",
 		over.runs, len(runs), percent(over.runs, len(runs)), were, limit, percent(over.passed, over.runs), rest)
 }
 
