@@ -54,7 +54,7 @@ WAIT = 0.15         # seconds a screen's content is fetched for before its rule 
 SPIN = 2 * FRAME    # seconds each of the spinner's glyphs shows beside what ak waits on
 SPINNER = "▖▘▝▗"     # quadrants, which a terminal draws itself, and `|/-\` without UTF-8
 LANDS = 0.25        # ... the highlight takes to settle onto the selection where it comes
-LEAVES = 0.2        # ... and to fade into the background where it left
+LEAVES = 0.2        # ... and to fade into the background where it left, or a removed row
 # The highlight's colours as shares of the theme's selection, accent and background, drawn in the
 # theme in force whenever it changes (`painted`): where it comes it starts 45% of the way to the
 # accent.

@@ -36,6 +36,9 @@ class Time:
     def monotonic(self):
         return self.now
 
+    def sleep(self, seconds):
+        self.now += seconds
+
     def __getattr__(self, name):
         return getattr(time, name)
 
