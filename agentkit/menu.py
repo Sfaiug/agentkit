@@ -759,6 +759,43 @@ def framed(clock, title, lines, at, card, keys, places=None):
     return 3 + at
 
 
+def fade_out(clock, rows):
+    """Fade screen `rows` (counted from 1) of what the last draw put up into the background in
+    `motion.LEAVES`, returning once they are background: a page calls this between the answer
+    and the act, so its list never holds a row that has gone.
+
+    Hides settling and clearing the clock, mixing text and highlight backgrounds into the
+    screen's background, the frame loop, watching for a resize without reading a key (ending
+    at once if resized), and doing nothing where nothing can move (`motion.movable`).
+    """
+    if not motion.movable() or terminal.resized(0):
+        return
+    screen = terminal.on_screen()
+    leaving = [(row, screen[row - 1]) for row in rows if 0 < row <= len(screen)]
+    if not leaving:
+        return
+    clock.settle()
+    clock.clear()
+    began, size, shown = motion.moment(), (terminal.width(), terminal.height()), {}
+    while True:
+        now, step = motion.moment(), time.monotonic()
+        done = now >= began + motion.LEAVES
+        amount = 1 if done else motion.eased((now - began) / motion.LEAVES)
+        out = ""
+        for row, line in leaving:
+            text = "" if done else terminal.fade(line, amount, backs=True)
+            if shown.get(row) != text:
+                shown[row] = text
+                out += f"\033[{row};1H{terminal.cleared(text)}"
+        terminal.over(out)
+        if done:
+            clock.last = time.monotonic()
+            return
+        due = max(0, step + motion.FRAME - time.monotonic())
+        if terminal.resized(due) or (terminal.width(), terminal.height()) != size:
+            return
+
+
 class Back(Exception):
     """Esc, the end of input or a click on `esc back`, read while a screen waited on what it
     fetches (`waited`); or Esc out of a list another list opened (`config_add`)."""
@@ -7385,6 +7422,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1], dry_run)
             return True
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
+            leaving = []
+
             def around(card, keys):
                 # the rows laid out anew, a resize's; in what a frame holds unscrolled at this
                 # height (`terminal.written` ends in a newline), the card to its answers, its top
@@ -7394,12 +7433,16 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                 if holds < 2:
                     return None
                 body, places = laid()[:2]
-                at = max(line for line, (row, _) in places.items() if row == ("row", here)) + 1
+                mine = [line for line, (row, _) in places.items() if row == ("row", here)]
+                at = max(mine) + 1
                 lines, skip = body[:at] + card + body[at:], max(0, at + len(card) - 1 - holds)
+                leaving[:] = range(3 + max(0, min(mine) - skip),
+                                   3 + min(holds, at + len(card) - skip))
                 return framed(clock, "past sessions", lines[skip:skip + holds], at - skip, card,
                               keys, page_places(places, skip, at - skip))
             if asking(clock, around)(f"Remove {here} from past sessions?",
                                      "It can no longer be reopened.", "Remove"):
+                fade_out(clock, leaving)
                 keyboard.give()       # the stop says what it did where it can be read
                 clock.forget()        # another screen: the page back from it is drawn as it is
                 remove_seat(here, dry_run)

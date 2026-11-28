@@ -187,22 +187,29 @@ def faded(word, amount, ground="background", shade=None):
                          for c, t in zip(bytes.fromhex(rgb), to))
 
 
-def fade(text, amount):
+def fade(text, amount, backs=False):
     """`text` as a draw wrote it, every colour in it -- and the foreground its plain cells take,
     the one `faded` lights toward -- `amount` (0 to 1) of the way to the background each cell
     sets, the screen's where it sets none, that background as it is: a popup's content coming
     up out of it (`motion.Clock.rise`), and a label on the highlight out of the highlight.
-    Where colour cannot move it is as it is.
+    With `backs`, toward the screen's background instead, every cell's background with it: a
+    row fading out (`menu.fade_out`).  Where colour cannot move it is as it is.
     """
     depth = colour_depth()
     if amount <= 0 or depth <= 8:
         return text
+    amount = min(1, amount)
     unset = {38: bytes.fromhex(colour("text")), 48: bytes.fromhex(colour("background"))}
-    inks = dict(unset)      # the text's colour (38) and the background's (48) so far
+    inks, back = dict(unset), None      # foreground (38), cell background (48), and explicit 48
+
+    def mix(from_, to):
+        return bytes(round(c * (1 - amount) + b * amount) for c, b in zip(from_, to)).hex()
 
     def tone():
-        mixed = [round(c * (1 - amount) + b * amount) for c, b in zip(inks[38], inks[48])]
-        return f"\033[{ink(bytes(mixed).hex())}m"
+        parts = [ink(mix(inks[38], unset[48] if backs else inks[48]))]
+        if backs and back is not None:
+            parts.append(ink(mix(back, unset[48]), "48"))
+        return f"\033[{';'.join(parts)}m"
 
     out, at = tone(), 0
     for code in _SGR.finditer(text):
@@ -211,12 +218,15 @@ def fade(text, amount):
         while parts:
             first = parts.pop(0)
             if first == 0:
-                inks = dict(unset)
+                inks, back = dict(unset), None
             elif first in (39, 49):
                 inks[first - 1] = unset[first - 1]
+                back = None if first == 49 else back
             elif first in (38, 48) and parts[:1] == [2]:
                 # its channels are read past whole: a 0 among them is no reset
                 inks[first], parts = parts[1:4], parts[4:]
+                if first == 48:
+                    back = inks[48]
         out += text[at:code.end()] + tone()
         at = code.end()
     return out + text[at:] + "\033[0m"
@@ -921,6 +931,28 @@ def asked_again():
     global _ASKED
     asked, _ASKED = _ASKED, False
     return asked
+
+
+def resized(timeout=0):
+    """Wait up to `timeout` seconds for a resize or a return from ^Z, reading no key; True once
+    one has arrived, clearing `_UP` so the next draw writes whole."""
+    global _UP
+    if asked_again():
+        _UP = _UP and []
+        return True
+    again = _TAKEN.again[0] if _TAKEN is not None and _TAKEN.again else None
+    if not isinstance(again, int):
+        if timeout > 0:
+            motion.time.sleep(timeout)
+        return asked_again()
+    if select.select([again], [], [], max(0, timeout))[0]:
+        _UP = _UP and []
+        try:
+            os.read(again, 4096)
+        except OSError:
+            pass
+        return True
+    return False
 
 
 class Keyboard:

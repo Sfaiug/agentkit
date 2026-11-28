@@ -6,9 +6,9 @@ code and tests.
 
 ## Frame
 
-Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit`,
+Every screen shares one frame, a notice's (`note`) too. The header is one line: `agentkit`,
 the screen's name and the job it waits on left, the clock right. Under it: one `border` rule,
-the rows, one blank line, the key line last. On the main screen and `c`, usage sits
+the rows, one blank line, the key line last. On main and `c`, usage sits
 under the header. The rule is ak's one progress indicator: a counted job fills it; the rainbow
 glides along it while a screen loads. Ctrl-b m's popup's border
 is rounded. Helpers:
@@ -101,11 +101,12 @@ Colour says where a thing stands, never who.
 
 ## Motion
 
-Something moves only while worked on, once when it changes, or under the pointer: work breathes,
-news pulses, settles, nudges, a meter glides, the highlight glows in, fades out. Each takes
+Something moves only while worked on, on change, or under the pointer: work breathes,
+news pulses, settles, nudges, meters glide, highlights glow in. Each takes
 one time (`motion.py`):
 
 - **Coming up:** a row's line, page, card, screens opening.
+- **Fading out:** a left highlight, a removed row.
 - **Filling:** a mark, an effort's cell.
 - **A light passing:** a done line, an effort's top word.
 - **A light going round,** a breath: a line with no plan, a waiting rule.
