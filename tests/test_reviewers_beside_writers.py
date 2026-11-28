@@ -333,6 +333,35 @@ class UnlistedModelLab(Sandbox):
                  "yours": [{"harness": "claude", "model": "default"}]}]
         self.assertEqual(staffing.pair_tier(self.cfg, "nova_dune", "mist", held), 0)
 
+    def test_two_harnesses_defaults_on_one_provider_are_not_the_same_model(self):
+        cfg = {"providers": {"dune": {}}, "models": {
+            "nova": {"harness": "claude", "model": "default", "provider": "dune", "effort": "high"},
+            "nova_low": {"harness": "claude", "model": "default", "provider": "dune", "effort": "low"},
+            "mist": {"harness": "codex", "model": "default", "provider": "dune", "effort": "high"},
+            "echo": {"harness": "claude", "model": "older-1", "provider": "dune", "effort": "high"},
+            "echo_codex": {"harness": "codex", "model": "older-1", "provider": "dune", "effort": "high"},
+        }}
+        rows = [
+            {"release": "current-1", "maker": "Acme",
+             "yours": [{"harness": "claude", "model": "default"}]},
+            {"release": "older-1", "maker": "Acme",
+             "yours": [{"harness": "claude", "model": "older-1"},
+                       {"harness": "codex", "model": "older-1"}]},
+        ]
+        self.assertTrue(staffing.same_model(cfg, "nova", "nova_low"))
+        self.assertFalse(staffing.same_model(cfg, "nova", "mist"))
+        self.assertTrue(staffing.same_model(cfg, "echo", "echo_codex"))
+        self.assertEqual(staffing.pair_tier(cfg, "nova", "nova_low", rows), 2)
+        self.assertEqual(staffing.pair_tier(cfg, "nova", "mist", rows), 0)
+        self.assertEqual(staffing.pair_tier(cfg, "nova", "echo", rows), 1)
+        self.assertEqual(staffing.pair_tier(cfg, "echo", "echo_codex", rows), 2)
+        self.assertEqual(staffing.pair_tier(cfg, "nova", "mist", []), 1)
+        with patch.object(staffing.matrix, "listed", return_value=(rows, {})):
+            self.assertEqual(staffing.best_pair(cfg, ["nova"], ["mist", "echo"]), ("nova", "mist"))
+            self.assertEqual(staffing.best_pair(cfg, ["echo"], ["echo_codex", "nova"]),
+                             ("echo", "nova"))
+            self.assertIsNone(staffing.best_pair(cfg, ["echo"], ["echo_codex"], allow_self=False))
+
 
 if __name__ == "__main__":
     unittest.main()
