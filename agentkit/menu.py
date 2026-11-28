@@ -3629,6 +3629,8 @@ def _your_runs(cfg, session, selected, held, providers):
                     else f"{shown} is {matrix.OFF}" if name in matrix.off(cfg)
                     else flip_mark(cfg, session, selected, held, name, column, providers, ask))
             if not note:
+                cfg = holding(cfg)      # the marks as saved, which `c` reads before its next draw
+                marks_read(cfg, session, selected)
                 mine, rows = team({here[0]: [row]})
                 # on the model it was on: its row in use, else this one, kept
                 here = (here[0], min((not other["in_use"], other["effort"] != row["effort"],
