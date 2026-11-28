@@ -47,6 +47,17 @@ def read(screen):
     return shown, lit
 
 
+def rested(term, rows, body, *keys):
+    """`keys` pressed, `term`'s lines plain once the highlight rests on `rows` over `body`, the
+    lines between the rule and the key line."""
+    if keys:
+        term.keys(*keys)
+    reads = []      # what is asserted of the screen is what the wait read
+    term.wait(lambda _: reads.append(read(term.screen(colours=True)))
+              or (reads[-1][1], body_lines(reads[-1][0])) == (rows, body))
+    return reads[-1][0]
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class YourRunsHighlight(unittest.TestCase):
     def open(self, size):
@@ -62,14 +73,7 @@ class YourRunsHighlight(unittest.TestCase):
         self.term.keys("r")
 
     def page(self, rows, body, *keys):
-        """`keys` pressed, the screen's lines plain once the highlight rests on `rows` over
-        `body`, the lines between the rule and the key line."""
-        if keys:
-            self.term.keys(*keys)
-        reads = []      # what is asserted of the screen is what the wait read
-        self.term.wait(lambda _: reads.append(read(self.term.screen(colours=True)))
-                       or (reads[-1][1], body_lines(reads[-1][0])) == (rows, body))
-        return reads[-1][0]
+        return rested(self.term, rows, body, *keys)
 
     def test_it_opens_on_the_first_orchestrator_and_down_moves_to_the_next(self):
         self.open((100, 30))
