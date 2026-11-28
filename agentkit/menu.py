@@ -6326,21 +6326,53 @@ def money_value(cfg):
     return f"{usage.SIGNS[code] if terminal.utf8() else code} {CURRENCY_NAMES[code]}"
 
 
+def vat_value(cfg):
+    """`VAT`'s value: `none` where `[money] vat` names none or 0, else the percent money.price
+    adds, `19% · added to list prices`, exactly: never rounded, so it never reads as another
+    rate, but its first 20 digits and `…` where it has more, and `under 0.01%`, the least the
+    field takes, for a rate below it, so no long one fills the page.  In whole numbers
+    (config.parse_decimal), as a float of a tiny rate is 0 and decimal's exponents end."""
+    rate = money.vat(cfg)
+    _, digits, places, exp = config.parse_decimal(0 if rate is None else rate)
+    if not digits:
+        return "none"
+    cut = max(0, places - 20)
+    shown = ("under 0.01" if places + exp < -1          # 0.00…: two zeros after the point
+             else f"{decimal.Decimal(digits // 10 ** cut).scaleb(exp + cut):f}" + "…" * bool(cut))
+    return f"{shown}% · added to list prices"
+
+
 def config_money(cfg):
     """`Money`: `Currency`, the currency prices are in (config_page), Space switching it to the
-    next of money.TABLES, written to `[money]` in config.toml at once (setting); under it the
-    plans the logins were on when the page opened (usage_rows, usage.plan), their prices read
-    at each draw (plan_rows)."""
+    next of money.TABLES, written to `[money]` in config.toml at once (setting); under it `VAT`,
+    the percent money.price adds to list prices (vat_value), Enter opening a field for it
+    written at once, empty taking it out; under that the plans the logins were on when
+    the page opened (usage_rows, usage.plan), their prices read at each draw (plan_rows)."""
     counts = {}
     for provider, _, _, account in usage_rows(cfg):
         on = provider, usage.plan(provider, account)
         counts[on] = counts.get(on, 0) + 1
+
+    def vat(write):
+        def field(draw):
+            typed = terminal.field("    ", "percent · empty: none, as for a business",
+                                   around=lambda line: draw([line]), tabs=True)
+            if typed is None or terminal.is_esc(typed):
+                return ""
+            value = money.parse(typed, 100) if typed else None
+            if typed and value is None:
+                return "a VAT is a percent like 19 or 8.1"
+            if value is None and money.vat(cfg) is None:
+                return ""       # nothing to take out: config.toml stays as written
+            return write("vat", value)
+        return field
 
     def page():
         held, _, write = setting(cfg, "money", "money", money.currency)
         codes = list(money.TABLES)
         return [("Currency", money_value(cfg), ("mark", lambda: write(
             "currency", codes[(codes.index(held) + 1) % len(codes)]))),
+            ("VAT", vat_value(cfg), vat(write)),
             *plan_rows(cfg, counts, write)], ""
     config_page("money", page)
 
