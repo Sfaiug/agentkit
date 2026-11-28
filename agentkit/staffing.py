@@ -380,6 +380,10 @@ def same_model(cfg, first, second):
     and model id under another name -- the `sonnet-2` the `c` screen adds an already
     configured model as at another effort.  Entries naming no model id of their own
     (`config.model_id` is None) match only on the same harness."""
+    # One provider and model id is one model whatever makers a lineup names for it: the
+    # lineup files a model under a maker by its id alone, so two makers for one id can only
+    # be written by hand, and the pair then reviews as a model its own work, last.  The
+    # owner, 28 Nov 2026, asked whether to read the makers there: "Leave it".
     if not first or not second:
         return False
     if first == second:
