@@ -94,6 +94,24 @@ class ChecksLendLoginsThatCannotRenew(LentLogins):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assert_lent_copies(self.root / "smoke/home")
 
+    def test_the_smoke_home_holds_agys_first_run_answers_for_each_of_its_logins(self):
+        profiles = [self.caller / f".gemini/antigravity-cli{of}/cache" for of in ("", "-acme", "-gone")]
+        for profile in profiles:
+            profile.mkdir(parents=True)
+        for profile in profiles[:2]:
+            (profile / "onboarding.json").write_text('{"onboardingComplete": true}')
+        (profiles[2] / "onboarding.json").symlink_to("nothing-there")
+        setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("# A bounded way")]
+        result = subprocess.run(["/bin/bash", "-c", setup + "\nsmoke_home\n"],
+                                env={**self.env, "WORK": str(self.root / "smoke")},
+                                text=True, capture_output=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        held = sorted(path.parent.parent.name for path in
+                      (self.root / "smoke/home/.gemini").glob("*/cache/onboarding.json"))
+        self.assertEqual(held, ["antigravity-cli", "antigravity-cli-acme"])
+        answers = self.root / "smoke/home/.gemini/antigravity-cli-acme/cache/onboarding.json"
+        self.assertEqual(json.loads(answers.read_text()), {"onboardingComplete": True})
+
     def test_the_module_returns_when_the_first_login_it_lent_lapses(self):
         home, taken = self.root / "lent", self.root / "taken/.config/opencode/opencode.json"
         taken.parent.mkdir(parents=True)
