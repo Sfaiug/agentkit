@@ -1540,8 +1540,12 @@ def pointer():
 
 def pointer_spot(spots=None):
     """The `Spot` of a screen's `spots`, by default the screen up's (`lit`), the pointer is on;
-    an empty one while a key has the highlight, or before the pointer moved."""
-    return under(_POINTER, _SPOTS if spots is None else spots) if _POINTER else Spot()
+    an empty one while a key has the highlight, before the pointer moved, or while it rests on
+    another than its move or click was answered on: a draw -- a resize -- moved that under the
+    still pointer, telling the screen nothing, so its highlight stays where it was and the
+    pointer lights nothing till it next lands (`read_key`)."""
+    spot = under(_POINTER, _SPOTS if spots is None else spots) if _POINTER else Spot()
+    return spot if spot[:2] == _POINTED[:2] else Spot()
 
 
 def lit(lines, spots):
