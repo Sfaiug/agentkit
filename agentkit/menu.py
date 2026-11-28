@@ -760,40 +760,42 @@ def framed(clock, title, lines, at, card, keys, places=None):
 
 
 def fade_out(clock, rows):
-    """Fade screen `rows` (counted from 1) of what the last draw put up into the background in
-    `motion.LEAVES`, returning once they are background: a page calls this between the answer
-    and the act, so its list never holds a row that has gone.
+    """Fade screen `rows` (counted from 1), as they stand, into the background in `motion.LEAVES`,
+    returning once they are background: a page calls this between the answer and the act, so
+    its list never holds a row that has gone.
 
-    Hides settling and clearing the clock, mixing text and highlight backgrounds into the
-    screen's background, the frame loop, watching for a resize without reading a key (ending
-    at once if resized), and doing nothing where nothing can move (`motion.movable`).
+    Hides a row still coming up (`motion.fading`) leaving from as far as it has come, settling
+    and clearing the clock, mixing text and highlight backgrounds into the screen's background,
+    the frame loop, ending at once on a resize meanwhile without reading a key, and doing
+    nothing where nothing can move (`motion.movable`).
     """
-    if not motion.movable() or terminal.resized(0):
+    if not motion.movable():
         return
-    screen = terminal.on_screen()
-    leaving = [(row, screen[row - 1]) for row in rows if 0 < row <= len(screen)]
+    terminal.asked_again()          # a resize the last draw answered is none meanwhile
+    screen, began, still = terminal.on_screen(), motion.moment(), lambda _, line: line
+    leaving = [(row, (clock.effects.get((row, 1)) or still)(began, screen[row - 1]))
+               for row in rows if 0 < row <= len(screen)]
     if not leaving:
         return
     clock.settle()
     clock.clear()
-    began, size, shown = motion.moment(), (terminal.width(), terminal.height()), {}
-    while True:
+    size, shown, due = (terminal.width(), terminal.height()), {}, 0
+    while not terminal.resized(due):
         now, step = motion.moment(), time.monotonic()
-        done = now >= began + motion.LEAVES
-        amount = 1 if done else motion.eased((now - began) / motion.LEAVES)
+        done, amount = now >= began + motion.LEAVES, motion.eased((now - began) / motion.LEAVES)
         out = ""
         for row, line in leaving:
             text = "" if done else terminal.fade(line, amount, backs=True)
             if shown.get(row) != text:
                 shown[row] = text
                 out += f"\033[{row};1H{terminal.cleared(text)}"
+        if (terminal.width(), terminal.height()) != size:
+            return                  # resized while it was made: no frame at the old layout
         terminal.over(out)
         if done:
             clock.last = time.monotonic()
             return
         due = max(0, step + motion.FRAME - time.monotonic())
-        if terminal.resized(due) or (terminal.width(), terminal.height()) != size:
-            return
 
 
 class Back(Exception):
