@@ -56,7 +56,7 @@ def wait_for(marker, proc, home, timeout=120):
         time.sleep(0.1)
 
 
-def stage(case, *, answered):
+def stage(case, *, answered, payg_bolt=False):
     """Run round 1 on nova/vale (FAIL), round 2 handed from nova to vale/vale (FAIL), interrupt
     round 3 before or after vale answers, refill every provider, and resume."""
     home = Home()
@@ -64,7 +64,8 @@ def stage(case, *, answered):
     home.env.update(OFFLINE)
     rig = Rig(home, "widgets")
     akconfig.write(home, MODELS, workers=["bolt", "reef", "vale", "nova"],
-                   reviewers=["seat", "bolt", "vale"])
+                   reviewers=["seat", "bolt", "vale"],
+                   providers={"openai": {"mode": "payg"}} if payg_bolt else None)
     if answered:
         # `done-when` runs in a box whose /var/tmp is a tmpfs, while the repository's `.git`
         # common dir and worktree are bound: use `.git` for the gate and marker so nothing
@@ -124,6 +125,12 @@ class UnansweredSavedSelfReview(unittest.TestCase):
         self.assertEqual(roles(self.fakes["claude"]), ["executor", "fixer"])
         self.assertEqual(roles(self.fakes["muse"]), ["fixer"])
         self.assertEqual(roles(self.fakes["codex"]), ["reviewer"])
+
+
+class UnansweredPaygReviewer(UnansweredSavedSelfReview):
+    @classmethod
+    def setUpClass(cls):
+        cls.fakes, cls.done, cls.state = stage(cls, answered=False, payg_bolt=True)
 
 
 class AnsweredSavedSelfReview(unittest.TestCase):

@@ -519,12 +519,13 @@ class RoleGroups(unittest.TestCase):
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
 
-        def resumed(answered, *, payg_beta=False, failed=()):
+        def resumed(answered, *, payg_beta=False, failed=(),
+                    workers=("beta", "delta", "extra", "alpha")):
             if payg_beta:
-                self.cfg["providers"]["b"]["mode"] = "payg"
+                self.cfg["models"]["beta"]["mode"] = "payg"
             else:
-                self.cfg["providers"]["b"].pop("mode", None)
-            lp = self.loop("extra", "extra", ["beta", "delta", "extra", "alpha"])
+                self.cfg["models"]["beta"].pop("mode", None)
+            lp = self.loop("extra", "extra", list(workers))
             lp.state.update(title="Resume", no_merge=True, branch=None, base_sha=None,
                             reviewers=["seat", "beta", "extra"],
                             executor_history=[{"from": "alpha", "to": "extra", "reason": "dry"}])
@@ -552,6 +553,8 @@ class RoleGroups(unittest.TestCase):
             return state["executor"], state["reviewer"]
 
         self.assertEqual(resumed(False), ("delta", "beta"))
+        self.assertEqual(resumed(False, payg_beta=True,
+                                 workers=("gamma", "delta", "extra", "alpha")), ("delta", "beta"))
         self.assertEqual(resumed(True), ("extra", "beta"))
         self.assertEqual(resumed(True, payg_beta=True), ("extra", "beta"))
         self.assertEqual(resumed(True, failed=["beta"]), ("extra", "seat"))
