@@ -15,7 +15,6 @@ screen rests, however late the host draws it.
 
 import sys
 from pathlib import Path
-import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -61,30 +60,26 @@ class AClosedCardsAnswerDoesNotFade(unittest.TestCase):
         self.clock.with_suffix(".new").replace(self.clock)
 
     def leaving(self, shown):
-        """The row the highlight comes to on the draw that showed `shown` at ASKED, and the
-        screen's looks part way through `motion.LEAVES` of it, then once past every motion."""
-        before = settled(self.term, shown)
-        lit = next(n for n, line in enumerate(before) if "›" in plain(line))
-        during = self.drawn(ASKED + LEAVES / 2, before, lit, shown)
-        return lit, during, self.drawn(REST, during, lit, shown)
-
-    def drawn(self, moment, before, lit, shown):
-        """The screen's looks at `moment`: once the highlight coming to row `lit` looks unlike
-        `before`, and then rests -- however late the host draws, nothing older."""
-        self.at(moment)
-        deadline = time.monotonic() + 30
-        while looks(self.term.screen(colours=True))[lit] == before[lit]:
-            self.assertLess(time.monotonic(), deadline, f"nothing drawn at {moment}")
-            time.sleep(0.05)
-        return settled(self.term, shown)
+        """The screen's looks part way through `motion.LEAVES` of the draw that showed `shown`
+        at ASKED, then once past every motion: each once the highlight it brings, on the row
+        that `›` marks, looks unlike the read before, and then rests -- however late the host
+        draws, nothing older."""
+        reads = [settled(self.term, shown)]
+        lit = next(n for n, line in enumerate(reads[0]) if "›" in plain(line))
+        for moment in (ASKED + LEAVES / 2, REST):
+            self.at(moment)
+            self.term.wait(lambda _: looks(self.term.screen(colours=True))[lit] != reads[-1][lit])
+            reads.append(settled(self.term, shown))
+        return reads[1:]
 
     def test_keep_answered_the_page_fades_nothing_over_its_row(self):
         self.term.keys("Enter")
-        lit, *read = self.leaving(lambda screen: key_line(screen) == KEYS)
         # the header's HH:MM is the wall's clock, which no motion clock holds
         during, after = ([[("0" if n == 0 and char.isdigit() else char, cell) for char, cell in row]
-                          for n, row in enumerate(rows)] for rows in read)
+                          for n, row in enumerate(rows)]
+                         for rows in self.leaving(lambda screen: key_line(screen) == KEYS))
         self.assertEqual(plain(after[self.keep]).rstrip(), KEYS)
+        lit, = (n for n, line in enumerate(after) if "›" in plain(line))
         for n, (row, rested) in enumerate(zip(during, after)):
             if n != lit:
                 with self.subTest(row=plain(rested).rstrip()):
@@ -92,7 +87,7 @@ class AClosedCardsAnswerDoesNotFade(unittest.TestCase):
 
     def test_on_the_card_the_answer_left_still_fades(self):
         self.term.keys("Down")
-        _, during, after = self.leaving("› × Apply")
+        during, after = self.leaving("› × Apply")
         self.assertEqual(plain(during[self.keep]).rstrip(), plain(after[self.keep]).rstrip())
         self.assertNotEqual(*(look([rows[self.keep]], "✓ Keep") - ATTRIBUTES
                               for rows in (during, after)))
