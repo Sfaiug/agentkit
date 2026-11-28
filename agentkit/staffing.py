@@ -502,18 +502,21 @@ def best_pair(cfg, executors, reviewers, allow_self=True, writers=()):
 
     `writers` built the work before this pick: a replacement builder's reviewer reviews their
     part too (`head_writers`), so a pair's tier is its reviewer's highest `pair_tier` beside
-    the executor and each of them.
+    the executor and each of them; ties within a tier prefer the pair's own lower `pair_tier`
+    before the draw, so a non-self pair still beats a saved self-review when only a past
+    writer can review.
     """
     best, key, (lineup, _) = None, None, matrix.listed()
     earlier = known(cfg, writers)
     for ei, executor in enumerate(executors or []):
         for ri, reviewer in enumerate(reviewers or []):
-            tier = pair_tier(cfg, executor, reviewer, lineup)
-            if tier is not None:
-                tier = max([tier, *(pair_tier(cfg, one, reviewer, lineup) for one in earlier)])
-            if tier is None or (tier == 2 and not allow_self):
+            own = pair_tier(cfg, executor, reviewer, lineup)
+            if own is None:
                 continue
-            found = (tier, ei, ri)
+            tier = max([own, *(pair_tier(cfg, one, reviewer, lineup) for one in earlier)])
+            if tier == 2 and not allow_self:
+                continue
+            found = (tier, own, ei, ri)
             if key is None or found < key:
                 key, best = found, (executor, reviewer)
     return best

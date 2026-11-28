@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import test_worker_list as fixtures
 from fixtures.hand_in import smoke, submitting
-from agentkit import (config, gate, gc, gitcall, nightly, run, staffing, status, transitions,
-                      turns, usage, watch)
+from agentkit import (config, gate, gc, gitcall, matrix, nightly, run, staffing, status,
+                      transitions, turns, usage, watch)
 from agentkit import record as run_record
 
 @contextmanager
@@ -511,6 +511,50 @@ class RoleGroups(unittest.TestCase):
             state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
                              prior=dict(lp.state))
         self.assertEqual((state["executor"], state["reviewer"]), ("beta", "beta"))
+
+    def test_resume_self_review_fallback_weighs_earlier_writers(self):
+        self.cfg["providers"]["d"] = {}
+        self.cfg["models"]["extra"] = {**self.cfg["models"]["delta"],
+                                       "model": "extra", "provider": "d"}
+        opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+                "--no-merge": True, "--no-worktree": True, "--bg": False}
+
+        def resumed(answered, *, payg_beta=False, failed=()):
+            if payg_beta:
+                self.cfg["providers"]["b"]["mode"] = "payg"
+            else:
+                self.cfg["providers"]["b"].pop("mode", None)
+            lp = self.loop("extra", "extra", ["beta", "delta", "extra", "alpha"])
+            lp.state.update(title="Resume", no_merge=True, branch=None, base_sha=None,
+                            reviewers=["seat", "beta", "extra"],
+                            executor_history=[{"from": "alpha", "to": "extra", "reason": "dry"}])
+            attempt = lp.round_dir / "executor"
+            if answered:
+                attempt.mkdir(exist_ok=True)
+                (attempt / "final.md").write_text("Built.\n")
+            elif (attempt / "final.md").exists():
+                (attempt / "final.md").unlink()
+            if failed:
+                lp.state["review_pending"] = {"round": 1, "summary": "Built.",
+                                              "failed": list(failed)}
+            task = lp.run_dir / "task.md"
+            task.write_text("---\nrepo: none\nrounds: 1\n---\n# Resume\n\n"
+                            "## Done when\n```bash\ntrue\n```\n")
+            with patch.object(run, "rounds"), \
+                    patch.object(gc, "disk_pressure", return_value=False), \
+                    patch.object(matrix, "listed", return_value=([], {})), \
+                    patched_on_both(run, staffing, "collect_usage",
+                                    return_value=self.providers()), \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                run_record.save_state(lp.run_dir, lp.state)
+                state = run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
+                                 prior=dict(lp.state))
+            return state["executor"], state["reviewer"]
+
+        self.assertEqual(resumed(False), ("delta", "beta"))
+        self.assertEqual(resumed(True), ("extra", "beta"))
+        self.assertEqual(resumed(True, payg_beta=True), ("extra", "beta"))
+        self.assertEqual(resumed(True, failed=["beta"]), ("extra", "seat"))
 
     def test_reviewer_silence_transient_and_quota_fallback_stay_with_the_marked_reviewers(self):
         self.groups()

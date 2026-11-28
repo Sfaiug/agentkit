@@ -243,6 +243,9 @@ class ReplacementBesideEarlierBuilders(Sandbox):
         # one pair left is taken whatever its tier, but no self-review where that is refused
         self.assertEqual(pair(["c1"], ["b1"], writers=["b1"]), ("c1", "b1"))
         self.assertIsNone(pair(["c1"], ["b1"], writers=["b1"], allow_self=False))
+        # ties within a tier prefer the pair's own lower tier before the draw
+        self.assertEqual(pair(["b1", "c1"], ["b1"], writers=["b1"]), ("c1", "b1"))
+        self.assertEqual(pair(["a1", "b1"], ["a2"], writers=["a1"]), ("b1", "a2"))
         self.assertEqual(pair(["c1"], ["a2", "b1"], writers=["retired"]), ("c1", "a2"))
 
     def test_two_stalls_in_a_row_hand_the_work_back_to_the_builder_a1_can_review(self):
