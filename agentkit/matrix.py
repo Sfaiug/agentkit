@@ -500,13 +500,17 @@ def company_order(cfg, lineup):
     return list(dict.fromkeys([*cfg.get("companies", ()), *(row["maker"] for row in lineup)]))
 
 
+def _reading(lineup):
+    # an earlier build stored a maker the boards leave unnamed as null, not "" (`lineup`)
+    rows = [{**row, "maker": row["maker"] or ""} for row in lineup]
+    return rows, {row["release"]: row["maker"] for role in quality.ROLES
+                  for row in quality.rated(rows, role)}
+
+
 @functools.lru_cache(maxsize=1)
 def _listed(text):
     held = json.loads(text).get("matrix") or {}
-    # an earlier build stored a maker the boards leave unnamed as null, not "" (`lineup`)
-    lineup = [{**row, "maker": row["maker"] or ""} for row in held.get("lineup") or []]
-    return (lineup, {row["release"]: row["maker"] for role in quality.ROLES
-                     for row in quality.rated(lineup, role)}), held.get("fetched_at")
+    return _reading(held.get("lineup") or []), held.get("fetched_at")
 
 
 def listed():
@@ -788,9 +792,8 @@ def main(argv):
     cfg = config.load()
     if "--json" in flags:
         # first, as the boards may take a while to answer: the seat and the runs read next are
-        # as they stand once they did; the releases on read off the lineup just stored
+        # as they stand once they did
         _, rows = refresh(cfg, refresh="--refresh" in flags)
-        marked = compared(cfg)
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     from . import own       # here, not at the top: the boards and the screen need no database
     runs, plans, paid = counted(cfg)
@@ -801,7 +804,10 @@ def main(argv):
         print("\n".join(own.lines(mine, cfg, terminal.layout_width(), paid)))
         return 0
     logins, shares = _task_usage(cfg)
-    found = answer(rows, marked, cfg=cfg, task_usage=(logins, shares))
+    # releases on off the lineup `refresh` returned, never a second read of matrix.json that a
+    # concurrent refresh could replace
+    reading = _reading(rows)
+    found = answer(reading[0], compared(cfg, reading), cfg=cfg, task_usage=(logins, shares))
 
     def drawn(row, said):
         return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
