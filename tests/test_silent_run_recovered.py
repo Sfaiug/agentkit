@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, handback, host, menu, notify, orch, run, status, transitions, turns, watch
+from agentkit import box, config, handback, host, menu, notify, orch, run, status, transitions, turns, watch
 from agentkit import record
 
 TASK = """---
@@ -154,18 +154,17 @@ class V5X(unittest.TestCase):
               f"the fake loop's child never showed {child_argv}")
         return parent
 
-    def spawn_worker(self, reviewer=False):
+    def spawn_worker(self):
         """A fake loop whose child is a worker turn: argv[0] is an adapter script.
 
         The spawner execs the interpreter itself under the chosen argv, so /proc
-        keeps the step's shape -- the adapter path, and a reviewer's out-dir --
-        while the process just sleeps until the tick stops it. (Exec'ing a script
-        file would not do: the kernel replaces argv[0] with its interpreter.)
+        keeps the step's shape -- the adapter path -- while the process just sleeps
+        until the tick stops it. (Exec'ing a script file would not do: the kernel
+        replaces argv[0] with its interpreter.)
         """
         ad = self.root / "adapters"
         ad.mkdir(exist_ok=True)
-        out = "out/round-2/reviewer" if reviewer else "out/executor"
-        step = [str(ad / "fake.sh"), "-c", "import time; time.sleep(1000)", out]
+        step = [str(ad / "fake.sh"), "-c", "import time; time.sleep(1000)", "out/executor"]
         return self.spawn_loop(step, executable=sys.executable)
 
     def gate_child(self):
@@ -177,7 +176,7 @@ class V5X(unittest.TestCase):
 
 
     def make_run(self, run_id, *, stalls=None, task_text=TASK, minutes=None,
-                 pid=None, executor="opus", reviewer="astra", seat=None):
+                 pid=None, executor="opus", reviewer="astra", seat=None, step="executor"):
         run_dir = config.RUNS / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "task.md").write_text(task_text)
@@ -189,7 +188,7 @@ class V5X(unittest.TestCase):
                  "launched_session": seat, "repo": None, "scratch": True,
                  "base": None, "target": None, "base_sha": None, "branch": None,
                  "worktree": str(self.root / "work" / run_id),
-                 "executor": executor, "reviewer": reviewer, "rounds": 3,
+                 "executor": executor, "reviewer": reviewer, "rounds": 3, "step": step,
                  "state": "running", "verdict": None,
                  "started_at": time.time() - 3700, "finished_at": None,
                  "round_summaries": [{"round": 1, "verdict": "FAIL", "done_when": False,
@@ -353,8 +352,13 @@ class V5X(unittest.TestCase):
                      "step": "worker: opus", "action": "killed step"}],
             pid=parent.pid, executor="opus")
         self.age_run(run_dir, 61)
+
+        def pick_order(_cfg, _providers, workers, skip=(), **_kw):
+            # astra first, of those the pick reads: the stalled opus is none of them
+            return [name for name in ("astra", "opus") if name in workers and name not in skip]
+
         with patch("agentkit.usage.collect", return_value={}), \
-                patch("agentkit.usage.pick_order", return_value=["astra", "opus"]):
+                patch("agentkit.usage.pick_order", pick_order):
             watch.recover_runs(cfg, dry_run=False, log=self.logs.append, now=time.time())
         state = self.read_state(run_dir)
         self.assertEqual(len(state.get("stalls") or []), 2)
@@ -415,15 +419,33 @@ class V5X(unittest.TestCase):
         self.assertTrue(watch.is_worker_cmd(["/opt/x/fakeharness", "run"], cfg))
         self.assertTrue(watch.is_worker_cmd(["/r/adapters/other.sh"], None))
 
+    def test_v5x_a_boxed_turn_is_told_by_what_its_box_runs_and_its_role_by_the_step(self):
+        out = "/r/reviewer-tools/runs/run/round-1/executor"
+        turn = ["/r/adapters/fakeharness.sh", "run", "m", "e", "/r/reviewer-tools/checkout",
+                f"{out}/prompt.md", out]
+        boxed = ["bwrap", "--unshare-pid", "--", sys.executable, "-I", "-c", "supervisor",
+                 f"{out}/{box.PROCESSES}", *turn]
+
+        def step(argv, role):
+            with patch.object(watch, "loop_children", return_value=[(42, argv)]):
+                return watch.step_for_run(None, {"step": role, "executor": "opus",
+                                                 "reviewer": "astra"}, 41)[:2]
+
+        self.assertEqual(step(boxed, "executor"), ("worker", "worker: opus"))
+        self.assertEqual(step(boxed, "reviewer"), ("reviewer", "reviewer: astra"))
+        gate = ["bwrap", "--", sys.executable, "-I", "-c", "supervisor",
+                f"{out}/{box.PROCESSES}", "--drain", "bash", "-c", "bash tests/smoke.sh"]
+        self.assertEqual(step(gate, "executor"), ("done-when", "done-when: bash tests/smoke.sh"))
+
     def test_v5x_second_stall_on_reviewer_resumes_without_handover(self):
-        parent = self.spawn_worker(reviewer=True)
+        parent = self.spawn_worker()
         children = self.child_pids(parent.pid)
         self.assertTrue(children, "fake loop should have a reviewer child")
         run_dir, _ = self.make_run(
             "20260916-0000-v5x-reviewer",
             stalls=[{"time": time.time() - 7200, "round": 2,
                      "step": "reviewer: astra", "action": "killed step"}],
-            pid=parent.pid, executor="opus", reviewer="astra")
+            pid=parent.pid, executor="opus", reviewer="astra", step="reviewer")
         self.age_run(run_dir, 61)
         watch.recover_runs({}, dry_run=False, log=self.logs.append, now=time.time())
         state = self.read_state(run_dir)

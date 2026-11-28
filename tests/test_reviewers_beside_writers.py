@@ -17,7 +17,9 @@ and a resume's leaves out the executor it skips before the rule reads the list
 meter it never read.  A replacement builder's pair is weighed beside every model that built
 before it (`staffing.best_pair`'s `writers`): a reviewer of an earlier builder's lab rates as
 that lab's, an earlier builder as the builder's own model, in the tick's handover
-(`staffing.handover_executor`) and a resume picking its builder anew alike.
+(`staffing.handover_executor`) and a resume picking its builder anew alike.  The tick's handover
+leaves out the stalled builder before the rule reads the list, so a builder only a reviewer of
+its own lab can review takes over from one a reviewer of another lab could.
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
@@ -219,13 +221,14 @@ class ReviewersBesideWriters(Sandbox):
 
 
 class ReplacementBesideEarlierBuilders(Sandbox):
-    """a1 and a2 of one lab, b1 and c1 each of another."""
+    """a1 and a2 of one lab, b1 and b2 of another, c1 of a third."""
 
     def setUp(self):
         super().setUp()
         self.cfg = {"defaults": {"orchestrator": "a1", "workers": ["a1", "b1", "c1"]},
                     "models": {}, "providers": {"acme": {}, "beta": {}, "gamma": {}}}
-        for name, provider in (("a1", "acme"), ("a2", "acme"), ("b1", "beta"), ("c1", "gamma")):
+        for name, provider in (("a1", "acme"), ("a2", "acme"), ("b1", "beta"), ("b2", "beta"),
+                               ("c1", "gamma")):
             self.cfg["models"][name] = {"harness": "test", "model": f"{name}-1",
                                         "effort": "high", "provider": provider}
         self.providers = meters(acme=10, beta=10, gamma=10)
@@ -267,6 +270,14 @@ class ReplacementBesideEarlierBuilders(Sandbox):
         self.assertEqual(state["reviewer"], "a1")
         self.assertEqual([(move["from"], move["to"]) for move in state["executor_history"]],
                          [("b1", "c1"), ("c1", "b1")])
+
+    def test_a_stalled_builder_another_lab_reviews_keeps_no_other_builder_out(self):
+        for workers, new in ((["a1", "b1"], "b1"), (["a1", "b1", "c1"], "c1")):
+            state = {"executor": "a1", "reviewer": "b2", "workers": workers,
+                     "reviewers": ["b2"]}
+            with patch.object(staffing, "collect_usage", return_value=self.providers):
+                self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), new)
+            self.assertEqual(state["reviewer"], "b2")
 
     def test_a_resume_picking_anew_takes_a_reviewer_of_no_builders_lab(self):
         state = {"step": "executor", "executor": "a1", "reviewer": "b1",
