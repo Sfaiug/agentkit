@@ -3505,34 +3505,25 @@ def your_runs_screen(cfg, session, selected):
     """`r your runs` on `c`, `config · your runs · <seat>` or `· new seats`: the lines
     `ak models` prints for `selected`'s team now (own.lines), read from the history as
     `config · limits` reads it (matrix.counted) and asking no board, at the screen's width,
-    folding as the command's fold.  Where they are taller than the screen, ↑/↓, k/j and the
-    wheel move them a line and the key line names `↑↓`; it always names `p models` and
-    `esc back`.  `p` opens the company list (company_list); Esc goes back to `c`."""
+    folding as the command's fold.  `p` opens the company list; Esc goes back to `c`."""
     from . import own     # here, not at the top: own imports menu
     if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
         terminal.doing("config · your runs · reading what your runs did")
     runs, _, paid = matrix.counted(cfg)
     mine = own.by_role(runs["teams"], matrix.team_now(cfg, selected))
-    title, top, note = f"config · your runs · {session or NEW_SEATS}", 0, ""
+    title, note = f"config · your runs · {session or NEW_SEATS}", ""
+    keys = terminal.keys("p models", "esc back", enter=None, move=False)
     clock = motion.Clock(page=True)
     while True:
         lines = own.lines(mine, cfg, terminal.layout_width(), paid)
         said = note_lines(note)
-        keys = terminal.keys("p models", "esc back", enter=None, move=False)
-        if len(lines) > page_room(said, keys):
-            keys = terminal.keys("p models", "esc back", enter=None, move=("scroll",))
-        room = max(1, page_room(said, keys))
-        top = max(0, min(top, len(lines) - room))
-        spots = terminal.frame(title, [*lines[top:top + room], *said], keys,
+        spots = terminal.frame(title, [*lines[:max(1, page_room(said, keys))], *said], keys,
                                drawn=lambda: clock.drawn((), None))
         key = terminal.read_key() if clock.wait() is None else moving(clock, timeout=TICK)
-        if key is None:
+        if key is None or key.name == "point":
             continue
-        if key.name != "point":
-            clock.settle()
+        clock.settle()
         act = key.char if key.name == "char" else key.name
-        if act == "point":
-            continue
         if act == "click":
             spot = terminal.under(key, spots)
             act = {"esc": "back"}.get(spot.cell, spot.cell or "") if spot.what is None else ""
@@ -3542,8 +3533,6 @@ def your_runs_screen(cfg, session, selected):
         if act == "p":
             clock.forget()
             note = company_list(cfg, title)
-        elif step := terminal.step(key):
-            top = max(0, min(top + step, len(lines) - room))
 
 
 ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens
