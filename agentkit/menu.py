@@ -3503,21 +3503,18 @@ def packed(parts, gap, room):
 @terminal.clicks_its_own
 def your_runs_screen(cfg, session, selected):
     """`r your runs` on `c`, `config · your runs · <seat>` or `· new seats`: the lines
-    `ak models` prints for `selected`'s team now (own.lines), read from the history as
-    `config · limits` reads it (matrix.counted) and asking no board, at the screen's width,
-    folding as the command's fold.  `p` opens the company list; Esc goes back to `c`."""
+    `ak models` prints for `selected`'s team now (own.lines), read as `config · limits` reads
+    history (matrix.counted) and asking no board.  `p` opens the company list; Esc goes back."""
     from . import own     # here, not at the top: own imports menu
     if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
         terminal.doing("config · your runs · reading what your runs did")
     runs, _, paid = matrix.counted(cfg)
     mine = own.by_role(runs["teams"], matrix.team_now(cfg, selected))
-    title, note = f"config · your runs · {session or NEW_SEATS}", ""
+    title, note, clock = f"config · your runs · {session or NEW_SEATS}", "", motion.Clock(page=True)
     keys = terminal.keys("p models", "esc back", enter=None, move=False)
-    clock = motion.Clock(page=True)
     while True:
-        lines = own.lines(mine, cfg, terminal.layout_width(), paid)
-        said = note_lines(note)
-        spots = terminal.frame(title, [*lines[:max(1, page_room(said, keys))], *said], keys,
+        lines, said = own.lines(mine, cfg, terminal.layout_width(), paid), note_lines(note)
+        spots = terminal.frame(title, [*lines[:max(0, page_room(said, keys))], *said], keys,
                                drawn=lambda: clock.drawn((), None))
         key = terminal.read_key() if clock.wait() is None else moving(clock, timeout=TICK)
         if key is None or key.name == "point":
@@ -3603,13 +3600,13 @@ def companies_body(makers, yours, off, at=None, column=0, moves=None):
 def company_list(cfg, title):
     """`p` on `your runs`, `<title> · models`: your companies (companies_body) over how
     many models are on (matrix.compared), from how many companies, and how many more have
-    benchmark scores, until Esc, the boards read as it opens (matrix.refresh).  ↑/↓ move between
-    companies, ←/→ between a company's name and its models; Space or a click marks the model
-    pointed at on or off, and on a name all its models on, or off where all are on, each change
-    saved at once (models_listed).  `a`, or ⏎ or a click on `+ add a company`, adds one all on
-    (company_add).  Esc drops each company left with none on from `companies`, and all its
-    releases from `models_off`.  What to say, or "".  It comes up as a page does, its marks
-    moving as `c`'s do (motion.Clock)."""
+    benchmark scores, until Esc, reading the boards as it opens (matrix.refresh).
+    ↑/↓ move between companies, ←/→ between a company's name and
+    its models; Space or a click marks the model pointed at on or off, and on a name all its
+    models on, or off where all are on, each change saved at once (models_listed).  `a`, or
+    ⏎ or a click on `+ add a company`, adds one all on (company_add).  Esc drops each company
+    left with none on from `companies`, and all its releases from `models_off`.  What to say,
+    or "".  It comes up as a page does, its marks moving as `c`'s do (motion.Clock)."""
     title, here, column, top, note, acted = f"{title} · models", None, 0, 0, "", False
     fetch, clock = Fetch(lambda: matrix.refresh(cfg)), motion.Clock(page=True)
     fetch.join(motion.FRAME)
@@ -3621,9 +3618,7 @@ def company_list(cfg, title):
             except Exception as exc:      # noqa: BLE001 -- what stands is shown, the fault said
                 failed = " ".join(str(exc).split()) or type(exc).__name__
             note = f"the boards were not read: {failed}" if failed else note
-            if not acted:
-                here = None           # start on the first company once the initial fetch lands
-            fetch = None
+            here, fetch = (None if not acted else here), None
         (makers, yours), room = companies_listed(cfg), terminal.layout_width()
         off, now = set(cfg.get("models_off") or ()), matrix.compared(cfg)
         rows = [*(("company", maker) for maker in yours if maker in makers), ADD_COMPANY]
@@ -3658,18 +3653,19 @@ def company_list(cfg, title):
         note, models = "", [] if here == ADD_COMPANY else list(makers[here[1]])
         if act == "back":
             # by the lineup's rows, so releases without a score go too, and a company it lacks stays
-            lineup = matrix.listed()[0]
-            gone = {row["maker"] for row in lineup
-                    if row["maker"] in yours and not makers.get(row["maker"], {}).keys() - off}
+            lineup, found = matrix.listed()
+            on = {r["maker"] for r in lineup if r["release"] in found and r["release"] not in off}
+            gone = {r["maker"] for r in lineup if r["maker"] in yours and r["maker"] not in on}
             return models_listed(cfg, [maker for maker in yours if maker not in gone],
                                  off - {row["release"] for row in lineup if row["maker"] in gone}
                                  ) if gone else ""
         if act == "a" or act == "enter" and here == ADD_COMPANY:
             clock.forget()            # another screen: the list back from it is drawn as it is
-            added = company_add(title, makers, yours)
+            added = company_add(cfg, title, fetch)
             if added is not None:      # "", the maker the boards leave unnamed, is one
-                note = models_listed(cfg, [*yours, added], off - makers[added].keys())
-                here, column = ("company", added), 0
+                makers, yours = companies_listed(cfg)
+                note = models_listed(cfg, [*yours, added], off - makers.get(added, {}).keys())
+                here, column, acted = ("company", added), 0, True
         elif act in ("left", "right"):
             column = max(0, min(column + (1 if act == "right" else -1), len(models)))
         elif act == "space" and models:
@@ -3679,15 +3675,16 @@ def company_list(cfg, title):
 
 
 @terminal.clicks_its_own
-def company_add(title, makers, yours):
-    """`a` on the company list, `<title> · add a company`: each company of `makers` not among
+def company_add(cfg, title, fetch=None):
+    """`a` on the company list, `<title> · add a company`: each company listed not among
     `yours`, strongest first, with how many listed models it has and its strongest, until ⏎ or
     a click picks one, or Esc goes back: that company, or None.  It comes up as a page does."""
-    rows, here, top = [("row", maker) for maker in makers if maker not in yours], None, 0
-    clock = motion.Clock(page=True)
-    counts = {maker: f"{len(makers[maker])} model{'s' * (len(makers[maker]) != 1)}"
-              for _, maker in rows}
+    here, top, clock = None, 0, motion.Clock(page=True)
     while True:
+        loading = bool(fetch and fetch.is_alive())
+        makers, yours = companies_listed(cfg)
+        rows = [("row", maker) for maker in makers if maker not in yours]
+        counts = {m: f"{len(makers[m])} model{'s' * (len(makers[m]) != 1)}" for _, m in rows}
         here = here if here in rows else rows[0] if rows else None
         widths = [max(map(terminal.cells, texts), default=0)
                   for texts in ([maker or UNKNOWN for maker in counts], counts.values())]
@@ -3699,7 +3696,8 @@ def company_add(title, makers, yours):
                 for row, line in zip(rows, body)]
         act, here, _, top = matrix_key(f"{title} · add a company", body, {
             line: (row, []) for line, row in enumerate(rows)}, rows, here, top, "",
-            terminal.keys("esc back", enter="add", move=("company",)), marks=0, clock=clock)
+            terminal.keys("esc back", enter="add", move=("company",)), marks=0, clock=clock,
+            began=fetch.began if loading else None, going=fetch.is_alive if loading else None)
         if act == "back" or act == "enter" and here:
             return None if act == "back" else here[1]
 

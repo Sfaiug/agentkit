@@ -1,8 +1,7 @@
-"""`r your runs` on `c` opens `config · your runs · <seat>` (or `· new seats`): the lines
-`ak models` prints for that seat's team now, at the screen's width, folding as the command's
-fold, asking no board; `p` opens the company list and Esc goes back.  Black-box: `AK_BIN` in a
-terminal over tests/test_key_models_own_tables.py's history, with a dead proxy; fails against
-/bin/false."""
+"""`r your runs` on `c` opens `config · your runs · <seat>` (or `· new seats`): `ak models`'s
+lines for that seat's team now, folded to the screen's width, asking no board; `p` opens the
+company list and Esc goes back.  Black-box: `AK_BIN` in a terminal over
+tests/test_key_models_own_tables.py's history, with a dead proxy; fails against /bin/false."""
 
 import sys
 from pathlib import Path
@@ -16,7 +15,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 from test_key_models_own_tables import FOLDED, OWN, TEAMS, home_of
 
-KEYS = "  p models   esc back"
+KEYS, HEAD = "  p models   esc back", "agentkit · config · your runs · new seats"
 body_lines = lambda shown: shown[2:max((i for i, l in enumerate(shown) if l), default=2) - 1]
 last_line = lambda shown: next((l for l in reversed(shown) if l), "")
 
@@ -30,8 +29,7 @@ class YourRunsScreen(unittest.TestCase):
     def open_c(self, size=(100, 30), seat=None):
         term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=size,
                         env={**ENV, **({"AGENTKIT_SESSION": seat} if seat else {})})
-        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
-                        server=SERVER)
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400", server=SERVER)
         term.wait("esc leave")
         term.keys("c")
         return term, lines(term.wait("r your runs"))
@@ -40,14 +38,16 @@ class YourRunsScreen(unittest.TestCase):
         term, _ = self.open_c()
         term.keys("r")
         shown = lines(term.wait(lambda s: "p models" in s and "REVIEWER" in s))
-        self.assertTrue(shown[0].startswith("agentkit · config · your runs · new seats"), shown[0])
+        self.assertTrue(shown[0].startswith(HEAD), shown[0])
         self.assertEqual((body_lines(shown), last_line(shown)), (OWN, KEYS))
         state = self.home.path / ".agentkit/state"
         self.assertEqual([n for n in ("boards.json", "matrix.json") if (state / n).exists()], [])
-        term.resize(100, 12)
-        short = lines(term.wait(
-            lambda s: "Your team now:" in s and "p models" in s and "REVIEWER" not in s))
-        self.assertEqual((body_lines(short), last_line(short)), (OWN[:len(body_lines(short))], KEYS))
+        for rows, want in ((12, lambda s: "Your team now:" in s and "p models" in s and "REVIEWER" not in s),
+                           (5, lambda s: s.startswith(HEAD) and "p models" in s and "Your team now:" not in s)):
+            term.resize(100, rows)
+            part = lines(term.wait(want))
+            self.assertTrue(part[0].startswith(HEAD), part[0])
+            self.assertEqual((body_lines(part), last_line(part)), (OWN[:len(body_lines(part))], KEYS))
         term.keys("Escape")
         term.wait("r your runs")
         # Over a seat, a click on `r your runs` opens that seat's page and folds at 40 cells
@@ -70,13 +70,9 @@ class YourRunsScreen(unittest.TestCase):
                                    "bolt": {"harness": "codex", "model": "bolt-3"}},
                        orchestrator="mid", workers=["bolt"], reviewers=["bolt"])
         term, _ = self.open_c()
-        for key, want, head in (
-            ("r", "p models", "agentkit · config · your runs · new seats"),
-            ("p", lambda s: "a add a company" in s and "Acme Mid 5" in s,
-             "agentkit · config · your runs · new seats · models"),
-            ("Escape", "p models", "agentkit · config · your runs · new seats"),
-            ("Escape", "r your runs", "agentkit · config"),
-        ):
+        for key, want, head in (("r", "p models", HEAD),
+                                ("p", lambda s: "a add a company" in s and "Acme Mid 5" in s, f"{HEAD} · models"),
+                                ("Escape", "p models", HEAD), ("Escape", "r your runs", "agentkit · config")):
             term.keys(key)
             self.assertTrue(lines(term.wait(want))[0].startswith(head))
 
