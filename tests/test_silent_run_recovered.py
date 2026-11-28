@@ -9,6 +9,7 @@ from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import io
 import json
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -21,7 +22,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import box, config, handback, host, menu, notify, orch, run, status, transitions, turns, watch
+from agentkit import (box, config, handback, helper, host, machines, menu, notify, orch, run,
+                      status, transitions, turns, watch)
 from agentkit import record
 
 TASK = """---
@@ -436,6 +438,75 @@ class V5X(unittest.TestCase):
         gate = ["bwrap", "--", sys.executable, "-I", "-c", "supervisor",
                 f"{out}/{box.PROCESSES}", "--drain", "bash", "-c", "bash tests/smoke.sh"]
         self.assertEqual(step(gate, "executor"), ("done-when", "done-when: bash tests/smoke.sh"))
+
+    def test_v5x_a_helper_turn_is_told_by_what_its_ssh_runs(self):
+        cmd = ["/opt/ak/adapters/fakeharness.sh", "run", "m", "e", "/tmp/widgets",
+               "/tmp/out/prompt.md", "/tmp/out"]
+        with patch.object(machines, "_keys", return_value=[]):
+            turn = helper._remote(
+                "helper", "turn", "test-key", "test-image", 4096, "widgets",
+                "home:/tmp/home", "work:/tmp/widgets", "out:/tmp/out",
+                "--", "/tmp/widgets", "/opt/ak", "ak/test", "main", *cmd)
+            piece = helper._remote(
+                "helper", "run", "test-key", "test-image", "ak-test-key-1-2", 2, 4096, "widgets",
+                "1/2", "ak/test", "main", "fakeharness", "bash tests/smoke.sh")
+        with patch.object(machines, "_keys", return_value=["/tmp/id_ed25519"]):
+            keyed = helper._remote(
+                "helper", "turn", "test-key", "test-image", 4096, "widgets",
+                "--", "/tmp/widgets", "/opt/ak", "", "", *cmd)
+
+        def step(argv, role):
+            with patch.object(watch, "loop_children", return_value=[(42, argv)]):
+                return watch.step_for_run(None, {"step": role, "executor": "opus",
+                                                 "reviewer": "astra"}, 41)[:2]
+
+        self.assertEqual(step(turn, "executor"), ("worker", "worker: opus"))
+        self.assertEqual(step(turn, "reviewer"), ("reviewer", "reviewer: astra"))
+        self.assertEqual(step(keyed, "executor"), ("worker", "worker: opus"))
+        self.assertEqual(step(shlex.split(turn[-1]), "executor"), ("worker", "worker: opus"))
+        self.assertEqual(step(piece, "executor")[0], "done-when")
+        self.assertEqual(step(["ssh", "helper", "echo hi"], "executor")[0], "done-when")
+        self.assertEqual(step(["ssh", "--", "helper", "unclosed 'quote"], "executor")[0],
+                         "done-when")
+
+    def test_v5x_second_stall_on_helper_executor_hands_over_to_spare(self):
+        parent = self.spawn_loop(self.gate_child())
+        children = self.child_pids(parent.pid)
+        self.assertTrue(children)
+        with patch.object(machines, "_keys", return_value=[]):
+            turn = helper._remote(
+                "helper", "turn", "test-key", "test-image", 4096, "widgets",
+                "home:/tmp/home", "work:/tmp/widgets", "out:/tmp/out",
+                "--", "/tmp/widgets", "/opt/ak", "ak/test", "main",
+                "/opt/ak/adapters/claude.sh", "run", "opus", "high", "/tmp/widgets",
+                "/tmp/out/prompt.md", "/tmp/out")
+        cfg = {"models": {"opus": {"harness": "claude", "model": "m",
+                                   "effort": "e", "provider": "anthropic"},
+                          "astra": {"harness": "codex", "model": "m",
+                                    "effort": "e", "provider": "openai"}},
+               "defaults": {"orchestrator": "opus", "workers": ["opus", "astra"]},
+               "providers": {"anthropic": {}, "openai": {}}}
+        run_dir, _ = self.make_run(
+            "20260916-0000-v5x-helper-handover",
+            stalls=[{"time": time.time() - 7200, "round": 2,
+                     "step": "worker: opus", "action": "killed step"}],
+            pid=parent.pid, executor="opus", step="executor")
+        self.age_run(run_dir, 61)
+
+        def pick_order(_cfg, _providers, workers, skip=(), **_kw):
+            return [name for name in ("astra", "opus") if name in workers and name not in skip]
+
+        with patch.object(watch, "loop_children", return_value=[(children[0], turn)]), \
+                patch("agentkit.usage.collect", return_value={}), \
+                patch("agentkit.usage.pick_order", pick_order):
+            watch.recover_runs(cfg, dry_run=False, log=self.logs.append, now=time.time())
+        state = self.read_state(run_dir)
+        self.assertEqual(len(state.get("stalls") or []), 2)
+        self.assertEqual(state["stalls"][-1]["step"], "worker: opus")
+        self.assertEqual(state["stalls"][-1]["action"], "resumed with handover to astra")
+        self.assertEqual(state.get("executor"), "astra")
+        self.assertEqual(state["executor_history"][-1]["reason"], "stalled")
+        self.assertEqual(self.resumed, [run_dir.name])
 
     def test_v5x_second_stall_on_reviewer_resumes_without_handover(self):
         parent = self.spawn_worker()

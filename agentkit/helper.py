@@ -57,6 +57,29 @@ def _line(verb, *args):
     return shlex.join(["bash", "-c", script, "mac.sh", verb, *map(str, args)])
 
 
+def _call(argv):
+    """(verb, args) of a command `_remote` built, off the words a process table shows of it
+    (or after a fake ssh execs straight into the remote bash); None for any other."""
+    if not argv:
+        return None
+    if os.path.basename(str(argv[0])) == "ssh":
+        if "--" not in argv:
+            return None
+        tail = argv[argv.index("--") + 1:]
+        if len(tail) != 2:
+            return None
+        try:
+            words = shlex.split(tail[1])
+        except ValueError:
+            return None
+    else:
+        words = argv
+    if (len(words) < 5 or os.path.basename(str(words[0])) != "bash"
+            or words[1] != "-c" or words[3] != "mac.sh"):
+        return None
+    return words[4], words[5:]
+
+
 def _recipe(cwd, repo):
     """(image, {name in the parcel: (mode, bytes)}) the suite's pieces run in, or None: the
     repository has no recipe. The recipe, `image/Containerfile`, is the file `suite_image:` names,

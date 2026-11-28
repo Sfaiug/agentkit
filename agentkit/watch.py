@@ -48,9 +48,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, box, browser, change_rules, command_help, config, front, gc, gitcall,
-               hand_back, handback, history, host, lease, login_refusals, logins, look, notify,
-               orch, owner, parsed, pause, questions, seat_tokens, staffing, standby, statusbar,
-               step_down, transitions, turns, update, usage, versions, worker)
+               hand_back, handback, history, host, lease, login_refusals, logins, look,
+               machine_turn, notify, orch, owner, parsed, pause, questions, seat_tokens, staffing,
+               standby, statusbar, step_down, transitions, turns, update, usage, versions, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
@@ -6608,14 +6608,14 @@ def step_for_run(run_dir, state, pid, cfg=None):
 
     `worker` is an executor turn, `reviewer` a reviewer turn -- the loop records the step before
     either, so no path a turn is handed reads as its role -- and `done-when` the gate; `none`
-    means the loop has no child.  A turn and a gate alike run in a box, so each is told by what
-    its box runs (`box.inside`).
+    means the loop has no child.  A turn and a gate alike run in a box, and a turn on another
+    machine over ssh, so each is told by what those run (`box.inside`, `machine_turn.inside`).
     """
     children = loop_children(pid)
     if not children:
         return "none", "no child", None, []
     child, args = sorted(children, key=lambda pair: pair[0])[0]
-    command = box.inside(args)
+    command = machine_turn.inside(box.inside(args))
     if is_worker_cmd(command, cfg):
         if state.get("step") == "reviewer":
             return "reviewer", f"reviewer: {state.get('reviewer') or 'reviewer'}", child, args

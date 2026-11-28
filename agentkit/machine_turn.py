@@ -67,6 +67,20 @@ def _conversation(harness, session):
     return [place.replace("{id}", glob.escape(session)) for place in _sessions(harness)]
 
 
+def inside(argv):
+    """The command a turn `call` sent to a machine runs, off the words a process table shows of
+    its ssh (`helper._call`): those after the volumes' `--` and turn.sh's four words.  Any other
+    as given."""
+    called = helper._call(argv)
+    if not called or called[0] != "turn":
+        return argv
+    tail = called[1][4:]    # past key, image, memory_mb, repo
+    if "--" not in tail:
+        return argv
+    cmd = tail[tail.index("--") + 5:]    # past `--`, cwd, repo, branch, default
+    return cmd or argv
+
+
 def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     """(exit, killed, session) of the turn `cmd` of the model `entry` on a machine with room, or
     None: it runs here, as with the switch off, `places`, room here (`_room_here`), no program for
