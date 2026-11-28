@@ -14,9 +14,10 @@ passed, failed or blocked, not stopped, nor a review of a pull request no orches
 wrote: their size, whether an orchestrator's own pull request or a build, and whether it
 passed in round 1, for a build, or merged in round 1, for an own pull request -- a pass that
 merged nothing (--no-merge) passed and did not merge.  At a value between 0 and the largest,
-those of that many lines or more, as the size bars split them, would have been split, or made
-tasks (split instead with executors off), with how often their first round went so and how often
-the rest's did; at 0 executors or orchestrators build nothing; past the largest, no run can say.
+those of more than that many lines, as the first review's gates refuse them, would have been
+split, or made tasks (split instead with executors off), with how often their first round went so
+and how often the rest's did; at 0 executors or orchestrators build nothing; past the largest, no
+run can say.
 
 The owner's design of 5 Nov 2026.  Black-box: history.db's `runs` rows written into the Home as
 any program writes them, then the program `AK_BIN` names in a person's terminal
@@ -41,7 +42,7 @@ START = calendar.timegm((2026, 10, 1, 12, 0, 0))
 COLUMNS = ("run_id", "repo", "final_state", "rounds_used", "changed_lines", "first_review_lines",
            "own_orchestrator", "started_at", "finished_at")
 # the round each merged in, then F's first review sizes: builds, then own pull requests; a size
-# at a step pins that it counts with those of that many lines or more
+# at a step pins that it counts with those of that many lines or fewer, as the gates let it by
 BUILDS = {1: (40, 90, 120, 180, 220, 350), 2: (150, 260, 310), 3: (300, 450, 190),
           None: (330, 410, 240, 60)}
 OWN = {1: (25, 30, 50, 70), 2: (60, 90), None: (20, 55, 120)}
@@ -70,20 +71,20 @@ ROUNDS = {
     5: "No run has gone past 3 rounds, so your runs can't say."}
 # 17 builds, the largest 450 lines
 EXECUTOR = {
-    300: "6 of your 17 builds (35%) were 300 lines or more and would have been split. Their "
-         "first review passed 17% of the time, and 55% below 300 lines.",
-    200: "10 of your 17 builds (59%) were 200 lines or more and would have been split. Their "
-         "first review passed 30% of the time, and 57% below 200 lines.",
+    300: "5 of your 17 builds (29%) were more than 300 lines and would have been split. Their "
+         "first review passed 20% of the time, and 50% at 300 lines or fewer.",
+    200: "9 of your 17 builds (53%) were more than 200 lines and would have been split. Their "
+         "first review passed 22% of the time, and 62% at 200 lines or fewer.",
     0: "Off: executors build nothing, so your runs can't say how that would go.",
     500: "Your largest build was 450 lines, so your runs can't say how bigger ones would go.",
     "no limit": "Your largest build was 450 lines, so your runs can't say how bigger ones would "
                 "go."}
 # 10 own pull requests
 ORCHESTRATOR = {
-    50: "6 of your orchestrators' 10 own pull requests were 50 lines or more and would have "
-        "been tasks. Round 1 merged 33% of them, and 50% below 50 lines.",
-    25: "9 of your orchestrators' 10 own pull requests were 25 lines or more and would have "
-        "been tasks. Round 1 merged 44% of them, and 0% below 25 lines.",
+    50: "5 of your orchestrators' 10 own pull requests were more than 50 lines and would have "
+        "been tasks. Round 1 merged 20% of them, and 60% at 50 lines or fewer.",
+    25: "8 of your orchestrators' 10 own pull requests were more than 25 lines and would have "
+        "been tasks. Round 1 merged 38% of them, and 50% at 25 lines or fewer.",
     0: "Off: orchestrators build nothing themselves, so every one of their 10 own pull "
        "requests would have been a task."}
 NAMES = {"Review rounds": 3, "Max lines per executor task": 300,
@@ -180,11 +181,12 @@ class WhatIf(unittest.TestCase):
 
     def test_orchestrator_lines_with_executors_off_says_split(self):
         self.walk("Max lines per orchestrator task", [
-            ((), 50, "6 of your orchestrators' 10 own pull requests were 50 lines or more and "
-                     "would have been split. Round 1 merged 33% of them, and 50% below 50 lines."),
+            ((), 50, "5 of your orchestrators' 10 own pull requests were more than 50 lines and "
+                     "would have been split. Round 1 merged 20% of them, and 60% at 50 lines or "
+                     "fewer."),
             (("Right",) * 2, 100,
-             "1 of your orchestrators' 10 own pull requests was 100 lines or more and would have "
-             "been split. Round 1 merged 0% of them, and 44% below 100 lines.")],
+             "1 of your orchestrators' 10 own pull requests was more than 100 lines and would "
+             "have been split. Round 1 merged 0% of them, and 44% at 100 lines or fewer.")],
             settings={"executor_lines": 0})
 
 
