@@ -21,7 +21,7 @@ from test_close_and_info import ENTER, ESC, Menu
 from agentkit import menu, orch, terminal
 
 MADE = """
-config.harness_present = lambda _: True
+config.harness_present = lambda *_, **_kw: True
 orch.create = lambda cfg, name, cwd, **kw: print(
     f"<made {name} under {kw.get('repo')} by {kw['selection'][1][0]}>", flush=True) or ["true"]
 """
