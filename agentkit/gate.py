@@ -1964,10 +1964,11 @@ def passes_what_it_holds(code, only, ran, failed, absent):
     """Whether a run of just the tests `only` lists, exiting `code`, passed each one its tree
     holds: it named each as run (`AK_RAN`) but those it named as not there (`AK_NOT_THERE`), as
     a test file names a part only a later change adds, and failing, it named one at least as not
-    there and none of the others as failed (`AK_FAILED`).  A narrowing step counts that stack as
-    passing them (land._check_tests, land._probe); to a person and every other check the run
-    exited as it did."""
-    there = [test for test in only if test not in absent]
+    there and none of the others as failed (`AK_FAILED`).  One named both as run and as failed
+    was there, whatever else the run named it.  A narrowing step counts that stack as passing
+    them (land._check_tests, land._probe); to a person and every other check the run exited as
+    it did."""
+    there = [test for test in only if test not in absent or test in ran and test in failed]
     return all(test in ran for test in there) and (
         code == 0 or code > 0 and len(there) < len(only) and not set(there) & set(failed))
 
