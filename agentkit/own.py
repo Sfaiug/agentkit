@@ -17,6 +17,7 @@ from . import config, menu, terminal, usage
 from .ledger import HOURS, ROLES, recorded
 
 FEW = 20        # a row or the team of fewer tasks says only how many: a few tasks say nothing yet
+MARK = "mark"   # a row's mark's cell (`lines`), which a click on `config · your runs` flips
 WORDS = {"orchestrator": "ORCHESTRATOR", "executor": "BUILDER", "reviewer": "REVIEWER"}
 DOING = {"orchestrator": "orchestrating", "executor": "building", "reviewer": "reviewing"}
 NO_WORK = {"turns": 0, "turn_seconds": None, "checks": 0, "gaps": 0}
@@ -143,8 +144,9 @@ def lines(own, cfg, room, paid, at=None):
     three tables, to stand under each other, each other column for its own; where a table passes
     the edge every row folds, no column headed: its model's line, then its numbers indented, each
     after its column's name, wrapped between two of them.  The lines, and each row's as
-    menu.matrix_page reads them, {line: ((role, its number in `own[role]`), [])}; row `at` is
-    highlighted, every line of it (`highlighted`)."""
+    menu.matrix_page reads them, {line: ((role, its number in `own[role]`), cells)}, its first
+    line's cells its mark (MARK) and every line's the row around it (as menu.page_body's); row
+    `at` is highlighted, every line of it (`highlighted`)."""
     team, tasks = own["team"], own["team"]["tasks"]
     said = [f"{team['live']} of {tasks} tasks went live", *(
         [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting",
@@ -182,7 +184,8 @@ def lines(own, cfg, room, paid, at=None):
             else:
                 first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts, sized)}", []
             row = [terminal.styled(mark, kind) + first[len(mark):], *rest]
-            places.update((len(shown) + line, ((role, number), [])) for line in range(len(row)))
+            places.update((len(shown) + line, ((role, number), [
+                *[(1, 1, MARK)] * (line == 0), (1, room, None)])) for line in range(len(row)))
             shown += [highlighted(line) if at == (role, number) else line for line in row]
     shown += ["", *(terminal.styled(line, "muted")
                     for line in menu.packed(NOTE, terminal.separator(), room))]

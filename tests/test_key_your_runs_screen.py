@@ -16,7 +16,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 from test_key_models_own_tables import FOLDED, NOTE, NOTE_100, OWN, TEAMS, home_of
 
-KEYS, HEAD = "  ↑↓ move   p models   esc back", "agentkit · config · your runs · new seats"
+KEYS, HEAD = "  ↑↓ move   ␣ mark   p models   esc back", "agentkit · config · your runs · new seats"
 AT_100 = [*OWN[:-len(NOTE)], *NOTE_100]      # `ak models` on 100 cells, as the screen draws it
 body_lines = lambda shown: shown[2:max((i for i, l in enumerate(shown) if l), default=2) - 1]
 last_line = lambda shown: next((l for l in reversed(shown) if l), "")
