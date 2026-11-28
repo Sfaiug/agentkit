@@ -10,7 +10,8 @@ one whose `used` or `resets_at` is no number, a reading with no plan its login's
 grouped by login, plan and week, a reading's `resets_at` within ten minutes of the one before
 it in the same week.  A group rose from its earliest reading to its highest, and the spend that
 bought that rise is the login's rows priced at listed prices from the earliest reading to the
-first at the highest; a group whose spend cannot be priced counts for nothing.
+first at the highest; a group whose spend cannot be priced counts for nothing.  No week is
+counted in tokens: a login carries no `capacity_tokens`, `capacity_pairs` or `price_per_1m`.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py on
 tests/fixtures/meters.py's harness, with an invented board, plans, readings and token rows
@@ -52,6 +53,7 @@ SEAT_USAGE = ("CREATE TABLE seat_usage (event TEXT PRIMARY KEY, repo TEXT, at RE
 METER_READINGS = ("CREATE TABLE meter_readings (provider TEXT, account TEXT, meter TEXT, "
                   "used REAL, resets_at REAL, window_secs REAL, at REAL, source TEXT, "
                   "plan TEXT, PRIMARY KEY (provider, account, meter, at))")
+ACCOUNTS = ("default", "second", "third")
 
 
 class WeekPrice(unittest.TestCase):
@@ -59,11 +61,11 @@ class WeekPrice(unittest.TestCase):
         self.home = Home()
         self.addCleanup(self.home.close)
         meter = meters.install(self.home)
-        for account in ("default", "second"):
+        for account in ACCOUNTS:
             meter.week("acme", account, used=50)
         akconfig.write(self.home, {"anvil": {"harness": "echo", "provider": "acme"}},
                        providers={"acme": {"mode": "subscription",
-                                           "accounts": ["default", "second"]}})
+                                           "accounts": list(ACCOUNTS)}})
         self.home.write(".agentkit/state/boards.json", BOARD)
         self.seats, self.readings = [], []
 
@@ -99,7 +101,7 @@ class WeekPrice(unittest.TestCase):
         accounts = json.loads(done.out)["providers"]["acme"]["accounts"]
         return {account: tuple(accounts[account][key] for key in (
             "plan", "week_listed_usd", "plan_points", "plan_listed_usd"))
-                for account in ("default", "second")}
+                for account in ACCOUNTS}
 
     def assertWeek(self, got, plan, week, points, dollars):
         self.assertEqual(got[0], plan)
@@ -223,21 +225,22 @@ class WeekPrice(unittest.TestCase):
         self.read("default", 30, 30 * HOUR, WEEK, plan="Max")
         self.assertWeek(self.weeks()["default"], "Max", math.inf, 20, 2e306)
 
-    def test_the_holds_cell_says_about_as_the_locale_can_and_an_ascii_stdout_takes_it(self):
-        self.plans(default="Max")
+    def test_no_week_is_counted_in_tokens(self):
+        # a login whose week is read, one sharing that week on its plan, one whose plan has none
+        self.plans(default="Max", second="Max", third="Pro")
         self.read("default", 10, 40 * HOUR, WEEK, plan="Max")
         self.spent("default", 3, 35 * HOUR)
         self.read("default", 40, 30 * HOUR, WEEK, plan="Max")
-        self.assertWeek(self.weeks()["default"], "Max", 10, 30, 3)
-        # the last, a stream that takes ASCII alone whatever the locale says: only Python's
-        # stdout has an encoding to refuse `≈`, so Go may still print it there
-        for env, abouts in (({"LC_ALL": "C.UTF-8"}, "≈"), ({"LC_ALL": "C"}, "~"),
-                            ({"LC_ALL": "C.UTF-8", "PYTHONIOENCODING": "ascii"}, "~≈")):
-            with self.subTest(env):
-                done = self.home.ak("usage", env={"COLUMNS": "200", **env})
-                self.assertEqual(done.code, 0, done.err)
-                self.assertIn(meters.cell(done.out, "Acme I", "holds"),
-                              {f"week {about} $10 at list prices" for about in abouts})
+        weeks = self.weeks()
+        for account in ("default", "second"):
+            self.assertWeek(weeks[account], "Max", 10, 30, 3)
+        self.assertWeek(weeks["third"], "Pro", None, 0, 0)
+        done = self.home.ak("usage", "--json")
+        self.assertEqual(done.code, 0, done.out + done.err)
+        for account, record in json.loads(done.out)["providers"]["acme"]["accounts"].items():
+            with self.subTest(account):
+                self.assertEqual({"capacity_tokens", "capacity_pairs", "price_per_1m"}
+                                 & set(record), set())
 
 
 if __name__ == "__main__":

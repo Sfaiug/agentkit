@@ -34,7 +34,7 @@ REPORTED = ("name", "used", "resets_at", "window_secs")
 ORDER = ["anvil", "easel", "cask", "bolt"]
 PAIR = {"executor": "anvil", "reviewer": "cask"}     # easel is on anvil's own provider
 # the short headings `ak usage` prints where its full ones do not fit
-HEADINGS = ("model(s)", "left", "holds", "month", "resets", "elapsed", "session", "held",
+HEADINGS = ("model(s)", "left", "month", "resets", "elapsed", "session", "held",
             "room", "budget", "outlook")
 
 
@@ -135,12 +135,12 @@ class Text(unittest.TestCase):
 
     def test_each_provider_has_its_row(self):
         week = time.strftime("%a %H:%M", time.gmtime(self.meter.resets_at))   # a Home is UTC
-        rows = {"Acme": ("anvil, easel", "60%", "-", "-", week, "86%", "-", "0", "0.6",
+        rows = {"Acme": ("anvil, easel", "60%", "-", week, "86%", "-", "0", "0.6",
                          "4.2 slack", "on track"),
-                "Brine": ("bolt", "30%", "-", "-", week, "86%", "-", "0", "0.3", "2.1 slack",
+                "Brine": ("bolt", "30%", "-", week, "86%", "-", "0", "0.3", "2.1 slack",
                           "on track"),
-                "Coral": ("cask", "-", "-", "-", "-", "-", "-", "0", "-", "unknown", "unknown"),
-                "Dune": ("drum", "0%", "-", "-", week, "86%", "-", "0", "0.0", "0.0 ahead",
+                "Coral": ("cask", "-", "-", "-", "-", "-", "0", "-", "unknown", "unknown"),
+                "Dune": ("drum", "0%", "-", week, "86%", "-", "0", "0.0", "0.0 ahead",
                          "exhausted")}
         for label, row in rows.items():
             with self.subTest(label):

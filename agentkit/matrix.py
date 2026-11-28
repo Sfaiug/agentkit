@@ -743,7 +743,7 @@ def main(argv):
     if "--json" not in flags:
         # your own tables alone, off no board: the owner, 24 Nov 2026, "I actually dont want
         # that we assess our decision on benchmark data at all"
-        print("\n".join(own.lines(mine, cfg, terminal.layout_width(), paid)))
+        print("\n".join(own.lines(mine, cfg, terminal.layout_width(), paid)[0]))
         return 0
     logins, shares = _task_usage(cfg)
     # releases on off the lineup `refresh` returned, never a second read of matrix.json that a

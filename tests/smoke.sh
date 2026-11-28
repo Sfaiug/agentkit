@@ -2481,17 +2481,16 @@ fi
 # ChatGPT is 63% through with 55% of the week to go (0.4 meters, about two days); Muse says nothing.
 fixture 52 -34.3  94 7.7  63 18.2
 UT="$WORK/usage-words.txt"
-# 140 columns so the full headings are what is checked; `holds` is what the week holds in
-# dollars at list prices, `-` while its plan has none in this HOME; `a month` is the
+# 140 columns so the full headings are what is checked; `a month` is the
 # subscription's price, `-` with no price on the provider; `resets` is when the shared week opens
 # again, the same answer the menu row gives, and `resets held` is the credits in hand.
 HOME="$PHOME" COLUMNS=140 ak usage >"$UT" 2>&1
 WHEN='(-|[A-Za-z]+ [0-9][0-9]:[0-9][0-9])'
 if grep -qi 'week elapsed' "$UT" && grep -q 'session  *resets held  *headroom  *budget  *outlook' "$UT" &&
-   grep -q ' left  *holds  *a month  *resets  *week elapsed' "$UT" && ! grep -q 'this week' "$UT" &&
-   grep -qE "^Claude .*fable, opus +48% +- +- +$WHEN +86% +- +0 +0\.5 +[0-9]+\.[0-9] slack +on track$" "$UT" &&
-   grep -qE "^ChatGPT +astra +37% +- +- +$WHEN +45% +- +0 +0\.4 +[0-9]+\.[0-9] slack +runs out in ~2d$" "$UT" &&
-   grep -qE '^Muse +spark +- +- +- +- +- +- +0 +- +unknown +unknown$' "$UT" &&
+   grep -q ' left  *a month  *resets  *week elapsed' "$UT" && ! grep -q 'this week' "$UT" &&
+   grep -qE "^Claude .*fable, opus +48% +- +$WHEN +86% +- +0 +0\.5 +[0-9]+\.[0-9] slack +on track$" "$UT" &&
+   grep -qE "^ChatGPT +astra +37% +- +$WHEN +45% +- +0 +0\.4 +[0-9]+\.[0-9] slack +runs out in ~2d$" "$UT" &&
+   grep -qE '^Muse +spark +- +- +- +- +- +0 +- +unknown +unknown$' "$UT" &&
    grep -q '^drawn per run among: opus, astra, spark, grok$' "$UT" && ! grep -qw sol "$UT"; then
   ok "8e ak usage in words: $(grep '^ChatGPT ' "$UT")"
 else
