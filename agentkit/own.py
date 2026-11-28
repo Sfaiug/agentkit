@@ -38,10 +38,10 @@ def answers_in(row, _):
     seconds = row["turn_seconds"]
     if row["turns"] < FEW or seconds is None or not math.isfinite(seconds) or seconds < 0:
         return "-"
-    if (whole := round(seconds)) < 120:
-        return f"{whole} s"
-    if (minutes := round(seconds / 60, 1)) < 60:
-        return f"{minutes:.1f} min"
+    if seconds < 120:
+        return f"{round(seconds)} s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f} min"
     return f"{seconds / 3600:.1f} h"
 
 
