@@ -2,7 +2,9 @@
 fold: the first orchestrator's as the page opens, ↑/↓ moving it through the three tables' rows
 in their order, the key line naming `↑↓ move`.  On a page too short for the tables the
 highlighted row stays on it, the first row's page showing the team line and the last's the
-note's last line.  Black-box: `AK_BIN` in a terminal in every colour over
+note's last line; on one too short for those too, ↓ on the last row and ↑ on the first turn the
+page a line a press, as far as its last and its first line, until the highlight moves, and a
+page with no line is not turned.  Black-box: `AK_BIN` in a terminal in every colour over
 tests/test_key_models_own_tables.py's history, with a dead proxy, the highlight read as the
 lines on the theme's selection; fails against /bin/false."""
 
@@ -92,6 +94,29 @@ class YourRunsHighlight(unittest.TestCase):
         for height, body in ((8, AT_100[2:4]), (12, AT_100[:6])):
             self.term.resize(100, height)
             self.page(rows[:1], body)
+
+    def test_a_step_past_the_last_or_the_first_row_turns_the_page(self):
+        # 5 lines on 11 rows: under the last row a blank line and three of the note's four
+        self.open((100, 11))
+        rows = [line for line in AT_100 if line.startswith(("●", "○", "■", "□"))]
+        self.page(rows[-1:], AT_100[-6:-1], *["Down"] * (len(rows) - 1))
+        # no further than the page's last line, and ↑ is the row above, the page back on it
+        self.page([], AT_100[-5:], "Down", "Down")
+        self.page(rows[-2:-1], AT_100[-7:-2], "Up")
+        # 2 lines on 8 rows: over the first row its table's heading, the team line two lines up
+        self.term.resize(100, 8)
+        self.page(rows[:1], AT_100[2:4], *["Up"] * (len(rows) - 2))
+        self.page([], AT_100[1:3], "Up")
+        self.page([], AT_100[:2], "Up", "Up")
+        self.page(rows[1:2], AT_100[3:5], "Down")
+        # no line on 6 rows: ↓ on the last row there, `p` read after it, turns nothing for 8
+        self.term.resize(100, 6)
+        self.page([], [])
+        self.term.keys(*["Down"] * (len(rows) - 1), "p")
+        self.term.wait("a add a company")
+        self.term.keys("Escape")
+        self.term.resize(100, 8)
+        self.page(rows[-1:], AT_100[12:14])
 
     def test_on_40_cells_every_line_of_the_highlighted_row_is_lit(self):
         self.open((40, 50))

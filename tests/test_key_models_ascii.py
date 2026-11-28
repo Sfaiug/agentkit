@@ -42,9 +42,8 @@ class ModelsAscii(unittest.TestCase):
                 self.assertTrue(next(line for line in shown if line.startswith(
                     "* Acme Nova 7 Plus")).endswith("  EUR 0.15, 0.4%"), shown)
                 self.assertEqual(shown[-3:], [
-                    "tasks: those done with the models you use now in the other two roles, "
-                    "answers in: half its turns take no longer",
-                    "left out: what you asked for that a finished job lacked, per check, "
+                    "answers in: half its turns take no longer, "
+                    "left out: what you asked for that a finished job lacked, per check",
                     "reviews and issues: per task",
                     "time and usage: per task that went live, "
                     "usage also as a share of one login's week on its plan"])

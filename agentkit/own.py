@@ -72,9 +72,9 @@ COLUMNS = {"orchestrator": {**LEAD, "answers in": answers_in, "left out": left_o
                         "reviews": per_task("reviews"), **last("executor")},
            "reviewer": {**LEAD, "issues": per_task("issues"),
                         "false alarms": share("taken_back", "issues"), **last("reviewer")}}
-# What COLUMNS' short headings count, said once under the tables, set apart as parts of a line
-# are (terminal.separator)
-NOTE = ["tasks: those done with the models you use now in the other two roles",
+# What COLUMNS' short headings count, a row's tasks as `by_role` sums them, said once under the
+# tables, set apart as parts of a line are (terminal.separator)
+NOTE = ["tasks: those done with the models you use now in the other two roles, at no other effort",
         "answers in: half its turns take no longer",
         "left out: what you asked for that a finished job lacked, per check",
         "reviews and issues: per task",

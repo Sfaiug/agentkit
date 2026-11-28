@@ -3546,7 +3546,12 @@ def your_runs_screen(cfg, session, selected, held, providers):
     click or the pointer onto one, the pointer off them putting it out; the page follows it no
     further than it must (matrix_page), but to the team line on the first row and the note on
     the last, at any size, and one too short for any of their lines keeps its header, as `p`'s
-    note keeps its start.  Space, or a click on its mark, on a builder's or a reviewer's row
+    note keeps its start.  A step no row is left for, up from the first or down from the last,
+    turns the page instead, as many lines and no further than its first or its last line, so a
+    page too short for the team line or the note beside its row still comes to them; one with no
+    line, which would show no turn, is not turned.  The highlight moving, or Space on a
+    builder's or a reviewer's row, puts the page back on its row.
+    Space, or a click on its mark, on a builder's or a reviewer's row
     does what Space does on its model's mark for that role on `c` (flip_mark), `providers`
     being `c`'s, the way the page's mark says, over config.toml and the marks as the key comes:
     a model config.toml then offers no more, or holds off (matrix.off), or as the save reads it,
@@ -3591,15 +3596,18 @@ def _your_runs(cfg, session, selected, held, providers):
                       page_places(places, first, room))
     mine, rows = team()
     keys = terminal.keys("p models", "esc back", space="mark", enter=None, move=("move",))
-    here, top, ask = rows[0], 0, asking(clock, around, title=title)
+    # `past`: the lines the page is turned on from its row's page, back from it where under 0
+    here, top, past, ask = rows[0], 0, 0, asking(clock, around, title=title)
     while True:
         lines, places = page(mine, None if terminal.away() else here)
         said, room = note_lines(note), max(0, page_room((), keys))
         # a row both first and last shows the team line, as the page opens
         top = {rows[-1]: len(lines), rows[0]: 0}.get(here, top)
         top, fits = matrix_page(lines, places, here, top, said, keys)[0], max(0, room - len(said))
-        body = [*lines[top:top + fits], *said] if len(said) <= room else said[1:1 + room]
-        spots = terminal.frame(title, body, keys, places=page_places(places, top, fits),
+        past = max(-top, min(past, len(lines) - fits - top))      # as far as its lines go
+        first = top + past
+        body = [*lines[first:first + fits], *said] if len(said) <= room else said[1:1 + room]
+        spots = terminal.frame(title, body, keys, places=page_places(places, first, fits),
                                drawn=lambda: clock.drawn((), None))
         key = terminal.read_key() if clock.wait() is None else moving(clock, timeout=TICK)
         if key is None:
@@ -3610,7 +3618,10 @@ def _your_runs(cfg, session, selected, held, providers):
         elif act == "click":
             act = {"esc": "back", "␣": "space"}.get(spot.cell, spot.cell or "")
         elif step := terminal.step(key):
-            here = rows[min(max(rows.index(here) + step, 0), len(rows) - 1)]
+            row = rows[min(max(rows.index(here) + step, 0), len(rows) - 1)]
+            # a step no row is left for turns the page, where a line of it shows the turn; one
+            # that moves the highlight leaves the turn behind
+            here, past = row, (past + step * bool(fits)) * (row == here)
         if act == "point":
             continue
         clock.settle()
@@ -3646,6 +3657,7 @@ def _your_runs(cfg, session, selected, held, providers):
             here = (here[0], min((not other["in_use"], other["effort"] != row["effort"],
                                   number) for number, other in enumerate(mine[here[0]])
                                  if other["name"] == name)[2])
+            past = 0        # the page back on the row, its mark to be seen
 
 
 ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens

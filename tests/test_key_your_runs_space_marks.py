@@ -2,7 +2,8 @@
 on that model's mark for that role on `c`: a model not in use is used and one in use no longer,
 saved to config.toml's [defaults] at once, and the page then counts for the team as it now is,
 the highlight on the model it was on, though the rows above it go; a row whose model the config
-no longer holds is refused in one line naming it, the page and config.toml as they were.  The key
+no longer holds is refused in one line naming it, the page and config.toml as they were; a page
+turned past its last row is back on the row Space marks.  The key
 line reads `↑↓ move   ␣ mark   p models   esc back`.  Black-box: `AK_BIN` in a terminal in every
 colour over tests/test_key_models_own_tables.py's history, with a dead proxy, the highlight read
 as tests/test_key_your_runs_highlight.py reads it; fails against /bin/false."""
@@ -49,6 +50,19 @@ class YourRunsSpaceMarks(unittest.TestCase):
                           "      -", *AT_100[8:12], echo, *AT_100[13:]], "Space")
         self.assertEqual(akconfig.read(home)["defaults"]["reviewers"], ["crux", "echo"])
 
+    def test_a_page_turned_past_the_last_row_is_back_on_the_row_space_marks(self):
+        home = home_of(TEAMS)       # echo as above, so marked it keeps its row, the last
+        akconfig.write(home, {**MODELS, "echo": {**MODELS["echo"], "effort": "medium"}},
+                       orchestrator="nova", workers=["bolt"], reviewers=["crux"])
+        self.open(home)
+        # 5 lines on 11 rows: ↓ on echo's row, the last, turns the page off it to the note's end
+        self.term.resize(100, 11)
+        rested(self.term, AT_100[12:13], AT_100[12:17], *["Down"] * 5)
+        rested(self.term, [], AT_100[13:], "Down")
+        echo = "■" + AT_100[12][1:]
+        rested(self.term, [echo], [echo, *AT_100[13:17]], "Space")
+        self.assertEqual(akconfig.read(home)["defaults"]["reviewers"], ["crux", "echo"])
+
     def test_the_only_builder_unmarked_leaves_a_team_with_none(self):
         self.open(home_of(TEAMS))
         rested(self.term, AT_100[7:8], AT_100, "Down", "Down")
@@ -59,7 +73,7 @@ class YourRunsSpaceMarks(unittest.TestCase):
             f"ORCHESTRATOR{' ' * 13}{HEADS['ORCHESTRATOR']}", f"● {NOVA} high      0", "",
             *AT_100[6:7], bolt, *AT_100[8:10],
             f"REVIEWER{' ' * 17}{HEADS['REVIEWER']}", f"■ Crux 2[ medium{' ' * 13}0",
-            *AT_100[-4:]], "Space")
+            *AT_100[13:]], "Space")
         self.assertEqual(akconfig.read(self.home)["defaults"]["workers"], [])
 
     def test_a_model_no_longer_configured_is_refused_naming_it(self):
