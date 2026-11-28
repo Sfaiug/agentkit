@@ -2174,10 +2174,11 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
 # same word, off the same meter.  The usage-limit credits that used to hold that heading are
 # `resets held`, which is what every note about them already says in longer words.  `left`
-# names no week, because not every window is one: MiMo's plan runs thirty days.  `holds` is
-# what that shared week holds in dollars at list prices, as its plan's own spend fits it
-# (`plan_weeks`), the number the models screen prices a task's share of a week with.
-HEADERS = ("provider", "model(s)", "left", "holds", "a month", "resets", "week elapsed",
+# names no week, because not every window is one: MiMo's plan runs thirty days.  No cell says
+# what a week holds at token list prices: the owner, 24 Nov 2026, "token prices and usage of a
+# meter are completely different. Instead, we want to know how much is the user paying per
+# month", which `a month` says.
+HEADERS = ("provider", "model(s)", "left", "a month", "resets", "week elapsed",
            "session", "resets held", "headroom", "budget", "outlook")
 SPENT_OVER = 7 * 86400          # what a login's spend is priced over, and its plan's week fitted
 MONTH = 52 / 12 * 7 * 86400     # the weeks a month's price pays for
@@ -2203,17 +2204,6 @@ def _left(used):
 
 def _num(value, places):
     return "-" if value is None else f"{value:.{places}f}"
-
-
-def _held(dollars, meter):
-    """`week ≈ $2010 at list prices`, what all of `meter`'s window holds (`plan_weeks`), in whole
-    dollars; `-` while its plan has none.  A window that is not a week says its length: `30d`."""
-    if dollars is None:
-        return "-"
-    window = _number(meter.get("window_secs"))
-    named = "week" if window in (None, 7 * 86400) else terminal.format_age(window)
-    about = "≈" if terminal.utf8() else "~"
-    return f"{named} {about} ${dollars:.0f} at list prices"
 
 
 def plan(provider, account=None):
@@ -2424,15 +2414,13 @@ def rows(cfg, providers):
     """One row per provider, in plain words: what is left of its week and session, and how long.
 
     Every number reads the shared week (`_as_shared`), the one the menu row names; a row with
-    no shared week reads the tightest weekly meter.  `holds` is what that week of its plan holds
-    at list prices and `a month` what one login of that plan costs in `[money] currency`
-    (money.price), `-` where it has no price there or no plan is read, with `no role marks its
-    models` where its provider has no model on and marked (`marked_providers`), else `no use
-    read in a month` where `no_use_read`.  A provider with several accounts is a row per
-    account, `Claude II`, each on its own meters and its own plan.
+    no shared week reads the tightest weekly meter.  `a month` is what one login of its plan
+    costs in `[money] currency` (money.price), `-` where it has no price there or no plan is
+    read, with `no role marks its models` where its provider has no model on and marked
+    (`marked_providers`), else `no use read in a month` where `no_use_read`.  A provider with
+    several accounts is a row per account, `Claude II`, each on its own meters and its own plan.
     """
-    now = _now()
-    weeks, used = plan_weeks(cfg, providers, now), marked_providers(cfg)
+    now, used = _now(), marked_providers(cfg)
     code, out = money.currency(cfg), []
     for label, name, prov, account in _accounts(cfg, providers):
         shared = shared_week(cfg, name, prov, now)
@@ -2441,11 +2429,10 @@ def rows(cfg, providers):
         session = _worst([m for m in prov.get("meters") or []
                           if m.get("window_secs") == SESSION_SECS])
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
-        on, dollars = weeks[name][account][:2]
+        on = plan(name, account)
         cost = None if on is None else money.price(cfg, name, on, code)
         marked = name in used
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
-                    _held(dollars, shared or {}),
                     _month(code, cost, marked,
                            no_use_read(cfg, name, account, prov, cost, marked, now)),
                     reset_when(shared, now) or "-",
@@ -2491,7 +2478,7 @@ def render(cfg, providers, order, *, repo=None):
     widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
     if width >= 60 and sum(widths) + len(widths) - 1 > width:
-        table[0] = ("provider", "model(s)", "left", "holds", "month", "resets", "elapsed",
+        table[0] = ("provider", "model(s)", "left", "month", "resets", "elapsed",
                     "session", "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     if sum(widths) + len(widths) - 1 <= width:
