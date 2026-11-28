@@ -5528,7 +5528,17 @@ else
   no "47 host run queue"; cat "$WORK/v5am.log"
 fi
 
+# --- 52: this commit installs on a bare machine, and ak starts there ------
+# HOME is the sandbox's here: docker reads the config it answered with (suite_shares.py).
+if (cd "$REPO" && DOCKER_CONFIG=${DOCKER_CONFIG:-$SMOKE_CALLER_HOME/.docker} \
+    bash tests/bare-install.sh) >"$WORK/bare-install.log" 2>&1; then
+  ok "52 tests/bare-install.sh installed this commit in a bare Debian container, and ak started"
+else
+  no "52 tests/bare-install.sh did not install this commit and start ak"
+  cat "$WORK/bare-install.log"
+fi
+
 # --- shared result ---------------------------------------------
-echo "coverage: the checks labeled above: offline fixtures at landing, harness/GitHub/browser checks in the live mode"
-echo "NOT EXERCISED: clean-host installation or interactive logins (separate certification)"
+echo "coverage: the checks labeled above: offline fixtures at landing, harness/GitHub/browser/docker checks in the live mode"
+echo "NOT EXERCISED: interactive logins (separate certification)"
 finish
