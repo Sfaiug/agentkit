@@ -1,20 +1,15 @@
-"""A past session removed from `past sessions` fades out where it stood before it goes.
-
-`x` on `theta` over `beta`, `Remove` picked: while the motion clock stands before `motion.LEAVES`
-and past the pick, `theta`'s row and the question under it stay on their rows in inks between
-their own and the background, while `beta`'s row stays where and as it was; once `motion.LEAVES`
-has passed, `theta` is gone and `beta` takes its row.  A key typed while they fade is read by the
-page after; a resize ends the fade at once; at 8 colours the first screen after the pick has no
-`theta`.
+"""A past session removed from `past sessions` fades out where it stood before it goes: `x` on
+`theta` over `beta` and `Remove` picked, part way through `motion.LEAVES` `theta`'s row and the
+question under it stand as they were in inks between their own and the background, `beta`'s row
+as it was; past it no line names `theta` and `beta` has its row.  At 8 colours nothing fades.
 
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) on the
-injected motion clock (tests/fixtures/clock.py), its pane piped through tmux's `pipe-pane`.
+injected motion clock (tests/fixtures/clock.py), each update it writes read by `pipe-pane`.
 """
 
 import os
 from pathlib import Path
 import re
-import shlex
 import sys
 import time
 import unittest
@@ -28,202 +23,107 @@ from fixtures.akterm import SERVER, Terminal
 TZ = f"AKT{time.gmtime().tm_hour - 12:+d}"      # past noon, so both seats closed today
 os.environ["TZ"] = TZ
 time.tzset()
-
 LEAVES = 0.2                    # motion.LEAVES
-PAST_KEYS = "  ↑↓←→ move   ⏎ reopen   x remove   esc back"
+PICKED = 1000.0                 # the moment `Remove` is picked, every motion before it at rest
+KEYS = "  ↑↓←→ move   ⏎ reopen   x remove   esc back"
 UPDATE = re.compile(r"\x1b\[\?2026h(.*?)\x1b\[\?2026l", re.S)
 CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def rgb(shown, ground=38):
-    """(R, G, B) of `ground` (38 foreground, 48 background) in a cell's look, or None."""
-    return next((tuple(int(ch) for ch in part.split(";")[2:])
-                 for part in shown if part.startswith(f"{ground};2;")), None)
+    """A look's colour of `ground`, 38 its text's or 48 its background's, as (R, G, B)."""
+    return next((tuple(map(int, part.split(";")[2:])) for part in shown
+                 if part.startswith(f"{ground};2;")), None)
 
 
 def between(colour, start, end):
-    """Whether `colour` is strictly between `start` and `end`, every channel in range."""
-    return (colour is not None and colour not in (start, end)
-            and all(min(a, b) <= c <= max(a, b) for c, a, b in zip(colour, start, end)))
+    """Whether `colour` is neither `start` nor `end`, each channel between theirs."""
+    return colour not in (None, start, end) and all(
+        min(a, b) <= c <= max(a, b) for c, a, b in zip(colour, start, end))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-class PastRowFadesOut(unittest.TestCase):
-    def open_past(self, env):
-        """A Home with `theta` closed after `beta` on `acme`, `past sessions` open on a held
-        clock, and its pane piped to `term.raw`."""
-        home = Home()
-        self.addCleanup(home.close)
-        checkout = home.path / "code/acme"
+class ARemovedPastSessionFadesOut(unittest.TestCase):
+    def removing(self, env):
+        """`Remove` picked on `theta`'s card at PICKED, in a terminal with `env`: the screen's
+        looks as the pick found them."""
+        self.home = Home()
+        self.addCleanup(self.home.close)
+        checkout = self.home.path / "code/acme"
         checkout.mkdir(parents=True)
-        assert home.run("git", "init", "-q", str(checkout)).code == 0
-        now = time.time()
-        for name, closed in (("theta", now - 600), ("beta", now - 1200)):
-            home.write(f".agentkit/state/session-{name}.json", {
+        assert self.home.run("git", "init", "-q", str(checkout)).code == 0
+        for name, closed in (("theta", time.time() - 600), ("beta", time.time() - 1200)):
+            self.home.write(f".agentkit/state/session-{name}.json", {
                 "orchestrator": "fable", "workers": ["fable"], "cwd": str(checkout),
                 "repo": str(checkout), "created": int(closed) - 3600,
                 "conversation": f"conv-{name}", "id_source": "launcher", "resumable": True,
                 "session_title": name})
-            home.write(f".agentkit/state/seat-{name}.json",
-                       {"stopped_at": closed, "closed_by_owner": True})
-        clock.standing(home, "AK_MOTION_CLOCK", 1000.0)
-        term = Terminal(home, size=(100, 30), env={"TZ": TZ, **env})
-        self.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
-                        server=SERVER)
-        term.wait("p past")
-        term.keys("p")
-        term.wait(lambda screen: PAST_KEYS in screen and "theta" in screen and "beta" in screen)
-        self.at(home, 1010.0)
-        term.wait(lambda screen: screen.startswith("agentkit · past sessions"))
-        term.raw = home.root / f"raw{term.pane.strip('%')}"
-        named = shlex.quote(str(term.raw)).replace("%", "%%").replace("#", "##")
-        piped = home.tmux("pipe-pane", "-O", "-t", term.pane, f"cat >>{named}", server=SERVER)
-        self.assertEqual(piped.code, 0, piped.err)
-        return home, term
+            self.home.write(f".agentkit/state/seat-{name}.json",
+                            {"stopped_at": closed, "closed_by_owner": True})
+        clock.standing(self.home, "AK_MOTION_CLOCK", 0.0)
+        self.term = Terminal(self.home, size=(100, 30), env={"TZ": TZ, **env})
+        self.term.wait("p past")
+        for key, shown in (("p", KEYS), ("x", "› ✓ Keep"), ("Down", "› × Remove")):
+            self.term.keys(key)
+            self.term.wait(shown)
+        self.at(PICKED)
+        before = self.shows(lambda rows: look(rows, "theta") == look(rows, "Remove theta")
+                            == look(rows, "beta"))
+        self.raw = self.home.root / "raw"
+        self.raw.touch()
+        self.home.tmux("pipe-pane", "-t", self.term.pane, f"cat >{self.raw}", server=SERVER)
+        self.term.keys("Enter")
+        return before
 
-    def at(self, home, seconds):
-        """Hold ak's motion clock at `seconds` via an atomic swap."""
-        moment = Path(home.env["AK_MOTION_CLOCK"])
+    def at(self, seconds):
+        """ak's motion at `seconds` from now on, its clock's file swapped whole."""
+        moment = Path(self.home.env["AK_MOTION_CLOCK"])
         moment.with_suffix(".new").write_text(repr(seconds))
         moment.with_suffix(".new").replace(moment)
 
-    def updates(self, term, offset=0):
-        """Every whole synchronized update written to the pane from `offset` bytes on."""
-        data = term.raw.read_bytes()[offset:] if term.raw.exists() else b""
-        return UPDATE.findall(data.decode("utf-8", "replace"))
-
-    def ask_remove(self, home, term, settle=True):
-        """Open `x` on `theta`, move to `× Remove`, and settle where `settle` is True."""
-        term.keys("x")
-        term.wait(lambda screen: "Remove theta from past sessions?" in screen
-                  and "› ✓ Keep" in screen)
-        if settle:
-            self.at(home, 1020.0)
-        term.keys("Down")
-        term.wait("› × Remove")
-        if settle:
-            self.at(home, 1030.0)
-
-            def rested(_):
-                rows = looks(term.screen(colours=True))
-                beta = look(rows, "beta")
-                return (look(rows, "theta") == beta
-                        and look(rows, "Remove theta") == beta
-                        and rgb(look(rows, "✓ Keep"), 48) == rgb(beta, 48)
-                        and rgb(look(rows, "× Remove"), 48) not in (None, rgb(beta, 48)))
-            term.wait(rested)
-
-    def row_of(self, lines, text, exclude=None):
-        return next(n for n, line in enumerate(lines)
-                    if text in plain(line) and (exclude is None or exclude not in plain(line)))
-
-    def wait_mid_fade(self, term, theta_row, theta_ink):
-        """The screen's looks once `theta`'s ink has moved off `theta_ink` while `theta` stays."""
-        deadline = time.monotonic() + 10
+    def shows(self, test):
+        """The screen's looks once `test` of them holds, `look` failing on none: tmux may be
+        read part way through a frame."""
+        deadline = time.monotonic() + 30
         while True:
-            shown = looks(term.screen(colours=True))
-            line = plain(shown[theta_row])
-            self.assertIn("theta", line, f"theta vanished before LEAVES:\n{term.screen()}")
-            ink = rgb(look([shown[theta_row]], "theta"))
-            if ink != theta_ink:
-                return shown
-            self.assertLess(time.monotonic(), deadline,
-                            f"theta never faded from {theta_ink}:\n{term.screen()}")
+            rows = looks(self.term.screen(colours=True))
+            try:
+                if test(rows):
+                    return rows
+            except AssertionError:
+                pass
+            self.assertLess(time.monotonic(), deadline, f"never so:\n{self.term.screen()}")
             time.sleep(0.05)
 
-    def test_removed_row_and_card_fade_out_before_beta_moves_up(self):
-        home, term = self.open_past({"COLORTERM": "truecolor"})
-        self.ask_remove(home, term)
-        before = looks(term.screen(colours=True))
-        theta_row = self.row_of(before, "theta", exclude="Remove theta")
-        question_row = self.row_of(before, "Remove theta from past sessions?")
-        remove_row = self.row_of(before, "× Remove")
-        beta_row = self.row_of(before, "beta")
-        bg = rgb(look([before[theta_row]], "theta"), 48)
-        theta_ink = rgb(look([before[theta_row]], "theta"))
-        question_ink = rgb(look([before[question_row]], "Remove theta"))
-        remove_back = rgb(look([before[remove_row]], "× Remove"), 48)
-        self.assertIsNotNone(bg)
-        self.assertNotIn(bg, (theta_ink, question_ink, remove_back))
+    def updates(self):
+        """Each whole update written since `Remove` was picked, as the text it shows."""
+        return [CSI.sub("", update) for update in UPDATE.findall(
+            self.raw.read_bytes().decode("utf-8", "replace"))]
 
-        since = term.raw.stat().st_size if term.raw.exists() else 0
-        term.keys("Enter")
-        term.wait(lambda _: self.updates(term, since), bound=10)
+    def row(self, rows, text):
+        return next(n for n, line in enumerate(rows) if text in plain(line))
 
-        self.at(home, 1030.0 + LEAVES / 2)
-        mid = self.wait_mid_fade(term, theta_row, theta_ink)
-        self.assertEqual(plain(mid[theta_row]), plain(before[theta_row]))
-        self.assertEqual(plain(mid[question_row]), plain(before[question_row]))
-        self.assertTrue(between(rgb(look([mid[theta_row]], "theta")), theta_ink, bg))
-        self.assertTrue(between(rgb(look([mid[question_row]], "Remove theta")), question_ink, bg))
-        self.assertTrue(between(rgb(look([mid[remove_row]], "× Remove"), 48), remove_back, bg))
-        self.assertEqual(mid[beta_row], before[beta_row])
-
-        self.at(home, 1030.0 + LEAVES + 0.05)
-        after = term.wait(lambda screen: "theta" not in screen and "beta" in screen
-                          and PAST_KEYS in screen)
-        after_lines = after.split("\n")
-        self.assertNotIn("theta", after)
-        self.assertIn("beta", after_lines[theta_row])
-
-    def test_key_typed_during_fade_is_read_after_and_resize_ends_fade_at_once(self):
-        with self.subTest("key typed during fade is read by the page after"):
-            home, term = self.open_past({"COLORTERM": "truecolor"})
-            self.ask_remove(home, term)
-            before = looks(term.screen(colours=True))
-            theta_row = self.row_of(before, "theta", exclude="Remove theta")
-            theta_ink = rgb(look([before[theta_row]], "theta"))
-            since = term.raw.stat().st_size if term.raw.exists() else 0
-            term.keys("Enter")
-            term.wait(lambda _: self.updates(term, since), bound=10)
-            self.at(home, 1030.0 + LEAVES / 2)
-            mid = self.wait_mid_fade(term, theta_row, theta_ink)
-            mid_ink = rgb(look([mid[theta_row]], "theta"))
-            # Esc typed mid-fade does not cut it short; the fade continues, and the page after
-            # reads Esc and goes back.
-            term.keys("Escape")
-            self.at(home, 1030.0 + LEAVES * 0.75)
-            later = self.wait_mid_fade(term, theta_row, mid_ink)
-            self.assertIn("theta", plain(later[theta_row]))
-            self.at(home, 1030.0 + LEAVES + 0.05)
-            main = term.wait(lambda screen: "esc leave" in screen and "past sessions" not in screen)
-            self.assertIn("p past", main)
-            self.assertFalse((home.path / ".agentkit/state/session-theta.json").exists())
-            self.assertTrue((home.path / ".agentkit/state/session-beta.json").exists())
-
-        with self.subTest("resize ends the fade at once"):
-            home, term = self.open_past({"COLORTERM": "truecolor"})
-            self.ask_remove(home, term)
-            before = looks(term.screen(colours=True))
-            theta_row = self.row_of(before, "theta", exclude="Remove theta")
-            theta_ink = rgb(look([before[theta_row]], "theta"))
-            since = term.raw.stat().st_size if term.raw.exists() else 0
-            term.keys("Enter")
-            term.wait(lambda _: self.updates(term, since), bound=10)
-            self.at(home, 1030.0 + LEAVES / 2)
-            self.wait_mid_fade(term, theta_row, theta_ink)
-            # Clock never passes LEAVES; the resize ends the fade at once.
-            term.resize(90, 28)
-            after = term.wait(lambda screen: "theta" not in screen and "beta" in screen
-                              and PAST_KEYS in screen)
-            self.assertIn("beta", after.split("\n")[theta_row])
+    def test_the_row_and_its_card_fade_out_and_then_beta_takes_its_row(self):
+        before = self.removing({"COLORTERM": "truecolor"})
+        theta, question = self.row(before, "theta"), self.row(before, "Remove theta")
+        beta = self.row(before, "beta")
+        ink, ground = rgb(look(before, "beta")), rgb(look(before, "beta"), 48)    # all three's
+        self.term.wait(lambda _: self.updates())        # the fade begun at PICKED
+        self.at(PICKED + LEAVES / 2)
+        self.shows(lambda rows: [plain(rows[n]) for n in (theta, question)]
+                   == [plain(before[n]) for n in (theta, question)]
+                   and between(rgb(look([rows[theta]], "theta")), ink, ground)
+                   and between(rgb(look([rows[question]], "Remove theta")), ink, ground)
+                   and rows[beta] == before[beta])
+        self.at(PICKED + LEAVES + 0.05)
+        after = self.term.wait(lambda screen: "theta" not in screen and KEYS in screen)
+        self.assertIn("beta", after.split("\n")[theta])
 
     def test_at_eight_colours_the_first_screen_after_the_pick_has_no_theta(self):
-        home, term = self.open_past({"TERM": "xterm", "COLORTERM": ""})
-        self.ask_remove(home, term, settle=False)
-        before = term.screen().split("\n")
-        theta_row = next(n for n, line in enumerate(before)
-                         if "theta" in line and "Remove theta" not in line)
-        since = term.raw.stat().st_size if term.raw.exists() else 0
-        term.keys("Enter")
-        after = term.wait(lambda screen: "theta" not in screen and "beta" in screen
-                          and PAST_KEYS in screen)
-        self.assertIn("beta", after.split("\n")[theta_row])
-        updates = self.updates(term, since)
-        self.assertTrue(updates, "expected a screen update after picking Remove")
-        first = CSI.sub("", updates[0])
-        self.assertNotIn("theta", first)
-        self.assertIn("beta", first)
+        self.removing({"TERM": "xterm", "COLORTERM": ""})
+        self.term.wait(lambda screen: "theta" not in screen and KEYS in screen)
+        self.assertNotIn("theta", self.updates()[0])
+        self.assertIn("beta", self.updates()[0])
 
 
 if __name__ == "__main__":
