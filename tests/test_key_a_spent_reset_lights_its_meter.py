@@ -61,11 +61,11 @@ class SpentResetLightsItsMeter(unittest.TestCase):
     home, read, at, opened, rows, written, line = (
         glide.home, glide.read, glide.at, glide.opened, glide.rows, glide.written, glide.line)
 
-    def spend(self, answer, said):
-        """`spend a reset` run on login I, 60% left and holding one, its adapter answering
+    def spend(self, answer, said, one=60):
+        """`spend a reset` run on login I, `one`% left and holding one, its adapter answering
         `answer`, the clock held at BACK: its home and terminal, once the page back says
         `said`."""
-        home = self.home(60, 70)
+        home = self.home(one, 70)
         fakeadapter.Adapter(Path(home.env["AGENTKIT_ADAPTER_DIR"]), "claude").answer(
             "reset", json.dumps(answer))
         term = self.opened(home)
@@ -76,12 +76,12 @@ class SpentResetLightsItsMeter(unittest.TestCase):
         term.wait(said)
         return home, term
 
-    def held(self, home, term, moment, two):
+    def held(self, home, term, moment, two, one=60):
         """Login I's line, colours and all, with the clock held at `moment`: once login II, read
         `two`% left then, is said, which only a draw after it can say, and that draw writes its
         first frame in the same update (terminal.written), the screen is of `moment`."""
         self.at(home, moment)
-        self.written(home, term, 60, two, f"{two}% left")
+        self.written(home, term, one, two, f"{two}% left")
         return self.line(term, "Claude I", colours=True)
 
     def afresh(self, home, term):
