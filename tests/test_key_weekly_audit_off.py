@@ -59,7 +59,7 @@ class WeeklyAuditOff(unittest.TestCase):
         term = Terminal(home, size=(100, 40), env={"NO_COLOR": "1"})
         term.wait("esc leave")
         term.keys("c")
-        shown = [line.rstrip() for line in term.wait("r recommended").split("\n")]
+        shown = [line.rstrip() for line in term.wait("r your runs").split("\n")]
         rows = [line.split()[0] for line in shown if line.startswith("  ") and line.strip()]
         self.assertEqual(rows[rows.index("Discord") + 1], "Done", shown)
         self.assertFalse([line for line in shown if "audit" in line.lower()], shown)

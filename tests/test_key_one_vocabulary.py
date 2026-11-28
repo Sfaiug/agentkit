@@ -1,10 +1,9 @@
 """Every list marks what is on, highlights its row and names its keys the same way, the owner's
-ask of 10 Nov 2026 that ak feel like one app (docs/cli-design.md, Words and Keys): `recommended`
-draws the row the keys are on bold behind a `›` in the accent, all of it on one band, the
-selection; on `c` a mark that is on is in the accent and one that is off dim, the orchestrator's
-build mark too, off while it builds everything as no model is marked to; and the company
-list, where any model may be on, marks one `■` in the accent and one off `□` dim, Space marking
-it, its key line read as every list's.
+ask of 10 Nov 2026 that ak feel like one app (docs/cli-design.md, Words and Keys): on `c` a mark
+that is on is in the accent and one that is off dim, the orchestrator's build mark too, off while
+it builds everything as no model is marked to; and the company list, where any model may be on,
+marks one `■` in the accent and one off `□` dim, Space marking it, its key line read as every
+list's.
 
 Black-box: the program `AK_BIN` names in a terminal of 24-bit colour (tests/fixtures/akterm.py),
 over the boards and harnesses of tests/test_key_models_company_list.py; each cell judged by how
@@ -33,7 +32,7 @@ class OneVocabulary(Opened):
         term = self.menu(env=COLOUR, **settings)
         term.wait("esc leave")
         term.keys("c")
-        shown = settled(term, "r recommended")
+        shown = settled(term, "r your runs")
         self.accent, self.dim = look(shown, "›") - {"1"}, look(shown, "orch", on="builds")
         self.plain = look(shown, "agentkit")
         self.assertTrue(self.accent and self.dim and self.accent != self.dim, shown)
@@ -42,27 +41,16 @@ class OneVocabulary(Opened):
             term.keys(key)
         return term
 
-    def test_recommended_draws_its_row_bold_behind_a_chevron_in_the_accent(self):
-        shown = settled(self.walk(("r recommended", "r")), "boards read")
-        row = look(shown, "orchestrator  Acme Mid 5 high", on="›")
-        ground = {part for part in self.plain if part.startswith("48")}     # the screen's
-        band = {part for part in row if part.startswith("48")}
-        self.assertEqual(len(band), 1, row)
-        self.assertNotEqual(band, ground)
-        self.assertEqual(row, {"1", *self.plain - ground, *band})
-        self.assertEqual(look(shown, "›"), {"1", *self.accent - ground, *band})
-        self.assertEqual([line for line in map(plain, shown) if "▸" in line], [])
-
     def test_c_draws_a_mark_that_is_on_in_the_accent_and_one_that_is_off_dim(self):
         # the highlight on Bolt 3, so no mark looked at is bold or the keys' lit one
-        shown = settled(self.walk(("r recommended", "Down")), "› Bolt 3")
+        shown = settled(self.walk(("r your runs", "Down")), "› Bolt 3")
         self.assertEqual(look(shown, "●", on="Acme Mid 5"), self.accent)       # it orchestrates
         self.assertEqual(look(shown, "■", on="Crux Flash 1"), self.accent)     # it builds
         self.assertEqual(look(shown, "○", on="Crux Flash 1"), self.dim)
 
     def test_c_draws_the_build_mark_of_an_orchestrator_building_everything_off_dim(self):
         # Space on Crux Flash 1's builds mark lets the last executor go
-        term = self.walk(("r recommended", "Down"), ("› Bolt 3", "Down"),
+        term = self.walk(("r your runs", "Down"), ("› Bolt 3", "Down"),
                          ("› Crux Flash 1", "Right"), ("› Crux Flash 1", "Space"))
         shown = settled(term, lambda text: any(
             "Crux Flash 1" in line and "□" in line for line in text.split("\n")))
@@ -71,8 +59,8 @@ class OneVocabulary(Opened):
         self.assertEqual(look(shown, "□", on="Acme Mid 5"), self.dim)      # its build mark
 
     def test_the_company_list_marks_a_model_on_as_any_may_be_and_reads_every_lists_keys(self):
-        term = self.walk(("r recommended", "r"), ("boards read", "p"),
-                         ("a add a company", "Down"), ("› Crux", "Down"),
+        term = self.walk(("r your runs", "r"), ("p models", "p"),
+                         ("› Acme", "Down"), ("› Crux", "Down"),
                          models_off=["acme-max-5"])
         # the highlight on `+ add a company`, so no company's row is bold
         shown = settled(term, "› + add a company")

@@ -18,8 +18,8 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import Terminal
 
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
-MARK_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
-OPEN_KEYS = "  ↑↓←→ move   ⏎ open   r recommended   a apply to all sessions   esc back"
+MARK_KEYS = "  ↑↓←→ move   ␣ mark   r your runs   a apply to all sessions   esc back"
+OPEN_KEYS = "  ↑↓←→ move   ⏎ open   r your runs   a apply to all sessions   esc back"
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 
 

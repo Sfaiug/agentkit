@@ -21,7 +21,7 @@ from fixtures.akterm import SERVER, Terminal
 
 SEAT, TOKEN, SESSION = "acme-fix", "d" * 32, "ses_0fa1c2d3e4ffAcmeSwitch"
 DEEPSEEK, GLM = "opencode/deepseek-v4.1-flash-free", "opencode/glm-5.3-flash-free"
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   esc back"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 

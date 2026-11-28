@@ -17,7 +17,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, boards
+from fixtures.akboards import ENV, boards
 from test_key_models_json_counts_tasks_by_team import history, run
 from test_key_models_own_tables import HEADS, NOTE
 

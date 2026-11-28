@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, EVALUATIONS, aa, boards
+from fixtures.akboards import ENV, EVALUATIONS, aa, boards
 
 # Quality is 100 less the share's gap from .90, in hundredths. The value row is
 # 35 points above the line, versus about 24 for near and 8.45 for small.

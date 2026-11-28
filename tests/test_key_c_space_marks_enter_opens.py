@@ -22,7 +22,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-TAIL = "r recommended   a apply to all sessions   esc back"
+TAIL = "r your runs   a apply to all sessions   esc back"
 MARK_KEYS = f"  ↑↓←→ move   ␣ mark   {TAIL}"
 STEP_KEYS = f"  ↑↓←→ move   ␣ step   {TAIL}"
 OPEN_KEYS = f"  ↑↓←→ move   ⏎ open   {TAIL}"

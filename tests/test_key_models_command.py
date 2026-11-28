@@ -14,7 +14,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, boards
+from fixtures.akboards import ENV, boards
 
 # On 100 cells the three tables fit as columns
 OWN = ["Your team now has no task yet", "",

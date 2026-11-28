@@ -18,7 +18,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_key_models_answer import ENV, boards
+from fixtures.akboards import ENV, boards
 from test_key_models_json_counts_turns_and_done_checks import TABLES
 from test_key_models_json_week_meters import HOUR, THEN
 from test_key_models_own_tables import NOVA, WIDE, home_of

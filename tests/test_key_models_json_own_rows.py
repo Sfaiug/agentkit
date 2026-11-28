@@ -26,7 +26,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, meters
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, boards
+from fixtures.akboards import ENV, boards
 from test_key_models_json_counts_tasks_by_team import FAILED, history, run
 from test_key_models_json_run_usage import EMPTY, IDLE, TABLES
 from test_key_models_json_week_meters import DAY, HOUR, NOW, THEN

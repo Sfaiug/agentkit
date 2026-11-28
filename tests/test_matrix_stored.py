@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
 from agentkit import boards, config, matrix, quality, usage
-from test_key_models_answer import boards as answer_boards
+from fixtures.akboards import boards as answer_boards
 import test_model_rows as rows_test
 from test_matrix_lineup import aa
 

@@ -24,7 +24,7 @@ from fixtures.akterm import SERVER, Terminal
 
 SEAT = "acme-fix"
 DRAFT = "and add these posts"
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   esc back"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 

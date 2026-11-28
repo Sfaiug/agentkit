@@ -1,4 +1,4 @@
-"""A seat's build or review effort step its `c` applies, and a take on its models screen, set their
+"""A seat's build or review effort step its `c` applies sets its
 keys on its record as it stands, so a key saved since the screen opened is kept; a step of its
 orchestrator's effort writes nothing itself, handing the level to the seat's move; the open
 screen then holds what was saved.
@@ -66,14 +66,6 @@ class SeatEffortSteps(Sandbox):
         with patch.object(usage, "collect", return_value={}):
             note = menu.apply_held(self.cfg, ("fix-api", self.selected), held, lambda *card: True)
         self.assertIn("session-fix-api.json", note)
-
-    def test_a_take_keeps_a_key_saved_since_and_the_screen_holds_what_it_saved(self):
-        note = menu.take_choice(self.cfg, "fix-api", self.selected, {}, "execute", "opus", "max",
-                                None)
-        self.assertEqual(note, "")
-        self.assertEqual(self.held()["opus"],
-                         {"effort": "xhigh", "review_effort": "high", "exec_effort": "max"})
-        self.assertEqual(self.selected["efforts"], self.held())
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, NOW, boards
+from fixtures.akboards import ENV, NOW, boards
 from test_key_models_json_week_meters import TABLES as BASE, WeekMeters
 import test_key_models_json_run_usage as run_usage
 from test_key_models_json_run_usage import EMPTY, IDLE, TABLES

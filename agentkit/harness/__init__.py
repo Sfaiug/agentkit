@@ -326,6 +326,18 @@ def moment(at):
     return at
 
 
+def seconds(ms):
+    """The seconds a length of `ms` milliseconds holds, or None where it is no number of zero or
+    more."""
+    try:
+        seconds = ms / 1000
+    except (TypeError, OverflowError):      # no number, or an integer whose seconds no float holds
+        return None
+    # the sign of the length itself: a negative one this small has seconds of -0.0
+    if type(ms) is not bool and 0 <= ms and seconds < math.inf:
+        return seconds
+
+
 def token_family(paths, roots, metadata):
     """Find descendants from small session headers, never scanning other sessions' messages."""
     children, found, pending = {}, {}, list(roots)

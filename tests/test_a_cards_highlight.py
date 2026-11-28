@@ -169,30 +169,6 @@ class CardsHighlight(test_breathing.MainScreen):
         return self.answered(script, lambda: menu.config_remove_provider(
             cfg, ("anthropic", "b2", "Claude II")))
 
-    def restart(self, *script):
-        """→ on fix-api's orchestrator on the models screen, a move that restarts it, then
-        `script` on its card."""
-        roles = menu.quality.ROLES
-        empty = {role: {"choices": [], "others": [], "whys": {}} for role in roles}
-        model = next(iter(self.cfg["models"]))
-        with ExitStack() as stack:
-            for target, name, fake in (
-                    (menu.matrix, "stored", lambda: {}),
-                    (menu.matrix, "refresh", lambda cfg: ({}, None)),
-                    (menu.matrix, "answer", lambda *_a, **_kw: copy.deepcopy(empty)),
-                    (menu.matrix, "uses", lambda *_a: dict.fromkeys(roles, (None, None, None))),
-                    (menu, "models_said", lambda *_a: [
-                        (role, {"name": "Alpha", "effort": "high"}, ("100.0", "$1.00"))
-                        for role in roles]),
-                    # the boards land before the screen first draws
-                    (menu.Fetch, "start", lambda fetch: (threading.Thread.start(fetch),
-                                                         fetch.join())),
-                    (menu, "next_choice", lambda *_a: (model, "medium")),
-                    (orch, "switch_orchestrator", lambda *_a, asked, **_kw: asked(True) and None)):
-                stack.enter_context(patch.object(target, name, fake))
-            return self.answered([Key("right"), *script], lambda: menu.models_screen(
-                self.cfg, "fix-api", {}, {}))
-
     def left(self, shown, up, when):
         """What the screen had lit as its card came up, at wait `up`, as it is at `when`: {row:
         {column: the colour a highlight that left then has by now}} (motion.LEAVES), each row's
@@ -245,8 +221,7 @@ class CardsHighlight(test_breathing.MainScreen):
                 "past sessions": (self.past, "Remove", ["1", "fix-api-1"]),
                 "the ak screen": (self.ak, "Stop", ["1", "fix-api"]),
                 "config": (self.apply, menu.APPLY_ANSWER, model.split()),
-                "a subscription": (self.remove, "Remove", None),     # the page's own: no row
-                "the models screen": (self.restart, "Restart", ["orchestrator", "Alpha"])}.items():
+                "a subscription": (self.remove, "Remove", None)}.items():     # the page's own: no row
             with self.subTest(case):
                 shown = run(*frames, Key("enter"), *frames * 2)
                 up, read = self.asks(shown, answer, bool(row))
@@ -298,8 +273,7 @@ class CardsHighlight(test_breathing.MainScreen):
     def test_the_pointer_moved_onto_an_answer_leaves_the_fade_as_it_goes(self):
         for case, (run, answer) in {"past sessions": (self.past, "Remove"),
                                     "the ak screen": (self.ak, "Stop"),
-                                    "config": (self.apply, menu.APPLY_ANSWER),
-                                    "the models screen": (self.restart, "Restart")}.items():
+                                    "config": (self.apply, menu.APPLY_ANSWER)}.items():
             with self.subTest(case):
                 (row,) = next(grid for _, grid, _ in run() if grid.find("✓ Keep")).find(
                     f"× {answer}")

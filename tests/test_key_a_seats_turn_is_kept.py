@@ -6,12 +6,11 @@ it orchestrates with, as a usage row the tick read from that file holds them.  C
 a turn's end as an entry of `type` `system` and `subtype` `turn_duration`, its `durationMs` the
 turn's length: one whose length is no number of zero or more, or whose moment is none ak reads,
 is no turn.  A turn filed stays as first filed: its conversation read again from its start, its
-seat moved to another effort meanwhile, files it neither twice nor anew.  A harness whose plugin
-reads no turn, as Codex's, files none, even of a line written as Claude Code ends a turn.
+seat moved to another effort meanwhile, files it neither twice nor anew.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each
 tick in the box `home.tick()` builds, on seats of tests/fixtures/akseat.py whose conversations
-are written as Claude Code and Codex write them, under invented ids.
+are written as Claude Code writes them, under invented ids.
 """
 
 from contextlib import closing
@@ -32,13 +31,11 @@ from fixtures.hookdrive import conversation
 
 CONVERSATION = "7c3a9e5a-2d3f-4e4a-9b5c-9f8d4a3e2c01"
 ODD = "7c3a9e5a-2d3f-4e4a-9b5c-9f8d4a3e2c02"
-THREAD = "019a6043-9e6d-7f32-a041-5dbc8e3f6a03"
-LAUNCH, REMOTE = "7" * 32, "8" * 32
 T0 = 1_793_955_600      # 2026-11-05 09:00 UTC
 
 
 def stamp(at):
-    """`at` seconds as Claude Code and Codex write a moment: UTC, to the millisecond."""
+    """`at` seconds as Claude Code writes a moment: UTC, to the millisecond."""
     return datetime.fromtimestamp(at, timezone.utc).isoformat(timespec="milliseconds")[:-6] + "Z"
 
 
@@ -101,7 +98,7 @@ class ASeatsTurnIsKept(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        akconfig.write(home, ["opus", "astra"])     # no audit, which opens a seat of its own
+        akconfig.write(home, ["opus"])  # no audit, which opens a seat of its own
         acme = Seat(home, "acme", record={
             "conversation": CONVERSATION, "repo": str(home.path / "code/acme"),
             "account": "second", "home_account": "second", "efforts": {"opus": {"effort": "low"}}})
@@ -116,28 +113,6 @@ class ASeatsTurnIsKept(unittest.TestCase):
                ended(T0 + 20, -1, ODD), ended(T0 + 30, True, ODD),
                # a moment with no zone
                ended(T0 + 40, 40_000, ODD, timestamp="2026-11-05T09:00:40.000"))
-        codex = Seat(home, "beta", model="astra", screen="codex-prompt-pane.txt",
-                     record={"conversation": THREAD, "codex_launch": LAUNCH,
-                             "repo": str(home.path / "code/beta")})
-        rollout = (home.path / ".codex/agentkit-seats" / REMOTE
-                   / f"sessions/2026/11/05/rollout-2026-11-05T09-00-00-{THREAD}.jsonl")
-        append(rollout, {"timestamp": stamp(T0), "type": "session_meta", "payload": {
-            "id": THREAD, "timestamp": stamp(T0), "cwd": str(codex.cwd), "source": "cli",
-            "originator": "codex_cli_rs", "cli_version": "0.163.0", "model_provider": "openai"}},
-               {"timestamp": stamp(T0 + 6), "type": "event_msg", "payload": {
-                   "type": "token_count", "info": {
-                       "total_token_usage": {"input_tokens": 9_000, "output_tokens": 300,
-                                             "total_tokens": 9_300},
-                       "last_token_usage": {"total_tokens": 9_300},
-                       "model_context_window": 272_000}}},
-               {"timestamp": stamp(T0 + 8), "type": "event_msg",
-                "payload": {"type": "task_complete", "last_agent_message": "Done."}},
-               ended(T0 + 8, 8_000, THREAD))
-        home.write(f".agentkit/state/codex-launch-{LAUNCH}.json", {
-            "launch": LAUNCH, "cwd": str(codex.cwd), "expected": None, "remote": REMOTE,
-            "event": {"hook_event_name": "SessionStart", "source": "startup",
-                      "session_id": THREAD, "cwd": str(codex.cwd),
-                      "transcript_path": str(rollout)}})
         tick(home)
         cls.seen = [filed(home)]
         append(kept, said("msg_02acme", T0 + 148), ended(T0 + 150.5, 30_500))
@@ -164,11 +139,6 @@ class ASeatsTurnIsKept(unittest.TestCase):
         for turns, used in self.seen:
             self.assertIn("gamma", used, "gamma's conversation was not read")
             self.assertNotIn("gamma", turns)
-
-    def test_a_codex_conversation_files_none(self):
-        for turns, used in self.seen:
-            self.assertIn("beta", used, "beta's rollout was not read")
-            self.assertNotIn("beta", turns)
 
 
 if __name__ == "__main__":
