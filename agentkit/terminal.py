@@ -53,13 +53,18 @@ _RGB = False       # the terminal takes true colour though COLORTERM does not sa
 THEME = None       # the theme the terminal's answer fits (`sense`), None where it gave none
 _BACKGROUND = ""   # ... and that answer, "" where it gave none: what a frame up is drawn for
 LOOK = None        # ... each role's colour where the look reads on its background (reads.look)
+_ANSWERED = False  # the terminal answered OSC 11 at `sense`: `follow` asks it again
+_ASKED_AT = 0.0    # when OSC 11 was last asked (`sense`, `follow`), on time.monotonic()
+_NOTED = None      # the OSC 11 colour last read to its end (`_sequence`), for `follow`
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 BACKGROUND_ENV = "AGENTKIT_BACKGROUND"   # ... and the colour kept, where the look reads on it
 _PAD = 0           # ... and those this process leaves (`inset`)
 _POPUP = False     # ... and whether it is a popup over a seat: painted whatever it answers
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
+_OSC11 = b"\033]11;?\033\\"   # ask the terminal's background colour (OSC 11)
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
+_COLOUR = re.compile(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)")
 _ATTRIBUTES = re.compile(rb"\x1b\[\?[0-9;]*c")   # ... and to DA1, which follows it
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -1073,6 +1078,17 @@ def _last_frame():
         pass                 # nothing here stops a start: the first frame ends the hold
 
 
+def _weigh(raw):
+    """(theme, rgb, look) for an OSC 11 answer's body `raw`, or None where it names no colour."""
+    colour = _COLOUR.match(raw)
+    if not colour:
+        return None
+    red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
+    shade = theme_of(red, green, blue)
+    rgb = bytes(round(c * 255) for c in (red, green, blue)).hex()
+    return shade, rgb, None if _POPUP else reads.look(rgb, shade)
+
+
 def sense():
     """What the terminal is, asked once per menu start on a keyboard `Keyboard.take` has taken.
 
@@ -1093,7 +1109,7 @@ def sense():
     colour, never reading it itself, so the popup's frame, which the key drew from that read, and
     the menu are of one read, whatever is kept meanwhile, a start in place (`hand_on`) too.
     """
-    global _RGB, THEME, _BACKGROUND, LOOK, _KEYED
+    global _RGB, THEME, _BACKGROUND, LOOK, _KEYED, _ANSWERED, _ASKED_AT, _NOTED
     features = os.environ.get(FEATURES_ENV)
     if features is None and os.environ.get("TMUX"):
         try:
@@ -1105,7 +1121,8 @@ def sense():
             pass
     _RGB = bool({"RGB", "Tc"} & set((features or "").strip().split(",")))
     fd = sys.stdin.fileno()
-    os.write(sys.stdout.fileno(), b"\033]11;?\033\\\033[c")
+    _ASKED_AT = time.monotonic()
+    os.write(sys.stdout.fileno(), _OSC11 + b"\033[c")
     heard, until = b"", time.monotonic() + 1     # a busy host takes most of one to pass it on
     while not _ATTRIBUTES.search(heard):
         left = until - time.monotonic()
@@ -1119,20 +1136,53 @@ def sense():
     rest = heard[:found.start()] + heard[found.end():] if found else heard
     _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
     _BACKGROUND = found.group(1).decode(errors="replace") if found else ""
-    colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
-                      found.group(1)) if found else None
     THEME = LOOK = None
-    if colour:
-        red, green, blue = [int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
-        THEME = theme_of(red, green, blue)
-        rgb = bytes(round(c * 255) for c in (red, green, blue)).hex()
+    _ANSWERED, _NOTED = False, None
+    if found and (weighed := _weigh(found.group(1))):
+        THEME, rgb, LOOK = weighed
+        _ANSWERED = True
         _keep(THEME, rgb)
-        LOOK = None if _POPUP else reads.look(rgb, THEME)
     handed = os.environ.get(BACKGROUND_ENV, "") if _POPUP else ""
     if theme_of_rgb(handed) is not None:
         _BACKGROUND, THEME = handed, theme_of_rgb(handed)
         LOOK = reads.look(handed, THEME)
     _last_frame()
+
+
+def follow(ask=False):
+    """Apply any OSC 11 colour noted since (`_sequence`) and, with `ask`, ask again once the
+    last question (`sense` or `follow`) is `TICK` old on `time.monotonic()`.
+
+    Called before `menu.loop` draws the ak screen on a keyboard it has taken: where the noted
+    colour changes what a screen is drawn in (the shades, or where the look reads, the
+    background, highlight or border), everything `sense` sets from an answer is set, `_UP` is
+    cleared so that draw is whole, and True is returned so nothing on it is news.  A popup over
+    a seat neither applies nor asks, and a terminal that did not answer the start is asked
+    nothing more.
+    """
+    global THEME, _BACKGROUND, LOOK, _NOTED, _UP, _ASKED_AT
+    if _POPUP:
+        _NOTED = None
+        return False
+    noted, _NOTED, changed = _NOTED, None, False
+    if noted is not None and (weighed := _weigh(noted)):
+        shade, rgb, look = weighed
+        if (shade, look) != (theme(), LOOK):
+            _BACKGROUND, THEME, LOOK = noted.decode(errors="replace"), shade, look
+            _keep(THEME, rgb)
+            _UP = _UP and []
+            changed = True
+    if ask and _ANSWERED and (now := time.monotonic()) - _ASKED_AT >= TICK:
+        # OSC 11 alone (no DA1) and nothing waited for: an answer that comes once the terminal
+        # has been given on (a key pressed within the answer's own delay) is the next program's
+        # to read, and a terminal that answered the start and stops answering is asked on.
+        _ASKED_AT = now
+        try:
+            sys.stdout.flush()
+            os.write(sys.stdout.fileno(), _OSC11)
+        except (OSError, ValueError, RuntimeError):
+            pass
+    return changed
 
 
 def _keep(theme, rgb):
@@ -1221,7 +1271,7 @@ def read_key(timeout=None, wake=None):
             _PRESSED = True
         elif key.name.startswith("wheel"):
             key = _notches(key, fd)
-        elif key.name == "answer":     # the terminal's, to `sense`, and no key at all
+        elif key.name == "answer":     # the terminal's, to `sense` or `follow`, and no key at all
             key = None
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
@@ -1303,8 +1353,8 @@ def _key(fd):
 
 def _sequence(fd):
     """What an Esc starts: Esc itself, an arrow, a click, the wheel, `other`, or the answer a
-    terminal gave `sense` too late for it to read."""
-    global _KEYED
+    terminal gave `sense` too late for it to read or gave `follow`."""
+    global _KEYED, _NOTED
     kind = _byte(fd, 0)            # sent with the Esc, or none: read_key says why
     if kind == b"]":               # read to its end, BEL or ST, so none of it is a key
         body = b""
@@ -1313,6 +1363,8 @@ def _sequence(fd):
             if not byte:
                 break
             body += byte
+        if (found := _ANSWER.fullmatch(b"\x1b]" + body)) and _COLOUR.match(found.group(1)):
+            _NOTED = found.group(1)
         return Key("answer")
     if kind not in (b"[", b"O"):
         _KEYED = kind + _KEYED     # the next key's own byte, typed right after the Esc
