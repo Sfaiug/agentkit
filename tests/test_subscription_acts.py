@@ -91,7 +91,7 @@ class SubscriptionActs(Sandbox):
             return key
         for name, fake in (("usage_rows", lambda _cfg: [("anthropic", "Claude", dict(reading),
                                                           None)]),
-                           ("login_notes", lambda _subs: [(None, None, None)]),
+                           ("login_notes", lambda _subs, *_a: [(None, None, None)]),
                            ("config_spend_reset", lambda *_a: spent.append("Claude")),
                            ("config_remove_provider", lambda *_a: removed.append("Claude"))):
             self.stack.enter_context(patch.object(menu, name, side_effect=fake))

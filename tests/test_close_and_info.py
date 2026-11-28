@@ -85,7 +85,8 @@ os.write(os.open(os.environ["CLOSE_TTY"], os.O_WRONLY | os.O_NOCTTY), f"<stopped
 menu.teardown = lambda name, dry_run: [sys.executable, "-c", STOP, name]
 menu.close_seat = lambda name, dry_run, **_kw: subprocess.run(
     menu.teardown(name, dry_run), cwd=os.environ["CLOSE_REPO"])
-menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>", flush=True)
+menu.open_session = lambda cfg, session, dry_run, **_kw: print(f"<opened {session['name']}>",
+                                                                 flush=True)
 sys.exit(menu.loop(config.load(), overlay=os.environ.get("CLOSE_OVERLAY") == "1"))
 """
 ESC, DOWN, ENTER = b"\x1b", b"\x1b[B", b"\r"

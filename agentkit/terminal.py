@@ -187,22 +187,29 @@ def faded(word, amount, ground="background", shade=None):
                          for c, t in zip(bytes.fromhex(rgb), to))
 
 
-def fade(text, amount):
+def fade(text, amount, backs=False):
     """`text` as a draw wrote it, every colour in it -- and the foreground its plain cells take,
     the one `faded` lights toward -- `amount` (0 to 1) of the way to the background each cell
     sets, the screen's where it sets none, that background as it is: a popup's content coming
     up out of it (`motion.Clock.rise`), and a label on the highlight out of the highlight.
-    Where colour cannot move it is as it is.
+    With `backs`, toward the screen's background instead, every cell's background with it: a
+    row fading out (`menu.fade_out`).  Where colour cannot move it is as it is.
     """
     depth = colour_depth()
     if amount <= 0 or depth <= 8:
         return text
+    amount = min(1, amount)
     unset = {38: bytes.fromhex(colour("text")), 48: bytes.fromhex(colour("background"))}
-    inks = dict(unset)      # the text's colour (38) and the background's (48) so far
+    inks, back = dict(unset), None      # foreground (38), cell background (48), and explicit 48
+
+    def mix(from_, to):
+        return bytes(round(c * (1 - amount) + b * amount) for c, b in zip(from_, to)).hex()
 
     def tone():
-        mixed = [round(c * (1 - amount) + b * amount) for c, b in zip(inks[38], inks[48])]
-        return f"\033[{ink(bytes(mixed).hex())}m"
+        parts = [ink(mix(inks[38], unset[48] if backs else inks[48]))]
+        if backs and back is not None:
+            parts.append(ink(mix(back, unset[48]), "48"))
+        return f"\033[{';'.join(parts)}m"
 
     out, at = tone(), 0
     for code in _SGR.finditer(text):
@@ -211,12 +218,15 @@ def fade(text, amount):
         while parts:
             first = parts.pop(0)
             if first == 0:
-                inks = dict(unset)
+                inks, back = dict(unset), None
             elif first in (39, 49):
                 inks[first - 1] = unset[first - 1]
+                back = None if first == 49 else back
             elif first in (38, 48) and parts[:1] == [2]:
                 # its channels are read past whole: a 0 among them is no reset
                 inks[first], parts = parts[1:4], parts[4:]
+                if first == 48:
+                    back = inks[48]
         out += text[at:code.end()] + tone()
         at = code.end()
     return out + text[at:] + "\033[0m"
@@ -874,6 +884,7 @@ _UNSEEN = False    # the key read last was pressed while it was (`unseen`)
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
 _PAINTED = []
+_OVER = []         # ... and what frames wrote on it since, (row, column, its cells, text) in order
 _POINTED = Spot()  # ... the `Spot` it was on when its move or click was last answered
 TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
@@ -921,6 +932,28 @@ def asked_again():
     global _ASKED
     asked, _ASKED = _ASKED, False
     return asked
+
+
+def resized(timeout=0):
+    """Wait up to `timeout` seconds for a resize or a return from ^Z, reading no key; True once
+    one has arrived, clearing `_UP` so the next draw writes whole."""
+    global _UP
+    if asked_again():
+        _UP = _UP and []
+        return True
+    again = _TAKEN.again[0] if _TAKEN is not None and _TAKEN.again else None
+    if not isinstance(again, int):
+        if timeout > 0:
+            motion.time.sleep(timeout)
+        return asked_again()
+    if select.select([again], [], [], max(0, timeout))[0]:
+        _UP = _UP and []
+        try:
+            os.read(again, 4096)
+        except OSError:
+            pass
+        return True
+    return False
 
 
 class Keyboard:
@@ -1751,9 +1784,30 @@ def over(frame, rows=""):
     if rows or frame:
         sys.stdout.write(f"{HOLD}{rows}{frame}{RELEASE}")
         sys.stdout.flush()
-    for row in map(int, re.findall(r"\x1b\[(\d+);\d+H", frame) if _UP else ()):
-        if row <= len(_UP):
+    lead, *cut = re.split(r"\x1b\[(\d+);(\d+)H", frame)      # then each row, column and text
+    pen = _inked("", rows + lead)       # each write starts in the theme's ink (`_Screen`)
+    for row, column, text in zip(map(int, cut[::3]), map(int, cut[1::3]), cut[2::3]):
+        if _UP and row <= len(_UP):
             _UP[row - 1] = None
+        drawn = _SGR.sub("", text)      # the cells it writes: a write of the same there is gone
+        _OVER[:] = [one for one in _OVER if one[:3] != (row, column, drawn)]
+        _OVER.append((row, column, drawn, f"\033[0m{pen}{text}"))     # in the ink it inherits
+        pen = _inked(pen, text)
+
+
+def _inked(pen, text):
+    """`pen`, SGR codes from the last that resets, as `text` written after them leaves it."""
+    for code in _SGR.finditer(text):
+        pen = code[0] if int(code[1].split(";")[0] or 0) == 0 else pen + code[0]
+    return pen
+
+
+def standing(rows):
+    """Each of screen `rows` (from 1) that is up, as what wrote it: (row, [(column, text)]), its
+    line as last drawn (`on_screen`), then each frame's write on it since, in the ink it had."""
+    return [(row, [(1, f"\033[0m{cleared(_PAINTED[row - 1])}"),
+                   *((column, text) for at, column, _, text in _OVER if at == row)])
+            for row in rows if 0 < row <= len(_PAINTED)]
 
 
 def written(lines, frame="", rising=False, screen=None):
@@ -1775,6 +1829,7 @@ def written(lines, frame="", rising=False, screen=None):
     # a row a line wraps onto is no row of its own: once it is one again, it is written
     _UP = None if _UP is None else [starts.get(row) for row in range(1, len(lines) + 1)]
     _UP_OF = screen
+    _OVER.clear()           # every row a frame wrote on is written anew (`over`)
     over(frame, text)
 
 

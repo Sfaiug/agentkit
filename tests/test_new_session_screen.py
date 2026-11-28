@@ -48,7 +48,7 @@ def create(cfg, name, cwd, *args, selection=None, **kwargs):
     print(f"<created {name} {model} {','.join(workers)} {','.join(reviewers)}>", flush=True)
     return ["fake"]
 
-def open_session(cfg, session, dry_run):
+def open_session(cfg, session, dry_run, **_kw):
     print(f"<opened {session['name']}>", flush=True)
 
 orch.launch = refused

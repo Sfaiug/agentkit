@@ -6,9 +6,9 @@ code and tests.
 
 ## Frame
 
-Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit`,
+Every screen shares one frame, a notice's (`note`) too. The header is one line: `agentkit`,
 the screen's name and the job it waits on left, the clock right. Under it: one `border` rule,
-the rows, one blank line, the key line last. On the main screen and `c`, usage sits
+the rows, one blank line, the key line last. On main and `c`, usage sits
 under the header. The rule is ak's one progress indicator: a counted job fills it; the rainbow
 glides along it while a screen loads. Ctrl-b m's popup's border
 is rounded. Helpers:
@@ -19,7 +19,7 @@ then `────────────────────────�
 
 ## Width and rhythm
 
-The layout is at most 120 columns, seat content 100, and drawn for 40 and wider (owner, 18 Nov
+Layout is at most 120 columns, seat content 100, drawn for 40 and wider (owner, 18 Nov
 2026): below 40 gets no fix. A project's, harness's or company's name is bold, flush left over
 its seats, models or subscriptions (`+ add a subscription`'s too), two spaces in; a blank
 line parts projects.
@@ -28,7 +28,7 @@ Rows are tables of fixed columns, sized once per draw and split by two-space gut
 never ` · `: number, name, model, state, and a last that takes the rest.
 
 Nothing is cut inside a word, glyph or sentence. A column gives way first,
-a long line wraps at words, and below 60 a row folds onto an indented second line. No
+long lines wrap at words; below 60 a row folds onto an indented line. No
 line keeps trailing space. Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`,
 `terminal.cells`, `terminal.plain`, `terminal.styled`.
 
@@ -68,7 +68,7 @@ carries the colour (`terminal.state_text`, `terminal.state_colour`).
 
 ## Keys
 
-Every screen reads the same keys, one at a time, with no Enter.
+Every screen reads one key at a time, no Enter.
 
 - **Arrows, Space and Enter:** arrows move the highlight, on selection: a row whole, a cell
   over its width, its row bold (`terminal.highlight`, `terminal.selected`). Space marks what it
@@ -101,11 +101,12 @@ Colour says where a thing stands, never who.
 
 ## Motion
 
-Something moves only while worked on, once when it changes, or under the pointer: work breathes,
-news pulses, settles, nudges, a meter glides, the highlight glows in, fades out. Each takes
-one time (`motion.py`):
+Something moves only while worked on, on change, or under the pointer: work breathes,
+news pulses, settles, nudges, lines and meters grow in on opening and glide, highlights glow in.
+Each takes one time (`motion.py`):
 
 - **Coming up:** a row's line, page, card, screens opening.
+- **Fading out:** left highlights, removed rows and cards.
 - **Filling:** a mark, an effort's cell.
 - **A light passing:** a done line, an effort's top word.
 - **A light going round,** a breath: a line with no plan, a waiting rule.

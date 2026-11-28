@@ -54,15 +54,15 @@ SAYS = {"review_rounds": (
         "executor_lines": (
             "The most added lines a first review reads.",
             "What your tasks of each size took, for every 100 lines that went live · none yet",
-            {300: "1 of your 3 builds (33%) was 300 lines or more and would have been split. "
-                  "Their first review passed 0% of the time, and 50% below 300 lines.",
+            {300: "1 of your 3 builds (33%) was more than 300 lines and would have been split. "
+                  "Their first review passed 0% of the time, and 50% at 300 lines or fewer.",
              0: "Off: executors build nothing, so your runs can't say how that would go."}),
         "orchestrator_lines": (
             "The most added lines an orchestrator builds.",
             "What your own changes of each size took, for every 100 lines that went live · "
             "none yet",
-            {50: "1 of your orchestrators' 1 own pull requests was 50 lines or more and would have "
-                 "been a task. Round 1 merged 100% of them.",
+            {50: "1 of your orchestrators' 1 own pull requests was more than 50 lines and would "
+                 "have been a task. Round 1 merged 100% of them.",
              0: "Off: orchestrators build nothing themselves, so every one of their 1 own pull "
                 "request would have been a task."})}
 # The same with no run in the history, each limit at 0: its chart says it has none, and what

@@ -19,6 +19,7 @@ from .ledger import HOURS, ROLES, recorded
 FEW = 20        # a row or the team of fewer tasks says only how many: a few tasks say nothing yet
 WORDS = {"orchestrator": "ORCHESTRATOR", "executor": "BUILDER", "reviewer": "REVIEWER"}
 DOING = {"orchestrator": "orchestrating", "executor": "building", "reviewer": "reviewing"}
+NO_WORK = {"turns": 0, "turn_seconds": None, "checks": 0, "gaps": 0}
 
 
 def share(part, whole):
@@ -29,6 +30,24 @@ def share(part, whole):
 def per_task(part):
     """A row's `part` per task, to a tenth."""
     return lambda row, _: f"{row[part] / row['tasks']:.1f}"
+
+
+def answers_in(row, _):
+    """Median turn time of an orchestrator row: `69 s` below two minutes, `4.2 min` from there,
+    `1.5 h` from an hour; `-` below FEW turns."""
+    seconds = row["turn_seconds"]
+    if row["turns"] < FEW or seconds is None or not math.isfinite(seconds) or seconds < 0:
+        return "-"
+    if seconds < 120:
+        return f"{round(seconds)} s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f} min"
+    return f"{seconds / 3600:.1f} h"
+
+
+def left_out(row, _):
+    """Asks a row's done checks found missing, per check, to a tenth; `-` below FEW checks."""
+    return fixed(Fraction(row["gaps"], row["checks"]), 1) if row["checks"] >= FEW else "-"
 
 
 def last(role):
@@ -42,27 +61,33 @@ def last(role):
 # its plans cost (`money.month`'s), "" where it says nothing; each role serves its own purpose
 # (the owner, 24 Nov 2026: "for exec how fast and it goes through without any extra findings and
 # rounds, and for reviwer the more issues it finds the better, I guess also issues which we act
-# on").
+# on"; "For orch I think it really mostly is just subjective feeling and how long it takes").
 LEAD = {"tasks": lambda row, _: str(row["tasks"]), "went live": share("live", "tasks")}
-COLUMNS = {"orchestrator": {**LEAD, **last("orchestrator")},
+COLUMNS = {"orchestrator": {**LEAD, "answers in": answers_in, "left out": left_out,
+                            **last("orchestrator")},
            "executor": {**LEAD, "passed 1st review": share("first_pass", "tasks"),
                         "reviews": per_task("reviews"), **last("executor")},
            "reviewer": {**LEAD, "issues": per_task("issues"),
                         "false alarms": share("taken_back", "issues"), **last("reviewer")}}
-# What COLUMNS' short headings count, said once under the tables in its clauses, the first two
-# set apart as two parts of a line are (terminal.separator)
-NOTE = ["reviews and issues: per task", "time and usage: per task that went live,",
+# What COLUMNS' short headings count, said once under the tables, set apart as parts of a line
+# are (terminal.separator)
+NOTE = ["answers in: half its turns take no longer",
+        "left out: what you asked for that a finished job lacked, per check",
+        "reviews and issues: per task",
+        "time and usage: per task that went live, "
         "usage also as a share of one login's week on its plan"]
 
 
-def by_role(teams, now):
-    """{"team", "orchestrator", "executor", "reviewer"} off the ledger's `teams` and the team now
-    `now`, {role: [(name, effort or None)]} in the order held.  `team` sums the teams all three of
-    whose roles are the team now's; a role's rows {"name", "effort", "in_use", "tasks", "live",
-    "first_pass", "reviews", "issues", "disputed", "taken_back", "hours", "usage"} sum the teams
-    their model at their effort (None where not recorded) did that role in, each held model with
-    its row at its effort now, in use where that effort is recorded: those in use first, in the
-    order held, then most tasks, name and effort, None last."""
+def by_role(teams, now, seats=()):
+    """{"team", "orchestrator", "executor", "reviewer"} off the ledger's `teams`, the team now
+    `now`, {role: [(name, effort or None)]} in the order held, and `seats`, `ledger.counted`'s
+    per-seat counts.  `team` sums the teams all three of whose roles are the team now's; a role's
+    rows {"name", "effort", "in_use", "tasks", "live", "first_pass", "reviews", "issues",
+    "disputed", "taken_back", "hours", "usage"} sum the teams their model at their effort (None
+    where not recorded) did that role in, each orchestrator row also carrying its `turns`,
+    `turn_seconds`, `checks` and `gaps` from `seats`, each held model with its row at its effort
+    now, in use where that effort is recorded: those in use first, in the order held, then most
+    tasks, name and effort, None last."""
     def ours(team, role):
         did = team[role]
         return any(did["name"] == name and recorded(did["effort"]) in (None, effort)
@@ -88,6 +113,8 @@ def by_role(teams, now):
                 "hours": {part: math.fsum(team["hours"][part] for team in found)
                           for part in HOURS},
                 "usage": usage_of(found)}
+    by_seat = {(seat["name"], seat["effort"]): {key: seat[key] for key in NO_WORK}
+               for seat in seats}
     own = {"team": summed([team for team in teams if all(ours(team, role) for role in ROLES)])}
     for role in ROLES:
         did = {held: [] for held in now[role]}     # {(name, effort): the teams it did role in}
@@ -98,7 +125,9 @@ def by_role(teams, now):
                                []).append(team)
         in_use = [held for held in now[role] if held[1] is not None]
         rows = {one: {"name": one[0], "effort": one[1], "in_use": one in in_use,
-                      **summed(found)} for one, found in did.items()}
+                      **summed(found),
+                      **(by_seat.get(one, NO_WORK) if role == "orchestrator" else {})}
+                for one, found in did.items()}
         own[role] = [*(rows.pop(one) for one in in_use), *sorted(rows.values(), key=lambda row: (
             -row["tasks"], row["name"], row["effort"] is None, row["effort"] or ""))]
     return own
@@ -150,10 +179,8 @@ def lines(own, cfg, room, paid):
             else:
                 first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts, sized)}", []
             shown += [terminal.styled(mark, kind) + first[len(mark):], *rest]
-    # broken between its clauses as the team line is, a ` ·` that would end a line left out
-    first, *rest = NOTE
-    shown += ["", *(terminal.styled(line.removesuffix(" ·"), "muted") for line in menu.packed(
-        [first + terminal.separator().rstrip(), *rest], " ", room))]
+    shown += ["", *(terminal.styled(line, "muted")
+                    for line in menu.packed(NOTE, terminal.separator(), room))]
     return shown
 
 

@@ -7,7 +7,8 @@ a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles f
 light crosses its line, either's row glowing in its word's colour as it fades; the line a row
 opens comes up as the highlight comes to it, and a page's rows as it is turned to; each
 progress line grows to its length as the menu opens and glides to a new one as its plan moves,
-its count counting up with it, as a usage meter does to a new reading (menu.draw); an effort's
+its count counting up with it, as a usage meter does as it opens and to a new reading
+(menu.draw, menu.gliding); an effort's
 bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes;
 a popup's content fades in once, as it opens, a card as it is asked, and a page's under its
@@ -45,7 +46,7 @@ SETTLE = 0.4        # ... a `✓` that turned `done` takes from bright to its co
 SHAKE = 0.24        # ... a mark whose change was refused takes to nudge left, right, left and back
 GLOW = 1.0          # ... a seat's row on news takes to fade from its glow
 NEWS = 0.7          # ... and a seat's row on news: its word's colour that far toward it
-GROW = 0.45         # ... a seat's progress line takes to grow to its length as ak opens
+GROW = 0.45         # ... a seat's progress line or usage meter takes to grow in as ak opens
 STAGGER = 0.04      # ... and each row after the one above it
 GLIDE = 0.7         # ... and to glide to a new length as its plan moves, a light at its head
 HALF = {"□": "■", "■": "■", "○": "●", "●": "●"}     # a mark half way: full, in its open one's colour
@@ -54,7 +55,7 @@ WAIT = 0.15         # seconds a screen's content is fetched for before its rule 
 SPIN = 2 * FRAME    # seconds each of the spinner's glyphs shows beside what ak waits on
 SPINNER = "▖▘▝▗"     # quadrants, which a terminal draws itself, and `|/-\` without UTF-8
 LANDS = 0.25        # ... the highlight takes to settle onto the selection where it comes
-LEAVES = 0.2        # ... and to fade into the background where it left
+LEAVES = 0.2        # ... and to fade into the background where it left, or a removed row
 # The highlight's colours as shares of the theme's selection, accent and background, drawn in the
 # theme in force whenever it changes (`painted`): where it comes it starts 45% of the way to the
 # accent.
@@ -407,7 +408,7 @@ class Clock:
         self.page = page    # ... or, a page opening, all under its header and rule (`titled`)
         self.opened = None  # ... from its first frame
         self.rising = None  # ... the lines drawn, top down, while they come up
-        self.grows = None   # each line the screen's first draw has -> when it grows in from
+        self.grows = None   # each line or meter the screen's first draw has -> when it grows in from
         self.up = None      # the last draw's screen, top down (`rise`)
         self.lights = {}    # what the last draw lit (terminal.lights)
         self.size = None    # ... and the terminal's size it was drawn at
@@ -463,6 +464,9 @@ class Clock:
                                    for key, (value, _, _) in self.seen.items()}
         self.touched, self.glows = {}, {}
         self.opened = None if self.opened is None else -math.inf
+        if self.grows:
+            self.grows = {key: began for key, began in self.grows.items()
+                          if isinstance(key, str)}
 
     def hold(self):
         """The next draw moves the highlight with what it is on, not by a key -- a card coming up
@@ -572,6 +576,9 @@ class Clock:
         screen that has opened is up (`rise`)."""
         self.seen, self.touched, self.up, self.glows, self.swept = None, {}, None, {}, None
         self.opened = None if self.opened is None else -math.inf
+        if self.grows:
+            self.grows = {key: began for key, began in self.grows.items()
+                          if isinstance(key, str)}
 
     def wait(self):
         """Seconds until the next frame is due, or None while nothing animates."""

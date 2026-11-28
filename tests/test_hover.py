@@ -606,7 +606,7 @@ class Screens(Sandbox):
             return menu.show_past({}, seats, keyboard=Mock())
         col, row = at(run(screen, ESC)[1][0], "⏎ reopen")
         run(screen, f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode(), ESC)
-        self.assertEqual(opened.call_args_list, [call({}, seats[0], False)])
+        self.assertEqual([args for args, _ in opened.call_args_list], [({}, seats[0], False)])
 
     def test_a_question_typed_on_a_screen_lights_its_key_line(self):
         def typed():

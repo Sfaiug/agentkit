@@ -216,9 +216,10 @@ class SelfReviewLast(unittest.TestCase):
             self.assertEqual(run.review(lp, "Work done.", True, "passed"), "PASS")
         return calls
 
-    # A spare of another lab than the executor's is waited for while it can run here with usage
-    # left (tests/test_key_a_review_waits_for_another_provider.py): one that cannot hands the
-    # review to the executor's lab, here its provider, as a spent one does.
+    # Once a spare of another lab than the executor's has failed this round, whether because it
+    # cannot run here or because it stayed silent, it keeps no reviewer of the executor's lab
+    # (here its provider) out of the round: another model of the lab reviews before the
+    # executor's own.
     def test_a_spare_that_cannot_run_falls_back_to_the_next_other_model_before_own(self):
         lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-one", "acme-two"])
         self.providers = self.cannot_run("beta-one")
@@ -228,6 +229,17 @@ class SelfReviewLast(unittest.TestCase):
     def test_a_spare_that_cannot_run_falls_back_to_the_executors_own_model(self):
         lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-one"])
         self.providers = self.cannot_run("beta-one")
+        self.assertEqual(self.fallback(lp, "beta-one"), ["beta-one", "beta-one", "acme-one"])
+        self.assertTrue(run.review_pass(lp.state, self.cfg))
+        self.assertTrue(staffing.self_reviewed(lp.state))
+
+    def test_a_failed_reviewer_of_another_lab_falls_back_to_the_writers_lab(self):
+        lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-two"])
+        self.assertEqual(self.fallback(lp, "beta-one"), ["beta-one", "beta-one", "acme-two"])
+        self.assertEqual(lp.reviewer, "acme-two")
+
+    def test_a_failed_reviewer_of_another_lab_falls_back_to_the_executors_own_model(self):
+        lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-one"])
         self.assertEqual(self.fallback(lp, "beta-one"), ["beta-one", "beta-one", "acme-one"])
         self.assertTrue(run.review_pass(lp.state, self.cfg))
         self.assertTrue(staffing.self_reviewed(lp.state))

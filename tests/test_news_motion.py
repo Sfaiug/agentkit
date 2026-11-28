@@ -73,7 +73,6 @@ class Menu(Sandbox):
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
         self.words, self.tasks, self.notices, self.live = {}, {}, [], None
-        self.cache(used=20)
         self.now = 1000.0                   # the menu's clock: still but for the waits it runs
         clock = Clock(self.sleep)
         clock.monotonic = lambda: self.now
@@ -323,6 +322,7 @@ class NewsMotion(Menu):
 
     def test_nothing_is_replayed_on_opening_after_another_screen_a_notice_or_a_resize(self):
         self.words = {"fix-api": "done", "web-portal": "needs you"}
+        self.cache(used=20)
 
         def away(*args, **kwargs):          # while `c` is up, a seat turns and the usage moves
             self.words["fix-api"] = "needs you"
@@ -348,15 +348,21 @@ class NewsMotion(Menu):
         # opened, back from `c`, resized, a wait, back from the notice, a wait
         self.assertEqual(len(screens), 6, screens)
         self.assertIn("! needs you", screens[1].split("fix-api")[1].split("\n")[0])
+        self.assertIn("30% left", screens[1])
         self.assertIn("10% left", screens[2])
         self.assertIn("✓ done", screens[4].split("fix-api")[1].split("\n")[0])
         self.assertIn("50% left", screens[4])
-        for timeout, _, text in waits:
+        # opening grows the meter in on its grid alone; back from `c`, a resize and a notice
+        # replay neither seat news nor the meter's change
+        seats = {self.cell(waits[0][2], name, name)[0] for name in self.words}
+        self.assertFalse({int(row) for row, _, _ in CELL.findall(
+            waits[0][2].rpartition("\033[J")[2])} & seats)
+        for timeout, _, text in waits[1:]:
             self.assertNotRegex(text, r"\x1b\[\d+;\d+H")  # no cell ever written on its own
             self.assertGreater(timeout, motion.FRAME)       # and no wait for a frame
         # and a menu opened again draws what it finds, as it is
         self.words["fix-api"] = "done"
-        self.cache(used=20)
+        (config.STATE / "usage.json").unlink(missing_ok=True)
         waits, _ = self.run_menu([])
         self.assertEqual(len(waits), 1)
         self.assertNotRegex(waits[0][2], r"\x1b\[\d+;\d+H")

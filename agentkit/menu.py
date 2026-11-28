@@ -759,6 +759,41 @@ def framed(clock, title, lines, at, card, keys, places=None):
     return 3 + at
 
 
+def fade_out(clock, rows):
+    """Fade screen `rows` (from 1), as they stand, into the background in `motion.LEAVES`, and
+    return once they are: a page calls it between the answer and the act, so its list never
+    holds a row that has gone.  It hides reading them as they stand (terminal.standing), what
+    moves on them too, settling the clock, mixing text and highlight backgrounds into the
+    screen's, the frame loop, ending at once on a resize meanwhile without reading a key, and
+    doing nothing where nothing can move (`motion.movable`)."""
+    if not motion.movable():
+        return
+    terminal.asked_again()          # a resize the last draw answered is none meanwhile
+    leaving = terminal.standing(rows)
+    if not leaving:
+        return
+    clock.settle()
+    clock.clear()
+    began, size, shown, due = motion.moment(), (terminal.width(), terminal.height()), {}, 0
+    while not terminal.resized(due):
+        now, step = motion.moment(), time.monotonic()
+        done, amount = now >= began + motion.LEAVES, motion.eased((now - began) / motion.LEAVES)
+        out = ""
+        for row, parts in leaving:
+            text = "".join(f"\033[{row};{column}H{terminal.fade(part, amount, backs=True)}"
+                           for column, part in ([] if done else parts)) or f"\033[{row};1H\033[K"
+            if shown.get(row) != text:
+                shown[row] = text
+                out += text
+        if terminal.resized(0) or (terminal.width(), terminal.height()) != size:
+            return                  # resized, by a signal or not: no frame at the old layout
+        terminal.over(out)
+        if done:
+            clock.last = time.monotonic()
+            return
+        due = max(0, step + motion.FRAME - time.monotonic())
+
+
 class Back(Exception):
     """Esc, the end of input or a click on `esc back`, read while a screen waited on what it
     fetches (`waited`); or Esc out of a list another list opened (`config_add`)."""
@@ -2146,12 +2181,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         def line(name, moving, counted=None):
             row, span = bars[name]
             grow_line(clock, row, out[row - 1], span, moving, counted)
-        # As it opens each seat's line grows to its length, row after row, and on through the
-        # draws until it has -- the read that lands as it opens draws the screen again at once --
-        # each from its own start, until news moves the line instead.
+        # As it opens each seat's line grows to its length, row after row, and each meter in the
+        # grid with a share left fills from empty beside them, on through the draws until they
+        # have -- the read that lands as it opens draws the screen again at once -- each from its
+        # own start, until news moves it instead.
         if clock.grows is None:
-            clock.grows = {name: motion.moment() + n * motion.STAGGER
-                           for n, name in enumerate(bars)}
+            began = motion.moment()
+            clock.grows = {name: began + n * motion.STAGGER for n, name in enumerate(bars)}
+            if grid and motion.movable():
+                clock.grows.update({key: began for key, shown in readings if shown and shown[0]})
         for name, began in clock.grows.items():
             if name in bars:
                 line(name, lambda cells: motion.growing(cells, began), (0, began, motion.GROW))
@@ -2188,37 +2226,43 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 if shown == "done" and key[1] in bars:
                     clock.grows.pop(key[1], None)
                     line(key[1], lambda cells: motion.sweeping(cells, since))
-        # Each gliding meter is news of `clock.look` alone (nothing kept on `clock`), as a seat's
-        # line is: timed from the draw that saw the change, a reading landing mid-glide gliding
-        # from the reading the draw before was gliding to, a draw at a new width before a resize
-        # is noticed gliding on at that width where both draws have a grid there, arrows leaving
-        # it gliding, and `Clock.settle`/`Clock.forget` ending it; where motion is off nothing
-        # glides (`clock.start`).  A meter this draw shows at once is settled in `seen` so a
-        # later draw never revives a change it already jumped to.
+        # Each gliding meter is news of `clock.look` alone, and each growing meter an entry of
+        # `clock.grows`, ended by the first news for its subscription: a reading landing mid-grow
+        # or mid-glide glides from the reading before, a draw at a new width before a resize is
+        # noticed glides on where both draws have a grid there, arrows leave it moving, and
+        # `Clock.settle`/`Clock.forget` end it; where motion is off nothing moves (`clock.start`).
+        # A meter this draw shows at once is settled in `seen` so a later draw never revives a
+        # change it already jumped to.
         moment = motion.moment()
         glides = {}
-        if (grid and prev and motion.movable() and usage_lines(
-                cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev)):
+        if grid and motion.movable():
+            could_glide = bool(prev and usage_lines(
+                cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev))
             for n, (key, shown) in enumerate(readings):
-                since, before = news.get(key, (None, None))
-                if (shown and shown[0] and before and (before[0] or before[1][:1] != "—")
-                        and since + motion.GLIDE > moment):
-                    at_now = meter_at(shown[0], since, before, moment)
-                    probe = [*cells[:n], (*cells[n][:2], *at_now), *cells[n + 1:]]
-                    if usage_lines(cfg, layout, rows=rows, ending=ending, cells=probe):
-                        glides[n] = since, before
+                if key in news:
+                    since, before = news[key]
+                    if could_glide and gliding(shown, before) and since + motion.GLIDE > moment:
+                        at_now = meter_at(shown[0], since, before, moment)
+                        probe = [*cells[:n], (*cells[n][:2], *at_now), *cells[n + 1:]]
+                        if usage_lines(cfg, layout, rows=rows, ending=ending, cells=probe):
+                            glides[n] = since, before, motion.GLIDE
+                elif (began := clock.grows.get(key)) is not None:
+                    if shown and shown[0] and began + motion.GROW > moment:
+                        glides[n] = began, (0, "0% left"), motion.GROW
         for n, (key, shown) in enumerate(readings):
+            if key in news or n not in glides:
+                clock.grows.pop(key, None)
             if n not in glides and key in news:
                 clock.seen[key] = (shown, None, None)
         if glides:
-            until = max(since for since, _ in glides.values()) + motion.GLIDE
+            until = max(since + took for since, _, took in glides.values())
 
             def grid_at(when):
                 if when >= until:
                     return [terminal.cleared(text)
                             for text in out[grid - 1:grid - 1 + len(meters)]]
-                shown = [(*cell[:2], *meter_at(cell[2], *glides[n], when)) if n in glides else cell
-                         for n, cell in enumerate(cells)]
+                shown = [(*cell[:2], *meter_at(cell[2], *glides[n][:2], when, glides[n][2]))
+                         if n in glides else cell for n, cell in enumerate(cells)]
                 return [terminal.cleared(text) for text in usage_lines(
                     cfg, layout, lit=pointed, rows=rows, ending=ending, cells=shown)]
 
@@ -2322,14 +2366,24 @@ def stop_session(name, dry_run):
     return read(stop_question(name), "") == "y"
 
 
-def open_session(cfg, session, dry_run):
+def open_session(cfg, session, dry_run, keyboard=None, starting=None):
     """A number: into that seat, or back into the conversation it left behind.
 
     A seat whose orchestrator has exited, and one tmux no longer holds at all, are both opened
     by resuming their owned conversation or clearly starting fresh -- the same key either way.
+    `keyboard`, the one a screen holds the terminal by, is given to the seat at once; but while
+    a harness is put back in it, not in a dry run, `starting()` puts that screen up again naming
+    the job (`terminal.doing`), and the terminal is given once the harness is back
+    (`orch.resume`'s `give`), or before a refusal is said.
     """
     name = session["name"]
-    if not any(session.get(key) for key in orch.CLOSED):
+    closed = any(session.get(key) for key in orch.CLOSED)
+    give = keyboard.give if keyboard else lambda: None
+    if starting and closed and not dry_run and terminal.taken():
+        starting()
+    else:
+        give()
+    if not closed:
         if dry_run:
             print(f"would attach {name}")
             return
@@ -2339,8 +2393,11 @@ def open_session(cfg, session, dry_run):
         print(f"would resume {name}")
         return
     try:
-        orch.resume(cfg, name, wait=True)
+        # what it says while the screen is held would be written over it
+        orch.resume(cfg, name, wait=True, give=give,
+                    log=lambda line: None if terminal.taken() else print(line))
     except config.Error as exc:
+        give()
         pause(f"resume: {exc}")
 
 
@@ -2934,12 +2991,57 @@ def usage_cells(cfg, now=None, rows=None):
     return found
 
 
-def meter_at(left, since, before, now):
-    """(left, said), as `usage_cells` says them, of a meter gliding (`draw`) to `left` from
-    `before` at `now`, eased in GLIDE seconds from `since`, and `before` while that is 0."""
+def meter_at(left, since, before, now, took=motion.GLIDE):
+    """(left, said), as `usage_cells` says them, of a meter moving (`gliding`, or growing in as
+    ak opens) to `left` from `before` at `now`, eased in `took` seconds from `since`, and `before`
+    while that is 0."""
     first = before[0] or 0
-    shown = round(first + (left - first) * motion.eased((now - since) / motion.GLIDE))
+    shown = round(first + (left - first) * motion.eased((now - since) / took))
     return (shown, f"{shown}% left") if shown else before
+
+
+def gliding(shown, before):
+    """Whether a meter glides (`meter_at`) to `shown` from `before`, the reading the draw before
+    showed, each (left, said) as `usage_cells` says them: where it has a share left now and had
+    a reading before, from `empty until …` counting up from 0; one unread (`—`) before, or
+    empty or unread now, changes at once."""
+    return bool(shown and shown[0] and before and (before[0] or before[1][:1] != "—"))
+
+
+def meter_moves(rows, cells, lines, drawing):
+    """A page's meters as its `moves` (matrix_key), hiding which glide to a new reading, from
+    where, till when and what each frame draws: one a meter, ("usage", subscription) its key
+    and its reading, of `usage_cells`' `cells` of `rows`, its value.  Meter n is on line
+    `lines[n]` of those `drawing(cells)` draws, {line: text}.  The meters gliding in one draw
+    are its moves' together, each start animating its line whole till the last of them on it
+    ends, then at rest, each frame the page's drawing of the line with every one at its reading
+    then -- the line at rest where that draws other lines, or that one wider than the screen --
+    so no frame can fail.  A meter shown at once is settled (`Clock.seen`), so no later draw
+    that can move, as a short screen grown taller, revives it."""
+    rest, glides = drawing(cells), {}
+
+    def frame(line, until, when):
+        if when < until:
+            drawn = drawing([(*cell[:2], *meter_at(cell[2], *glides[n], when)) if n in glides
+                             else cell for n, cell in enumerate(cells)])
+            if drawn.keys() == rest.keys() and terminal.cells(drawn[line]) <= terminal.width():
+                return terminal.cleared(drawn[line])
+        return terminal.cleared(rest[line])
+
+    def move(n, key, value):
+        def start(clock, row, since, before):
+            if (motion.movable() and gliding(value, before)
+                    and since + motion.GLIDE > motion.moment()):
+                glides[n] = since, before
+            else:
+                clock.seen[key] = value, None, None
+            ends = [glides[m][0] + motion.GLIDE for m in glides if lines[m] == lines[n]]
+            if ends:
+                until = max(ends)
+                clock.start([(row, 1)], lambda when: frame(lines[n], until, when), until)
+        return lines[n], key, value, start
+    return [move(n, ("usage", subscription(row)), cell[2:]) for n, (row, cell) in
+            enumerate(zip(rows, cells))]
 
 
 METER = 10        # cells of a subscription's meter on the ak screen
@@ -2969,15 +3071,19 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cell
     width with no room for a label beside it has no grid (`[]`), the screen saying the readings
     (`usage_summary`).  `ending`, `login_notes` of `rows` where the caller has read them already;
     `columns`, as many to a line as `Subscriptions` draws, one; `cells`, `usage_cells`' answer
-    already in hand, or with gliding meters at their frame's reading (`draw`)."""
+    already in hand, or with gliding meters at their frame's reading (`gliding`)."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3]))
              for cell in (usage_cells(cfg, rows=rows) if cells is None else cells)]
     if not found:
         return []
     columns, room = columns or usage_columns(width), min(COLUMN, width - 2)
+    def bar(left, said):
+        return bool(left) or left == 0 and said.endswith("% left")
+
     # what a cell says beside its label: its meter at the least, four cells, then its share
-    said_room = max(terminal.cells(said) + (6 if left else 0) for _, _, left, said in found)
+    said_room = max(terminal.cells(said) + (6 if bar(left, said) else 0)
+                    for _, _, left, said in found)
     label_room = min(12, room - 2 - said_room,
                      max(terminal.cells(terminal.plain(label)) for _, label, _, _ in found))
     if label_room < 1:
@@ -2992,7 +3098,7 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cell
             warn = ending[number - 1][0]
             shown = terminal.cut(terminal.plain(label), label_room)
             text = shown + " " * (label_room - terminal.cells(shown) + 2)
-            if not left:     # no meter: `empty until`, or why there is none, or the credits
+            if not bar(left, said):     # no meter: `empty until`, or why there is none, or credits
                 text += (terminal.styled(said, "amber") if warn
                          else terminal.styled(said, "dim") if left is None else said)
             else:
@@ -4127,9 +4233,10 @@ def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, `config · recommended · <seat>` or `· new seats`: what each role
     of `selected` uses (models_body), the bars of the highlighted role (models_bars) as tall as
     the page leaves room for, over models_read until Esc, the boards read as it opens
-    (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
-    bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or better
-    choice for its role at once (next_choice, take_choice), keeping the price it stopped at
+    (matrix.refresh), its first answer made under `c` as drawn, its header naming what that
+    reads (terminal.doing); a page too short for one-cell bars sheds what gives way, then is cut
+    from its bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or
+    better choice for its role at once (next_choice, take_choice), keeping the price it stopped at
     (keep_price), which its bars' heading says while it holds (price_held), the owner's design
     of 5 Nov 2026, `no choice` up to a limit no choice costs as little as (price_fit), as the
     role then stays; the last row a role was shown using that is no choice staying one of its bars
@@ -4145,6 +4252,8 @@ def models_screen(cfg, session, selected, providers):
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
     clock, rows = motion.Clock(page=True), [("row", role) for role in quality.ROLES]
+    if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
+        terminal.doing("config · recommended · reading what your runs cost")
     while True:
         if fetch is not None and not fetch.is_alive():
             try:                      # a board that failed answers with its error, kept a day
@@ -4763,19 +4872,30 @@ def _offered(harness, *screen, provider=None, cfg=None):
             if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
-def config_meters(cfg, at=None, rows=None):
+def config_meters(cfg, at=None, rows=None, moves=None):
     """The lines over the `c` screen's page, on every page, and where its meters are on them
     (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`, of
     `rows` where read already), and under them a line that, while `at`, from 1, has the
     highlight, says what its cell has no room for (`usage_detail`), its meter lit as the pointer
-    lights it there; none without a grid."""
+    lights it there; none without a grid.  Each meter is one of `moves` where given, gliding to
+    a new reading (`meter_moves`), the lines counted back from the page's first (matrix_key)."""
     rows, width = usage_rows(cfg) if rows is None else rows, terminal.layout_width()
-    ending = login_notes(rows)
-    meters = usage_lines(cfg, width, lit=at, rows=rows, ending=ending)
+    # one reading of the wall clock, so the meters at rest and each frame are of these cells
+    now = time.time()
+    ending, cells = login_notes(rows, now), usage_cells(cfg, now, rows)
+
+    def drawn(cells):
+        return usage_lines(cfg, width, lit=at, rows=rows, ending=ending, cells=cells)
+    meters = drawn(cells)
     if not meters:
         return [], {}
-    detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
-    return [*meters, detail], meter_spots(width, len(rows), 0)
+    detail = "  " + usage_detail(cfg, at, width, now, rows, ending) if at else ""
+    spots, first = meter_spots(width, len(rows), 0), -1 - len(meters)
+    if moves is not None:
+        moves += meter_moves(rows, cells, [first + line for line, (_, on) in spots.items()
+                                           for _ in on],
+                             lambda cells: dict(enumerate(drawn(cells), first)))
+    return [*meters, detail], spots
 
 
 def meters_led(meters, body, places, under, keys, moves=()):
@@ -4992,7 +5112,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             here = followed(here, drawn, subs)
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
-        over, meters = config_meters(cfg, lit, subs)
+        moves = []
+        over, meters = config_meters(cfg, lit, subs, moves)
         models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in under)]
         rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
@@ -5005,7 +5126,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                              *([APPLY_KEY] if fresh else []), "esc back",
                              space=None if opens else "mark" if column < 3 else "step",
                              enter="open" if opens else "start" if born else None)
-        moves, as_drawn = [], held_over(cfg, selected, held)
+        as_drawn = held_over(cfg, selected, held)
         body, places = config_body(cfg, None if terminal.away() else here, column,
                                    as_drawn, providers, moves, scope, under)
         # agentkit's build, read under the page so every page shows it, and what was said under it
@@ -5518,11 +5639,12 @@ def config_remove_provider(cfg, picked):
     """`− remove` under a row of `Subscriptions` (subscription_acts): `picked`, its subscription as
     (provider, account, label), `Remove <provider> and its models?` for its provider's last
     one, `Remove <subscription>?` for any other, the usual login too, asked under its name,
-    `Keep` picked and Esc keeping it.  config.remove_provider takes a provider's table, its
-    models and their places in [defaults], and with its table goes its meter; a subscription
-    leaves only the provider's `accounts`.  Once saved, the subscription that went is signed out
-    on this machine (_signed_out).  The last provider is refused without asking.  What to say
-    under the screen, or "".
+    `Keep` picked and Esc keeping it, `Remove` fading the card out (fade_out) before it goes.
+    config.remove_provider takes a provider's table, its models and their places in
+    [defaults], and with its table goes its meter; a subscription leaves only the provider's
+    `accounts`.  Once saved, the subscription that went is signed out on this machine
+    (_signed_out).  The last provider is refused without asking.  What to say under the
+    screen, or "".
     """
     (name, account, label), title = picked, f"config · {picked[2]}"
     # a provider listing no subscription has its usual login alone
@@ -5531,12 +5653,15 @@ def config_remove_provider(cfg, picked):
         return "the config needs one provider"
     shown = config.provider_name(cfg, name) if last else label
     question, means = REMOVE_PROVIDER_ASK if last else REMOVE_SUBSCRIPTION_ASK
-    clock = motion.Clock()            # the page's own: the card on it comes up
+    clock, leaving = motion.Clock(), []     # the page's own: the card on it comes up
 
     def asked(card, keys):
-        return framed(clock, title, card, 0, card, keys)
+        top = framed(clock, title, card, 0, card, keys)
+        leaving[:] = range(top, top + len(card))
+        return top
     if not asking(clock, asked)(question.format(shown), means, "Remove"):
         return ""
+    fade_out(clock, leaving)
     before, harness = copy.deepcopy(cfg), logins.harness(cfg, name)
     try:
         if last:
@@ -5639,7 +5764,8 @@ def config_subscriptions(cfg, keyboard, number=None):
     under it as the line under the menu's highlighted row does; back from what an act or an add
     drew, it is drawn as it is.  The act lit (`on`) is kept by what it is, so one going from under
     it lights nothing in its place, and is at rest while the pointer lights its row's own cell,
-    the label, meter and share.
+    the label, meter and share.  A meter glides to a new reading on its line as drawn here
+    (`meter_moves`).
 
     Whichever screen opens it, it is made of config.toml read as it opens, `cfg` where that will
     not load, held as `c` holds it (holding), so a save over the file changed since writes nothing
@@ -5673,13 +5799,28 @@ def _subscriptions(cfg, keyboard, whose):
             opened, on = whose, act_text(SUBSCRIPTION_ACTS[0])
         at = None if terminal.away() else here
         lit = at[1] if at and at[0] == "sub" else None
-        ending = login_notes(subs)
-        meters = usage_lines(cfg, width, rows=subs, ending=ending, columns=1)
+        # one reading of the wall clock, so the lines at rest and each frame are of these cells
+        now = time.time()
+        ending, cells = login_notes(subs, now), usage_cells(cfg, now, subs)
+
+        def meters_at(cells):
+            return usage_lines(cfg, width, rows=subs, ending=ending, columns=1, cells=cells)
+        meters = meters_at(cells)
         drawn = meters or ["  " + label for _, label, _, _ in subs]
+        # the lit row says its resets in hand beside its meter where its line at rest has room,
+        # and in every other frame of a glide, one too wide for them the line at rest
+        # (meter_moves)
+        held = lit and in_hand(subs[lit - 1][2])
+        beside = held and terminal.cells(f"{drawn[lit - 1]} · {held}") <= width
+
+        def lined(number, line, said=beside):
+            # login `number`'s line: lit, it has no band, Enter acting on its act, never the row
+            tail = terminal.styled(" · ", "dim") + terminal.styled(held, "info") if said else ""
+            return terminal.highlight(line + tail, band=False) if number == lit else line
         # its whole cell, a cell of its row, the pointer lights as any cell (-1, no act)
         own = [(*usage_cell(width, 0), -1)] if meters else []
         owned = terminal.pointer_spot().cell == -1      # the pointer on one, as last drawn
-        body, places, acts, moves = [], {}, {}, []
+        body, places, acts, moves, spots = [], {}, {}, [], []
         for number, (sub, line) in enumerate(zip(subs, drawn), 1):
             name, _, prov, _ = sub
             if number == 1 or subs[number - 2][0] != name:
@@ -5688,17 +5829,13 @@ def _subscriptions(cfg, keyboard, whose):
             # it has no band, its acts being what Enter and a click act on (terminal.under)
             row = [(1, width, None)]
             places[len(body)] = (("sub", number), [*own, *row])
+            spots.append(len(body))
+            body.append(lined(number, line))
             if number != lit:
-                body.append(line)
                 continue
-            held = in_hand(prov)
-            beside = held and terminal.cells(f"{line} · {held}") <= width
-            line += terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
-            # what Enter acts on is its act, lit on its line, never the row
-            body.append(terminal.highlight(line, band=False))
             # its limits but the resets in hand, its row's to say, or with no room its login's line
             limits = fitting([(worth, note) for worth, note in
-                              limit_notes(cfg, name, prov, time.time()) if note != held],
+                              limit_notes(cfg, name, prov, now) if note != held],
                              width - 4)
             if limits:
                 shown = "    " + terminal.styled(" · ".join(limits), "dim")
@@ -5714,21 +5851,26 @@ def _subscriptions(cfg, keyboard, whose):
             told = [(ending_note(email, ends) if ends else email, kind), (plan, kind),
                     (not beside and held, "info")]
             # the pointer on its own cell lights that, so its act is at rest: one thing lit
-            for shown, cells in opened_line(told, list(acts), None if owned else on, width - 4):
-                places[len(body)] = (("sub", number), [*cells, *row])
+            for shown, spans in opened_line(told, list(acts), None if owned else on, width - 4):
+                places[len(body)] = (("sub", number), [*spans, *row])
                 moves.append((len(body), ("opened",), lit, motion.fading(shown)))
                 body.append(shown)
         # seen with no line too, so the pointer coming back onto a row is news
         moves.append((0, ("opened",), lit, lambda *_: None))
+        if meters:      # each gliding to a new reading on its line as drawn here
+            moves += meter_moves(subs, cells, spots, lambda shown: {
+                spot: lined(number, line, held if shown != cells else beside)
+                for number, (spot, line) in enumerate(zip(spots, meters_at(shown)), 1)})
         body.append("")
         places[len(body)] = (("row", "add"), [])
         add = "  + add a subscription"
         body.append(terminal.highlight(add) if at == ("row", "add") else add)
         keys = terminal.keys("esc back", enter="open" if here[0] == "row" else act_word(on)
                              if on in acts else None)
-        # every TICK as the main screen, so a reading that lands -- one just added -- shows
+        # every STIR as the main screen and `c`, so a reading that lands -- one just added --
+        # shows, gliding there
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
-                                              top, said, keys, timeout=TICK, marks=0,
+                                              top, said, keys, timeout=STIR, marks=0,
                                               clock=clock, moves=moves)
         if clicked == -1:             # a subscription's own cell, lit by the pointer: no act
             clicked = None
@@ -6396,13 +6538,13 @@ def config_money(cfg):
 def plan_rows(cfg, counts, write):
     """One row per `(provider, plan)` in `counts`, named as `config · subscriptions` names the
     provider (company_name), then the plan, or alone, `plan not read yet`, where the plan is not
-    known; its price a month in the config's currency (money.price, `amount`), with `your price`
-    when kept under `[money.paid]` (money.typed), else `no price in` the currency, its logins
-    counted where more than one.  Enter on a plan's row opens a field for what you pay a month
-    in that currency, written to `[money.paid.<currency>.<provider>]` at once through `write`,
-    or empty takes it out; a row with no plan stays one that only shows.  Then `In all`, each
-    price times its logins, the logins of a row with no price `not counted`.  None where
-    `counts` is empty."""
+    known; its price a month in the config's currency (money.price, written by usage.amount),
+    with `your price` when kept under `[money.paid]` (money.typed), else `no price in` the
+    currency, its logins counted where more than one.  Enter on a plan's row opens a field for
+    what you pay a month in that currency, written to `[money.paid.<currency>.<provider>]` at
+    once through `write`, or empty takes it out; a row with no plan stays one that only shows.
+    Then `In all`, each price times its logins, the logins of a row with no price `not counted`.
+    None where `counts` is empty."""
     code, rows, total, missed = money.currency(cfg), [], 0, 0
 
     def take(provider, plan):
@@ -6451,24 +6593,15 @@ def plan_rows(cfg, counts, write):
             total += decimal.Decimal(str(price)) * count    # exact, as cents written add up
         said = ("plan not read yet" if on is None
                 else f"no price in {CURRENCY_NAMES[code]}" if price is None
-                else amount(code, price))
+                else f"{usage.amount(code, price)} a month")
         parts = [said, *(["your price"] if yours is not None else []),
                  *([f"{count} logins"] if count > 1 else [])]
         rows.append((company_name(cfg, provider) + ("" if on is None else f" · {on}"),
                      " · ".join(parts), None if on is None else take(provider, on)))
     if rows:
-        rows.append(("In all", amount(code, total) + (
+        rows.append(("In all", f"{usage.amount(code, total)} a month" + (
             f" · {missed} login{'s' if missed > 1 else ''} not counted" if missed else ""), None))
     return rows
-
-
-def amount(code, value):
-    """`$200 a month`, `$19.99 a month`: `value` after the sign of currency `code`, or without
-    UTF-8 after its ISO code as money_value's, `EUR 18 a month`; whole where it is whole, else
-    to the cent."""
-    value = decimal.Decimal(str(value))
-    digits = f"{value:,.{0 if value == value.to_integral_value() else 2}f}"
-    return (f"{usage.SIGNS[code]}{digits}" if terminal.utf8() else f"{code} {digits}") + " a month"
 
 
 def machines_value():
@@ -6748,12 +6881,12 @@ def rounds_said(runs, held):
 
 def lines_said(key, sizes, held, *, executors_off=False):
     """What `key`'s changes would have done at `held` lines, `sizes` its kind's of
-    history.first_review_sizes: those of `held` lines or more -- where the owner's design
-    of 5 Nov 2026 splits them -- split, for builds under `executor_lines` and for
-    orchestrators' own pull requests when `executors_off`, or made tasks, for orchestrators'
-    own pull requests under `orchestrator_lines`, and how often their first review passed, or
-    round 1 merged them, beside the rest; off, or past the largest, what they can't say.  None
-    with none, unless off."""
+    history.first_review_sizes: those of more than `held` lines, as the first review's gates
+    (transitions.first_review_refusal, seat_lines) refuse them, split, for builds under
+    `executor_lines` and for orchestrators' own pull requests when `executors_off`, or made
+    tasks, for orchestrators' own pull requests under `orchestrator_lines` -- the owner's design
+    of 5 Nov 2026 -- and how often their first review passed, or round 1 merged them, beside the
+    rest; off, or past the largest, what they can't say.  None with none, unless off."""
     own = key == "orchestrator_lines"
     if held == 0:
         return ("Off: orchestrators build nothing themselves" + (
@@ -6763,22 +6896,22 @@ def lines_said(key, sizes, held, *, executors_off=False):
                 "Off: executors build nothing, so your runs can't say how that would go.")
     if not sizes:
         return None
-    over = [passed for lines, passed in sizes if held != "no limit" and lines >= held]
+    over = [passed for lines, passed in sizes if held != "no limit" and lines > held]
     if not over:
         return (f"Your largest {'own pull request' if own else 'build'} was "
                 f"{max(lines for lines, _ in sizes)} lines, so your runs can't say how bigger "
                 "ones would go.")
-    under = [passed for lines, passed in sizes if lines < held]
+    under = [passed for lines, passed in sizes if lines <= held]
     rate = lambda each: f"{round(100 * sum(each) / len(each))}%"
     were, rest = "was" if len(over) == 1 else "were", (
-        f", and {rate(under)} below {held} lines" if under else "")
+        f", and {rate(under)} at {held} lines or fewer" if under else "")
     if own:
         fate = "split" if executors_off else ("a task" if len(over) == 1 else "tasks")
         return (f"{len(over)} of your orchestrators' {len(sizes)} own pull requests {were} "
-                f"{held} lines or more and would have been {fate}. "
+                f"more than {held} lines and would have been {fate}. "
                 f"Round 1 merged {rate(over)} of them{rest}.")
     return (f"{len(over)} of your {len(sizes)} builds ({round(100 * len(over) / len(sizes))}%) "
-            f"{were} {held} lines or more and would have been split. Their first review passed "
+            f"{were} more than {held} lines and would have been split. Their first review passed "
             f"{rate(over)} of the time{rest}.")
 
 
@@ -7398,10 +7531,13 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             more = terminal.read_key(0.5)      # 1 then 2 within half a second is row 12
             act += more.char if more and more.name == "char" and more.char.isdecimal() else ""
         if act == "enter" or act.isdecimal() and act.isascii() and 1 <= int(act) <= len(past):
-            keyboard.give()       # the seat has the terminal while he is in it
-            open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1], dry_run)
+            open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1],
+                         dry_run, keyboard=keyboard,
+                         starting=lambda: terminal.doing("past sessions · starting"))
             return True
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
+            leaving = []
+
             def around(card, keys):
                 # the rows laid out anew, a resize's; in what a frame holds unscrolled at this
                 # height (`terminal.written` ends in a newline), the card to its answers, its top
@@ -7411,12 +7547,16 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                 if holds < 2:
                     return None
                 body, places = laid()[:2]
-                at = max(line for line, (row, _) in places.items() if row == ("row", here)) + 1
+                mine = [line for line, (row, _) in places.items() if row == ("row", here)]
+                at = max(mine) + 1
                 lines, skip = body[:at] + card + body[at:], max(0, at + len(card) - 1 - holds)
+                leaving[:] = range(3 + max(0, min(mine) - skip),
+                                   3 + min(holds, at + len(card) - skip))
                 return framed(clock, "past sessions", lines[skip:skip + holds], at - skip, card,
                               keys, page_places(places, skip, at - skip))
             if asking(clock, around)(f"Remove {here} from past sessions?",
                                      "It can no longer be reopened.", "Remove"):
+                fade_out(clock, leaving)
                 keyboard.give()       # the stop says what it did where it can be read
                 clock.forget()        # another screen: the page back from it is drawn as it is
                 remove_seat(here, dry_run)
@@ -7785,14 +7925,16 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 except config.Error as exc:
                     pause(f"new session: {exc}")
                 continue
-            if key not in ("c", "n", "p", "r"):
-                keyboard.give()           # whatever the key opens has the terminal as it was
+            if not key.isdigit() and key not in ("c", "n", "p", "r"):
+                keyboard.give()           # whatever the key opens has the terminal as it was,
+                                          # a seat as `open_session` gives it
             if key.isdigit() or key in ("n", "p"):
                 back = True               # each can hand the owner a seat, where nothing is read
                 live.away()
             if key.isdigit():
                 if 1 <= int(key) <= len(found):
-                    open_session(cfg, found[int(key) - 1], dry_run)
+                    open_session(cfg, found[int(key) - 1], dry_run, keyboard=keyboard,
+                                 starting=lambda: terminal.doing("starting", drawn["titled"]))
                     if overlay:
                         return 0
                 else:
