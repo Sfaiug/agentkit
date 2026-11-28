@@ -54,11 +54,18 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) (strin
 	if configPage("machines", "", func() ([]menu.PageRow, bool) {
 		var rows []menu.PageRow
 		for _, machine := range machines.Known() {
-			var work string
-			if work, why = workWords(machine); why != nil {
+			var work []string
+			if work, why = machine.Work(); why != nil {
 				return nil, false
 			}
-			row := menu.PageRow{Label: machine.Name, Value: machine.Overview() + " · " + work}
+			row := menu.PageRow{
+				Label: machine.Name,
+				Marks: []menu.PageMark{
+					{Word: "runs", On: slices.Contains(work, "turns")},
+					{Word: "tests", On: slices.Contains(work, "tests")},
+				},
+				Value: machine.Overview(),
+			}
 			if machine.Name != machines.Here {
 				row.Open = func() bool { return menuMachineWork(machine.Name, &why, keyboard, painter) }
 			}
@@ -112,25 +119,6 @@ func flipWork(name, word string) string {
 		return "this machine cannot build or review"
 	}
 	return saved(machine.Save(flipped, seat.KeepConfigEfforts))
-}
-
-// workWords is the work a machine's marks allow as the page names it (menu.work_words).
-func workWords(machine machines.Machine) (string, error) {
-	work, err := machine.Work()
-	var words []string
-	if machine.Name == machines.Here {
-		words = append(words, "sessions")
-	}
-	if slices.Contains(work, "turns") {
-		words = append(words, "builds", "reviews")
-	}
-	if slices.Contains(work, "tests") {
-		words = append(words, "tests")
-	}
-	if len(words) == 0 {
-		return "no work", err
-	}
-	return strings.Join(words, ", "), err
 }
 
 // saved is what a page says of a save, Python's menu._saved: nothing where it held.

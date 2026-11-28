@@ -88,6 +88,7 @@ class ARunWithoutReviewIsNotLandedAsLooksAlone(unittest.TestCase):
         self.join(line, quick.IMAGE)
         state = quick.record(line.members[0])
         state["review"]["no_review"] = True
+        state["review"].pop("chosen_passed", None)
         (line.members[0] / "run.json").write_text(json.dumps(state))
         self.join(line, quick.IMAGE)
         self.land(line, quick.BUSY)

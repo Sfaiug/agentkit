@@ -59,10 +59,10 @@ class AMachineJoinsWithTheWorkItCanTake(unittest.TestCase):
     def test_each_unmarked_machine_takes_what_it_is_and_c_writes_none_of_it(self):
         config = self.write_config()
         before = config.read_bytes()
-        self.page(f"acme-box new · {USED} · builds, reviews, tests",
-                  f"acme-laptop sometimes on · {USED} · tests",
-                  f"acme-mac new · {USED} · tests",
-                  "acme-new new · never answered · tests")
+        self.page(f"acme-box ● runs ● tests new · {USED}",
+                  f"acme-laptop ○ runs ● tests sometimes on · {USED}",
+                  f"acme-mac ○ runs ● tests new · {USED}",
+                  "acme-new ○ runs ● tests new · never answered")
         self.term.keys("Down", "Enter")
         self.term.wait(lambda screen: "config · machines · acme-box" in screen
                        and "builds and reviews ● on" in " ".join(screen.split()))
@@ -71,7 +71,7 @@ class AMachineJoinsWithTheWorkItCanTake(unittest.TestCase):
 
     def test_a_written_mark_keeps_a_linux_machine_at_tests(self):
         self.write_config('work = ["tests"]\n')
-        self.page(f"acme-box new · {USED} · tests")
+        self.page(f"acme-box ○ runs ● tests new · {USED}")
         self.leave()
 
     def test_a_machine_added_while_the_old_switch_is_off_is_marked_by_it(self):
@@ -85,7 +85,7 @@ class AMachineJoinsWithTheWorkItCanTake(unittest.TestCase):
         self.term.wait("its ssh address")
         self.term.type("acme-box")
         self.term.keys("Enter")
-        self.term.wait(lambda screen: f"acme-box new · {USED} · tests"
+        self.term.wait(lambda screen: f"acme-box ○ runs ● tests new · {USED}"
                        in " ".join(screen.split()))
         self.leave()
         cfg = akconfig.read(self.home)

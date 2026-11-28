@@ -41,7 +41,7 @@ print({readings!r})
 # what the probe says on a Linux machine of 8 cores and 16 GB, half of it free, at a load of 2
 READINGS = ("system Linux\nprocessor x86_64\ncores 8\nmemory_mb 16384\nfree_mb 8192\nload 2.00\n"
             "disk_free_mb 102400\nbattery 0\npower 1")
-SIZE = "new · 8 cores · 16 GB · 25% busy · 8 of 16 GB used · builds, reviews, tests"
+SIZE = "● runs ● tests new · 8 cores · 16 GB · 25% busy · 8 of 16 GB used"
 NET = "tail-acme.ts.net"
 NEW = ("acme-box", True, "linux", 1)        # (name, online, OS, Tailscale user) of a peer
 REFUSING = ("acme-old", True, "linux", 1)

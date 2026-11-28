@@ -1,8 +1,7 @@
 """`config · machines` says of a listed machine that answers on battery that it takes no work now:
-its row ends `on battery · no work until on power` in place of its work, as ak gives it none
-until a check finds it on power, after its stand-in words where it is the stand-in too.  The same
-machine on power, and one on battery that does not answer, show their work; its own page shows
-its marks.
+its row ends `on battery · no work until on power`, as ak gives it none until a check finds it on
+power, after its stand-in words where it is the stand-in too.  The same machine on power, and one
+on battery that does not answer, do not; its own page shows its marks.
 
 Black-box: AK_BIN runs under a terminal in a temporary HOME, with invented machines and recorded
 readings, stamped by the real clock, the home's clocks for the stand-in from AK_NOW
@@ -66,11 +65,14 @@ class AMachineOnBatterySaysItTakesNoWorkNow(unittest.TestCase):
 
     def test_on_battery_it_says_no_work_until_on_power_and_on_power_its_work(self):
         rows = self.rows()
-        self.assertEqual(rows["acme-laptop"],
-                         f"acme-laptop {USED} · on battery · no work until on power")
-        self.assertEqual(rows["acme-plugged"], f"acme-plugged {USED} · tests")
-        self.assertRegex(rows["acme-shut"], r"^acme-shut sometimes on · 4 cores · 8 GB · "
-                                             r"not answering since .* · tests$")
+        self.assertEqual(
+            rows["acme-laptop"],
+            f"acme-laptop ○ runs ● tests {USED} · on battery · no work until on power")
+        self.assertEqual(rows["acme-plugged"], f"acme-plugged ○ runs ● tests {USED}")
+        self.assertRegex(
+            rows["acme-shut"],
+            r"^acme-shut ○ runs ● tests sometimes on · 4 cores · 8 GB · "
+            r"not answering since (?:\d{1,2} [A-Z][a-z]{2} )?\d{2}:\d{2}$")
         # its own page holds its marks as ever
         self.term.keys("Down", "Enter")
         page = self.term.wait(lambda screen: "config · machines · acme-laptop" in screen
@@ -86,9 +88,11 @@ class AMachineOnBatterySaysItTakesNoWorkNow(unittest.TestCase):
         done = self.home.ak("standby", "--copied", "acme-laptop", *began.out.split(), "yes")
         self.assertEqual(done.code, 0, done.out + done.err)
         rows = self.rows(AK_NOW=LATER)
-        self.assertEqual(rows["acme-laptop"], f"acme-laptop {USED} · stand-in · copy 3m old · "
-                                              "on battery · no work until on power")
-        self.assertEqual(rows["acme-plugged"], f"acme-plugged {USED} · tests")
+        self.assertEqual(
+            rows["acme-laptop"],
+            f"acme-laptop ○ runs ● tests {USED} · stand-in · copy 3m old · "
+            "on battery · no work until on power")
+        self.assertEqual(rows["acme-plugged"], f"acme-plugged ○ runs ● tests {USED}")
         self.leave()
 
     def leave(self):

@@ -67,7 +67,7 @@ class EachMachinesMarks(unittest.TestCase):
         self.assertEqual(bool(logs), away)
 
     def test_a_helper_unmarked_for_turns_still_takes_a_suite(self):
-        self.assertIn("acme-linux new · never answered · tests", self.marks())
+        self.assertIn("acme-linux ○ runs ● tests new · never answered", self.marks())
         cfg = akconfig.read(self.home)
         self.assertEqual(cfg["machines"]["acme-linux"]["work"], ["tests"])
         self.assertNotIn("turns_on_machines", cfg)
@@ -76,7 +76,7 @@ class EachMachinesMarks(unittest.TestCase):
 
     def test_a_helper_unmarked_for_tests_still_takes_turns(self):
         shown = self.marks(keys=("Down", "Space"))
-        self.assertIn("acme-linux new · never answered · builds, reviews", shown)
+        self.assertIn("acme-linux ● runs ○ tests new · never answered", shown)
         self.assertEqual(akconfig.read(self.home)["machines"]["acme-linux"]["work"], ["turns"])
         self.turns("docker")
         self.suite(False)

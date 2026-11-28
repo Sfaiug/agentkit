@@ -64,11 +64,13 @@ func RoundsSaid(runs []history.Row, held int) string {
 
 // LinesSaid is what a line limit's changes would have done at held lines, runs the ones its
 // SizeChart draws (history.FirstReviewSizes), own for orchestrators' own pull requests under
-// `orchestrator_lines`, Python's menu.lines_said: those of held lines or more -- where the owner's
-// design of 5 Nov 2026 splits them -- split, for builds, or made tasks, for own pull requests, and
-// how often their first review passed, or round 1 merged them, beside the rest; off, or past the
-// largest, what they can't say.  "" with none, unless off.
-func LinesSaid(runs []history.Row, held any, own bool) string {
+// `orchestrator_lines` (executorsOff when `executor_lines` is 0, so own pull requests over the
+// limit are split rather than made tasks), Python's menu.lines_said: those of held lines or more
+// -- where the owner's design of 5 Nov 2026 splits them -- split, for builds or with executors
+// off, or made tasks, for own pull requests, and how often their first review passed, or round 1
+// merged them, beside the rest; off, or past the largest, what they can't say.  "" with none,
+// unless off.
+func LinesSaid(runs []history.Row, held any, own, executorsOff bool) string {
 	if held == 0 {
 		switch {
 		case !own:
@@ -113,12 +115,15 @@ func LinesSaid(runs []history.Row, held any, own bool) string {
 		rest = fmt.Sprintf(", and %d%% below %d lines", percent(under.passed, under.runs), limit)
 	}
 	if own {
-		task := "tasks"
-		if over.runs == 1 {
-			task = "a task"
+		fate := "tasks"
+		switch {
+		case executorsOff:
+			fate = "split"
+		case over.runs == 1:
+			fate = "a task"
 		}
 		return fmt.Sprintf("%d of your orchestrators' %d own pull requests %s %d lines or more and would have been %s. Round 1 merged %d%% of them%s.",
-			over.runs, len(runs), were, limit, task, percent(over.passed, over.runs), rest)
+			over.runs, len(runs), were, limit, fate, percent(over.passed, over.runs), rest)
 	}
 	return fmt.Sprintf("%d of your %d builds (%d%%) %s %d lines or more and would have been split. Their first review passed %d%% of the time%s.",
 		over.runs, len(runs), percent(over.runs, len(runs)), were, limit, percent(over.passed, over.runs), rest)

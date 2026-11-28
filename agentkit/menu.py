@@ -2236,8 +2236,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev)):
             for n, (key, shown) in enumerate(readings):
                 since, before = news.get(key, (None, None))
-                if (shown and shown[0] and before and (before[0] or before[1][:1] != "—")
-                        and since + motion.GLIDE > moment):
+                if gliding(shown, before) and since + motion.GLIDE > moment:
                     at_now = meter_at(shown[0], since, before, moment)
                     probe = [*cells[:n], (*cells[n][:2], *at_now), *cells[n + 1:]]
                     if usage_lines(cfg, layout, rows=rows, ending=ending, cells=probe):
@@ -2970,11 +2969,55 @@ def usage_cells(cfg, now=None, rows=None):
 
 
 def meter_at(left, since, before, now):
-    """(left, said), as `usage_cells` says them, of a meter gliding (`draw`) to `left` from
+    """(left, said), as `usage_cells` says them, of a meter gliding (`gliding`) to `left` from
     `before` at `now`, eased in GLIDE seconds from `since`, and `before` while that is 0."""
     first = before[0] or 0
     shown = round(first + (left - first) * motion.eased((now - since) / motion.GLIDE))
     return (shown, f"{shown}% left") if shown else before
+
+
+def gliding(shown, before):
+    """Whether a meter glides (`meter_at`) to `shown` from `before`, the reading the draw before
+    showed, each (left, said) as `usage_cells` says them: where it has a share left now and had
+    a reading before, from `empty until …` counting up from 0; one unread (`—`) before, or
+    empty or unread now, changes at once."""
+    return bool(shown and shown[0] and before and (before[0] or before[1][:1] != "—"))
+
+
+def meter_moves(rows, cells, lines, drawing):
+    """A page's meters as its `moves` (matrix_key), hiding which glide to a new reading, from
+    where, till when and what each frame draws: one a meter, ("usage", subscription) its key
+    and its reading, of `usage_cells`' `cells` of `rows`, its value.  Meter n is on line
+    `lines[n]` of those `drawing(cells)` draws, {line: text}.  The meters gliding in one draw
+    are its moves' together, each start animating its line whole till the last of them on it
+    ends, then at rest, each frame the page's drawing of the line with every one at its reading
+    then -- the line at rest where that draws other lines, or that one wider than the screen --
+    so no frame can fail.  A meter shown at once is settled (`Clock.seen`), so no later draw
+    that can move, as a short screen grown taller, revives it."""
+    rest, glides = drawing(cells), {}
+
+    def frame(line, until, when):
+        if when < until:
+            drawn = drawing([(*cell[:2], *meter_at(cell[2], *glides[n], when)) if n in glides
+                             else cell for n, cell in enumerate(cells)])
+            if drawn.keys() == rest.keys() and terminal.cells(drawn[line]) <= terminal.width():
+                return terminal.cleared(drawn[line])
+        return terminal.cleared(rest[line])
+
+    def move(n, key, value):
+        def start(clock, row, since, before):
+            if (motion.movable() and gliding(value, before)
+                    and since + motion.GLIDE > motion.moment()):
+                glides[n] = since, before
+            else:
+                clock.seen[key] = value, None, None
+            ends = [glides[m][0] + motion.GLIDE for m in glides if lines[m] == lines[n]]
+            if ends:
+                until = max(ends)
+                clock.start([(row, 1)], lambda when: frame(lines[n], until, when), until)
+        return lines[n], key, value, start
+    return [move(n, ("usage", subscription(row)), cell[2:]) for n, (row, cell) in
+            enumerate(zip(rows, cells))]
 
 
 METER = 10        # cells of a subscription's meter on the ak screen
@@ -3004,7 +3047,7 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cell
     width with no room for a label beside it has no grid (`[]`), the screen saying the readings
     (`usage_summary`).  `ending`, `login_notes` of `rows` where the caller has read them already;
     `columns`, as many to a line as `Subscriptions` draws, one; `cells`, `usage_cells`' answer
-    already in hand, or with gliding meters at their frame's reading (`draw`)."""
+    already in hand, or with gliding meters at their frame's reading (`gliding`)."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3]))
              for cell in (usage_cells(cfg, rows=rows) if cells is None else cells)]
@@ -4162,9 +4205,10 @@ def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, `config · recommended · <seat>` or `· new seats`: what each role
     of `selected` uses (models_body), the bars of the highlighted role (models_bars) as tall as
     the page leaves room for, over models_read until Esc, the boards read as it opens
-    (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
-    bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or better
-    choice for its role at once (next_choice, take_choice), keeping the price it stopped at
+    (matrix.refresh), its first answer made under `c` as drawn, its header naming what that
+    reads (terminal.doing); a page too short for one-cell bars sheds what gives way, then is cut
+    from its bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or
+    better choice for its role at once (next_choice, take_choice), keeping the price it stopped at
     (keep_price), which its bars' heading says while it holds (price_held), the owner's design
     of 5 Nov 2026, `no choice` up to a limit no choice costs as little as (price_fit), as the
     role then stays; the last row a role was shown using that is no choice staying one of its bars
@@ -4180,6 +4224,8 @@ def models_screen(cfg, session, selected, providers):
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
     clock, rows = motion.Clock(page=True), [("row", role) for role in quality.ROLES]
+    if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
+        terminal.doing("config · recommended · reading what your runs cost")
     while True:
         if fetch is not None and not fetch.is_alive():
             try:                      # a board that failed answers with its error, kept a day
@@ -4798,19 +4844,30 @@ def _offered(harness, *screen, provider=None, cfg=None):
             if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
-def config_meters(cfg, at=None, rows=None):
+def config_meters(cfg, at=None, rows=None, moves=None):
     """The lines over the `c` screen's page, on every page, and where its meters are on them
     (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`, of
     `rows` where read already), and under them a line that, while `at`, from 1, has the
     highlight, says what its cell has no room for (`usage_detail`), its meter lit as the pointer
-    lights it there; none without a grid."""
+    lights it there; none without a grid.  Each meter is one of `moves` where given, gliding to
+    a new reading (`meter_moves`), the lines counted back from the page's first (matrix_key)."""
     rows, width = usage_rows(cfg) if rows is None else rows, terminal.layout_width()
-    ending = login_notes(rows)
-    meters = usage_lines(cfg, width, lit=at, rows=rows, ending=ending)
+    # one reading of the wall clock, so the meters at rest and each frame are of these cells
+    now = time.time()
+    ending, cells = login_notes(rows, now), usage_cells(cfg, now, rows)
+
+    def drawn(cells):
+        return usage_lines(cfg, width, lit=at, rows=rows, ending=ending, cells=cells)
+    meters = drawn(cells)
     if not meters:
         return [], {}
-    detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
-    return [*meters, detail], meter_spots(width, len(rows), 0)
+    detail = "  " + usage_detail(cfg, at, width, now, rows, ending) if at else ""
+    spots, first = meter_spots(width, len(rows), 0), -1 - len(meters)
+    if moves is not None:
+        moves += meter_moves(rows, cells, [first + line for line, (_, on) in spots.items()
+                                           for _ in on],
+                             lambda cells: dict(enumerate(drawn(cells), first)))
+    return [*meters, detail], spots
 
 
 def meters_led(meters, body, places, under, keys, moves=()):
@@ -5027,7 +5084,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             here = followed(here, drawn, subs)
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
-        over, meters = config_meters(cfg, lit, subs)
+        moves = []
+        over, meters = config_meters(cfg, lit, subs, moves)
         models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in under)]
         rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
@@ -5040,7 +5098,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                              *([APPLY_KEY] if fresh else []), "esc back",
                              space=None if opens else "mark" if column < 3 else "step",
                              enter="open" if opens else "start" if born else None)
-        moves, as_drawn = [], held_over(cfg, selected, held)
+        as_drawn = held_over(cfg, selected, held)
         body, places = config_body(cfg, None if terminal.away() else here, column,
                                    as_drawn, providers, moves, scope, under)
         # agentkit's build, read under the page so every page shows it, and what was said under it
@@ -5837,8 +5895,9 @@ def page_body(rows, at=None, moves=None):
     (row, label, value) each, its label and then its value, lined up past the widest label
     beside a value as `c`'s own rows are, or with no label a choice of a list opened under the
     row above it, indented as `add a subscription`'s are.  A value is
-    text, or parts, (text, kind) each -- or (text, kind, cell), its columns one of the line's
-    cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
+    text, or parts: (text, kind) each -- or (text, kind, cell), its columns one of the line's
+    cells, as matrix_key reads them -- a space apart, or a list of (text, kind) kept whole as one
+    unit with a two-space gutter after it, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
     indented as a choice, and so does one with a cell, kept whole, as `◂ 300 ▸` steps; `at` is
     the row lit, on the selection unless its cell is what is lit, and `moves` is handed each
@@ -5857,13 +5916,15 @@ def page_body(rows, at=None, moves=None):
         # the room beside the padded label, none or less where the widest label fills the line
         left, wrapped, used = room - terminal.cells(lead), [[]], 0
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
-        # what never parts across lines: each word, and a value with a cell whole, so an arrow
-        # stays beside what it steps
-        celled = any(cell for _, _, *cell in parts)
+        # what never parts across lines: each word, a mark-and-word list, and a value with a cell
+        # whole, so an arrow stays beside what it steps
+        celled = any(isinstance(part, tuple) and len(part) > 2 for part in parts)
         # such a row is still the row around its cells, on every line of it (terminal.under)
         around = [(1, room, None)] if celled else []
         whole = ([" ".join(text for text, *_ in parts)] if celled
-                 else [word for text, *_ in parts for word in text.split()])
+                 else [word for part in parts for word in (
+                     ["".join(text for text, _ in part)] if isinstance(part, list)
+                     else part[0].split())])
         if label is not None and any(terminal.cells(word) > left for word in whole):
             # too wide beside the label: the value folds under it, never cut in a word, and so
             # does a label too wide for its line, wrapped at its words
@@ -5872,21 +5933,34 @@ def page_body(rows, at=None, moves=None):
                 lines.append(terminal.highlight(f"  {part}", number == 0, band=not celled)
                              if row == at else f"  {part}")
             lead, left, folded = "    ", max(1, room - 4), True
-        if moves is not None and not isinstance(value, str) and value[0][0] in motion.HALF:
+        if (moves is not None and not isinstance(value, str) and value
+                and isinstance(value[0], tuple) and value[0][0] in motion.HALF):
             moves.append((len(lines), ("mark", row), value[0][0], motion.toggled(
                 value[0][0], 3, value[0][1], row == at, terminal.cells(lead))))
-        indent = terminal.cells(lead)
-        for text, kind, *cell in parts:
+        indent, gap = terminal.cells(lead), 0
+        for part in parts:
+            if isinstance(part, list):
+                piece = "".join(terminal.styled(text, kind) if kind else text
+                                for text, kind in part)
+                span = terminal.cells(piece)
+                if used and used + gap + span > left:
+                    wrapped, used, gap = [*wrapped, []], 0, 0
+                wrapped[-1].append((" " * gap + piece, []))
+                used, gap = used + gap + span, 2
+                continue
+            text, kind, *cell = part
             for piece in terminal.wrap(text, left):
-                if used and used + 1 + terminal.cells(piece) > left:
-                    wrapped, used = [*wrapped, []], 0
-                used += bool(used) + terminal.cells(piece)
-                first = indent + used - terminal.cells(piece) + 1
-                wrapped[-1].append((terminal.styled(piece, kind) if kind else piece,
+                span = terminal.cells(piece)
+                if used and used + gap + span > left:
+                    wrapped, used, gap = [*wrapped, []], 0, 0
+                used += gap + span
+                first = indent + used - span + 1
+                wrapped[-1].append((" " * gap + (terminal.styled(piece, kind) if kind else piece),
                                     [(first, indent + used, *cell)] if cell else []))
+                gap = 1
         for number, parts in enumerate(wrapped):
             line = ((lead if number == 0 else " " * indent)
-                    + " ".join(piece for piece, _ in parts)).rstrip()
+                    + "".join(piece for piece, _ in parts)).rstrip()
             places[len(lines)] = (row, [*(spot for _, cells in parts for spot in cells), *around])
             lines.append(terminal.highlight(line, number == 0 and not folded, band=not celled)
                          if row == at else line)
@@ -6502,10 +6576,10 @@ def machines_value():
     return f"{count} machine{'' if count == 1 else 's'}"
 
 
-def machine_value(machine, cfg, stand_in=None):
-    """What the tick last found, the work this machine's marks allow, then `stand_in`, its words
-    as the stand-in where it is one; another machine that answered on battery takes no work now
-    (machines.helpers), its row ending so in place of its work."""
+def machine_value(machine, stand_in=None):
+    """What the tick last found, then `stand_in`, its words as the stand-in where it is one;
+    another machine that answered on battery takes no work now (machines.helpers), its row
+    ending `on battery · no work until on power`."""
     here, said = machine.name == machines.HERE, machine.said
     also = [stand_in] if stand_in else []
     words = ["home" if here else machine.kind]
@@ -6527,7 +6601,7 @@ def machine_value(machine, cfg, stand_in=None):
             return " · ".join([*words, *also, "on battery · no work until on power"])
     else:
         words += ["never answered"]
-    return " · ".join([*words, work_words(machine.name, cfg), *also])
+    return " · ".join([*words, *also])
 
 
 def stand_in_value(age, takes, own=True):
@@ -6537,15 +6611,6 @@ def stand_in_value(age, takes, own=True):
     return " · ".join(["stand-in", f"copy {age}" if takes else age,
                        *["takes over when this one stops"] * (own and takes in standby.OVER),
                        *["home goes back to it once it is steady"] * (own and takes == "back")])
-
-
-def work_words(name, cfg):
-    """The marks as the overview names their work."""
-    work = machines.work(name, cfg)
-    tasks = (["sessions"] if name == machines.HERE else [])
-    tasks += ["builds", "reviews"] if "turns" in work else []
-    tasks += ["tests"] if "tests" in work else []
-    return ", ".join(tasks) or "no work"
 
 
 def machine_hours(name):
@@ -6695,8 +6760,16 @@ def config_machines(cfg):
                 joined[same] = stand_in_value(age, takes, own=False)
             else:
                 apart.append((host, stand_in_value(age, takes), None))
-        rows = [(machine.name, machine_value(machine, cfg, joined.get(machine.name)),
-                 opens(machine.name)) for machine in known] + apart
+        def row_value(machine):
+            work = machines.work(machine.name, cfg)
+            # kept as one unit so runs and tests stay on one line and fold together on narrow rows
+            marks = []
+            for word, label in (("turns", "runs"), ("tests", "tests")):
+                marks += [("  ", None)] * bool(marks) + [
+                    (on, "accent") if word in work else (off, "dim"), (f" {label}", None)]
+            return [marks, (machine_value(machine, joined.get(machine.name)), None)]
+        rows = [(machine.name, row_value(machine), opens(machine.name))
+                for machine in known] + apart
         # a file that will not load closes the page, saying why on `c`; read last, so one
         # breaking under the reads above does too
         config.load()
@@ -6766,13 +6839,14 @@ def rounds_said(runs, held):
     return f"No run has gone past {last} round{'s' * (last != 1)}, so your runs can't say."
 
 
-def lines_said(key, sizes, held):
+def lines_said(key, sizes, held, *, executors_off=False):
     """What `key`'s changes would have done at `held` lines, `sizes` its kind's of
     history.first_review_sizes: those of `held` lines or more -- where the owner's design
-    of 5 Nov 2026 splits them -- split, for builds under `executor_lines`, or made tasks, for
-    orchestrators' own pull requests under `orchestrator_lines`, and how often their first review
-    passed, or round 1 merged them, beside the rest; off, or past the largest, what they can't
-    say.  None with none, unless off."""
+    of 5 Nov 2026 splits them -- split, for builds under `executor_lines` and for
+    orchestrators' own pull requests when `executors_off`, or made tasks, for orchestrators'
+    own pull requests under `orchestrator_lines`, and how often their first review passed, or
+    round 1 merged them, beside the rest; off, or past the largest, what they can't say.  None
+    with none, unless off."""
     own = key == "orchestrator_lines"
     if held == 0:
         return ("Off: orchestrators build nothing themselves" + (
@@ -6792,9 +6866,9 @@ def lines_said(key, sizes, held):
     were, rest = "was" if len(over) == 1 else "were", (
         f", and {rate(under)} below {held} lines" if under else "")
     if own:
+        fate = "split" if executors_off else ("a task" if len(over) == 1 else "tasks")
         return (f"{len(over)} of your orchestrators' {len(sizes)} own pull requests {were} "
-                f"{held} lines or more and would have been "
-                f"{'a task' if len(over) == 1 else 'tasks'}. "
+                f"{held} lines or more and would have been {fate}. "
                 f"Round 1 merged {rate(over)} of them{rest}.")
     return (f"{len(over)} of your {len(sizes)} builds ({round(100 * len(over) / len(sizes))}%) "
             f"{were} {held} lines or more and would have been split. Their first review passed "
@@ -6814,22 +6888,23 @@ def config_limits(cfg):
     runs, _, paid = matrix.counted(cfg)
     # each number's chart and what its runs would have done at `held`; one no run records how
     # it did yet has neither
-    evidence = {"review_rounds": lambda held: (
+    evidence = {"review_rounds": lambda held, numbers: (
                     size_table.rounds(runs["rounds"], held, terminal.layout_width(), paid),
                     rounds_said(ended, held)),
-                "executor_lines": lambda held: (
+                "executor_lines": lambda held, numbers: (
                     size_table.lines(runs["sizes"], held, terminal.layout_width(), paid),
                     lines_said("executor_lines", builds, held)),
-                "orchestrator_lines": lambda held: (
+                "orchestrator_lines": lambda held, numbers: (
                     size_table.own_lines(runs["own_sizes"], held, terminal.layout_width(), paid),
-                    lines_said("orchestrator_lines", own, held)),
-                "rescope_findings": lambda held: (
+                    lines_said("orchestrator_lines", own, held,
+                               executors_off=numbers["executor_lines"] == 0)),
+                "rescope_findings": lambda held, numbers: (
                     size_table.issues(runs["first_issues"], held, terminal.layout_width(), paid),
                     None)}
 
-    def under(key, held):      # what the row means, its chart, what its runs would have done
+    def under(key, numbers):      # what the row means, its chart, what its runs would have done
         meaning = config.POLICY[key][2]
-        chart, said = evidence.get(key, lambda _: ([], None))(held)
+        chart, said = evidence.get(key, lambda *_: ([], None))(numbers[key], numbers)
         room = terminal.layout_width() - 2
         told = lambda text: (["", *("  " + part for part in terminal.wrap(text, room))]
                              if text else [])
@@ -6851,7 +6926,7 @@ def config_limits(cfg):
                   *([] if numbers[key] == default else [(f"default {default}", "dim")])],
                  ("step", lambda step, key=key: limit_step(key, numbers[key], step),
                   lambda value, key=key: take(key, value)),
-                 "", under(key, numbers[key]))
+                 "", under(key, numbers))
                 for key, (default, *_) in config.POLICY.items()], ""
     config_page("limits", page, move=("limit", "value"))
 

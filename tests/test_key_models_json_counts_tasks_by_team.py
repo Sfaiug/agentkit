@@ -31,7 +31,7 @@ from fixtures.akbin import Home
 from test_key_models_answer import ENV, NOW, boards
 from test_key_models_json_week_meters import TABLES as BASE, WeekMeters
 import test_key_models_json_run_usage as run_usage
-from test_key_models_json_run_usage import EMPTY, TABLES
+from test_key_models_json_run_usage import EMPTY, IDLE, TABLES
 
 # a `seat_usage` table from before it named the orchestrator and effort a seat ran as
 METER_TABLES = {**TABLES, "seat_usage": BASE["seat_usage"]}
@@ -321,7 +321,8 @@ class ModelsJsonTeamUsage(WeekMeters):
         found = self.teams([run("fix-api", 5)])                 # nova at high
         self.assertEqual(found["teams"], [team("max", 1, 1, 1, 1.0, 1, 1, usage=took())])
         self.assertEqual(found["seats"], [
-            {"name": "nova", "effort": "low", "points": {"acme": {"Max": 10}}, "unrated": 0}])
+            {"name": "nova", "effort": "low", "points": {"acme": {"Max": 10}}, "unrated": 0,
+             **IDLE}])
 
 
 if __name__ == "__main__":
