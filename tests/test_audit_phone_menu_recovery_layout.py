@@ -308,7 +308,8 @@ class Pages(Sandbox):
         with patch.object(menu.orch, "listing", return_value=seats), \
                 patch.object(menu.orch, "job_notices", return_value=[]), \
                 menu_input(side_effect=["j", "k", "j", "j", "j", "12", "3", ""]), \
-                patch.object(menu, "open_session", side_effect=lambda cfg, s, dry, **_kw: opened.append(s["name"])), \
+                patch.object(menu, "open_session",
+                             side_effect=lambda cfg, s, dry, **_kw: opened.append(s["name"])), \
                 patch.object(terminal, "width", return_value=40), \
                 patch.object(terminal, "height", return_value=12), \
                 redirect_stdout(io.StringIO()) as out:
