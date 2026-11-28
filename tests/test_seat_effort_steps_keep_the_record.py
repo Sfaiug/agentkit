@@ -1,6 +1,7 @@
-"""A seat's build or review effort step its `c` applies sets its keys on its record as it stands,
-so a key saved since the screen opened is kept; a step of its orchestrator's effort writes
-nothing itself, handing the level to the seat's move; the open screen then holds what was saved.
+"""A seat's build or review effort step its `c` applies sets its
+keys on its record as it stands, so a key saved since the screen opened is kept; a step of its
+orchestrator's effort writes nothing itself, handing the level to the seat's move; the open
+screen then holds what was saved.
 
 In-process, in a throwaway HOME (tests/fixtures/sandbox.py): seat `fix-api` on the shipped
 config, its record changed behind an open screen's back.

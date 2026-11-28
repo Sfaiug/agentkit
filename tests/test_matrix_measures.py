@@ -1,7 +1,7 @@
-"""What `ak models --json` rates each role on is pinned here, so it changes only with a visible
-test change: the roles, each role's measures in order with the kind of number each is and its
-weight, the cost of a role's task (`quality`), how many tasks or questions a measure's error
-counts, and that every measure says what it tests in plain words."""
+"""What `ak models` rates each role on is pinned here, so it changes only with a visible test
+change: the roles, each role's measures in order with the kind of number each is and its weight,
+the cost of a role's task (`quality`), how many tasks or questions a measure's error counts, and
+that every measure says what it tests in plain words."""
 
 from pathlib import Path
 import sys

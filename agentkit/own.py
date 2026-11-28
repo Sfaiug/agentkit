@@ -263,9 +263,9 @@ def numbers(row, columns, paid):
 
 
 def named(cfg, row):
-    """A row's model as every screen names it: its full name (config.model_name), by the name its
-    runs kept where no longer configured or where that name drawn plain is empty, then its effort,
-    `none` being none, each plain on its own (menu.named)."""
+    """A row's model as `ak models` and `config · your runs` name it: its full name
+    (config.model_name), by the name its runs kept where no longer configured or where that name
+    drawn plain is empty, then its effort, `none` being none, each plain on its own (menu.named)."""
     name = config.model_name(cfg, row["name"])
     return menu.named({"name": name if terminal.plain(name) else row["name"],
                        "effort": None if row["effort"] == "none" else row["effort"]})

@@ -3659,11 +3659,10 @@ def company_list(cfg, title):
         if act == "a" or act == "enter" and here == ADD_COMPANY:
             clock.forget()            # another screen: the list back from it is drawn as it is
             picked = company_add(cfg, title, fetch)
-            if picked is not None:
-                # the models it drew, which a lineup landing since may lack; "", the maker the
-                # boards leave unnamed, is one
-                added, slugs = picked
-                note = models_listed(cfg, [*companies_listed(cfg)[1], added], off - slugs)
+            if picked is not None:      # "", the maker the boards leave unnamed, is one
+                (added, seen), (makers, yours) = picked, companies_listed(cfg)
+                # all on: the models the add page drew, and those a lineup landing since lists
+                note = models_listed(cfg, [*yours, added], off - seen - set(makers.get(added, ())))
                 here, column = ("company", added), 0
         elif act in ("left", "right"):
             column = max(0, min(column + (1 if act == "right" else -1), len(models)))
