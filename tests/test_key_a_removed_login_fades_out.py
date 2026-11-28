@@ -87,7 +87,7 @@ class ARemovedLoginFadesOut(unittest.TestCase):
 
     def test_at_eight_colours_the_first_screen_after_the_pick_is_the_page(self):
         self.removing({"TERM": "xterm", "COLORTERM": ""})
-        self.term.wait(self.gone)
+        self.term.wait(lambda _: self.updates())       # pipe-pane may lag the pane
         self.assertTrue(self.gone(self.updates()[0]))
 
 
