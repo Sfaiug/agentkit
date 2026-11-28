@@ -1201,9 +1201,10 @@ newrepo() {
   git -C "$d" update-ref refs/remotes/origin/HEAD HEAD
   printf '%s' "$d"
 }
-newseat() {   # newseat <check> <model> <seat>: that seat on that model, as a person opens one
-  local repo; repo=$(newrepo "$1-$3")   # a seat's name, as `ak orch` spells it, is one path component
-  ( cd "$repo" && typed $'\n' ak orch --model "$2" "$3" )
+newseat() {   # newseat <model> <seat>: that seat on that model, as a person opens one
+  local repo   # a repository no seat had before: two models' seats may share a name
+  repo=$(mktemp -d "$WORK/$2-XXXXXX") && repo=$(newrepo "${repo##*/}") &&
+    ( cd "$repo" && typed $'\n' ak orch --model "$1" "$2" )
 }
 echo "workdir: $WORK"
 # --- 44: desktop notices --------------------------------------------------
@@ -2041,7 +2042,7 @@ fi
 if SMOKE_LOGIN=seat skip_unavailable 6d astra; then
   :
 else
-newseat 6d astra smoke-astra >"$WORK/seat.log" 2>&1
+newseat astra smoke-astra >"$WORK/seat.log" 2>&1
 SEATRC=$?
 PANE=""
 for _ in $(seq 1 30); do
@@ -2116,7 +2117,7 @@ for harness, name in firsts.items():
 while IFS= read -r -d '' -u 3 HARNESS && IFS= read -r -d '' -u 3 MODEL &&
       IFS= read -r -d '' -u 3 SEAT; do
   SMOKE_LOGIN=seat skip_spent "6h $HARNESS" "$MODEL" && continue
-  newseat 6h "$MODEL" "$SEAT" >"$WORK/seat-6h-$HARNESS.log" 2>&1
+  newseat "$MODEL" "$SEAT" >"$WORK/seat-6h-$HARNESS.log" 2>&1
   python3 "$REPO/tests/probe_seat.py" "$SEAT" >"$WORK/probe-$HARNESS.log" 2>&1
   PROBERC=$? WHY=""
   ak orch stop "$SEAT" >>"$WORK/seat-6h-$HARNESS.log" 2>&1
