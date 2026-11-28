@@ -25,7 +25,7 @@ MODELS = {"anvil-main": {"harness": "echo", "provider": "acme"},
           "anvil-fable": {"harness": "echo", "provider": "acme"}}
 CARD = {"COLUMNS": "40"}
 WIDE = {"COLUMNS": "200"}
-STANDARD_LABELS = ("left", "holds", "a month", "resets", "week elapsed", "session",
+STANDARD_LABELS = ("left", "a month", "resets", "week elapsed", "session",
                    "resets held", "headroom", "budget", "outlook")
 
 
