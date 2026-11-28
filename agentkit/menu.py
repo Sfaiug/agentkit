@@ -5802,8 +5802,9 @@ def page_body(rows, at=None, moves=None):
     (row, label, value) each, its label and then its value, lined up past the widest label
     beside a value as `c`'s own rows are, or with no label a choice of a list opened under the
     row above it, indented as `add a subscription`'s are.  A value is
-    text, or parts, (text, kind) each -- or (text, kind, cell), its columns one of the line's
-    cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
+    text, or parts: (text, kind) each -- or (text, kind, cell), its columns one of the line's
+    cells, as matrix_key reads them -- a space apart, or a list of (text, kind) kept whole as one
+    unit with a two-space gutter after it, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
     indented as a choice, and so does one with a cell, kept whole, as `◂ 300 ▸` steps; `at` is
     the row lit, on the selection unless its cell is what is lit, and `moves` is handed each
@@ -5822,13 +5823,15 @@ def page_body(rows, at=None, moves=None):
         # the room beside the padded label, none or less where the widest label fills the line
         left, wrapped, used = room - terminal.cells(lead), [[]], 0
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
-        # what never parts across lines: each word, and a value with a cell whole, so an arrow
-        # stays beside what it steps
-        celled = any(cell for _, _, *cell in parts)
+        # what never parts across lines: each word, a mark-and-word list, and a value with a cell
+        # whole, so an arrow stays beside what it steps
+        celled = any(isinstance(part, tuple) and len(part) > 2 for part in parts)
         # such a row is still the row around its cells, on every line of it (terminal.under)
         around = [(1, room, None)] if celled else []
         whole = ([" ".join(text for text, *_ in parts)] if celled
-                 else [word for text, *_ in parts for word in text.split()])
+                 else [word for part in parts for word in (
+                     ["".join(text for text, _ in part)] if isinstance(part, list)
+                     else part[0].split())])
         if label is not None and any(terminal.cells(word) > left for word in whole):
             # too wide beside the label: the value folds under it, never cut in a word, and so
             # does a label too wide for its line, wrapped at its words
@@ -5837,21 +5840,34 @@ def page_body(rows, at=None, moves=None):
                 lines.append(terminal.highlight(f"  {part}", number == 0, band=not celled)
                              if row == at else f"  {part}")
             lead, left, folded = "    ", max(1, room - 4), True
-        if moves is not None and not isinstance(value, str) and value[0][0] in motion.HALF:
+        if (moves is not None and not isinstance(value, str) and value
+                and isinstance(value[0], tuple) and value[0][0] in motion.HALF):
             moves.append((len(lines), ("mark", row), value[0][0], motion.toggled(
                 value[0][0], 3, value[0][1], row == at, terminal.cells(lead))))
-        indent = terminal.cells(lead)
-        for text, kind, *cell in parts:
+        indent, gap = terminal.cells(lead), 0
+        for part in parts:
+            if isinstance(part, list):
+                piece = "".join(terminal.styled(text, kind) if kind else text
+                                for text, kind in part)
+                span = terminal.cells(piece)
+                if used and used + gap + span > left:
+                    wrapped, used, gap = [*wrapped, []], 0, 0
+                wrapped[-1].append((" " * gap + piece, []))
+                used, gap = used + gap + span, 2
+                continue
+            text, kind, *cell = part
             for piece in terminal.wrap(text, left):
-                if used and used + 1 + terminal.cells(piece) > left:
-                    wrapped, used = [*wrapped, []], 0
-                used += bool(used) + terminal.cells(piece)
-                first = indent + used - terminal.cells(piece) + 1
-                wrapped[-1].append((terminal.styled(piece, kind) if kind else piece,
+                span = terminal.cells(piece)
+                if used and used + gap + span > left:
+                    wrapped, used, gap = [*wrapped, []], 0, 0
+                used += gap + span
+                first = indent + used - span + 1
+                wrapped[-1].append((" " * gap + (terminal.styled(piece, kind) if kind else piece),
                                     [(first, indent + used, *cell)] if cell else []))
+                gap = 1
         for number, parts in enumerate(wrapped):
             line = ((lead if number == 0 else " " * indent)
-                    + " ".join(piece for piece, _ in parts)).rstrip()
+                    + "".join(piece for piece, _ in parts)).rstrip()
             places[len(lines)] = (row, [*(spot for _, cells in parts for spot in cells), *around])
             lines.append(terminal.highlight(line, number == 0 and not folded, band=not celled)
                          if row == at else line)
@@ -6467,10 +6483,10 @@ def machines_value():
     return f"{count} machine{'' if count == 1 else 's'}"
 
 
-def machine_value(machine, cfg, stand_in=None):
-    """What the tick last found, the work this machine's marks allow, then `stand_in`, its words
-    as the stand-in where it is one; another machine that answered on battery takes no work now
-    (machines.helpers), its row ending so in place of its work."""
+def machine_value(machine, stand_in=None):
+    """What the tick last found, then `stand_in`, its words as the stand-in where it is one;
+    another machine that answered on battery takes no work now (machines.helpers), its row
+    ending `on battery · no work until on power`."""
     here, said = machine.name == machines.HERE, machine.said
     also = [stand_in] if stand_in else []
     words = ["home" if here else machine.kind]
@@ -6492,7 +6508,7 @@ def machine_value(machine, cfg, stand_in=None):
             return " · ".join([*words, *also, "on battery · no work until on power"])
     else:
         words += ["never answered"]
-    return " · ".join([*words, work_words(machine.name, cfg), *also])
+    return " · ".join([*words, *also])
 
 
 def stand_in_value(age, takes, own=True):
@@ -6502,15 +6518,6 @@ def stand_in_value(age, takes, own=True):
     return " · ".join(["stand-in", f"copy {age}" if takes else age,
                        *["takes over when this one stops"] * (own and takes in standby.OVER),
                        *["home goes back to it once it is steady"] * (own and takes == "back")])
-
-
-def work_words(name, cfg):
-    """The marks as the overview names their work."""
-    work = machines.work(name, cfg)
-    tasks = (["sessions"] if name == machines.HERE else [])
-    tasks += ["builds", "reviews"] if "turns" in work else []
-    tasks += ["tests"] if "tests" in work else []
-    return ", ".join(tasks) or "no work"
 
 
 def machine_hours(name):
@@ -6660,8 +6667,16 @@ def config_machines(cfg):
                 joined[same] = stand_in_value(age, takes, own=False)
             else:
                 apart.append((host, stand_in_value(age, takes), None))
-        rows = [(machine.name, machine_value(machine, cfg, joined.get(machine.name)),
-                 opens(machine.name)) for machine in known] + apart
+        def row_value(machine):
+            work = machines.work(machine.name, cfg)
+            # kept as one unit so runs and tests stay on one line and fold together on narrow rows
+            marks = []
+            for word, label in (("turns", "runs"), ("tests", "tests")):
+                marks += [("  ", None)] * bool(marks) + [
+                    (on, "accent") if word in work else (off, "dim"), (f" {label}", None)]
+            return [marks, (machine_value(machine, joined.get(machine.name)), None)]
+        rows = [(machine.name, row_value(machine), opens(machine.name))
+                for machine in known] + apart
         # a file that will not load closes the page, saying why on `c`; read last, so one
         # breaking under the reads above does too
         config.load()

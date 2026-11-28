@@ -60,7 +60,7 @@ class TheMachinesPageListsTheStandIn(unittest.TestCase):
         screen = self.term.wait(lambda screen: "config · machines" in screen
                                 and "esc back" in screen
                                 and all(row in " ".join(screen.split()) for row in (
-                                    "this one home", "acme-mac", "+ add a machine", *rows)))
+                                    "this one ● runs ● tests home", "acme-mac", "+ add a machine", *rows)))
         return " ".join(screen.split())
 
     def leave(self):
@@ -106,7 +106,7 @@ class TheMachinesPageListsTheStandIn(unittest.TestCase):
     def test_a_machine_ak_uses_that_also_stands_in_has_both_rows_each_reached_in_turn(self):
         akconfig.write(self.home, ["fable"], extra="[machines.acme-mac]\n[machines.acme-vm]\n")
         self.told("yes")
-        self.page("acme-vm new", f"acme-vm stand-in · copy 3m old · {TAKES_OVER}")
+        self.page("acme-vm ○ runs ● tests new", f"acme-vm stand-in · copy 3m old · {TAKES_OVER}")
         self.term.keys("Down", "Down", "Down")
         self.term.wait(lambda screen: any("› acme-vm" in line and "stand-in" in line
                                           for line in screen.splitlines()))
@@ -122,7 +122,7 @@ class TheMachinesPageListsTheStandIn(unittest.TestCase):
         machines = "[machines.acme-mac]\n[machines.acme-laptop]\n[machines.acme-vm]\n"
         self.config = akconfig.write(self.home, ["fable"], extra=machines)
         self.told("yes")
-        self.page("acme-laptop", "acme-vm new", "acme-vm stand-in")
+        self.page("acme-laptop", "acme-vm ○ runs ● tests new", "acme-vm stand-in")
         self.term.keys("Down", "Down", "Down")
         self.term.wait(pointed("new"))
         self.config.write_text(self.config.read_text().replace("[machines.acme-laptop]\n", ""))
