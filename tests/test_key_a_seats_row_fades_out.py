@@ -90,18 +90,14 @@ class ARemovedPastSessionFadesOut(unittest.TestCase):
                 for width in (105, 110) if how == "resized" else ():    # the last, nothing moving
                     self.term.resize(width, 30)
                     self.term.wait("─" * width)
-                before = self.shows(self.rest)
+                before = self.shows(lambda rows: all(look(rows, text) == look(rows, "beta") for
+                                                     text in ("theta", "Remove theta", "✓ Keep")))
             pick = "\r"
         self.raw = self.home.root / "raw"
         self.raw.touch()
         self.home.tmux("pipe-pane", "-t", self.term.pane, f"cat >{self.raw}", server=SERVER)
         self.term.type(pick)
         return before
-
-    def rest(self, rows):
-        """Whether the card is up and its highlight on `Remove` alone, at rest."""
-        return all(look(rows, text) == look(rows, "beta")
-                   for text in ("theta", "Remove theta", "✓ Keep"))
 
     def at(self, seconds):
         """ak's motion at `seconds` from now on, its clock's file swapped whole."""

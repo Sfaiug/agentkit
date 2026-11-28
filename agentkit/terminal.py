@@ -884,7 +884,7 @@ _UNSEEN = False    # the key read last was pressed while it was (`unseen`)
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
 _PAINTED = []
-_OVER = []         # ... and what frames wrote on it since, (row, first, last cell, text) in order
+_OVER = []         # ... and what frames wrote on it since, (row, column, its cells, text) in order
 _POINTED = Spot()  # ... the `Spot` it was on when its move or click was last answered
 TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
@@ -1784,22 +1784,30 @@ def over(frame, rows=""):
     if rows or frame:
         sys.stdout.write(f"{HOLD}{rows}{frame}{RELEASE}")
         sys.stdout.flush()
-    for row, column, text in re.findall(r"\x1b\[(\d+);(\d+)H((?:(?!\x1b\[\d+;\d+H).)*)", frame,
-                                        re.S):
-        row, column = int(row), int(column)
+    lead, *cut = re.split(r"\x1b\[(\d+);(\d+)H", frame)      # then each row, column and text
+    pen = _inked("", rows + lead)       # each write starts in the theme's ink (`_Screen`)
+    for row, column, text in zip(map(int, cut[::3]), map(int, cut[1::3]), cut[2::3]):
         if _UP and row <= len(_UP):
             _UP[row - 1] = None
-        last = float("inf") if "\033[K" in text else column + cells(text) - 1
-        _OVER[:] = [one for one in _OVER    # gone once all of it is written over
-                    if not (one[0] == row and column <= one[1] and one[2] <= last)]
-        _OVER.append((row, column, last, text))
+        drawn = _SGR.sub("", text)      # the cells it writes: a write of the same there is gone
+        _OVER[:] = [one for one in _OVER if one[:3] != (row, column, drawn)]
+        _OVER.append((row, column, drawn, f"\033[0m{pen}{text}"))     # in the ink it inherits
+        pen = _inked(pen, text)
+
+
+def _inked(pen, text):
+    """`pen`, SGR codes from the last that resets, as `text` written after them leaves it."""
+    for code in _SGR.finditer(text):
+        pen = code[0] if int(code[1].split(";")[0] or 0) == 0 else pen + code[0]
+    return pen
 
 
 def standing(rows):
-    """Each of screen `rows` (from 1) that is up as it stands: (row, its line as last drawn
-    (`on_screen`), what frames wrote on it since, each (column, text) in writing order)."""
-    return [(row, _PAINTED[row - 1], [(column, text) for at, column, _, text in _OVER
-                                      if at == row]) for row in rows if 0 < row <= len(_PAINTED)]
+    """Each of screen `rows` (from 1) that is up, as what wrote it: (row, [(column, text)]), its
+    line as last drawn (`on_screen`), then each frame's write on it since, in the ink it had."""
+    return [(row, [(1, f"\033[0m{cleared(_PAINTED[row - 1])}"),
+                   *((column, text) for at, column, _, text in _OVER if at == row)])
+            for row in rows if 0 < row <= len(_PAINTED)]
 
 
 def written(lines, frame="", rising=False, screen=None):

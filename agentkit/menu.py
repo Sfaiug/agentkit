@@ -760,15 +760,12 @@ def framed(clock, title, lines, at, card, keys, places=None):
 
 
 def fade_out(clock, rows):
-    """Fade screen `rows` (counted from 1), as they stand, into the background in `motion.LEAVES`,
-    returning once they are background: a page calls this between the answer and the act, so
-    its list never holds a row that has gone.
-
-    Hides reading them as they stand (terminal.standing), what still moves on them too, settling
-    and clearing the clock, mixing text and highlight backgrounds into the screen's background,
-    the frame loop, ending at once on a resize meanwhile without reading a key, and doing
-    nothing where nothing can move (`motion.movable`).
-    """
+    """Fade screen `rows` (from 1), as they stand, into the background in `motion.LEAVES`, and
+    return once they are: a page calls it between the answer and the act, so its list never
+    holds a row that has gone.  It hides reading them as they stand (terminal.standing), what
+    moves on them too, settling the clock, mixing text and highlight backgrounds into the
+    screen's, the frame loop, ending at once on a resize meanwhile without reading a key, and
+    doing nothing where nothing can move (`motion.movable`)."""
     if not motion.movable():
         return
     terminal.asked_again()          # a resize the last draw answered is none meanwhile
@@ -782,10 +779,9 @@ def fade_out(clock, rows):
         now, step = motion.moment(), time.monotonic()
         done, amount = now >= began + motion.LEAVES, motion.eased((now - began) / motion.LEAVES)
         out = ""
-        for row, line, since in leaving:
-            parts = [] if done else [(1, terminal.cleared(line)), *since]
+        for row, parts in leaving:
             text = "".join(f"\033[{row};{column}H{terminal.fade(part, amount, backs=True)}"
-                           for column, part in parts) or f"\033[{row};1H\033[K"
+                           for column, part in ([] if done else parts)) or f"\033[{row};1H\033[K"
             if shown.get(row) != text:
                 shown[row] = text
                 out += text
