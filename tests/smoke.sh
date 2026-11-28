@@ -145,7 +145,7 @@ smoke_home() {
   # One with no usual login lends instead a subscription the caller's config lists by name,
   # its last line says which, and the check's config lists it below.  Reading the caller's
   # config is setup's alone: SMOKE_CALLER_HOME says so.
-  local path source target caller_config caller_gh caller_account caller_state lent answered
+  local path source target caller_config caller_gh caller_account caller_state lent
   SMOKE_CALLER_HOME=$HOME
   caller_config=${XDG_CONFIG_HOME:-$HOME/.config}
   caller_state=${XDG_STATE_HOME:-$HOME/.local/state}
@@ -172,21 +172,9 @@ smoke_home() {
   # both update their config locally, OpenCode its service receipt.
   # Its service receipt authenticates catalog probes without a second server fighting for
   # the host's port. A copy keeps a sandbox update from replacing the host's receipt.
-  # agy shows its first-run pages (`Choose your color scheme`, its terms) once to a login, and a
-  # seat left at them takes no line of ak's: the caller's answers go beside the login the checks
-  # run agy on.  That is a subscription's lent by name, else the usual one where its adapter's
-  # `auth seat` finds a login here, the token lent or a key the suite inherits.  No other
-  # profile's are read, so none the checks leave alone can end the suite.
-  AGENTKIT_ACCOUNT= "$REPO/adapters/antigravity.sh" auth seat >/dev/null 2>&1 &&
-    answered=.gemini/antigravity-cli/cache/onboarding.json
-  for path in "$HOME"/.gemini/antigravity-cli-*/antigravity-oauth-token; do
-    [ -f "$path" ] || continue
-    answered=${path#"$HOME/"}; answered=${answered%/*}/cache/onboarding.json
-  done
   for path in "$caller_account:.claude.json" "$SMOKE_CALLER_HOME/.gitconfig:.gitconfig" \
               "$caller_gh/config.yml:.config/gh/config.yml" \
-              "$caller_state/opencode/service.json:.local/state/opencode/service.json" \
-              ${answered:+"$SMOKE_CALLER_HOME/$answered:$answered"}; do
+              "$caller_state/opencode/service.json:.local/state/opencode/service.json"; do
     source=${path%:*}; target="$HOME/${path##*:}"
     smoke_source "$source" || continue
     mkdir -p -- "${target%/*}" && cp -p -- "$source" "$target" || exit 1
@@ -251,6 +239,23 @@ PY
   # The cadence and Retry-After belong to the host: share its probe ages live, so every
   # sandbox ask obeys them through _cooling itself, at every check and for every provider.
   smoke_share_probes
+  # agy shows its first-run pages (`Choose your color scheme`, its terms) once to a login, and a
+  # seat left at them takes no line of ak's.  Where the checks can open an agy seat, agy on
+  # their PATH with a login here, the caller's answers are borrowed beside that login: a
+  # subscription's lent by name, else the usual one, which its adapter's `auth seat` finds in
+  # the token lent or a key the suite inherits.  With no such seat, or where the caller names
+  # another harness as the one its check runs (`smoke_home claude`, check 3a), none of the
+  # caller's are read, so none can end the suite.
+  [ "${1:-antigravity}" = antigravity ] && [ -x "$(type -P agy)" ] || return 0
+  path=
+  AGENTKIT_ACCOUNT= "$REPO/adapters/antigravity.sh" auth seat >/dev/null 2>&1 &&
+    path=.gemini/antigravity-cli/cache/onboarding.json
+  for target in "$HOME"/.gemini/antigravity-cli-*/antigravity-oauth-token; do
+    [ -f "$target" ] || continue
+    path=${target#"$HOME/"}; path=${path%/*}/cache/onboarding.json
+  done
+  [ -n "$path" ] && smoke_source "$SMOKE_CALLER_HOME/$path" || return 0
+  mkdir -p -- "$HOME/${path%/*}" && cp -p -- "$SMOKE_CALLER_HOME/$path" "$HOME/$path" || exit 1
 }
 smoke_source() {   # smoke_source <caller's file>: 0 to borrow it, 1 when nothing is there
   # A file this user cannot read, or cannot reach through a directory or a link, is there and
@@ -271,7 +276,7 @@ if [ "${1:-}" = --claude-stream ]; then
   STREAM=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$2")
   STREAM_HOME=$(mktemp -d "${TMPDIR:-/tmp}/ak-smoke-stream-XXXXXX") || exit 1
   trap 'rc=$?; rm -rf -- "$STREAM_HOME"; exit "$rc"' EXIT
-  WORK="$STREAM_HOME" smoke_home
+  WORK="$STREAM_HOME" smoke_home claude
   mkdir -p -- "$STREAM/workspace"
   python3 "$REPO/tests/check_claude_stream.py" "$STREAM/out" "$STREAM/workspace"
   exit $?
