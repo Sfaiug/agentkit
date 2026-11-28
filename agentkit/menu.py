@@ -2356,14 +2356,24 @@ def stop_session(name, dry_run):
     return read(stop_question(name), "") == "y"
 
 
-def open_session(cfg, session, dry_run):
+def open_session(cfg, session, dry_run, keyboard=None, starting=None):
     """A number: into that seat, or back into the conversation it left behind.
 
     A seat whose orchestrator has exited, and one tmux no longer holds at all, are both opened
     by resuming their owned conversation or clearly starting fresh -- the same key either way.
+    `keyboard`, the one a screen holds the terminal by, is given to the seat at once; but while
+    a harness is put back in it, not in a dry run, `starting()` puts that screen up again naming
+    the job (`terminal.doing`), and the terminal is given once the harness is back
+    (`orch.resume`'s `give`), or before a refusal is said.
     """
     name = session["name"]
-    if not any(session.get(key) for key in orch.CLOSED):
+    closed = any(session.get(key) for key in orch.CLOSED)
+    give = keyboard.give if keyboard else lambda: None
+    if starting and closed and not dry_run and terminal.taken():
+        starting()
+    else:
+        give()
+    if not closed:
         if dry_run:
             print(f"would attach {name}")
             return
@@ -2373,8 +2383,11 @@ def open_session(cfg, session, dry_run):
         print(f"would resume {name}")
         return
     try:
-        orch.resume(cfg, name, wait=True)
+        # what it says while the screen is held would be written over it
+        orch.resume(cfg, name, wait=True, give=give,
+                    log=lambda line: None if terminal.taken() else print(line))
     except config.Error as exc:
+        give()
         pause(f"resume: {exc}")
 
 
@@ -7491,8 +7504,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             more = terminal.read_key(0.5)      # 1 then 2 within half a second is row 12
             act += more.char if more and more.name == "char" and more.char.isdecimal() else ""
         if act == "enter" or act.isdecimal() and act.isascii() and 1 <= int(act) <= len(past):
-            keyboard.give()       # the seat has the terminal while he is in it
-            open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1], dry_run)
+            open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1],
+                         dry_run, keyboard, lambda: terminal.doing("past sessions · starting"))
             return True
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             leaving = []
@@ -7884,14 +7897,16 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 except config.Error as exc:
                     pause(f"new session: {exc}")
                 continue
-            if key not in ("c", "n", "p", "r"):
-                keyboard.give()           # whatever the key opens has the terminal as it was
+            if not key.isdigit() and key not in ("c", "n", "p", "r"):
+                keyboard.give()           # whatever the key opens has the terminal as it was,
+                                          # a seat as `open_session` gives it
             if key.isdigit() or key in ("n", "p"):
                 back = True               # each can hand the owner a seat, where nothing is read
                 live.away()
             if key.isdigit():
                 if 1 <= int(key) <= len(found):
-                    open_session(cfg, found[int(key) - 1], dry_run)
+                    open_session(cfg, found[int(key) - 1], dry_run, keyboard,
+                                 lambda: terminal.doing("starting", drawn["titled"]))
                     if overlay:
                         return 0
                 else:
