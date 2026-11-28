@@ -3043,6 +3043,28 @@ def meter_moves(rows, cells, lines, drawing):
             enumerate(zip(rows, cells))]
 
 
+def meter_lit(line, shown, moved):
+    """A move's start (matrix_key): one light crosses the bar of `line`, a meter's of
+    `usage_lines` drawn one to a line with a bar (`barred`), from `since` (`motion.sweeping`, as
+    a seat's line just done), and the rest of `shown`, the screen's drawing of that line, as
+    drawn, `moved()` told of each draw it moves.  The line is one cell, its first, so a glide's
+    start there takes it (Clock.start)."""
+    def start(clock, row, since, _):
+        # the bar is the run before its share, which ends the line: no label reaches there
+        plain = terminal.ANSI.sub("", line)
+        found = re.search(r"(\S+)  \d+% left$", plain)
+        written = terminal.cell_texts(shown)
+        first = len(terminal.cell_texts(plain[:found.start(1)]))
+        cells, until = motion.sweeping(written[first:first + len(found[1])], since)
+        head, tail = "".join(written[:first]), "".join(written[first + len(cells):])
+        # as long as the line at rest, so no clear past it takes the pointer's light off its cell
+        clock.start([(row, 1)], lambda now: head + "".join(cell(now) for cell in cells) + tail,
+                    until)
+        if (row, 1) in clock.cells:     # not where nothing moves, nor once it has crossed
+            moved()
+    return start
+
+
 METER = 10        # cells of a subscription's meter on the ak screen
 COLUMN = 33       # ... and of its whole cell, its label, meter and share or `empty until` date
 
@@ -3057,6 +3079,12 @@ def usage_cell(width, n):
     `usage_lines` draws `width` wide: all of it a meter's, its padding too."""
     room = min(COLUMN, width - 2)
     return 3 + n * (room + 2), 2 + n * (room + 2) + room
+
+
+def barred(left, said):
+    """Whether `usage_lines` draws a meter (left, said), as `usage_cells` says them, with a bar:
+    a share left, or 0 where it says `0% left`."""
+    return bool(left) or left == 0 and said.endswith("% left")
 
 
 def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cells=None):
@@ -3077,11 +3105,9 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cell
     if not found:
         return []
     columns, room = columns or usage_columns(width), min(COLUMN, width - 2)
-    def bar(left, said):
-        return bool(left) or left == 0 and said.endswith("% left")
 
     # what a cell says beside its label: its meter at the least, four cells, then its share
-    said_room = max(terminal.cells(said) + (6 if bar(left, said) else 0)
+    said_room = max(terminal.cells(said) + (6 if barred(left, said) else 0)
                     for _, _, left, said in found)
     label_room = min(12, room - 2 - said_room,
                      max(terminal.cells(terminal.plain(label)) for _, label, _, _ in found))
@@ -3097,7 +3123,7 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cell
             warn = ending[number - 1][0]
             shown = terminal.cut(terminal.plain(label), label_room)
             text = shown + " " * (label_room - terminal.cells(shown) + 2)
-            if not bar(left, said):     # no meter: `empty until`, or why there is none, or credits
+            if not barred(left, said):  # no meter: `empty until`, or why there is none, or credits
                 text += (terminal.styled(said, "amber") if warn
                          else terminal.styled(said, "dim") if left is None else said)
             else:
@@ -4895,14 +4921,15 @@ def _signed_out(harness, provider, account, label):
 
 
 @terminal.clicks_its_own
-def config_spend_reset(cfg, picked, kind=None):
+def config_spend_reset(cfg, picked, kind, on_spent):
     """`→ spend a reset` on a subscription's row: one usage-limit reset spent,
     by hand, on `picked`, its subscription as (provider, account, label), of `kind` where its
     reading names kinds.  usage.replenish spends it where it still holds one and reads the
     meters back into the cache, so its meter shows the week that came back; Esc while it is
-    spent lets it finish.  What to say under the matrix: its name, what its cell on the `ak`
-    screen says now (`usage_cells`), what each cap its provider names has left (`scoped_notes`:
-    a Fable reset leaves the week's cell as it was) and the resets still in hand (`in_hand`),
+    spent lets it finish.  Where its answer says one was spent it calls `on_spent()`.  What to
+    say under the matrix: its name, what its cell on the `ak` screen says now (`usage_cells`),
+    what each cap its provider names has left (`scoped_notes`: a Fable reset leaves the week's
+    cell as it was) and the resets still in hand (`in_hand`),
     `Acme · 60% left · Fable 100% left · 1 weekly, 2 Fable resets in hand`."""
     title = f"config · {picked[2]}"
     name, account, label = picked
@@ -4913,6 +4940,7 @@ def config_spend_reset(cfg, picked, kind=None):
         return ""
     if not spent:
         return f"{label}: no reset was spent"
+    on_spent()
     rows = usage_rows(cfg)
     prov, said = next((row[2], cell[3]) for row, cell in zip(rows, usage_cells(cfg, rows=rows))
                       if cell[:2] == (name, label))
@@ -4921,14 +4949,15 @@ def config_spend_reset(cfg, picked, kind=None):
                                     in_hand(prov))))
 
 
-def subscription_acts(cfg, keyboard, row, ends):
+def subscription_acts(cfg, keyboard, row, ends, on_spent):
     """What subscription `row`, one of usage_rows', offers, as (text, act) each, an act what to
     say under the screen or "": `log in again` while its own login ends soon or has ended
     (`ends`, login_notes' as drawn), where its harness signs it in afresh (sign_in,
-    config.signs_in_again), `spend a reset` while it holds one (config_spend_reset) -- where its reading names kinds,
-    `spend a Fable reset` for each it can spend now, in its order -- and `remove`
-    (config_remove_provider).  A login the tick finds logged out with no end recorded is told
-    by its alert alone: that record is its harness's, which can carry several subscriptions."""
+    config.signs_in_again), `spend a reset` while it holds one (config_spend_reset, telling
+    `on_spent`) -- where its reading names kinds, `spend a Fable reset` for each it can spend
+    now, in its order -- and `remove` (config_remove_provider).  A login the tick finds logged
+    out with no end recorded is told by its alert alone: that record is its harness's, which can
+    carry several subscriptions."""
     name, label, prov, account = row
     # its label as usage_cells has it, which config_spend_reset reads its week back by
     picked = (name, account, label)
@@ -4939,8 +4968,9 @@ def subscription_acts(cfg, keyboard, row, ends):
     return [(act_text(text, kind), act) for text, kind, act, offers in (
         (SUBSCRIPTION_ACTS[0], None, lambda: sign_in(cfg, keyboard, picked),
          ends and harness and config.signs_in_again(harness, account)),
-        *((SUBSCRIPTION_ACTS[1], kind, lambda kind=kind: config_spend_reset(cfg, picked, kind),
-           True) for kind in spends),
+        *((SUBSCRIPTION_ACTS[1], kind,
+           lambda kind=kind: config_spend_reset(cfg, picked, kind, on_spent), True)
+          for kind in spends),
         (SUBSCRIPTION_ACTS[2], None, lambda: config_remove_provider(cfg, picked), True))
         if offers]
 
@@ -4961,7 +4991,8 @@ def config_subscriptions(cfg, keyboard, number=None):
     running one, the key line naming it.  One an act adds is asked whose it is (logins.renewed),
     then pointed at.  It comes up as `c` does as it opens, and the pointed row's lines come up
     under it as the line under the menu's highlighted row does; back from what an act or an add
-    drew, it is drawn as it is.  The act lit (`on`) is kept by what it is, so one going from under
+    drew, it is drawn as it is, a light crossing the meter of one a reset was just spent on
+    (meter_lit).  The act lit (`on`) is kept by what it is, so one going from under
     it lights nothing in its place, and is at rest while the pointer lights its row's own cell,
     the label, meter and share.  A meter glides to a new reading on its line as drawn here
     (`meter_moves`).
@@ -5019,7 +5050,7 @@ def _subscriptions(cfg, keyboard, whose):
         # its whole cell, a cell of its row, the pointer lights as any cell (-1, no act)
         own = [(*usage_cell(width, 0), -1)] if meters else []
         owned = terminal.pointer_spot().cell == -1      # the pointer on one, as last drawn
-        body, places, acts, moves, spots = [], {}, {}, [], []
+        body, places, acts, moves, spots, lights = [], {}, {}, [], [], set()
         for number, (sub, line) in enumerate(zip(subs, drawn), 1):
             name, _, prov, _ = sub
             if number == 1 or subs[number - 2][0] != name:
@@ -5030,6 +5061,11 @@ def _subscriptions(cfg, keyboard, whose):
             places[len(body)] = (("sub", number), [*own, *row])
             spots.append(len(body))
             body.append(lined(number, line))
+            # lit by a reset spent on it, before its meter's moves: a glide on its line takes it
+            spent = ("spent", subscription(sub))
+            if meters and barred(*cells[number - 1][2:]):
+                moves.append((len(body) - 1, spent, None,
+                              meter_lit(line, body[-1], lambda spent=spent: lights.add(spent))))
             if number != lit:
                 continue
             # its limits but the resets in hand, its row's to say, or with no room its login's line
@@ -5043,7 +5079,8 @@ def _subscriptions(cfg, keyboard, whose):
                 body.append(shown)
             # its acts, email and plan from the one read of the logins its meter was drawn by
             ends, email, plan = ending[number - 1]
-            acts = dict(subscription_acts(cfg, keyboard, sub, ends))
+            acts = dict(subscription_acts(cfg, keyboard, sub, ends,
+                                          lambda spent=spent: clock.touch(spent)))
             on = on if on in acts else None
             plan = harness_plugin(logins.harness(cfg, name)).plan_name(plan)
             kind = "amber" if ends else "dim"
@@ -5071,6 +5108,11 @@ def _subscriptions(cfg, keyboard, whose):
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
                                               top, said, keys, timeout=STIR, marks=0,
                                               clock=clock, moves=moves)
+        # a spend's light is the page back's, kept while each draw moves it: a draw leaving it
+        # unmoved, its bar off the page or nothing moving, ends it, so no later draw (a resize)
+        # starts it, nor over a glide
+        clock.touched = {key: since for key, since in clock.touched.items()
+                         if key[0] != "spent" or key in lights}
         if clicked == -1:             # a subscription's own cell, lit by the pointer: no act
             clicked = None
         elif clicked is not None:
