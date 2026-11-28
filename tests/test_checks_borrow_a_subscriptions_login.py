@@ -121,7 +121,7 @@ class ChecksBorrowASubscriptionsLogin(LentLogins):
         home = self.smoke("anthropic", ".claude/.credentials.json", ".claude-acme/.credentials.json")
         unavailable = SMOKE[SMOKE.index("model_unavailable()"):SMOKE.index("skip_unavailable()")]
         result = subprocess.run(["/bin/bash", "-c", unavailable + "\nmodel_unavailable opus"
-                                 " && model_unavailable opus seat\n"],
+                                 " && SMOKE_LOGIN=seat model_unavailable opus\n"],
                                 env={**self.env, "HOME": str(home)},
                                 text=True, capture_output=True, timeout=120)
         self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)

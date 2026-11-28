@@ -80,8 +80,8 @@ export AK_PICK_DRAW=
 # task's title, and a gate kills every process carrying AGENTKIT_RUN=<id> host-wide; a seat that
 # brings a tmux server up names the host's systemd scope for it after itself, and a second scope
 # of that name is refused.  So the suite's pid, `$$`, which no other suite alive has, ends the
-# title of every run it launches and the fixed name of a seat that starts a server.  (6d's and
-# 21's seats keep their names: tests of their own pin them, and nothing but 6f reads a seat's
+# title of every run it launches and the fixed name of a seat that starts a server.  (6d's, 6h's
+# and 21's seats keep their names: tests of their own pin them, and nothing but 6f reads a seat's
 # scope.)
 
 if [ "${1:-}" = --projects ]; then
@@ -1201,6 +1201,11 @@ newrepo() {
   git -C "$d" update-ref refs/remotes/origin/HEAD HEAD
   printf '%s' "$d"
 }
+newseat() {   # newseat <check> <model>: seat smoke-<model>, opened as a person opens one
+  local repo; repo=$(newrepo "$1-$2")
+  tm kill-session -t "=smoke-$2" 2>/dev/null    # a seat a previous, interrupted smoke left
+  ( cd "$repo" && typed $'\n' ak orch --model "$2" "smoke-$2" )
+}
 echo "workdir: $WORK"
 # --- 44: desktop notices --------------------------------------------------
 if python3 "$REPO/tests/test_desktop_notices_and_boot_recovery.py"; then
@@ -1424,15 +1429,19 @@ retrylaunch retry-review work dead    # reviewer never comes back -> fall back t
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
   PYTHONPATH="$REPO" python3 - "$@" <<'PYTHON'
-import sys
+import os, sys
 from agentkit import config
 sys.path.insert(0, str(config.REPO / "tests"))
 from check4_pair import login
 from check_harness_contract import unavailable
-# Asked about the login the check runs, as check 3 asks: a lent subscription's own, by name.
+# Asked about the login the check runs, as check 3 asks: a lent subscription's own, by name,
+# and with SMOKE_LOGIN=seat, as a check that opens a seat runs, its seat's.  A login the caller
+# holds but this home was not lent is none here, never a broken one: only its own `auth` tells
+# a dead login from one its harness renews (Grok's as it starts), and Claude's renews it to
+# answer, which no check may do in the caller's home (lend.first_lapse).
 cfg = config.load()
 entry = config.model(cfg, sys.argv[1])
-why, broken = unavailable(entry["harness"], seat="seat" in sys.argv[2:],
+why, broken = unavailable(entry["harness"], seat=os.environ.get("SMOKE_LOGIN") == "seat",
                           account=login(cfg, entry["provider"]))
 if why:
     print(why)
@@ -2033,14 +2042,10 @@ fi
 # and declines updates (ak update owns those). The seat trusts its own hooks on its command
 # line, so a "Hooks need review" screen fails it. This seat makes no model request.
 # A direct invocation outside ~/code keeps its checkout when Project defaults to none.
-if ! SEATWHY=$(model_unavailable astra seat); then
-  no "6d: required model astra login check failed: $SEATWHY"
-elif [ -n "$SEATWHY" ]; then
-  skip "6d: required model astra is not on this host: $SEATWHY"
+if SMOKE_LOGIN=seat skip_unavailable 6d astra; then
+  :
 else
-SEAT=$(newrepo seat)
-tm kill-session -t =smoke-astra 2>/dev/null    # a seat a previous, interrupted smoke left
-( cd "$SEAT" && typed $'\n' ak orch --model astra smoke-astra ) >"$WORK/seat.log" 2>&1
+newseat 6d astra >"$WORK/seat.log" 2>&1
 SEATRC=$?
 PANE=""
 for _ in $(seq 1 30); do
@@ -2097,6 +2102,38 @@ else
   tm kill-session -t =smoke-astra 2>/dev/null
 fi
 fi
+
+# --- 6h: a seat of every harness takes ak's line ---------------------------
+# Not a dry run either: the first model of each harness the config offers (smoke_home's, the
+# caller's choice) opens a seat as 6d's does, and tests/probe_seat.py proves there that ak's
+# longest line is sent and its turn reads as working, then done.  A harness whose screen changed
+# under ak leaves ak's lines unsent, and ak keeps a harness upgrade only where this suite fails
+# nothing new: each harness is a label of its own, as check 3's are.  This seat makes a model
+# request.
+FIRSTS=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import config
+cfg, firsts = config.load(), {}
+for name in config.offered(cfg):
+    firsts.setdefault(cfg["models"][name]["harness"], name)
+print(*(f"{harness}={name}" for harness, name in firsts.items()))') || no "6h: the config's models could not be read"
+for FIRST in $FIRSTS; do
+  HARNESS=${FIRST%%=*} MODEL=${FIRST#*=}
+  SMOKE_LOGIN=seat skip_spent "6h $HARNESS" "$MODEL" && continue
+  newseat 6h "$MODEL" >"$WORK/seat-6h-$MODEL.log" 2>&1
+  python3 "$REPO/tests/probe_seat.py" "smoke-$MODEL" >"$WORK/probe-$MODEL.log" 2>&1
+  PROBERC=$? WHY=""
+  ak orch stop "smoke-$MODEL" >>"$WORK/seat-6h-$MODEL.log" 2>&1
+  ak orch stop "smoke-$MODEL" >>"$WORK/seat-6h-$MODEL.log" 2>&1
+  [ "$PROBERC" = 0 ] || WHY="$(head -1 "$WORK/probe-$MODEL.log") (exit $PROBERC)"
+  if tm has-session -t "=smoke-$MODEL" 2>/dev/null || [ -e "$HOME/.agentkit/state/session-smoke-$MODEL.json" ]; then
+    WHY="${WHY:+$WHY; }seat smoke-$MODEL or its record is still there after two stops"
+  fi
+  if [ -z "$WHY" ]; then
+    ok_call "6h $HARNESS: $MODEL's seat took ak's longest line, read working on it, and came back to its prompt"
+  else
+    no "6h $HARNESS: $WHY"
+    tail -n +2 "$WORK/probe-$MODEL.log" | sed 's/^/      /'
+  fi
+done
 
 # --- 6e: a subscription Codex is given no model of ours (offline) ----------
 if codex_model_flag_check >"$WORK/codex-mflag.log" 2>&1; then

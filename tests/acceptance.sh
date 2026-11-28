@@ -17,10 +17,15 @@ NPASS=0 NFAIL=0 NSKIP=0 NMETER=0 NHOST=0 NSPENT=0 NCALL=0 NKILLED=0
 SMOKE_BLOCK=
 ok() { printf 'PASS  %s\n' "$*"; NPASS=$((NPASS + 1)); }
 ok_call() { ok "$@"; NCALL=$((NCALL + 1)); }   # a passed check that completed a real model call
-failed_label() {
+# The labels of the checks a line names: each its first word joins with `/`, or, before its
+# colon, one check and the harness it ran on (`6h codex: ...`), as check 3's `3 codex`, so one
+# harness's standing failure hides no other's new one.
+failed_label() {   # failed_label <line> [suffix of the file AK_LIVE_FAILED names]
   if [ -n "${AK_LIVE_FAILED:-}" ]; then
-    local labels=${1%%[ :]*} label
-    for label in ${labels//\// }; do printf '%s\n' "$label" >>"$AK_LIVE_FAILED${2:-}"; done
+    local labels label
+    if [[ $1 =~ ^([^\ /:]+\ [^\ :]+): ]]; then labels=("${BASH_REMATCH[1]}")
+    else IFS=/ read -ra labels <<<"${1%%[ :]*}"; fi
+    for label in "${labels[@]}"; do printf '%s\n' "$label" >>"$AK_LIVE_FAILED${2:-}"; done
   fi
 }
 # NKILLED counts the failed checks whose command, just before `no`, died by SIGKILL (128 + 9):
@@ -49,18 +54,18 @@ skip() {
   esac
 }
 skip_checks() {
-  local labels=$1 label; shift
-  for label in ${labels//\// }; do skip "$label: $*"; done
+  local labels label; IFS=/ read -ra labels <<<"$1"; shift
+  for label in "${labels[@]}"; do skip "$label: $*"; done
 }
 # A model whose subscription window is spent, or whose provider refused a call for quota, is
 # the provider's state as well, and may stay so for weeks.  But check 3 skips before anything
 # shows a real call can pass, so `finish` counts these skips as passed only when the same suite
 # also completed a real model call (`ok_call`); with none, they are skips like any other.
 skip_spent_checks() {   # skip_spent_checks <check labels> <why>
-  local labels=$1 label; shift
-  for label in ${labels//\// }; do
+  local labels label; IFS=/ read -ra labels <<<"$1"; shift
+  for label in "${labels[@]}"; do
     printf 'SKIP  %s: %s\n' "$label" "$*"; NSPENT=$((NSPENT + 1))
-    failed_label "$label" .spent
+    failed_label "$label: $*" .spent
   done
 }
 meter_unavailable() {   # meter_unavailable <usage.json> <provider...>: the first matching error, or 1
