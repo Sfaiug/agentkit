@@ -190,17 +190,19 @@ class MeterGlidesOnSubscriptions(unittest.TestCase):
         home = self.home(100, 100)
         term = self.opened(home, (51, 40))
         opened = [self.line(term, name, colours=True) for name in LABELS]
-        self.both(home, term, 1003, (100, 100), (20, 30))   # its reset in hand fits beside 20%
+        self.both(home, term, 1003, (100, 100), (20, 30))
+        self.assertTrue(self.line(term, "Claude I").endswith("20% left · 1 reset in hand"))
         fresh = self.opened(self.home(20, 30), (51, 40))
         self.assertEqual([self.line(term, name, colours=True) for name in LABELS],
                          [self.line(fresh, name, colours=True) for name in LABELS])
-        rows = self.both(home, term, 1005, (20, 30), (100, 100))   # ... not beside 100%
+        rows = self.both(home, term, 1005, (20, 30), (100, 100))   # no room for it at 100%
         self.assertEqual([self.line(term, name, colours=True) for name in LABELS], opened)
         # but beside each frame between, which has room for it
         frames = [row for row in rows if (found := FIRST.search(row)) and 20 < int(found[2]) < 100]
         self.assertTrue(frames)
         for row in frames:
             self.assertTrue(row.endswith("% left · 1 reset in hand"), row)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
