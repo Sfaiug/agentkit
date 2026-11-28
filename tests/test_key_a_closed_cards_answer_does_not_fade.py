@@ -9,17 +9,19 @@ consistent."
 Black-box: the program `AK_BIN` names, in a person's terminal of 24-bit colour
 (tests/fixtures/akterm.py) over a seat as ak leaves it (tests/fixtures/akseat.py), its motion
 clock injected (`AK_MOTION_CLOCK`) and held at each moment the screen is judged at, so every
-frame then is the same, however late the host draws it.
+frame then is the same, read once the highlight coming in has moved on to that moment and the
+screen rests, however late the host draws it.
 """
 
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
-from fixtures.aklooks import plain, settled
+from fixtures.aklooks import ATTRIBUTES, look, looks, plain, settled
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 from test_key_defaults_apply_to_all import CALM, KEYS, MODELS, key_line
@@ -59,19 +61,30 @@ class AClosedCardsAnswerDoesNotFade(unittest.TestCase):
         self.clock.with_suffix(".new").replace(self.clock)
 
     def leaving(self, shown):
-        """The screen's looks part way through `motion.LEAVES` after the draw that showed
-        `shown` at ASKED, then once past every motion."""
-        self.term.wait(shown)
-        self.at(ASKED + LEAVES / 2)
-        during = settled(self.term, shown)
-        self.at(REST)
-        return during, settled(self.term, shown)
+        """The row the highlight comes to on the draw that showed `shown` at ASKED, and the
+        screen's looks part way through `motion.LEAVES` of it, then once past every motion."""
+        before = settled(self.term, shown)
+        lit = next(n for n, line in enumerate(before) if "›" in plain(line))
+        during = self.drawn(ASKED + LEAVES / 2, before, lit, shown)
+        return lit, during, self.drawn(REST, during, lit, shown)
+
+    def drawn(self, moment, before, lit, shown):
+        """The screen's looks at `moment`: once the highlight coming to row `lit` looks unlike
+        `before`, and then rests -- however late the host draws, nothing older."""
+        self.at(moment)
+        deadline = time.monotonic() + 30
+        while looks(self.term.screen(colours=True))[lit] == before[lit]:
+            self.assertLess(time.monotonic(), deadline, f"nothing drawn at {moment}")
+            time.sleep(0.05)
+        return settled(self.term, shown)
 
     def test_keep_answered_the_page_fades_nothing_over_its_row(self):
         self.term.keys("Enter")
-        during, after = self.leaving(lambda screen: key_line(screen) == KEYS)
+        lit, *read = self.leaving(lambda screen: key_line(screen) == KEYS)
+        # the header's HH:MM is the wall's clock, which no motion clock holds
+        during, after = ([[("0" if n == 0 and char.isdigit() else char, cell) for char, cell in row]
+                          for n, row in enumerate(rows)] for rows in read)
         self.assertEqual(plain(after[self.keep]).rstrip(), KEYS)
-        lit, = (n for n, line in enumerate(after) if "›" in plain(line))
         for n, (row, rested) in enumerate(zip(during, after)):
             if n != lit:
                 with self.subTest(row=plain(rested).rstrip()):
@@ -79,9 +92,10 @@ class AClosedCardsAnswerDoesNotFade(unittest.TestCase):
 
     def test_on_the_card_the_answer_left_still_fades(self):
         self.term.keys("Down")
-        during, after = self.leaving("› × Apply")
+        _, during, after = self.leaving("› × Apply")
         self.assertEqual(plain(during[self.keep]).rstrip(), plain(after[self.keep]).rstrip())
-        self.assertNotEqual(during[self.keep], after[self.keep])
+        self.assertNotEqual(*(look([rows[self.keep]], "✓ Keep") - ATTRIBUTES
+                              for rows in (during, after)))
 
 
 if __name__ == "__main__":
