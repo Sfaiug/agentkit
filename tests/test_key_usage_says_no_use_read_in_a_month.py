@@ -109,20 +109,20 @@ class UsageSaysNoUseReadInAMonth(unittest.TestCase):
 
     def test_only_a_month_of_readings_showing_nothing_used_says_so(self):
         self.assertEqual(self.usage(), {
-            ("anthropic", "default"): (200, True, True, "200 · no use read in a month",
-                                       "200 · no use read in a month"),
-            ("anthropic", "second"): (20, True, True, "20 · no use read in a month",
-                                      "20 · no use read in a month"),
-            ("anthropic", "third"): (100, True, False, "100", "100"),
-            ("openai", "default"): (200, True, False, "200", "200"),
-            ("google", "default"): (19.99, True, False, "19.99", "19.99"),
-            ("xai", "default"): (8, True, False, "8", "8")})
+            ("anthropic", "default"): (200, True, True, "$200 · no use read in a month",
+                                       "$200 · no use read in a month"),
+            ("anthropic", "second"): (20, True, True, "$20 · no use read in a month",
+                                      "$20 · no use read in a month"),
+            ("anthropic", "third"): (100, True, False, "$100", "$100"),
+            ("openai", "default"): (200, True, False, "$200", "$200"),
+            ("google", "default"): (19.99, True, False, "$19.99", "$19.99"),
+            ("xai", "default"): (8, True, False, "$8", "$8")})
 
     def test_a_login_no_role_marks_says_that_instead(self):
         got = self.usage(orchestrator="bolt", workers=("bolt", "crux", "dart"))
         self.assertEqual(got["anthropic", "default"],
-                         (200, False, False, "200 · no role marks its models",
-                          "200 · no role marks its models"))
+                         (200, False, False, "$200 · no role marks its models",
+                          "$200 · no role marks its models"))
 
 
 if __name__ == "__main__":

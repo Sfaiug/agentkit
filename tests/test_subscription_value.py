@@ -1,9 +1,7 @@
-"""Each subscription shows its monthly price beside its week.
-
-`price` on a provider's table is what each of its subscriptions costs a month, in whatever its
-owner pays in.  `ak usage`'s `a month` column, after `holds`, says it in grouped digits,
-`5,000,000` and never `5e+06`; `-` without a price.  `--json` carries it as `price`.  Offline,
-on invented readings in a temporary HOME.
+"""Each subscription shows its monthly price beside its week: `ak usage`'s `a month` column stands
+after `holds`.  `price` on a provider's table is what each of its subscriptions costs a month, in
+whatever its owner pays in, and `ak usage --json` carries it as `price`, null without one.
+Offline, on invented readings in a temporary HOME.
 """
 
 from contextlib import redirect_stdout
@@ -29,16 +27,8 @@ class SubscriptionValue(Sandbox):
             provider: {"provider": provider, "meters": [week], "error": None, "resets": 0.0,
                        "probed_at": now} for provider in ("anthropic", "openai")}}))
 
-    def month(self, label):
-        return next(row for row in usage.rows(self.cfg, usage.collect(self.cfg))
-                    if row[0] == label)[usage.HEADERS.index("a month")]
-
-    def test_the_price_stands_after_the_week_in_its_digits(self):
+    def test_a_month_stands_after_the_week(self):
         self.assertEqual(usage.HEADERS[usage.HEADERS.index("holds") + 1], "a month")
-        for price, shown in ((200, "200"), (5_000_000, "5,000,000"), (0.000012, "0.000012")):
-            self.cfg["providers"]["anthropic"]["price"] = price
-            self.assertEqual(self.month("Claude"), shown)
-        self.assertEqual(self.month("ChatGPT"), "-")
 
     def test_usage_json_carries_the_price(self):
         self.cfg["providers"]["anthropic"]["price"] = 200

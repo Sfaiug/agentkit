@@ -1,8 +1,10 @@
-"""Each login's `a month` on `ak usage` is its own price: the `price` on its provider's table
-where the config sets one, or the one a `price` table by login gives it, else the list price of
-the plan state/logins.json says the login is on now, else none, `-`.  Claude's Pro is $20 a month, Max 20x $200 and Max 5x $100, ChatGPT's Pro
-$200, Google AI Pro $19.99 and Grok's X Premium $8.  `ak usage --json` gives each login its
-`price`.
+"""Each login's `a month` on `ak usage` is what one login of its plan costs, as the Money page
+prices it (tests/test_key_usage_a_month_is_what_you_pay.py): the `price` on its provider's table
+where the config sets one number, else the list price of the plan state/logins.json says the
+login is on now, else none, `-`; a `price` table by login leaves it that list price, as the Money
+page prices by plan.  `ak usage --json` gives each login its `price`: that one number, or the one
+a `price` table by login gives it, else that list price, else none.  Claude's Pro is $20 a month,
+Max 20x $200 and Max 5x $100, ChatGPT's Pro $200, Google AI Pro $19.99 and Grok's X Premium $8.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each of
 the `claude`, `codex`, `antigravity` and `grokbuild` harnesses being tests/fixtures/meters.py's
@@ -68,25 +70,25 @@ class PlanPrices(unittest.TestCase):
                 for login, (label, _) in PLANS.items()}
 
     def test_each_login_is_priced_at_its_own_plan(self):
-        self.assertEqual(self.usage(), {("anthropic", "default"): (200, "200"),
-                                        ("anthropic", "second"): (20, "20"),
-                                        ("openai", "default"): (200, "200"),
-                                        ("google", "default"): (19.99, "19.99"),
-                                        ("xai", "default"): (8, "8")})
+        self.assertEqual(self.usage(), {("anthropic", "default"): (200, "$200"),
+                                        ("anthropic", "second"): (20, "$20"),
+                                        ("openai", "default"): (200, "$200"),
+                                        ("google", "default"): (19.99, "$19.99"),
+                                        ("xai", "default"): (8, "$8")})
 
     def test_a_price_on_the_providers_table_wins_over_its_plan(self):
         got = self.usage(anthropic={"price": 150})
-        self.assertEqual(got[("anthropic", "default")], (150, "150"))
-        self.assertEqual(got[("anthropic", "second")], (150, "150"))
-        self.assertEqual(got[("openai", "default")], (200, "200"))
+        self.assertEqual(got[("anthropic", "default")], (150, "$150"))
+        self.assertEqual(got[("anthropic", "second")], (150, "$150"))
+        self.assertEqual(got[("openai", "default")], (200, "$200"))
 
     def test_a_price_by_login_prices_the_logins_it_names_and_leaves_the_others_their_plans(self):
         got = self.usage(anthropic={"price": {"second": 100}})
-        self.assertEqual(got[("anthropic", "second")], (100, "100"))
-        self.assertEqual(got[("anthropic", "default")], (200, "200"))
+        self.assertEqual(got[("anthropic", "second")], (100, "$20"))
+        self.assertEqual(got[("anthropic", "default")], (200, "$200"))
 
     def test_a_grok_login_on_x_premium_costs_its_list_price(self):
-        self.assertEqual(self.usage()[("xai", "default")], (8, "8"))
+        self.assertEqual(self.usage()[("xai", "default")], (8, "$8"))
 
     def test_a_plan_not_listed_or_no_plan_has_no_price(self):
         self.plans[("anthropic", "second")] = "team"
@@ -95,15 +97,15 @@ class PlanPrices(unittest.TestCase):
         got = self.usage()
         for login in (("anthropic", "second"), ("openai", "default"), ("google", "default")):
             self.assertEqual(got[login], (None, "-"), login)
-        self.assertEqual(got[("anthropic", "default")], (200, "200"))
+        self.assertEqual(got[("anthropic", "default")], (200, "$200"))
 
     def test_a_login_whose_plan_changes_has_the_new_plans_price(self):
-        self.assertEqual(self.usage()[("anthropic", "default")], (200, "200"))
+        self.assertEqual(self.usage()[("anthropic", "default")], (200, "$200"))
         self.plans[("anthropic", "default")] = "max 5x"
         self.plans[("google", "default")] = "Google AI Ultra"
         got = self.usage()
-        self.assertEqual(got[("anthropic", "default")], (100, "100"))
-        self.assertEqual(got[("google", "default")], (99.99, "99.99"))
+        self.assertEqual(got[("anthropic", "default")], (100, "$100"))
+        self.assertEqual(got[("google", "default")], (99.99, "$99.99"))
 
 
 if __name__ == "__main__":

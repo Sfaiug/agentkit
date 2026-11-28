@@ -1,5 +1,5 @@
 """A paid login whose provider has no model on and marked for a role says so after its price in
-`ak usage`'s `a month` cell (`8 · no role marks its models`) and is `marked` false in
+`ak usage`'s `a month` cell (`$8 · no role marks its models`) and is `marked` false in
 `ak usage --json`.  A login whose provider has a model on and marked in `[defaults]` or a seat's
 record reads as today and is `marked` true; one with no price says `-` either way, and on a narrow
 terminal the `a month` cell folds at words as any cell does.
@@ -84,10 +84,10 @@ class UsageSaysAPlanNoRoleMarks(unittest.TestCase):
         self.assertEqual({name: (found[name]["price"], found[name]["marked"],
                                  meters.cell(text, label, "a month"))
                           for name, (label, _) in PLANS.items()},
-                         {"anthropic": (200, True, "200"),
-                          "openai": (200, True, "200"),
-                          "google": (19.99, False, "19.99 · no role marks its models"),
-                          "xai": (8, False, "8 · no role marks its models")})
+                         {"anthropic": (200, True, "$200"),
+                          "openai": (200, True, "$200"),
+                          "google": (19.99, False, "$19.99 · no role marks its models"),
+                          "xai": (8, False, "$8 · no role marks its models")})
 
     def test_a_seat_or_defaults_reviewer_marks_its_provider(self):
         # bolt only as a seat's orchestrator, dart only as a seat's reviewer; crux off in the
@@ -97,17 +97,17 @@ class UsageSaysAPlanNoRoleMarks(unittest.TestCase):
             seats={"fix-api": {"orchestrator": "bolt", "workers": ["crux"], "reviewers": ["dart"]}})
         self.assertEqual({name: (found[name]["marked"], meters.cell(text, label, "a month"))
                           for name, (label, _) in PLANS.items()},
-                         {"anthropic": (True, "200"),
-                          "openai": (True, "200"),
-                          "google": (False, "19.99 · no role marks its models"),
-                          "xai": (True, "8")})
+                         {"anthropic": (True, "$200"),
+                          "openai": (True, "$200"),
+                          "google": (False, "$19.99 · no role marks its models"),
+                          "xai": (True, "$8")})
         # With no seat record, [defaults].reviewers still marks its provider.
         (self.home.path / ".agentkit/state/session-fix-api.json").unlink()
         found, text = self.run_usage(workers=("anvil",), reviewers=("dart",), models_off=())
         self.assertEqual((found["xai"]["marked"], meters.cell(text, "Grok", "a month")),
-                         (True, "8"))
+                         (True, "$8"))
         self.assertEqual((found["openai"]["marked"], meters.cell(text, "ChatGPT", "a month")),
-                         (False, "200 · no role marks its models"))
+                         (False, "$200 · no role marks its models"))
 
     def test_an_unpriced_login_says_nothing_more_in_a_month(self):
         self.plans["xai"] = None
@@ -115,7 +115,7 @@ class UsageSaysAPlanNoRoleMarks(unittest.TestCase):
         self.assertEqual((found["xai"]["price"], found["xai"]["marked"]), (None, False))
         self.assertEqual(meters.cell(text, "Grok", "a month"), "-")
         self.assertEqual(meters.cell(text, "Gemini", "a month"),
-                         "19.99 · no role marks its models")
+                         "$19.99 · no role marks its models")
 
     def test_narrow_cards_fold_the_a_month_cell_without_cutting_words(self):
         _, text = self.run_usage(seats={"fix-api": {"orchestrator": "anvil", "workers": ["bolt"]}},
@@ -124,10 +124,10 @@ class UsageSaysAPlanNoRoleMarks(unittest.TestCase):
             self.assertLessEqual(len(line), 40, line)
             self.assertEqual(line, line.rstrip(), repr(line))
         self.assertEqual({name: card_month(text, label) for name, (label, _) in PLANS.items()},
-                         {"anthropic": "200",
-                          "openai": "200",
-                          "google": "19.99 · no role marks its models",
-                          "xai": "8 · no role marks its models"})
+                         {"anthropic": "$200",
+                          "openai": "$200",
+                          "google": "$19.99 · no role marks its models",
+                          "xai": "$8 · no role marks its models"})
 
     def test_ascii_locale_prints_without_unicode_error(self):
         for env in ({"LC_ALL": "C", "PYTHONUTF8": "0"},
@@ -139,21 +139,25 @@ class UsageSaysAPlanNoRoleMarks(unittest.TestCase):
                     self.assertTrue(text.isascii(), text)
                     if width == "200":
                         self.assertEqual(meters.cell(text, "Grok", "a month"),
-                                         "8, no role marks its models")
+                                         "USD 8, no role marks its models")
                     else:
-                        self.assertEqual(card_month(text, "Grok"), "8, no role marks its models")
+                        self.assertEqual(card_month(text, "Grok"),
+                                         "USD 8, no role marks its models")
 
     def test_medium_width_never_hides_another_providers_models_to_fit_the_note(self):
         akconfig.write(self.home, {"anvil-main": "claude", "anvil-alt": "claude",
                                    "dart": "grokbuild"},
                        orchestrator="anvil-main", workers=["anvil-main"],
                        providers={"anthropic": {"mode": "subscription"},
-                                  "xai": {"mode": "subscription", "price": 8}})
+                                  "xai": {"mode": "subscription"}})
+        self.home.write(".agentkit/state/logins.json", {"xai": {"default": {
+            "email": "default@xai.test", "ends": None, "plan": "X Premium",
+            "checked_at": time.time()}}})
         text = self.home.ak("usage", env={"COLUMNS": "120"})
         self.assertEqual(text.code, 0, text.out + text.err)
         self.assertIn("anvil-main", text.out)
         self.assertIn("anvil-alt", text.out)
-        self.assertIn("8 · no role marks its models", text.out)
+        self.assertIn("$8 · no role marks its models", text.out)
         for line in text.out.splitlines():
             self.assertLessEqual(len(line), 120, line)
 

@@ -64,17 +64,17 @@ class MusePlan(unittest.TestCase):
         return login["plan"], login["price"], meters.cell(text.out, "Muse", "a month")
 
     def test_a_frame_naming_its_plan_prices_the_login_until_another_names_one(self):
-        self.assertEqual(self.answer("High Usage"), ("High Usage", 15, "15"))
-        self.assertEqual(self.answer(), ("High Usage", 15, "15"))
-        self.assertEqual(self.answer(error=FAILED), ("High Usage", 15, "15"))
+        self.assertEqual(self.answer("High Usage"), ("High Usage", 15, "$15"))
+        self.assertEqual(self.answer(), ("High Usage", 15, "$15"))
+        self.assertEqual(self.answer(error=FAILED), ("High Usage", 15, "$15"))
         self.assertEqual(self.answer(None), (None, None, "-"))
 
     def test_a_frame_naming_no_plan_leaves_the_login_unpriced(self):
-        self.assertEqual(self.answer("High Usage"), ("High Usage", 15, "15"))
+        self.assertEqual(self.answer("High Usage"), ("High Usage", 15, "$15"))
         self.assertEqual(self.answer(None), (None, None, "-"))
         self.assertEqual(self.answer(), (None, None, "-"))
         self.assertEqual(self.answer(error=FAILED), (None, None, "-"))
-        self.assertEqual(self.answer("High Usage", error=PASSED), ("High Usage", 15, "15"))
+        self.assertEqual(self.answer("High Usage", error=PASSED), ("High Usage", 15, "$15"))
 
 
 if __name__ == "__main__":
