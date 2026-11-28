@@ -17,7 +17,9 @@ from . import config, menu, terminal, usage
 from .ledger import HOURS, ROLES, recorded
 
 FEW = 20        # a row or the team of fewer tasks says only how many: a few tasks say nothing yet
-MARK = "mark"   # a row's mark's cell (`lines`), which a click on `config · your runs` flips
+# a row's mark's cell (`lines`), which a click on `config · your runs` flips: a tuple, so the
+# pointer lights the row it is on, never a mark a flip moved another row under it (terminal.lit)
+MARK = ("mark",)
 WORDS = {"orchestrator": "ORCHESTRATOR", "executor": "BUILDER", "reviewer": "REVIEWER"}
 DOING = {"orchestrator": "orchestrating", "executor": "building", "reviewer": "reviewing"}
 NO_WORK = {"turns": 0, "turn_seconds": None, "checks": 0, "gaps": 0}
@@ -79,7 +81,7 @@ NOTE = ["answers in: half its turns take no longer",
         "usage also as a share of one login's week on its plan"]
 
 
-def by_role(teams, now, seats):
+def by_role(teams, now, seats, kept=None):
     """{"team", "orchestrator", "executor", "reviewer"} off the ledger's `teams`, the team now
     `now`, {role: [(name, effort or None)]} in the order held, and `seats`, `ledger.counted`'s
     per-seat counts.  `team` sums the teams all three of whose roles are the team now's; a role's
@@ -87,8 +89,9 @@ def by_role(teams, now, seats):
     "disputed", "taken_back", "hours", "usage"} sum the teams their model at their effort (None
     where not recorded) did that role in, each orchestrator row also carrying its `turns`,
     `turn_seconds`, `checks` and `gaps` from `seats`, each held model with its row at its effort
-    now, in use where that effort is recorded: those in use first, in the order held, then most
-    tasks, name and effort, None last."""
+    now, in use where that effort is recorded, and each row `kept`, a former `by_role`'s, has at
+    its model and effort, so a page's row stays while it is open: those in use first, in the
+    order held, then most tasks, name and effort, None last."""
     def ours(team, role):
         did = team[role]
         return any(did["name"] == name and recorded(did["effort"]) in (None, effort)
@@ -118,7 +121,9 @@ def by_role(teams, now, seats):
                for seat in seats}
     own = {"team": summed([team for team in teams if all(ours(team, role) for role in ROLES)])}
     for role in ROLES:
-        did = {held: [] for held in now[role]}     # {(name, effort): the teams it did role in}
+        # {(name, effort): the teams it did role in}
+        did = {held: [] for held in [*now[role], *((row["name"], row["effort"])
+                                                   for row in (kept or {}).get(role, ()))]}
         for team in teams:     # a role no model did, as a run launched from no seat, no row
             if team[role]["name"] is not None and all(ours(team, other) for other in ROLES
                                                       if other != role):

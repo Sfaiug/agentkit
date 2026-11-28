@@ -3494,6 +3494,17 @@ def roles_saved(cfg, name, selected, change, steps=()):
     return ""
 
 
+def marks_read(cfg, session, selected):
+    """`selected` as `c` reads it before each draw: seat `session`'s record over `cfg`
+    (seat_read), else new seats' [defaults], which a page or a save that took a model out moved,
+    a role they dropped going."""
+    if session:
+        seat_read(cfg, session, selected)
+    else:
+        selected.clear()
+        selected.update(copy.deepcopy(cfg["defaults"]))
+
+
 def seat_read(cfg, name, selected):
     """`selected` as seat `name`'s record reads over `cfg` now, as `c` reads it each tick; kept
     as it was where the record will not read, until it reads again."""
@@ -3527,21 +3538,32 @@ def packed(parts, gap, room):
 
 
 @terminal.clicks_its_own
-def your_runs_screen(cfg, session, selected, providers):
+def your_runs_screen(cfg, session, selected, held, providers):
     """`r your runs` on `c`, `config · your runs · <seat>` or `· new seats`: the lines
-    `ak models` prints for `selected`'s team now (own.lines), read as `config · limits` reads
-    history (matrix.counted) and asking no board.  ↑/↓, k/j and the wheel move the highlight
-    through the models' rows, from the first, and a click or the pointer onto one, the pointer
-    off them putting it out; the page follows it no further than it must (matrix_page), but to
-    the team line on the first row and the note on the last, at any size, and one too short for
-    any of their lines keeps its header, as `p`'s note keeps its start.  Before any run no row is
-    one to move to, and the page reads as it did with no highlight.  Space, or a click on its
-    mark, on a builder's or a reviewer's row does what Space does on its model's mark for that
-    role on `c` (flip_mark), refused in its words, `providers` being `c`'s; once taken the page
-    counts for the team as it now is, the history read once, the highlight on the model it was
-    on, its row in use where it runs at another effort.  A row's model the config offers no
-    more, or holds off (matrix.off), is refused naming it.  `p` opens the company list; Esc goes
-    back."""
+    `ak models` prints for the team now as `c` draws `selected`, `held` over it (held_over;
+    own.lines), read as `config · limits` reads history (matrix.counted) and asking no board.
+    ↑/↓, k/j and the wheel move the highlight through the models' rows, from the first, and a
+    click or the pointer onto one, the pointer off them putting it out; the page follows it no
+    further than it must (matrix_page), but to the team line on the first row and the note on
+    the last, at any size, and one too short for any of their lines keeps its header, as `p`'s
+    note keeps its start.  Space, or a click on its mark, on a builder's or a reviewer's row
+    does what Space does on its model's mark for that role on `c` (flip_mark), `providers`
+    being `c`'s, over config.toml and the marks read again as the key comes (marks_read): a
+    model the config offers no more, or holds off (matrix.off), is refused naming it.  Once
+    taken, the page counts for the team as it now is, the history read once, every row it showed
+    kept, and the highlight stays on the model: on its row in use where it runs at another
+    effort.  `p` opens the company list; Esc goes back.  Its config is held as `c` holds its
+    own (holding), and what was held before is held again after."""
+    global _held
+    outer, _held = _held, (cfg, NOT_READ)
+    try:
+        _your_runs(holding(cfg), session, selected, held, providers)
+    finally:
+        _held = outer
+
+
+def _your_runs(cfg, session, selected, held, providers):
+    """your_runs_screen's page over `cfg`, read until Esc."""
     from . import own     # here, not at the top: own imports menu
     if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
         terminal.doing("config · your runs · reading what your runs did")
@@ -3549,27 +3571,33 @@ def your_runs_screen(cfg, session, selected, providers):
     title, note, clock = f"config · your runs · {session or NEW_SEATS}", "", motion.Clock(page=True)
 
     def page(mine, at):
-        """`mine`'s lines with row `at` highlighted, and where each row is once a run has been."""
-        lines, places = own.lines(mine, cfg, terminal.layout_width(), paid, at)
-        return lines, places if runs["teams"] else {}
+        """`mine`'s lines with row `at` highlighted, and where each row is."""
+        return own.lines(mine, cfg, terminal.layout_width(), paid, at)
 
-    def team():
-        """The tables of the team `selected` holds now, and the rows the highlight moves
-        through."""
-        mine = own.by_role(runs["teams"], matrix.team_now(cfg, selected), runs["seats"])
+    def team(kept=None):
+        """The tables of the team now, `kept`'s rows among them, and the rows the highlight
+        moves through."""
+        mine = own.by_role(runs["teams"], matrix.team_now(cfg, held_over(cfg, selected, held)),
+                           runs["seats"], kept)
         return mine, list(dict.fromkeys(row for row, _ in page(mine, None)[1].values()))
+
+    def around(card, keys):     # the page at this draw's size, the question under it
+        lines, places = page(mine, None if terminal.away() else here)
+        first, room = matrix_page(lines, places, here, top, card, keys)
+        shown = lines[first:first + room]
+        return framed(clock, title, [*shown, *card], len(shown), card, keys,
+                      page_places(places, first, room))
     mine, rows = team()
-    keys = terminal.keys("p models", "esc back", space="mark" if rows else None, enter=None,
-                         move=("move",) if rows else False)
-    here, top = next(iter(rows), None), 0
+    keys = terminal.keys("p models", "esc back", space="mark", enter=None, move=("move",))
+    here, top, ask = rows[0], 0, asking(clock, around, title=title)
     while True:
         lines, places = page(mine, None if terminal.away() else here)
         said, room = note_lines(note), max(0, page_room((), keys))
-        if rows:      # a row both first and last shows the team line, as the page opens
-            top = {rows[-1]: len(lines), rows[0]: 0}.get(here, top)
-        top, held = matrix_page(lines, places, here, top, said, keys)[0], max(0, room - len(said))
-        body = [*lines[top:top + held], *said] if len(said) <= room else said[1:1 + room]
-        spots = terminal.frame(title, body, keys, places=page_places(places, top, held),
+        # a row both first and last shows the team line, as the page opens
+        top = {rows[-1]: len(lines), rows[0]: 0}.get(here, top)
+        top, fits = matrix_page(lines, places, here, top, said, keys)[0], max(0, room - len(said))
+        body = [*lines[top:top + fits], *said] if len(said) <= room else said[1:1 + room]
+        spots = terminal.frame(title, body, keys, places=page_places(places, top, fits),
                                drawn=lambda: clock.drawn((), None))
         key = terminal.read_key() if clock.wait() is None else moving(clock, timeout=TICK)
         if key is None:
@@ -3579,7 +3607,7 @@ def your_runs_screen(cfg, session, selected, providers):
             here, act = spot.what, "space" if act == "click" and spot.cell == own.MARK else act
         elif act == "click":
             act = {"esc": "back", "␣": "space"}.get(spot.cell, spot.cell or "")
-        elif (step := terminal.step(key)) and rows:
+        elif step := terminal.step(key):
             here = rows[min(max(rows.index(here) + step, 0), len(rows) - 1)]
         if act == "point":
             continue
@@ -3592,19 +3620,20 @@ def your_runs_screen(cfg, session, selected, providers):
             note = company_list(cfg, title)
         # orch.role_mark numbers the roles in own.ROLES' order; an orchestrator's mark, which
         # moves the seat, is not built here
-        if act == "space" and here and (column := own.ROLES.index(here[0])):
+        if act == "space" and (column := own.ROLES.index(here[0])):
+            cfg = holding(cfg)      # as `c` reads them before a key, another window's saves in
+            marks_read(cfg, session, selected)
             row = mine[here[0]][here[1]]
             name, shown = row["name"], own.named(cfg, {**row, "effort": None})
             note = (f"{shown} is no longer in the config" if name not in config.offered(cfg)
                     else f"{shown} is {matrix.OFF}" if name in matrix.off(cfg)
-                    else flip_mark(cfg, session, selected, name, column, providers))
+                    else flip_mark(cfg, session, selected, held, name, column, providers, ask))
             if not note:
-                at, (mine, rows) = rows.index(here), team()
-                # on the model it was on: its row in use, else the one at this row's effort
-                kept = sorted((not other["in_use"], other["effort"] != row["effort"], number)
-                              for number, other in enumerate(mine[here[0]])
-                              if other["name"] == name)
-                here = (here[0], kept[0][2]) if kept else rows[min(at, len(rows) - 1)]
+                mine, rows = team(mine)
+                # on the model it was on: its row in use, else this one, which a row kept is
+                here = (here[0], min((not other["in_use"], other["effort"] != row["effort"],
+                                      number) for number, other in enumerate(mine[here[0]])
+                                     if other["name"] == name)[2])
 
 
 ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens
@@ -4353,11 +4382,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     while True:
         if not born:        # a file that will not load is tried each pass (holding)
             cfg = holding(cfg)
-        if session and selected is not None:
-            seat_read(cfg, session, selected)
-        if not session and not born and selected is not None:   # a page or a save that took a
-            selected.clear()                                     # model out moved them, and a
-            selected.update(copy.deepcopy(cfg["defaults"]))      # role they dropped goes
+        if not born and selected is not None:
+            marks_read(cfg, session, selected)
         drawn, subs = subs, usage_rows(cfg)
         if here and here[0] == "usage":
             here = followed(here, drawn, subs)
@@ -4415,7 +4441,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 continue
             if act == "r" and advice:     # a record that will not read has nobody to take it
                 clock.forget()            # another screen: the matrix back from it replays nothing
-                your_runs_screen(cfg, session, selected, providers)
+                your_runs_screen(cfg, session, selected, held, providers)
                 continue
             if act == "enter" and opens:
                 clock.forget()            # another screen: the matrix back from it replays nothing
@@ -4446,17 +4472,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 at = columns.index(column) + (1 if act == "right" else -1)
                 column = columns[min(max(at, 0), len(columns) - 1)]
             elif act == "space" and column < 3:
-                # a pick applies what the page holds first, as closing does, what that could not
-                # do refusing it; it flips the marks as drawn, and the orchestrator's own picks none
-                # A mark is made at once and never held for the close: holding one failed review
-                # four times over a config, login or record changing under the page, and the
-                # owner, 21 Nov 2026, asked whether to drop it: "Keep marks instant".
-                # a seat's flips over its marks as drawn (held_over); the born row's into the
-                # row itself, which closing the page starts the seat from
-                note = (held and (column or here[1] != selected["orchestrator"])
-                        and apply_held(cfg, seat, held, ask, providers)) or flip_mark(
-                    cfg, session, as_drawn if session else selected, here[1], column, providers,
-                    ask, born)
+                note = flip_mark(cfg, session, selected, held, here[1], column, providers, ask,
+                                 born)
                 if note:
                     clock.touch(("mark", here[1], column))    # refused: the mark shakes
             elif act == "space" or isinstance(act, int):     # a role's effort
@@ -6292,12 +6309,22 @@ def for_selected(cfg, scope):
             else (NEW_SEATS, copy.deepcopy(cfg["defaults"]), ""))
 
 
-def flip_mark(cfg, session, selected, model, column, providers, ask=None, born=False):
+def flip_mark(cfg, session, selected, held, model, column, providers, ask, born=False):
     """Space on `model`'s mark `column` (orch.role_mark's) on `c` and on `your runs` alike, the
     one place deciding whose marks it flips: seat `session`'s (session_mark), the born row's
-    (born_mark) or new seats' (defaults_mark).  What to say under the rows, or ""."""
+    (born_mark) or new seats' (defaults_mark).  A pick applies what the seat's page holds,
+    `held`, first, as closing does, asking on `ask` (apply_held), what that could not do
+    refusing it, and flips the marks as drawn (held_over); the orchestrator's own picks none.
+    What to say under the rows, or ""."""
+    # A mark is made at once and never held for the close: holding one failed review four times
+    # over a config, login or record changing under the page, and the owner, 21 Nov 2026, asked
+    # whether to drop it: "Keep marks instant".
+    drawn = held_over(cfg, selected, held)
+    if held and (column or model != selected["orchestrator"]) and (
+            note := apply_held(cfg, (session, selected), held, ask, providers)):
+        return note
     if session:
-        return session_mark(cfg, session, selected, model, column, providers, ask)
+        return session_mark(cfg, session, drawn, model, column, providers, ask)
     if born:
         return born_mark(cfg, selected, model, column, providers)
     return defaults_mark(cfg, selected, model, column)
