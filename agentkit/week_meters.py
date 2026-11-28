@@ -107,12 +107,15 @@ def run_usage(cfg, since, until, fitted, *, meters=None):
 
 
 def seat_usage(cfg, since, until, fitted, *, meters=None):
-    """{(orchestrator, effort): ({(provider, plan): points}, unrated)} of the `seat_usage` rows
-    in (since, until], valued at `fitted`, `rates.fitted`'s exact rates.
+    """`(by_seat, turns, checks)` of the seats in (since, until], from one snapshot, so a turn
+    and the usage a tick kept with it count together: `by_seat`, {(orchestrator, effort):
+    ({(provider, plan): points}, unrated)} of the `seat_usage` rows, valued at `fitted`,
+    `rates.fitted`'s exact rates; each `seat_turns` row's `(orchestrator, effort, seconds)` whose
+    seconds are a number; and each `done_checks` row's `(model, effort, gaps)`.
 
-    A row is chosen as `days` chooses one (`_seat`), and valued under its login's plan at its
-    time (`_valued`), keyed by its `orchestrator` and `effort` (each text or None).  {} where
-    the history cannot answer or has no `seat_usage` table."""
+    A usage row is chosen as `days` chooses one (`_seat`), and valued under its login's plan at
+    its time (`_valued`), keyed by its `orchestrator` and `effort` (each text or None).  None of
+    a table the history does not hold or cannot read, and none of any where it cannot answer."""
     ours = _ours(cfg)
     history._ensure_migrated()      # a meter_readings table from before plan and scope has neither
     try:
@@ -120,26 +123,36 @@ def seat_usage(cfg, since, until, fitted, *, meters=None):
             db.execute("BEGIN")
             active = shared_weeks(cfg, since, until, db=db) if meters is None else meters
             logins = _readings(db, active, since, until)
-            # seat_tokens creates `seat_usage` separately; absent means no seat rows yet, and an
-            # older table without `orchestrator` or `effort` names neither
+            # an older `seat_usage` without `orchestrator` or `effort` names neither
             columns = {name for name, in db.execute(
                 "SELECT name FROM pragma_table_info('seat_usage')")}
-            if not columns:
-                return {}
             orchestrator = "orchestrator" if "orchestrator" in columns else "NULL"
             effort = "effort" if "effort" in columns else "NULL"
-            seats = db.execute(
+            seats, turns, checks = (_readable(db, query, since, until) for query in (
                 f"SELECT {orchestrator}, {effort}, account, event, model, at, tokens "
-                "FROM seat_usage WHERE at > ? AND at <= ?", (since, until)).fetchall()
+                "FROM seat_usage WHERE at > ? AND at <= ?",
+                "SELECT orchestrator, effort, seconds FROM seat_turns "
+                "WHERE at > ? AND at <= ? AND typeof(seconds) IN ('integer', 'real')",
+                "SELECT model, effort, gaps FROM done_checks WHERE at > ? AND at <= ?"))
     except (OSError, sqlite3.Error):
-        return {}
+        return {}, [], []
     rows = []
     for orchestrator, effort, account, event, model, at, tokens in seats:
         if (found := _seat(ours, event, tokens)) is not None:
             rows.append(((orchestrator if isinstance(orchestrator, str) else None,
                           effort if isinstance(effort, str) else None),
                          found[0], account, model, at, found[1]))
-    return _valued(logins, fitted, rows)
+    return _valued(logins, fitted, rows), turns, checks
+
+
+def _readable(db, query, since, until):
+    """`query`'s rows over (since, until], none where its table is not there yet (seat_tokens
+    makes `seat_usage` and `seat_turns` at its first read) or cannot be read: one table never
+    takes another's rows with it."""
+    try:
+        return db.execute(query, (since, until)).fetchall()
+    except sqlite3.Error:
+        return []
 
 
 def _valued(logins, fitted, rows):

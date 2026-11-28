@@ -12,6 +12,7 @@ and a task rewritten under a new title is a new one: ak keeps no link between th
 """
 
 from fractions import Fraction
+from statistics import median
 import time
 
 from . import history, record
@@ -109,18 +110,25 @@ def sum_usage(by_run):
     return out
 
 
-def sum_seats(by_seat):
-    """([{"name", "effort", "points", "unrated"}], {"points", "unrated"}) from `by_seat`,
-    `week_meters.seat_usage`'s: one entry per `(orchestrator, effort)`, most points first (all
-    plans summed), then name and effort, null last, and their exact sum."""
+def sum_seats(by_seat, work):
+    """([{"name", "effort", "points", "unrated", "turns", "turn_seconds", "checks", "gaps"}],
+    {"points", "unrated"}) from `by_seat`, `week_meters.seat_usage`'s, and `work`,
+    {(orchestrator, effort): ([each own turn's seconds], [each done check's gaps])}: one entry per
+    key of either, those of usage most points first (all plans summed), then name and effort, null
+    last, its turns, the median of their seconds (None with none), its done checks and their
+    whole gaps summed; and the usage's exact sum."""
     total = {"points": {}, "unrated": 0}
     rows = []
-    for (name, effort), used in sorted(
-            by_seat.items(),
-            key=lambda item: (-sum(item[1][0].values(), Fraction(0)),
-                              item[0][0] is None, item[0][0] or "",
-                              item[0][1] is None, item[0][1] or "")):
-        row = {"name": name, "effort": effort, "points": {}, "unrated": 0}
+    for name, effort in sorted(
+            by_seat.keys() | work.keys(),
+            key=lambda key: (key not in by_seat,
+                             -sum(by_seat.get(key, ({}, 0))[0].values(), Fraction(0)),
+                             key[0] is None, key[0] or "", key[1] is None, key[1] or "")):
+        used = by_seat.get((name, effort), ({}, 0))
+        seconds, gaps = work.get((name, effort), ((), ()))
+        row = {"name": name, "effort": effort, "points": {}, "unrated": 0,
+               "turns": len(seconds), "turn_seconds": median(seconds) if seconds else None,
+               "checks": len(gaps), "gaps": sum(gap for gap in gaps if _whole(gap))}
         _add_usage(row, used)
         _add_usage(total, used)
         rows.append(row)
@@ -132,12 +140,11 @@ def recorded(effort):
     return effort if isinstance(effort, str) and effort.strip() else None
 
 
-def _seat(team):
-    """The key of `week_meters.seat_usage` that `team`'s orchestrator's own turns are kept under:
-    neither its name nor its effort where it has none recorded (`seat_tokens.orchestrating`)."""
-    orchestrator = team["orchestrator"]
-    effort = recorded(orchestrator["effort"])
-    return (None, None) if effort is None else (orchestrator["name"], effort)
+def _seat(name, effort):
+    """The key of `week_meters.seat_usage` that the own turns of orchestrator `name` at `effort`
+    are kept under: neither its name nor its effort where it has none recorded
+    (`seat_tokens.orchestrating`)."""
+    return (None, None) if recorded(effort) is None else (name, effort)
 
 
 def counted(usage=None, seats=None, *, until=None):
@@ -151,8 +158,8 @@ def counted(usage=None, seats=None, *, until=None):
     runs whose `outcome` is a text (`disputed`) and of them those `conceded` or `dropped`
     (`taken_back`), the hours every run of them spent (`HOURS`), and the `usage`
     (`week_meters.run_usage`'s) every run of them took by role, summed exactly, however it ended
-    or while it runs, and of its orchestrator's entry of `seats` (`_seat`) its tasks over those
-    of every team of that entry (`orchestrator`, `unrated` rounded half to even); per `SIZE`
+    or while it runs, and of its orchestrator's entry of `seats`' usage (`_seat`) its tasks over
+    those of every team of that entry (`orchestrator`, `unrated` rounded half to even); per `SIZE`
     lines, smallest first, the same of the tasks whose size is at most `upto` and over `upto`
     less SIZE, `lines_live` the sizes of those live summed, `orchestrator` of each team's its
     tasks there over the team's (`_split`, its sizes smallest first, then those of none); per
@@ -163,7 +170,9 @@ def counted(usage=None, seats=None, *, until=None):
     `lines_live`, `orchestrator` split the same way; per number of rounds a task went through,
     the highest round among the reviews `reviews` counts of each run of it summed, fewest first,
     the same of the tasks with one; `usage` over every run (`executor`, `reviewer`) and seat
-    (`orchestrator`); and `seats`, per orchestrator and effort (`sum_seats`)."""
+    (`orchestrator`); and `seats`, per orchestrator and effort (`sum_seats`), with the own turns
+    and done checks of each, those of no effort under `_seat`'s.  `seats` is
+    `week_meters.seat_usage`'s `(usage, turns, checks)`."""
     until = time.time() if until is None else until
     since = until - WINDOW
     usage = usage or {}
@@ -239,15 +248,17 @@ def counted(usage=None, seats=None, *, until=None):
             count["tasks"] += 1
             count["live"] += live
             _add_work(count, task, usage)
-    seats = seats or {}
+    by_seat, turns, checks = seats or ({}, (), ())
     # a seat's turn belongs to no task, so an orchestrator's divides evenly over the tasks it
     # wrote, and a team's over its sizes, first-review issue counts and rounds
     wrote = {}
     for team in teams.values():
-        wrote[_seat(team)] = wrote.get(_seat(team), 0) + team["tasks"]
+        seat = _seat(**team["orchestrator"])
+        wrote[seat] = wrote.get(seat, 0) + team["tasks"]
     for key, team in teams.items():
-        points, unrated = seats.get(_seat(team), ({}, 0))
-        share = Fraction(team["tasks"], wrote[_seat(team)])
+        seat = _seat(**team["orchestrator"])
+        points, unrated = by_seat.get(seat, ({}, 0))
+        share = Fraction(team["tasks"], wrote[seat])
         used = ({plan: value * share for plan, value in points.items()}, round(unrated * share))
         _add_usage(team["usage"]["orchestrator"], used)
         # its tasks in no row a part last, which no row takes
@@ -257,7 +268,11 @@ def counted(usage=None, seats=None, *, until=None):
                     *(tasks for _, tasks in of_team),
                     team["tasks"] - sum(tasks for _, tasks in of_team)])):
                 _add_usage(rows[bucket]["usage"]["orchestrator"], part)
-    seat_rows, orch_usage = sum_seats(seats)
+    work = {}       # {seat: ([each own turn's seconds], [each done check's gaps])}
+    for at, found in enumerate((turns, checks)):
+        for name, effort, value in found:
+            work.setdefault(_seat(name, effort), ([], []))[at].append(value)
+    seat_rows, orch_usage = sum_seats(by_seat, work)
     return {"since": since, "until": until,
             "teams": sorted(teams.values(), key=lambda team: -team["tasks"]),
             "sizes": [{"upto": upto, **count} for upto, count in sorted(sizes.items())],
