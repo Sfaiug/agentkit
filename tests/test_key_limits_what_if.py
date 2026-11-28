@@ -15,8 +15,8 @@ wrote: their size, whether an orchestrator's own pull request or a build, and wh
 passed in round 1, for a build, or merged in round 1, for an own pull request -- a pass that
 merged nothing (--no-merge) passed and did not merge.  At a value between 0 and the largest,
 those of that many lines or more, as the size bars split them, would have been split, or made
-tasks, with how often their first round went so and how often the rest's did; at 0 executors or
-orchestrators build nothing; past the largest, no run can say.
+tasks (split instead with executors off), with how often their first round went so and how often
+the rest's did; at 0 executors or orchestrators build nothing; past the largest, no run can say.
 
 The owner's design of 5 Nov 2026.  Black-box: history.db's `runs` rows written into the Home as
 any program writes them, then the program `AK_BIN` names in a person's terminal
@@ -138,11 +138,11 @@ class WhatIf(unittest.TestCase):
         fakeadapter.install(cls.home, claude="pass", codex="pass")
         write_runs(cls.home)
 
-    def walk(self, name, path):
-        """`config · limits` from `c` over ak's defaults, the pointer moved onto `name`, then
-        each (arrows, value, sentence) of `path`: once `name` shows `value`, the sentence is
-        under it."""
-        akconfig.write(self.home, MODELS)
+    def walk(self, name, path, settings=None):
+        """`config · limits` from `c` over ak's defaults (with `settings` over them), the pointer
+        moved onto `name`, then each (arrows, value, sentence) of `path`: once `name` shows
+        `value`, the sentence is under it."""
+        akconfig.write(self.home, MODELS, settings=settings)
         self.addCleanup(akconfig.write, self.home, MODELS)      # ← → save a value
         term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
@@ -177,6 +177,15 @@ class WhatIf(unittest.TestCase):
         self.walk("Max lines per orchestrator task", [
             ((), 50, ORCHESTRATOR[50]), (("Left",), 25, ORCHESTRATOR[25]),
             (("Left",), 0, ORCHESTRATOR[0])])
+
+    def test_orchestrator_lines_with_executors_off_says_split(self):
+        self.walk("Max lines per orchestrator task", [
+            ((), 50, "6 of your orchestrators' 10 own pull requests were 50 lines or more and "
+                     "would have been split. Round 1 merged 33% of them, and 50% below 50 lines."),
+            (("Right",) * 2, 100,
+             "1 of your orchestrators' 10 own pull requests was 100 lines or more and would have "
+             "been split. Round 1 merged 0% of them, and 44% below 100 lines.")],
+            settings={"executor_lines": 0})
 
 
 if __name__ == "__main__":
