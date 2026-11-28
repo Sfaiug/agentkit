@@ -5792,13 +5792,15 @@ def _subscriptions(cfg, keyboard, whose):
             return usage_lines(cfg, width, rows=subs, ending=ending, columns=1, cells=cells)
         meters = meters_at(cells)
         drawn = meters or ["  " + label for _, label, _, _ in subs]
-        # the lit row says its resets in hand beside its meter where its line at rest has room
+        # the lit row says its resets in hand beside its meter where its line at rest has room,
+        # and in every other frame of a glide, one too wide for them the line at rest
+        # (meter_moves)
         held = lit and in_hand(subs[lit - 1][2])
         beside = held and terminal.cells(f"{drawn[lit - 1]} · {held}") <= width
-        tail = terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
 
-        def lined(number, line):
+        def lined(number, line, said=beside):
             # login `number`'s line: lit, it has no band, Enter acting on its act, never the row
+            tail = terminal.styled(" · ", "dim") + terminal.styled(held, "info") if said else ""
             return terminal.highlight(line + tail, band=False) if number == lit else line
         # its whole cell, a cell of its row, the pointer lights as any cell (-1, no act)
         own = [(*usage_cell(width, 0), -1)] if meters else []
@@ -5841,9 +5843,9 @@ def _subscriptions(cfg, keyboard, whose):
         # seen with no line too, so the pointer coming back onto a row is news
         moves.append((0, ("opened",), lit, lambda *_: None))
         if meters:      # each gliding to a new reading on its line as drawn here
-            moves += meter_moves(subs, cells, spots, lambda cells: {
-                spot: lined(number, line)
-                for number, (spot, line) in enumerate(zip(spots, meters_at(cells)), 1)})
+            moves += meter_moves(subs, cells, spots, lambda shown: {
+                spot: lined(number, line, held if shown != cells else beside)
+                for number, (spot, line) in enumerate(zip(spots, meters_at(shown)), 1)})
         body.append("")
         places[len(body)] = (("row", "add"), [])
         add = "  + add a subscription"

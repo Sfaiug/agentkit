@@ -7,7 +7,8 @@ draws, the first's line as it was; once it has, its line is the one a page opene
 reading shows, and a key pressed half way through the next shows that at once.  The first's
 glides the same, its line highlighted and saying its reset in hand in every frame.  Both
 written at once 51 columns wide, where the reset fits beside a line saying `20% left` but not
-`100% left`: the page stays up and ends on the lines a page opened on the new readings shows.
+`100% left`, either way: the page stays up and ends on the lines a page opened on the new
+readings shows, each frame of the way up saying the reset beside its meter.
 
 Black-box as tests/test_key_a_meter_glides_on_config.py is: the program `AK_BIN` names, in a
 person's terminal (tests/fixtures/akterm.py), its clock held through `AK_MOTION_CLOCK`, what the
@@ -168,24 +169,38 @@ class MeterGlidesOnSubscriptions(unittest.TestCase):
             self.assertTrue(plain.endswith("% left · 1 reset in hand"), plain)
             self.assertIn("\x1b[1m", row)
 
+    def both(self, home, term, moment, old, new):
+        """Both logins' `old` readings `new`, written at once at `moment`: the rows written
+        since, once both have glided there, none past the edge, where the terminal would wrap
+        it over the row under it, and the page up."""
+        self.at(home, moment)
+        since = self.written(home, term, *new, f"{new[0]}% left")
+        self.at(home, moment + GLIDE / 2)
+        for meter, was, now in zip((FIRST, SECOND), old, new):
+            self.between(term, meter, was, now)
+        self.at(home, moment + GLIDE + 0.05)
+        term.wait(lambda _: all(f"{left}% left" in self.line(term, name)
+                                for name, left in zip(LABELS, new)), bound=10)
+        rows = self.rows(term, since)
+        self.assertLessEqual(max(len(row) for row in rows), 51)
+        self.assertIn(PAGE, term.screen().splitlines()[0])
+        return rows
+
     def test_both_at_once_on_a_narrow_screen_end_on_a_page_opened_there(self):
         home = self.home(100, 100)
         term = self.opened(home, (51, 40))
-        self.at(home, 1003)
-        since = self.written(home, term, 20, 30, "20% left")
-        self.at(home, 1003 + GLIDE / 2)
-        self.between(term, FIRST, 100, 20)
-        self.between(term, SECOND, 100, 30)
-        self.at(home, 1003 + GLIDE + 0.05)
-        term.wait(lambda screen: "20% left · 1 reset in hand" in screen and "30% left" in screen,
-                  bound=10)
-        # no row past the edge, where the terminal would wrap it over the row under it
-        self.assertLessEqual(max(len(row) for row in self.rows(term, since)), 51)
-        self.assertIn(PAGE, term.screen().splitlines()[0])
+        opened = [self.line(term, name, colours=True) for name in LABELS]
+        self.both(home, term, 1003, (100, 100), (20, 30))   # its reset in hand fits beside 20%
         fresh = self.opened(self.home(20, 30), (51, 40))
         self.assertEqual([self.line(term, name, colours=True) for name in LABELS],
                          [self.line(fresh, name, colours=True) for name in LABELS])
-
+        rows = self.both(home, term, 1005, (20, 30), (100, 100))   # ... not beside 100%
+        self.assertEqual([self.line(term, name, colours=True) for name in LABELS], opened)
+        # but beside each frame between, which has room for it
+        frames = [row for row in rows if (found := FIRST.search(row)) and 20 < int(found[2]) < 100]
+        self.assertTrue(frames)
+        for row in frames:
+            self.assertTrue(row.endswith("% left · 1 reset in hand"), row)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
