@@ -731,8 +731,15 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
     needs = resume_needs_executor(state)
     # the pick anew weighs the very reviewers the reviewer's pick reads
     exec_list, review_list = config.pair_marks(cfg, workers, reviewers)
-    review_order = ready_order(cfg, providers, review_list, role="reviewer", quiet=True, repo=repo,
-                               writers=None if needs else review_writers(state), draw=draw)
+
+    def ready_reviewers(skip=()):
+        return ready_order(cfg, providers, review_list, role="reviewer", quiet=True, repo=repo,
+                           writers=None if needs else review_writers(state), skip=skip, draw=draw)
+
+    # who failed this round's review keeps no other reviewer out of it (`roundloop._review`),
+    # yet is picked again where nobody else can review, so a review all failed still resumes
+    failed = (state.get("review_pending") or {}).get("failed")
+    review_order = (ready_reviewers(failed) if failed else []) or ready_reviewers()
     executor, reviewer = state.get("executor"), state.get("reviewer")
     if not needs:
         order = reviewer_order(cfg, executor, review_order) if executor else review_order
