@@ -19,7 +19,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 SEAT = "acme-fix"
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   esc back"
 LEVELS = ("low", "medium", "high", "xhigh", "max")      # Claude's, Space going up and round
 # each role's effort key, as Opus's row orders them, and the keys from its first mark onto its own
 ROLES = {"effort": (), "exec_effort": ("Right", "Right"), "review_effort": ("Right",) * 4}

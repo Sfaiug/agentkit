@@ -16,7 +16,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV
+from fixtures.akboards import ENV
 from test_key_role_choices import ROLES, hold
 
 # Release, its name on the board, quality in every role and cost a task, at `high`

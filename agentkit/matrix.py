@@ -309,22 +309,16 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     yours, as one no harness of yours runs is no reason to leave it out; `take`: the same rule
     over yours; and `choices` over those with a cost, `others` and `whys` over every one
     (`_choices`), the choices being rows a take can take (`takes`).  Keep the pick and take
-    visible even if rows outside their eligible pool beat them.  `unrated`: the names of the
-    releases compared it rates no row of, as `p` lists them (`company_order`).  Every role's
-    costs are in one unit (`_costs`), off `task_usage`, (logins, shares) as `spend.roles`
-    measures them.  `limits`: each choice's price (`_limits`)."""
+    visible even if rows outside their eligible pool beat them.  Every role's costs are in one
+    unit (`_costs`), off `task_usage`, (logins, shares) as `spend.roles` measures them."""
     measures = task_usage if task_usage is not None else _task_usage(cfg) if cfg else ({}, {})
     cfg = cfg or {"models": {}, "providers": {}}
     every = {role: quality.rated(lineup, role) for role in quality.ROLES}
     unit = _costs(every, lineup, cfg, *measures)
-    order = company_order(cfg, lineup)
-    releases = {row["release"]: row["name"] for row in sorted(
-        lineup, key=lambda row: order.index(row["maker"]))
-        if compared is None or row["release"] in compared}
+    releases = {row["release"] for row in lineup if compared is None or row["release"] in compared}
     out = {}
     for role, rated in every.items():
         them = [row for row in rated if row["release"] in releases]
-        scored = {row["release"] for row in them}
         best = max(them, key=lambda row: row["quality"], default=None)
         priced = sorted((row for row in them if row["cost"] is not None),
                         key=lambda row: (row["cost"], -row["quality"]))
@@ -337,29 +331,8 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
                                          {id(row) for row in priced if takes(cfg, row)})
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
                      "front": front, "take": take, "choices": choices, "others": others,
-                     "whys": whys, "limits": _limits(choices, priced),
-                     "unrated": [name for slug, name in releases.items() if slug not in scored]}
+                     "whys": whys}
     return out
-
-
-def _limits(choices, priced):
-    """{id: limit} of `choices`, the price a take of each stops at (menu.keep_price), the
-    owner's design of 5 Nov 2026: round_price up to the cheapest of `priced` both dearer and
-    better, which the next choice is; None on the best, which stays the best whatever it costs."""
-    return {id(row): None if row is choices[-1] else round_price(row["cost"], min(
-        one["cost"] for one in priced if one["cost"] > row["cost"]
-        and one["quality"] > row["quality"])) for row in choices}
-
-
-def round_price(cost, dearer):
-    """The geometric middle of `cost` and `dearer`, at the fewest significant figures that land
-    from `cost` up to, not including, `dearer`: 0.12 and 0.80 keep 0.3, 1 and 3 keep 2, 4.2 and
-    5 keep 4.6."""
-    middle = math.sqrt(cost * dearer)
-    if not math.isfinite(middle) and cost >= 0 and dearer >= 0:
-        middle = math.sqrt(cost) * math.sqrt(dearer)
-    return next((one for figures in range(1, 18)
-                 if cost <= (one := float(f"{middle:.{figures}g}")) < dearer), cost)
 
 
 def runner(cfg, row):
@@ -510,23 +483,17 @@ def _reading(lineup):
 @functools.lru_cache(maxsize=1)
 def _listed(text):
     held = json.loads(text).get("matrix") or {}
-    return _reading(held.get("lineup") or []), held.get("fetched_at")
+    return _reading(held.get("lineup") or [])
 
 
 def listed():
     """The lineup last stored and its listed releases, {slug: maker}: each a role rates a row of
     (`answer`'s `rated`), rated once per stored lineup, so a release without scores is never
     listed; ([], {}) where nobody stored one."""
-    return dated()[0]
-
-
-def dated():
-    """`listed`'s pair and the `fetched_at` stored with it (`stored`), of one read: a refresh
-    between two reads would date one lineup by another's boards."""
     try:
         return _listed(cache_path().read_text())
     except (OSError, ValueError):
-        return ([], {}), None
+        return [], {}
 
 
 def ours(cfg, reading=None):
@@ -674,35 +641,10 @@ def refresh(cfg, *, refresh=False, now=None):
     return boards, rows
 
 
-def row_of(rows, entry, effort):
-    """The row of `rows` the model entry `entry` runs at `effort`, as `lineup` holds it: at that
-    effort, else at none, the model however it is run, else, run at `none`, its one row."""
-    held = [row for row in rows
-            if {"harness": entry["harness"], "model": entry["model"]} in row["yours"]]
-    return next((row for want in (effort, None) for row in held if row["effort"] == want),
-                held[0] if effort == "none" and len(held) == 1 else None)
-
-
-def uses(cfg, record, found):
-    """{role: (model, effort, row)} seat `record`, or [defaults], uses off `found` (`answer`): its
-    orchestrator, named even once the config drops it, else its first mark the config holds, as
-    a pick for no run takes them (each run draws its own: `usage.pick_order`), None for none;
-    the effort the seat runs it at; and its row (`row_of`)."""
-    cfg, workers = config.at_efforts(cfg, record), record["workers"]
-    used = {}
-    for role, names in (("orchestrate", [record["orchestrator"]]), ("execute", workers),
-                        ("review", record.get("reviewers", workers))):
-        name = next((one for one in names if one in cfg["models"]), next(iter(names), None))
-        entry = cfg["models"].get(name)
-        effort = entry and config.role_effort(entry, CONFIG_ROLES[role])
-        used[role] = name, effort, entry and row_of(found[role]["rated"], entry, effort)
-    return used
-
-
 def team_now(cfg, record):
     """{role (ledger.ROLES): [(name, effort)]}: the models seat `record`, or [defaults], holds
     for each role in the order held, each at the effort a run launched now records
-    (`config.run_marks`), None for none (`config.launched_effort`); off no board, unlike `uses`."""
+    (`config.run_marks`), None for none (`config.launched_effort`); off no board."""
     marks = config.run_marks(cfg, record)
     return {role: [(name, config.launched_effort(marks, name, role)) for name in names]
             for role, names in (("orchestrator", [record["orchestrator"]]),

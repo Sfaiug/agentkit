@@ -24,7 +24,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, NOW, aa, boards as scored
+from fixtures.akboards import ENV, NOW, aa, boards as scored
 
 # each configured model: its harness, the release it runs and the effort it lists
 MODELS = {"mid": {"harness": "claude", "model": "acme-mid-5", "effort": "high"},

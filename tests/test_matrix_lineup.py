@@ -81,7 +81,7 @@ class Lineup(unittest.TestCase):
         made = {"acme-5": "", "bolt-2": "", "crux-1": "Crux", "dune-1": "Dune"}
         self.assertEqual({row["release"]: row["maker"] for row in lineup}, made)
         stored = [dict(row, maker=row["maker"] or None) for row in lineup]    # an earlier build's
-        (read, found), _ = matrix._listed(json.dumps({"matrix": {"lineup": stored}}))
+        read, found = matrix._listed(json.dumps({"matrix": {"lineup": stored}}))
         self.assertEqual(({row["release"]: row["maker"] for row in read}, found), (made, made))
 
     def test_a_model_naming_an_older_release_makes_nothing_of_the_current_one_yours(self):
@@ -145,8 +145,7 @@ class Answer(unittest.TestCase):
         self.assertEqual(matrix.answer(self.lineup)["orchestrate"],
                          {"cost_unit": "board_dollars", "rated": [], "best": None,
                           "pick": None, "front": [], "take": None, "choices": [],
-                          "others": [], "whys": {}, "limits": {},
-                          "unrated": ["Acme 5", "Bolt 2", "Crux 1", "Dune 1"]})
+                          "others": [], "whys": {}})
 
     def test_a_take_is_picked_even_when_yours_is_measurably_worse(self):
         lineup = [dict(row, yours=row["yours"] if row["release"] == "crux-1" else [])

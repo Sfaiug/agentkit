@@ -36,7 +36,7 @@ GAP = {"sh": f"{shlex.quote(AK)} hand-in finding \"$(grep -rlF -- {shlex.quote(S
        "final": "Checked.", "hand_in": [["done"]]}
 CLEARED = [{"harness": "claude", "conversation": "e0c4a1b7-6d2f-4b8e-9a35-7f1c2d8e4b60",
             "account": "work"}]
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   esc back"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 

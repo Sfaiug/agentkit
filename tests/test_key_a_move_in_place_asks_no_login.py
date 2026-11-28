@@ -18,7 +18,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 SEAT = "acme-fix"
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   esc back"
 NO_LOGIN = "token expired; run login"
 METER = '{"meters": [{"name": "weekly_all", "used": 10}]}'
 DEEPSEEK, ACME_GLM = "opencode/deepseek-v4.1-flash-free", "acme/glm-5.3-flash"

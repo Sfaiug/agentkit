@@ -100,9 +100,9 @@ provider = "anthropic"
 ESC, UP, DOWN, RIGHT, LEFT, ENTER, SPACE = (b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[C", b"\x1b[D",
                                             b"\r", b" ")
 TAB = b"\t"
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # on a mark
-OPEN_KEYS = "  ↑↓←→ move   ⏎ open   r recommended   esc back"   # on a row
-NEW_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"   # new seats'
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   esc back"   # on a mark
+OPEN_KEYS = "  ↑↓←→ move   ⏎ open   r your runs   esc back"   # on a row
+NEW_KEYS = "  ↑↓←→ move   ␣ mark   r your runs   a apply to all sessions   esc back"   # new seats'
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLORTERM", "COLUMNS", "LINES")

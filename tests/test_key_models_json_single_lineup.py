@@ -18,7 +18,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import ENV, NOW, boards
+from fixtures.akboards import ENV, NOW, boards
 
 
 def showing(held, model, at):

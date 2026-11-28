@@ -29,7 +29,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 from test_key_a_screen_is_painted import BLACK
 from test_key_lists_name_what_enter_does import OPENCODE
-from test_key_models_answer import ENV
+from fixtures.akboards import ENV
 from test_key_models_company_list import boards
 from test_key_models_on import MODELS
 
@@ -142,10 +142,10 @@ class EveryScreenComesUp(unittest.TestCase):
             self.term.resize(*SIZES[self.sized])
         self.assertEqual(set(self.inks(text, since)), {ink})
 
-    def test_the_company_list_and_why_come_up_and_the_lists_marks_move_as_cs(self):
+    def test_the_company_list_and_your_runs_come_up_and_the_lists_marks_move_as_cs(self):
         self.term.keys("c")
-        self.term.wait("r recommended")
-        models = self.comes_up(["r"], "boards read")
+        self.term.wait("r your runs")
+        runs = self.comes_up(["r"], "Your team now")
         listed = self.comes_up(["p"], "Crux 2")
         since = self.raw.stat().st_size
         self.term.keys("Right", "Space")          # Acme Max 5 off, drawn half way
@@ -161,13 +161,11 @@ class EveryScreenComesUp(unittest.TestCase):
             self.inks(mark, since, lambda found: found[-1] == ink)
         self.comes_up(["a"], "1 model")
         self.as_it_is(["Escape"], "Crux 2", listed)
-        self.as_it_is(["Escape"], "boards read", models)
-        self.comes_up(["Enter"], "AutomationBench")
-        self.as_it_is(["Escape"], "boards read", models)
+        self.as_it_is(["Escape"], "Your team now", runs)
 
     def test_the_list_a_harness_adds_a_model_from_comes_up(self):
         self.term.keys("c")
-        self.term.wait("r recommended")
+        self.term.wait("r your runs")
         self.term.keys(*["Down"] * 4, "Enter")       # past the three models and `Models`
         self.term.wait("+ add a subscription")
         self.term.keys("Down", "Down")          # past ChatGPT
@@ -180,7 +178,7 @@ class EveryScreenComesUp(unittest.TestCase):
 
     def test_a_card_asked_comes_up(self):
         self.term.keys("c")
-        self.term.wait("r recommended")
+        self.term.wait("r your runs")
         self.term.keys(*["Down"] * 4, "Enter")       # the page `+ add a subscription` is on
         self.term.wait("+ add a subscription")
         self.comes_up(["Right", "Right", "Enter"], "× Remove")   # `− remove` under the first

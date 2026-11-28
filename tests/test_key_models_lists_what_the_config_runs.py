@@ -23,7 +23,7 @@ from fixtures.akterm import Terminal
 from test_key_models_from_own_login import ticks
 
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
-MARK_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
+MARK_KEYS = "  ↑↓←→ move   ␣ mark   r your runs   a apply to all sessions   esc back"
 # the claude adapter's `models` lists Fable and not Nova, which the config runs too
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 # before the fake OpenCode itself: `login` marks bolt logged in, after which `models` no longer

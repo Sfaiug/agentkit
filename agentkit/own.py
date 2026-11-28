@@ -78,7 +78,7 @@ NOTE = ["answers in: half its turns take no longer",
         "usage also as a share of one login's week on its plan"]
 
 
-def by_role(teams, now, seats=()):
+def by_role(teams, now, seats):
     """{"team", "orchestrator", "executor", "reviewer"} off the ledger's `teams`, the team now
     `now`, {role: [(name, effort or None)]} in the order held, and `seats`, `ledger.counted`'s
     per-seat counts.  `team` sums the teams all three of whose roles are the team now's; a role's
@@ -263,7 +263,7 @@ def numbers(row, columns, paid):
 
 
 def named(cfg, row):
-    """A row's model as the models screen's role lines name it (menu.models_said): its full name
+    """A row's model as `ak models` and `config · your runs` name it: its full name
     (config.model_name), by the name its runs kept where no longer configured or where that name
     drawn plain is empty, then its effort, `none` being none, each plain on its own (menu.named)."""
     name = config.model_name(cfg, row["name"])

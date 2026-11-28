@@ -81,7 +81,7 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         return akconfig.read(self.home)["audit"]
 
     def test_on_models_space_takes_a_model_in_and_out_and_enter_closes_the_list(self):
-        self.to("Models", "  ↑↓←→ move   ⏎ open   r recommended   a apply to all sessions"
+        self.to("Models", "  ↑↓←→ move   ⏎ open   r your runs   a apply to all sessions"
                           "   esc back")
         self.term.keys("Enter")
         self.at("Claude Code", OPEN)

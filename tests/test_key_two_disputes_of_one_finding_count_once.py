@@ -16,7 +16,7 @@ import unittest
 
 from test_key_fixer_dispute_run import start
 from test_key_history_db import OWNERS, read
-from test_key_models_answer import ENV, boards
+from fixtures.akboards import ENV, boards
 
 FIRST = "the first dispute reason"
 SECOND = "the second dispute reason"

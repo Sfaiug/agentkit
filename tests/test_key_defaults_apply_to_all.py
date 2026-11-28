@@ -29,7 +29,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 from test_key_orch_list_rows import bar
 
-KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r your runs   a apply to all sessions   esc back"
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh"}, "opus": "claude",
           "astra": {"harness": "codex", "effort": "high", "review_effort": "medium"}}
 # on [defaults]'s orchestrator at its effort, so it restarts nowhere, gone from tmux or not
@@ -152,7 +152,7 @@ class DefaultsApplyToAll(unittest.TestCase):
         term.wait("c config")
         term.keys("c")
         term.wait(lambda screen: "  For  new seats" in lines(screen) and key_line(screen)
-                  == "  ↑↓←→ move   ␣ mark   r recommended   esc back")
+                  == "  ↑↓←→ move   ␣ mark   r your runs   esc back")
 
 if __name__ == "__main__":
     unittest.main()

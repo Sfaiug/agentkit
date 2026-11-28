@@ -18,7 +18,9 @@ from test_key_models_company_list import ADDING, Opened
 
 class CompanyListRefresh(Opened):
     def test_the_add_row_stays_lit_when_the_first_of_yours_gains_scores(self):
-        term, shown = self.open(companies=["Fenix"], last=ADDING)
+        term, _ = self.open(companies=["Fenix"], last=ADDING)
+        shown = self.whole(term, "  0 models on, from 0 companies · 4 more companies have benchmark scores",
+                           last=ADDING)
         self.assertEqual(shown[4:6], ["", "› + add a company"])
         stored = self.home.path / ".agentkit/state/matrix.json"
         held = json.loads(stored.read_text())
