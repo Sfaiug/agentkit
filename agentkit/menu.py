@@ -5749,7 +5749,8 @@ def config_subscriptions(cfg, keyboard, number=None):
     under it as the line under the menu's highlighted row does; back from what an act or an add
     drew, it is drawn as it is.  The act lit (`on`) is kept by what it is, so one going from under
     it lights nothing in its place, and is at rest while the pointer lights its row's own cell,
-    the label, meter and share.
+    the label, meter and share.  A meter glides to a new reading on its line as drawn here
+    (`meter_moves`).
 
     Whichever screen opens it, it is made of config.toml read as it opens, `cfg` where that will
     not load, held as `c` holds it (holding), so a save over the file changed since writes nothing
@@ -5783,13 +5784,26 @@ def _subscriptions(cfg, keyboard, whose):
             opened, on = whose, act_text(SUBSCRIPTION_ACTS[0])
         at = None if terminal.away() else here
         lit = at[1] if at and at[0] == "sub" else None
-        ending = login_notes(subs)
-        meters = usage_lines(cfg, width, rows=subs, ending=ending, columns=1)
+        # one reading of the wall clock, so the lines at rest and each frame are of these cells
+        now = time.time()
+        ending, cells = login_notes(subs, now), usage_cells(cfg, now, subs)
+
+        def meters_at(cells):
+            return usage_lines(cfg, width, rows=subs, ending=ending, columns=1, cells=cells)
+        meters = meters_at(cells)
         drawn = meters or ["  " + label for _, label, _, _ in subs]
+        # the lit row says its resets in hand beside its meter where its line at rest has room
+        held = lit and in_hand(subs[lit - 1][2])
+        beside = held and terminal.cells(f"{drawn[lit - 1]} · {held}") <= width
+        tail = terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
+
+        def lined(number, line):
+            # login `number`'s line: lit, it has no band, Enter acting on its act, never the row
+            return terminal.highlight(line + tail, band=False) if number == lit else line
         # its whole cell, a cell of its row, the pointer lights as any cell (-1, no act)
         own = [(*usage_cell(width, 0), -1)] if meters else []
         owned = terminal.pointer_spot().cell == -1      # the pointer on one, as last drawn
-        body, places, acts, moves = [], {}, {}, []
+        body, places, acts, moves, spots = [], {}, {}, [], []
         for number, (sub, line) in enumerate(zip(subs, drawn), 1):
             name, _, prov, _ = sub
             if number == 1 or subs[number - 2][0] != name:
@@ -5798,17 +5812,13 @@ def _subscriptions(cfg, keyboard, whose):
             # it has no band, its acts being what Enter and a click act on (terminal.under)
             row = [(1, width, None)]
             places[len(body)] = (("sub", number), [*own, *row])
+            spots.append(len(body))
+            body.append(lined(number, line))
             if number != lit:
-                body.append(line)
                 continue
-            held = in_hand(prov)
-            beside = held and terminal.cells(f"{line} · {held}") <= width
-            line += terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
-            # what Enter acts on is its act, lit on its line, never the row
-            body.append(terminal.highlight(line, band=False))
             # its limits but the resets in hand, its row's to say, or with no room its login's line
             limits = fitting([(worth, note) for worth, note in
-                              limit_notes(cfg, name, prov, time.time()) if note != held],
+                              limit_notes(cfg, name, prov, now) if note != held],
                              width - 4)
             if limits:
                 shown = "    " + terminal.styled(" · ".join(limits), "dim")
@@ -5824,21 +5834,26 @@ def _subscriptions(cfg, keyboard, whose):
             told = [(ending_note(email, ends) if ends else email, kind), (plan, kind),
                     (not beside and held, "info")]
             # the pointer on its own cell lights that, so its act is at rest: one thing lit
-            for shown, cells in opened_line(told, list(acts), None if owned else on, width - 4):
-                places[len(body)] = (("sub", number), [*cells, *row])
+            for shown, spans in opened_line(told, list(acts), None if owned else on, width - 4):
+                places[len(body)] = (("sub", number), [*spans, *row])
                 moves.append((len(body), ("opened",), lit, motion.fading(shown)))
                 body.append(shown)
         # seen with no line too, so the pointer coming back onto a row is news
         moves.append((0, ("opened",), lit, lambda *_: None))
+        if meters:      # each gliding to a new reading on its line as drawn here
+            moves += meter_moves(subs, cells, spots, lambda cells: {
+                spot: lined(number, line)
+                for number, (spot, line) in enumerate(zip(spots, meters_at(cells)), 1)})
         body.append("")
         places[len(body)] = (("row", "add"), [])
         add = "  + add a subscription"
         body.append(terminal.highlight(add) if at == ("row", "add") else add)
         keys = terminal.keys("esc back", enter="open" if here[0] == "row" else act_word(on)
                              if on in acts else None)
-        # every TICK as the main screen, so a reading that lands -- one just added -- shows
+        # every STIR as the main screen and `c`, so a reading that lands -- one just added --
+        # shows, gliding there
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
-                                              top, said, keys, timeout=TICK, marks=0,
+                                              top, said, keys, timeout=STIR, marks=0,
                                               clock=clock, moves=moves)
         if clicked == -1:             # a subscription's own cell, lit by the pointer: no act
             clicked = None
