@@ -797,7 +797,7 @@ def main(argv):
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     from . import own       # here, not at the top: the boards and the screen need no database
     runs, plans, paid = counted(cfg)
-    mine = own.by_role(runs["teams"], team_now(cfg, seat))
+    mine = own.by_role(runs["teams"], team_now(cfg, seat), runs["seats"])
     if "--json" not in flags:
         # your own tables alone, off no board: the owner, 24 Nov 2026, "I actually dont want
         # that we assess our decision on benchmark data at all"

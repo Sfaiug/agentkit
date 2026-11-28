@@ -8,8 +8,10 @@ role's rows in `own`'s order, those in use marked, each with its tasks, the shar
 its role's own numbers, time (per task live, every hour its tasks spent), and usage (per task
 live, what its model took of its plans in that role over all its tasks, in money and as a share
 of a week — the share alone where a plan it took points of has no price, a dash where it holds
-no points): a builder's share that passed its first review and reviews per task, a reviewer's
-issues per task and the share of them it took back (false alarms, a dash where it counts none).
+no points): an orchestrator's median turn time (`answers in`) and missing asks per done check
+(`left out`, each a dash below 20 turns or checks), a builder's share that passed its first review
+and reviews per task, a reviewer's issues per task and the share of them it took back (false
+alarms, a dash where it counts none).
 A row of fewer than 20 tasks shows its tasks alone, one with none live neither time nor usage.
 A model is named as every screen names it at its effort, plain whatever its label holds, by the
 name its runs kept once no longer configured or where its label drawn plain is empty.  All three
@@ -54,22 +56,33 @@ TEAMS = [("now", 24, 18, {}), ("unrecorded", 20, 5, {"orchestrator_effort": None
          ("gale", 19, 10, {"executor": "gale", "executor_effort": "high"}),
          ("echo", 30, 0, {"reviewer": "echo"})]
 NOVA = "Acme Nova 7 Plus"
-HEADS = {"ORCHESTRATOR": "tasks  went live  time  usage",
+HEADS = {"ORCHESTRATOR": "tasks  went live  answers in  left out  time  usage",
          "BUILDER": "tasks  went live  passed 1st review  reviews  time  usage",
          "REVIEWER": "tasks  went live  issues  false alarms  time  usage"}
 # The team now: the first two teams, 23 of 44 live, 121 hours, 44 of them waiting
 TEAM = ["Your team now: 23 of 44 tasks went live,", "5.3 h per task live, 1.9 h of it waiting"]
-# Under the last table: what the short headings count, wide and on 40 cells
-NOTE = ["reviews and issues: per task · time and usage: per task that went live,",
+# Under the last table: what the short headings count, wide, on 100 cells and on 40
+NOTE = ["answers in: half its turns take no longer · "
+        "left out: what you asked for that a finished job lacked, per check",
+        "reviews and issues: per task",
+        "time and usage: per task that went live, "
         "usage also as a share of one login's week on its plan"]
-NOTE_FOLDED = ["reviews and issues: per task", "time and usage: per task that went live,",
+NOTE_100 = ["answers in: half its turns take no longer",
+            "left out: what you asked for that a finished job lacked, per check · "
+            "reviews and issues: per task",
+            "time and usage: per task that went live, "
+            "usage also as a share of one login's week on its plan"]
+NOTE_FOLDED = ["answers in: half its turns take no", "longer",
+               "left out: what you asked for that a", "finished job lacked, per check",
+               "reviews and issues: per task",
+               "time and usage: per task that went live,",
                "usage also as a share of one login's", "week on its plan"]
 # The widest page ak draws, on which the three tables fit as columns (and on 100 cells too)
 WIDE = 120
 OWN = [" ".join(TEAM), "",
-       f"ORCHESTRATOR{' ' * 13}tasks  went live    time  usage",
-       f"● {NOVA} high     24        75%   3.7 h      -",
-       f"○ {NOVA}          20        25%  11.0 h      -",
+       f"ORCHESTRATOR{' ' * 13}tasks  went live  answers in  left out    time  usage",
+       f"● {NOVA} high     24        75%           -         -   3.7 h      -",
+       f"○ {NOVA}          20        25%           -         -  11.0 h      -",
        "",
        f"BUILDER{' ' * 18}tasks  went live  passed 1st review  reviews   time  usage",
        f"■ Bolt 3 max{' ' * 16}44        52%                36%      2.1  5.3 h      -",
@@ -82,9 +95,9 @@ OWN = [" ".join(TEAM), "",
 # On 40 cells every row folds: its model's line, then each number it shows after its column's
 # name, as many to a line as fit
 FOLDED = [*TEAM, "", "ORCHESTRATOR", f"● {NOVA} high",
-          "  tasks 24  went live 75%  time 3.7 h", "  usage -",
+          "  tasks 24  went live 75%  answers in -", "  left out -  time 3.7 h  usage -",
           f"○ {NOVA}",
-          "  tasks 20  went live 25%  time 11.0 h", "  usage -",
+          "  tasks 20  went live 25%  answers in -", "  left out -  time 11.0 h  usage -",
           "", "BUILDER", "■ Bolt 3 max",
           "  tasks 44  went live 52%", "  passed 1st review 36%  reviews 2.1",
           "  time 5.3 h  usage -",
@@ -195,7 +208,7 @@ class ModelsOwnTables(unittest.TestCase):
     def test_on_a_wide_page_each_role_s_rows_stand_under_their_headings(self):
         shown = self.own(WIDE)
         self.assertEqual(shown, OWN)
-        self.assertEqual(self.own(100), OWN)
+        self.assertEqual(self.own(100), [*OWN[:-len(NOTE)], *NOTE_100])
         # each table's own columns after the name, tasks and went live, which stand under each
         # other in all three
         self.assertEqual({line.index("went live") for line in shown

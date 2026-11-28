@@ -18,13 +18,16 @@ from test_key_models_answer import ENV, boards
 
 # On 100 cells the three tables fit as columns
 OWN = ["Your team now has no task yet", "",
-       "ORCHESTRATOR      tasks  went live  time  usage",
+       "ORCHESTRATOR      tasks  went live  answers in  left out  time  usage",
        "● Acme Mid 5 low      0", "",
        "BUILDER           tasks  went live  passed 1st review  reviews  time  usage",
        "■ Acme Mid 5 low      0", "■ Bolt 3 low          0", "",
        "REVIEWER          tasks  went live  issues  false alarms  time  usage",
        "■ Acme Mid 5 low      0", "■ Bolt 3 low          0", "",
-       "reviews and issues: per task · time and usage: per task that went live,",
+       "answers in: half its turns take no longer",
+       "left out: what you asked for that a finished job lacked, per check · "
+       "reviews and issues: per task",
+       "time and usage: per task that went live, "
        "usage also as a share of one login's week on its plan"]
 
 
