@@ -3,7 +3,9 @@ took (`runs`' `usage` and `seats`):
 {"executor": {"points": {provider: {plan: points}}, "unrated": tokens},
  "reviewer": {"points": {provider: {plan: points}}, "unrated": tokens},
  "orchestrator": {"points": {provider: {plan: points}}, "unrated": tokens}}
-and [{"name", "effort", "points": {provider: {plan: points}}, "unrated": tokens}].
+and [{"name", "effort", "points": {provider: {plan: points}}, "unrated": tokens, ...}], the rest
+of an entry counting its own turns and done checks
+(tests/test_key_models_json_counts_turns_and_done_checks.py).
 
 - A build or review role's usage is that of the `turn_usage` rows naming a run and that role,
   chosen as `week_meters.days` chooses rows: in the window, of a turn on a harness of that
@@ -41,6 +43,8 @@ TABLES = {**BASE,
 EMPTY = {"executor": {"points": {}, "unrated": 0},
          "reviewer": {"points": {}, "unrated": 0},
          "orchestrator": {"points": {}, "unrated": 0}}
+# the rest of an entry of `seats` with no own turn and no done check
+IDLE = {"turns": 0, "turn_seconds": None, "checks": 0, "gaps": 0}
 
 
 class ModelsJsonRunUsage(WeekMeters):
@@ -204,11 +208,11 @@ class ModelsJsonRunUsage(WeekMeters):
         runs = self.runs()
         self.assertEqual(runs["seats"], [
             {"name": "nova", "effort": "high",
-             "points": {"acme": {"Max": 10}, "brine": {"Plus": 3.33333}}, "unrated": 0},
+             "points": {"acme": {"Max": 10}, "brine": {"Plus": 3.33333}}, "unrated": 0, **IDLE},
             {"name": "bolt", "effort": "low",
-             "points": {"brine": {"Plus": 3.33333}}, "unrated": 0},
+             "points": {"brine": {"Plus": 3.33333}}, "unrated": 0, **IDLE},
             {"name": None, "effort": None,
-             "points": {"brine": {"Plus": 3.33333}}, "unrated": 0}])
+             "points": {"brine": {"Plus": 3.33333}}, "unrated": 0, **IDLE}])
         self.assertEqual(runs["usage"]["orchestrator"], {
             "points": {"acme": {"Max": 10}, "brine": {"Plus": 10}}, "unrated": 0})
 
@@ -224,10 +228,10 @@ class ModelsJsonRunUsage(WeekMeters):
         self.seat(35, 1_000, account="second")              # login with no reading
         runs = self.runs()
         self.assertEqual(runs["seats"], [
-            {"name": "nova", "effort": "", "points": {}, "unrated": 2_000},
-            {"name": "nova", "effort": "high", "points": {}, "unrated": 7_000},
-            {"name": "nova", "effort": "low", "points": {}, "unrated": 5_000},
-            {"name": None, "effort": None, "points": {}, "unrated": 1_000}])
+            {"name": "nova", "effort": "", "points": {}, "unrated": 2_000, **IDLE},
+            {"name": "nova", "effort": "high", "points": {}, "unrated": 7_000, **IDLE},
+            {"name": "nova", "effort": "low", "points": {}, "unrated": 5_000, **IDLE},
+            {"name": None, "effort": None, "points": {}, "unrated": 1_000, **IDLE}])
         self.assertEqual(runs["usage"]["orchestrator"], {"points": {}, "unrated": 15_000})
 
     def test_a_history_without_seat_usage_gives_zero_orchestrator_and_no_seats(self):

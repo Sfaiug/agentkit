@@ -778,8 +778,8 @@ def counted(cfg, until=None):
     fits = rates.fitted(days)
     plans = by_plan(days, fits)
     by_run = week_meters.run_usage(cfg, since, until, fits, meters=meters)
-    by_seat = week_meters.seat_usage(cfg, since, until, fits, meters=meters)
-    return ledger.counted(by_run, by_seat, until=until), plans, money.month(cfg, plans)
+    seats = week_meters.seat_usage(cfg, since, until, fits, meters=meters)
+    return ledger.counted(by_run, seats, until=until), plans, money.month(cfg, plans)
 
 
 def main(argv):
