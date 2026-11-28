@@ -309,22 +309,16 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     yours, as one no harness of yours runs is no reason to leave it out; `take`: the same rule
     over yours; and `choices` over those with a cost, `others` and `whys` over every one
     (`_choices`), the choices being rows a take can take (`takes`).  Keep the pick and take
-    visible even if rows outside their eligible pool beat them.  `unrated`: the names of the
-    releases compared it rates no row of, as `p` lists them (`company_order`).  Every role's
-    costs are in one unit (`_costs`), off `task_usage`, (logins, shares) as `spend.roles`
-    measures them."""
+    visible even if rows outside their eligible pool beat them.  Every role's costs are in one
+    unit (`_costs`), off `task_usage`, (logins, shares) as `spend.roles` measures them."""
     measures = task_usage if task_usage is not None else _task_usage(cfg) if cfg else ({}, {})
     cfg = cfg or {"models": {}, "providers": {}}
     every = {role: quality.rated(lineup, role) for role in quality.ROLES}
     unit = _costs(every, lineup, cfg, *measures)
-    order = company_order(cfg, lineup)
-    releases = {row["release"]: row["name"] for row in sorted(
-        lineup, key=lambda row: order.index(row["maker"]))
-        if compared is None or row["release"] in compared}
+    releases = {row["release"] for row in lineup if compared is None or row["release"] in compared}
     out = {}
     for role, rated in every.items():
         them = [row for row in rated if row["release"] in releases]
-        scored = {row["release"] for row in them}
         best = max(them, key=lambda row: row["quality"], default=None)
         priced = sorted((row for row in them if row["cost"] is not None),
                         key=lambda row: (row["cost"], -row["quality"]))
@@ -337,8 +331,7 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
                                          {id(row) for row in priced if takes(cfg, row)})
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
                      "front": front, "take": take, "choices": choices, "others": others,
-                     "whys": whys,
-                     "unrated": [name for slug, name in releases.items() if slug not in scored]}
+                     "whys": whys}
     return out
 
 

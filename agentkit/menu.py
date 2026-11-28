@@ -3612,13 +3612,9 @@ def company_list(cfg, title):
     fetch.join(motion.FRAME)
     while True:
         if fetch is not None and not fetch.is_alive():
-            try:                      # a board that failed answers with its error, kept a day
-                failed = "; ".join(f"{name} {board['error']}" for name, board
-                                   in fetch.answer()[0].items() if board.get("error"))
-            except Exception as exc:      # noqa: BLE001 -- what stands is shown, the fault said
-                failed = " ".join(str(exc).split()) or type(exc).__name__
-            note = f"the boards were not read: {failed}" if failed else note
-            here, fetch = (None if not acted else here), None
+            # untouched, the list starts on its first company, as it opens where they were held;
+            # a board that failed says nothing, as its lines would push the header off a short page
+            here, fetch = (here if acted else None), None
         (makers, yours), room = companies_listed(cfg), terminal.layout_width()
         off, now = set(cfg.get("models_off") or ()), matrix.compared(cfg)
         rows = [*(("company", maker) for maker in yours if maker in makers), ADD_COMPANY]
@@ -3649,7 +3645,7 @@ def company_list(cfg, title):
         column = column if clicked is None else clicked
         if act is None:
             continue                  # a resize or the pointer: drawn again
-        acted = acted or len(rows) > 1
+        acted = True
         note, models = "", [] if here == ADD_COMPANY else list(makers[here[1]])
         if act == "back":
             # by the lineup's rows, so releases without a score go too, and a company it lacks stays
@@ -3662,11 +3658,13 @@ def company_list(cfg, title):
                                  ) if gone else ""
         if act == "a" or act == "enter" and here == ADD_COMPANY:
             clock.forget()            # another screen: the list back from it is drawn as it is
-            added = company_add(cfg, title, fetch)
-            if added is not None:      # "", the maker the boards leave unnamed, is one
-                makers, yours = companies_listed(cfg)
-                note = models_listed(cfg, [*yours, added], off - makers.get(added, {}).keys())
-                here, column, acted = ("company", added), 0, True
+            picked = company_add(cfg, title, fetch)
+            if picked is not None:
+                # the models it drew, which a lineup landing since may lack; "", the maker the
+                # boards leave unnamed, is one
+                added, slugs = picked
+                note = models_listed(cfg, [*companies_listed(cfg)[1], added], off - slugs)
+                here, column = ("company", added), 0
         elif act in ("left", "right"):
             column = max(0, min(column + (1 if act == "right" else -1), len(models)))
         elif act == "space" and models:
@@ -3679,7 +3677,8 @@ def company_list(cfg, title):
 def company_add(cfg, title, fetch=None):
     """`a` on the company list, `<title> · add a company`: each company listed not among
     `yours`, strongest first, with how many listed models it has and its strongest, until ⏎ or
-    a click picks one, or Esc goes back: that company, or None.  It comes up as a page does."""
+    a click picks one, or Esc goes back: that company and its models' slugs, or None.  It comes
+    up as a page does."""
     here, top, clock = None, 0, motion.Clock(page=True)
     while True:
         loading = bool(fetch and fetch.is_alive())
@@ -3700,7 +3699,7 @@ def company_add(cfg, title, fetch=None):
             terminal.keys("esc back", enter="add", move=("company",)), marks=0, clock=clock,
             began=fetch.began if loading else None, going=fetch.is_alive if loading else None)
         if act == "back" or act == "enter" and here:
-            return None if act == "back" else here[1]
+            return None if act == "back" else (here[1], set(makers[here[1]]))
 
 
 def config_columns(selected, name):
