@@ -85,7 +85,7 @@ class MainScreen(Sandbox):
                 (menu, "time", clock), (motion, "time", clock),
                 # what is asked off the draw takes no time on that clock either
                 (menu.Fetch, "join", lambda fetch, timeout=None: threading.Thread.join(fetch)),
-                (menu, "open_session", lambda cfg, session, dry_run:
+                (menu, "open_session", lambda cfg, session, dry_run, **_kw:
                  print(f"<opened {session['name']}>"))):
             self.stack.enter_context(patch.object(target, name, fake))
         self.addCleanup(setattr, terminal, "_ASKED", False)

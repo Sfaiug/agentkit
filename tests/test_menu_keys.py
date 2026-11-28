@@ -62,7 +62,9 @@ def draw(*args, **kwargs):
     time.sleep(float(os.environ["MENU_KEYS_SLOW"]))    # a draw a key can land in the middle of
     return real_draw(*args, **kwargs)
 
-def open_session(cfg, session, dry_run):
+def open_session(cfg, session, dry_run, keyboard=None, **_kw):
+    if keyboard is not None:
+        keyboard.give()     # a live seat's terminal, as the real one gives it
     print(f"<opened {session['name']}>", flush=True)
     if os.environ["MENU_KEYS_SESSION_READS"] == "1":    # a session: whatever he types next is its
         # A seat is a tmux client, and tmux reads a mouse report as the mouse event it is and

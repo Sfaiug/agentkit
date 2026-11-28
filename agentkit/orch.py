@@ -329,11 +329,14 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
             config.FIRST_PROMPT_ENV: line or "",
             config.REMOTE_CONTROL_ENV: "on" if config.remote_control(cfg) else "off"}
     told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
+    # a terminal the menu holds is no stdin: a key typed on it while a seat is made or put back
+    # is the seat's, its harness the next to read it
     proc = subprocess.run([str(adapter), "interactive", entry["model"],
                            config.role_effort(entry, "orchestrator"),
                            *([conversation] if conversation else []),
                            *(["new"] if conversation and fresh else [])],
                           capture_output=True, encoding="utf-8", errors="replace",
+                          stdin=subprocess.DEVNULL if terminal.taken() else None,
                           env={**os.environ, **told}, cwd=cwd)
     if fresh and proc.returncode == CANNOT_PIN:
         return None
@@ -2575,7 +2578,7 @@ def attach(name, log=print, wait=False, session=None):
 
 
 def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand_over=True,
-           account=None, still=None, line=None):
+           account=None, still=None, line=None, give=lambda: None):
     """Put the orchestrator back in a seat whose process is gone, and hand the terminal over.
 
     Two ways in, and the same ownership check either way. A seat tmux is still holding -- the
@@ -2598,7 +2601,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     the one it had no more (`config.lists`). Ordinary resumes keep the account already
     recorded while its provider lists it, else take `listed_login`'s, homed the same way.
     `still` is `_start_harness`'s.  `line`, such a caller's, is what the conversation, where it
-    comes back with its past, opens on.
+    comes back with its past, opens on.  `give` gives back the terminal a caller holds, before
+    the seat is attached to it: once its harness is back, where it had none.
     """
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
@@ -2609,12 +2613,16 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         if not resumable(record):
             raise config.Error(f"{name}: conversation ownership is no longer verified")
     if session and not session.get("exited") and account is None:
-        return attach(name, log=log, wait=wait, session=session) if hand_over else False
+        if not hand_over:
+            return False
+        give()
+        return attach(name, log=log, wait=wait, session=session)
     if not session and not record:
         raise config.Error(f"no session {name!r} to resume and no record of one")
     if hand_over and not (detached or dry_run):
         reopen(cfg, name, log=log, account=account, still=still)
         config.update_session(name, seen=int(time.time()))
+        give()
         # the seat it just put a harness in: live now, whatever its row said before
         return attach(name, log=log, wait=wait,
                       session={**(session or {"name": name}), "exited": False})

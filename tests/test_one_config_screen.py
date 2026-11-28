@@ -65,8 +65,8 @@ config.catalog_now = lambda harness, cfg=None: [{"id": "claude-fable-5-1", "labe
                                        "efforts": ["high", "xhigh", "max"]}]
 orch.launch = lambda name, model, *args, **kwargs: print(f"<launched {name} {model}>", flush=True)
 orch.CHARACTERS = ("new",)          # a seat nobody named is `new` here
-menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>",
-                                                        flush=True)
+menu.open_session = lambda cfg, session, dry_run, **_kw: print(f"<opened {session['name']}>",
+                                                                 flush=True)
 code = menu.loop(cfg, overlay="AGENTKIT_SESSION" in os.environ)     # the popup over that seat
 os.environ["AGENTKIT_SESSION"] = "fix-api"
 picked = run.pick_models(config.load(), usage.Readings({}), None, None, lambda line: None)

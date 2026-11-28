@@ -44,7 +44,8 @@ menu.update_first = lambda *args, **_kw: None
 def collect(*args, **_kw):
     raise config.Error("models are unavailable; check your configuration before starting a new session")
 
-def open_session(cfg, session, dry_run, **_kw):
+def open_session(cfg, session, dry_run, keyboard, **_kw):
+    keyboard.give()       # a live seat's terminal, as the real one gives it
     menu.pause("resume: the invented conversation is unavailable", "try again later")
 
 menu.usage.collect, menu.open_session = collect, open_session
