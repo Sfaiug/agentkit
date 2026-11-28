@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// watchEvery is how often a Watch asks.
+// watchEvery is the longest a Watch waits between looks.
 const watchEvery = time.Second
 
 // Written is what says the file at path grew or changed, for StopOnSilence: even output without
@@ -53,13 +53,14 @@ func (w Watch) Stop(ctx context.Context) (context.Context, func() string) {
 		started := time.Now()
 		last, held, seen := started, started, w.Heard()
 		starting, bound := w.Began != nil, false
-		tick := time.NewTicker(watchEvery)
-		defer tick.Stop()
+		look := time.NewTimer(watchEvery)
+		defer look.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case now := <-tick.C:
+			case <-look.C:
+				now := time.Now()
 				if current := w.Heard(); current != seen {
 					last, seen, bound = now, current, false
 				}
@@ -88,6 +89,16 @@ func (w Watch) Stop(ctx context.Context) (context.Context, func() string) {
 					cancel()
 					return
 				}
+				// the next look as a limit is reached, never up to a second past it: a bound live as
+				// the silence reached its limit could have ended by then, and its silence counted
+				next := watchEvery
+				if w.Silence > 0 {
+					next = min(next, w.Silence-min(now.Sub(last), now.Sub(held)))
+				}
+				if w.Ceiling > 0 {
+					next = min(next, w.Ceiling-now.Sub(started))
+				}
+				look.Reset(next)
 			}
 		}
 	}()

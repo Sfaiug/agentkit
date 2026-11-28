@@ -31,3 +31,16 @@ func TestAWatchSaysWhatEndedItsContext(t *testing.T) {
 		t.Fatal("nothing to watch ends nothing")
 	}
 }
+
+func TestABoundLiveAsTheSilenceReachesItsLimitHoldsItOff(t *testing.T) {
+	const silence = 1050 * time.Millisecond // reached just after a look, a second before the next
+	end := time.Now().Add(1950 * time.Millisecond)
+	var stopped time.Time
+	ctx, ended := Watch{Silence: silence, Heard: Written(filepath.Join(t.TempDir(), "activity")),
+		Declared: func(now float64) bool { return now < float64(end.UnixNano())/1e9 },
+		Before:   func() { stopped = time.Now() }}.Stop(context.Background())
+	<-ctx.Done()
+	if why := ended(); why != "silence" || stopped.Sub(end) < silence {
+		t.Fatalf("got %q %v after the bound's end", why, stopped.Sub(end))
+	}
+}
