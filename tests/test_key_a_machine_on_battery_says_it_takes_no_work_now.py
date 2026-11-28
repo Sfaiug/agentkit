@@ -69,9 +69,10 @@ class AMachineOnBatterySaysItTakesNoWorkNow(unittest.TestCase):
             rows["acme-laptop"],
             f"acme-laptop ○ runs ● tests {USED} · on battery · no work until on power")
         self.assertEqual(rows["acme-plugged"], f"acme-plugged ○ runs ● tests {USED}")
-        self.assertRegex(rows["acme-shut"], r"^acme-shut ○ runs ● tests sometimes on · 4 cores · "
-                                             r"8 GB · not answering since ")
-        self.assertNotIn("on battery", rows["acme-shut"])
+        self.assertRegex(
+            rows["acme-shut"],
+            r"^acme-shut ○ runs ● tests sometimes on · 4 cores · 8 GB · "
+            r"not answering since (?:\d{1,2} [A-Z][a-z]{2} )?\d{2}:\d{2}$")
         # its own page holds its marks as ever
         self.term.keys("Down", "Enter")
         page = self.term.wait(lambda screen: "config · machines · acme-laptop" in screen
