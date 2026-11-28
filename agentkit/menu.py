@@ -3548,8 +3548,8 @@ def your_runs_screen(cfg, session, selected, held, providers):
     the last, at any size, and one too short for any of their lines keeps its header, as `p`'s
     note keeps its start.  Space, or a click on its mark, on a builder's or a reviewer's row
     does what Space does on its model's mark for that role on `c` (flip_mark), `providers`
-    being `c`'s, over config.toml and the marks read again as the key comes (marks_read): a
-    model the config offers no more, or holds off (matrix.off), is refused naming it.  Once
+    being `c`'s, on the marks as the page shows them: a model config.toml offers no more, or
+    holds off (matrix.off), as the save reads it, is refused naming it.  Once
     taken, the page counts for the team as it now is, the history read once, and the highlight
     stays on the model: on its row in use where it runs at another effort, else on its row,
     kept though no task or use holds it.  `p` opens the company list; Esc goes back.  Its config is held as `c` holds its
@@ -3565,6 +3565,7 @@ def your_runs_screen(cfg, session, selected, held, providers):
 def _your_runs(cfg, session, selected, held, providers):
     """your_runs_screen's page over `cfg`, read until Esc."""
     from . import own     # here, not at the top: own imports menu
+    marks_read(cfg, session, selected)      # the marks as `cfg` holds them, which Space flips
     if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
         terminal.doing("config · your runs · reading what your runs did")
     runs, _, paid = matrix.counted(cfg)
@@ -3621,21 +3622,25 @@ def _your_runs(cfg, session, selected, held, providers):
         # orch.role_mark numbers the roles in own.ROLES' order; an orchestrator's mark, which
         # moves the seat, is not built here
         if act == "space" and (column := own.ROLES.index(here[0])):
-            cfg = holding(cfg)      # as `c` reads them before a key, another window's saves in
-            marks_read(cfg, session, selected)
             row = mine[here[0]][here[1]]
             name, shown = row["name"], own.named(cfg, {**row, "effort": None})
-            note = (f"{shown} is no longer in the config" if name not in config.offered(cfg)
-                    else f"{shown} is {matrix.OFF}" if name in matrix.off(cfg)
-                    else flip_mark(cfg, session, selected, held, name, column, providers, ask))
-            if not note:
-                cfg = holding(cfg)      # the marks as saved, which `c` reads before its next draw
-                marks_read(cfg, session, selected)
-                mine, rows = team({here[0]: [row]})
-                # on the model it was on: its row in use, else this one, kept
-                here = (here[0], min((not other["in_use"], other["effort"] != row["effort"],
-                                      number) for number, other in enumerate(mine[here[0]])
-                                     if other["name"] == name)[2])
+
+            def refused(now):       # this row's model as config.toml `now` holds it
+                return (f"{shown} is no longer in the config" if name not in config.offered(now)
+                        else f"{shown} is {matrix.OFF}" if name in matrix.off(now) else "")
+            try:    # the marks this page shows, never one read since and not drawn yet
+                note = flip_mark(cfg, session, selected, held, name, column, providers, ask,
+                                 refused=refused)
+            except Changed:     # another window saved config.toml since this page read it
+                cfg = holding(cfg)
+                note = refused(cfg) or CHANGED
+            cfg = holding(cfg)      # as saved, or as another window left them, as `c` reads them
+            marks_read(cfg, session, selected)
+            mine, rows = team({here[0]: [row]})
+            # on the model it was on: its row in use, else this one, kept
+            here = (here[0], min((not other["in_use"], other["effort"] != row["effort"],
+                                  number) for number, other in enumerate(mine[here[0]])
+                                 if other["name"] == name)[2])
 
 
 ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens
@@ -6311,22 +6316,26 @@ def for_selected(cfg, scope):
             else (NEW_SEATS, copy.deepcopy(cfg["defaults"]), ""))
 
 
-def flip_mark(cfg, session, selected, held, model, column, providers, ask, born=False):
+def flip_mark(cfg, session, selected, held, model, column, providers, ask, born=False,
+              refused=lambda cfg: ""):
     """Space on `model`'s mark `column` (orch.role_mark's) on `c` and on `your runs` alike, the
     one place deciding whose marks it flips: seat `session`'s (session_mark), the born row's
-    (born_mark) or new seats' (defaults_mark).  A pick applies what the seat's page holds,
-    `held`, first, as closing does, asking on `ask` (apply_held), what that could not do
-    refusing it, and flips the marks as drawn (held_over); the orchestrator's own picks none.
-    What to say under the rows, or ""."""
+    (born_mark) or new seats' (defaults_mark).  What `refused` says of `cfg` refuses it before
+    anything is applied, and of the config a seat's save reads again.  A pick applies what the
+    seat's page holds, `held`, first, as closing does, asking on `ask` (apply_held), what that
+    could not do refusing it, and flips the marks as drawn (held_over); the orchestrator's own
+    picks none.  What to say under the rows, or ""."""
     # A mark is made at once and never held for the close: holding one failed review four times
     # over a config, login or record changing under the page, and the owner, 21 Nov 2026, asked
     # whether to drop it: "Keep marks instant".
+    if note := refused(cfg):
+        return note
     drawn = held_over(cfg, selected, held)
     if held and (column or model != selected["orchestrator"]) and (
             note := apply_held(cfg, (session, selected), held, ask, providers)):
         return note
     if session:
-        return session_mark(cfg, session, drawn, model, column, providers, ask)
+        return session_mark(cfg, session, drawn, model, column, providers, ask, refused)
     if born:
         return born_mark(cfg, selected, model, column, providers)
     return defaults_mark(cfg, selected, model, column)
@@ -6478,7 +6487,7 @@ def born_mark(cfg, selected, model, column, providers):
     return note
 
 
-def session_mark(cfg, name, selected, model, column, providers, ask=None):
+def session_mark(cfg, name, selected, model, column, providers, ask=None, refused=lambda cfg: ""):
     """Act on one of a session's marks, saving it to the session's record at once.
 
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
@@ -6492,9 +6501,10 @@ def session_mark(cfg, name, selected, model, column, providers, ask=None):
     screen; a spent model is not (orch._switch_plan). An executor or reviewer mark flips
     on the record as it stands (roles_saved): the role gains the model `selected` shows
     unmarked, or loses it. Either role may be left empty, and a flip leaving no
-    allowed pair is refused. A run launched afterwards reads the record as left
-    here; one already going keeps the groups its receipt saved. A refusal or a save that
-    fails leaves the record, and `selected`, alone. What to say under the rows, or "".
+    allowed pair is refused, and so is one `refused` refuses of the config as it then stands. A
+    run launched afterwards reads the record as left here; one already going keeps the groups
+    its receipt saved. A refusal or a save that fails leaves the record, and `selected`, alone.
+    What to say under the rows, or "".
     """
     if column == 0:
         note = orch.switch_orchestrator(cfg, name, model, providers,
@@ -6502,8 +6512,9 @@ def session_mark(cfg, name, selected, model, column, providers, ask=None):
         if note == "":
             selected["orchestrator"] = model
         return note or ""
-    return roles_saved(cfg, name, selected, lambda record, now: orch.role_mark(
-        now, record, model, column, providers, shown=selected))
+    return roles_saved(cfg, name, selected, lambda record, now: (
+        (record, note) if (note := refused(now)) else orch.role_mark(
+            now, record, model, column, providers, shown=selected)))
 
 
 # A production project's feature switches are live data in the project, reached through the one
