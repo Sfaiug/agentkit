@@ -339,20 +339,21 @@ def harness_binary(name):
     return ""
 
 
-def harness_present(harness):
-    """Whether that harness is present to run a turn: its adapter here and its program found,
-    the one its `[update] version` runs, else the adapter's own name, as `orch.agent_programs`
-    reads them.  The one answer for a pick, a seat's move, the config screen and `ak models`."""
+def harness_present(harness, code=None):
+    """Whether that harness is present to run a turn: its adapter in `code` (this checkout unless
+    given) and its program found, the one its `[update] version` runs, else the adapter's own
+    name, as `orch.agent_programs` reads them.  The one answer for a pick, a seat's move, the
+    config screen and `ak models`."""
     try:
-        adapter(harness)
+        adapter(harness, code)
     except Error:
         return False
-    return bool(harness_binary(harness_program(harness)))
+    return bool(harness_binary(harness_program(harness, code)))
 
 
-def harness_program(harness):
+def harness_program(harness, code=None):
     """The program of that harness `harness_present` finds."""
-    block = manifest(harness).get("update")
+    block = manifest(harness, code).get("update")
     version = block.get("version") if isinstance(block, dict) else None
     named = isinstance(version, list) and version and isinstance(version[0], str) and version[0]
     return version[0] if named else harness
@@ -2601,24 +2602,26 @@ def _group(pid):
 _MANIFESTS = {}
 
 
-def manifest(harness):
+def manifest(harness, code=None):
     """adapters/<harness>.toml: everything agentkit knows about that harness's screen.
 
-    Beside the adapter script, and read the same way -- $AGENTKIT_ADAPTER_DIR first -- except
-    that a directory of fake adapters replaces the model calls, not the screen knowledge, so a
-    missing file there falls back to this checkout's own.  A harness with no manifest reads as
-    an empty one: nothing is recognised on its screen, and nothing is typed into it.
+    Beside the adapter script, and read the same way -- $AGENTKIT_ADAPTER_DIR first, then
+    `code` (this checkout unless given) -- except that a directory of fake adapters replaces
+    the model calls, not the screen knowledge, so a missing file there falls back to that
+    checkout's own.  A harness with no manifest reads as an empty one: nothing is recognised
+    on its screen, and nothing is typed into it.
     Cached by path and mtime, because it is read on every menu draw and every watch tick, and
     asked for once in a pass (`look`), since a draw asks for every model's name.
     """
     if not isinstance(harness, str) or not HARNESS.fullmatch(harness):
         return {}
-    return look.once(("manifest", harness), lambda: _manifest(harness))
+    return look.once(("manifest", harness, code), lambda: _manifest(harness, code))
 
 
-def _manifest(harness):
+def _manifest(harness, code=None):
     override = os.environ.get(ADAPTER_DIR_ENV)
-    roots = [Path(override).expanduser(), REPO / "adapters"] if override else [REPO / "adapters"]
+    base = (code or REPO) / "adapters"
+    roots = [Path(override).expanduser(), base] if override else [base]
     for root in roots:
         path = root / f"{harness}.toml"
         try:

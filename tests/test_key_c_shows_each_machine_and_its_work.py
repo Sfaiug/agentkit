@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
@@ -119,8 +120,11 @@ class MachinesOnC(unittest.TestCase):
     def test_the_keys_turn_the_pages_of_a_row_taller_than_the_page_before_leaving_it(self):
         self.page()
         self.term.resize(25, 9)
+        # Cropping the 120-column frame to 25 still shows `› this one` and 25 rule dashes;
+        # wait until the narrow redraw clears the other rows and finishes its key line.
         self.term.wait(lambda screen: "› this one" in screen and "● tests" in screen
-                       and "─" * 25 in screen)
+                       and "─" * 25 in screen and "acme-" not in screen
+                       and "esc back" in screen)
         self.term.keys("Down")
         # the row's next page: its later words, and the highlight has not moved onto the next row
         self.term.wait(lambda screen: "busy" in screen and "this one" not in screen
@@ -128,6 +132,37 @@ class MachinesOnC(unittest.TestCase):
         self.term.keys("Up")
         self.term.wait("› this one")
         self.leave()
+
+    def test_the_tall_row_test_waits_for_the_narrow_redraw_before_pressing_down(self):
+        # Before the program answers SIGWINCH, tmux shows the 120-column frame cropped to 25x9;
+        # Down must wait until the narrow frame has cleared the other rows and finished drawing.
+        cropped, held, stale, pressed = [], [0], [False], []
+        real_resize, real_screen, real_keys = Terminal.resize, Terminal.screen, Terminal.keys
+
+        def resize(term, width, height):
+            cropped.append("\n".join(line[:width] for line in real_screen(term).splitlines()[:height]))
+            held[0], stale[0] = 1, True
+            return real_resize(term, width, height)
+
+        def screen(term, *args, **kwargs):
+            if held[0]:
+                held[0] -= 1
+                stale[0] = True
+                return cropped[-1]
+            stale[0] = False
+            return real_screen(term, *args, **kwargs)
+
+        def keys(term, *presses):
+            if stale[0]:
+                pressed.append(presses)
+            return real_keys(term, *presses)
+
+        with patch.object(Terminal, "resize", resize), \
+             patch.object(Terminal, "screen", screen), \
+             patch.object(Terminal, "keys", keys):
+            self.test_the_keys_turn_the_pages_of_a_row_taller_than_the_page_before_leaving_it()
+        self.assertTrue(cropped)
+        self.assertEqual(pressed, [])
 
     def test_turns_off_the_other_machines_take_tests_alone(self):
         self.write_config(turns=False)

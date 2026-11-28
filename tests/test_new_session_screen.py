@@ -54,7 +54,7 @@ def open_session(cfg, session, dry_run):
 orch.launch = refused
 orch.CHARACTERS = ("new",)          # a seat nobody named is `new` here
 orch.fresh_command = lambda cfg, name, seat=None, account=None, **_kw: (["harness"], None)
-config.harness_present = lambda harness: True   # whatever programs the host has
+config.harness_present = lambda harness, *_a, **_kw: True   # whatever programs the host has
 dry_run = os.environ["SCREEN_DRY_RUN"] == "1"
 if not dry_run:     # a dry run keeps the real listing, rows, probe, notices, create and open
     orch.sessions = lambda: []

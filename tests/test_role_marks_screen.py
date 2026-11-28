@@ -107,6 +107,7 @@ class RoleMarks(Sandbox):
 
     def test_a_seat_ensure_starts_is_what_n_starts_from_too(self):
         with patch.object(orch, "select", return_value=("astra", "opus is spent", ["fable"])), \
+                patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
                 patch.object(orch, "launch"), patch.object(orch, "refuse_held"), \
                 patch.object(orch.usage, "collect", return_value={}), \
@@ -240,14 +241,16 @@ class RoleMarks(Sandbox):
                 ({"muse"}, {"spark"}, "spark", ("spark", [], ["spark"])),
                 (set(), set(), "opus", ("opus", ["opus", "astra"], ["opus", "astra"]))):
             with self.subTest(present=present, spent=spent), \
-                    patch.object(config, "harness_present", side_effect=lambda h: h in present), \
+                    patch.object(config, "harness_present",
+                                 side_effect=lambda h, *_a, **_kw: h in present), \
                     patch.object(orch, "spent_note", side_effect=lambda c, n, p:
                                  "spent" if n in spent else ""):
                 self.assertEqual(orch.default_crew(self.cfg, {}, default),
                                  dict(zip(("orchestrator", "workers", "reviewers"), expected)))
         # off in the model list is treated as on main, not dropped as uninstalled
         self.cfg["models_off"] = ["claude-opus-5-5"]
-        with patch.object(config, "harness_present", side_effect=lambda h: h == "muse"), \
+        with patch.object(config, "harness_present",
+                          side_effect=lambda h, *_a, **_kw: h == "muse"), \
                 patch.object(orch, "spent_note", return_value=""):
             self.assertEqual(orch.default_crew(self.cfg, {}, "spark"),
                              {"orchestrator": "spark", "workers": ["opus"], "reviewers": ["opus"]})

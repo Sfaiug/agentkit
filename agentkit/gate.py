@@ -2753,16 +2753,19 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     from the time record (`round_tests.chosen`), which holds while the round goes: the check keeps
     no times, as a resumed round chooses from it again, and the re-run of a `shard` is handed them
     less those its first go named as not there and not as run, as the record keeps a part while
-    its file exists and no change fixes one its file lost.  Its `flaky:` record names what the
-    first go lacked, and no lacked part is a flaky test: a first go that named no other failure
-    and passed all else its tree holds (`passes_what_it_holds`) leaves none, as a follow-up could
-    fix nothing.  A lander's check runs without it: it reads a red go and a green one as a flake
-    that blames nobody, and counts a part not there by that rule.
+    its file exists and no change fixes one its file lost; where that leaves none, no re-run goes,
+    as a go of none would end green on nothing: the first go's red row stands, and where it passed
+    all else its tree holds (`passes_what_it_holds`), which is none, the go is neither pass nor
+    fail, the list answering None where nothing else failed.  Its `flaky:`
+    record names what the first go lacked, and no lacked part is a flaky test: a first go that
+    named no other failure and passed all else its tree holds (`passes_what_it_holds`) leaves
+    none, as a follow-up could fix nothing.  A lander's check runs without it: it reads a red go
+    and a green one as a flake that blames nobody, and counts a part not there by that rule.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
     before = set(gitcall.dirty_paths(cwd))
-    chunks, ok = [], True
+    chunks, ok, held_none = [], True, False  # whether a chosen go's tree held none of its tests
     spent, killed, kept = None, False, ""   # the command the limit ran out on, whether it had
                                             # begun, and the output it had produced by then
     reason, running = [], []
@@ -2848,6 +2851,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 first_span, first, named = (offset, end), named, []
                 if lacked:
                     handed = [test for test in only if test not in lacked]
+                    if not handed:
+                        break
                     first = [test for test in first if test not in lacked]
                     how += f", lacking {' '.join(lacked)}"
                     # red by what no change fixes, where it named no other failure and passed
@@ -2862,7 +2867,10 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 if marks is not None:
                     marks.append(None)
                 break
-            ok &= code == 0
+            if lacked and held and not handed:
+                held_none = True
+            else:
+                ok &= code == 0
             if timings is not None and code == 0 and not killed:
                 timings[cmd] = suite_times.measured(log_path, offset), max(1, len(raw))
             if took is not None and code == 0 and not killed:
@@ -2929,7 +2937,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     # still have left processes behind, and they die with the gate, however detached.
     worker.kill_marked(gitcall.run_child_env().get(worker.RUN_MARKER), log=log)
     artifacts.update(set(gitcall.dirty_paths(cwd)) - before)
-    return ok, text
+    return (None if held_none and ok else ok), text
 
 
 def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir, checked=None):

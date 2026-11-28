@@ -274,6 +274,27 @@ class FlakyRerun(unittest.TestCase):
                 prompts.record_flakes(state, text)
                 self.assertEqual(len(state.get("followups", [])), flakes, text)
 
+    def test_a_round_s_go_whose_tree_holds_none_of_its_tests_is_neither_pass_nor_fail(self):
+        # A round's check (`chosen`) handed only `gone`: a first go naming it as not there and
+        # not as run runs no re-run, which would be handed none, and is red where it died by a
+        # signal; one naming it as run and failed too is a red, its re-run going as any.
+        for end, answer, goes in (("", None, 1), ("kill -TERM $$", False, 1),
+                                  ('echo gone >"$AK_RAN"; echo gone >"$AK_FAILED"; exit 1', False,
+                                   2)):
+            with self.subTest(end):
+                self.runs.write_text("")
+                (self.root / "suite.sh").write_text(
+                    f'echo ran >>{shlex.quote(str(self.runs))}; echo gone >"$AK_NOT_THERE"\n{end}\n')
+                ok, text = gate.run_done_when(["exec bash suite.sh"], self.root,
+                                              self.run_dir / "donewhen.log", set(), limit=30,
+                                              shard="1/1", only=["gone"], chosen=True)
+                self.assertIs(ok, answer, text)
+                self.assertEqual(self.count(), goes, text)
+        # a check of no chosen tests is red by its exit, whatever an earlier go left in `absent`
+        ok, text = gate.run_done_when(["exit 7"], self.root, self.run_dir / "donewhen.log", set(),
+                                      limit=30, absent=["gone"])
+        self.assertIs(ok, False, text)
+
 
 if __name__ == "__main__":
     unittest.main()
