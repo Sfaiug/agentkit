@@ -1,7 +1,7 @@
 """`ak usage`'s `holds` says what each login's shared week holds at list prices,
 `week ≈ $2010 at list prices`: its plan's `week_listed_usd` (tests/test_key_week_price.py) in
 whole dollars, a week named `week` and any other window by its length, `30d`; `-` while the plan
-has none.  `a month` says the price on the provider's table alone, `200`.  No week is counted
+has none.  `a month` says the price on the provider's table alone, `$200`.  No week is counted
 in tokens: `ak usage --json` carries no `capacity_tokens`, `capacity_pairs` or `price_per_1m`.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py on
@@ -71,7 +71,7 @@ class UsageWeekAtListPrices(unittest.TestCase):
             self.assertEqual(meters.cell(out, label, "holds"), "week ≈ $2010 at list prices")
         self.assertEqual(meters.cell(out, "Acme III", "holds"), "-")
         for label in ("Acme I", "Acme II", "Acme III"):
-            self.assertEqual(meters.cell(out, label, "a month"), "200")
+            self.assertEqual(meters.cell(out, label, "a month"), "$200")
 
     def test_a_window_of_thirty_days_says_its_length(self):
         out, _ = self.usage(window=30 * DAY)

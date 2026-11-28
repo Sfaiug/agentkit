@@ -6538,13 +6538,13 @@ def config_money(cfg):
 def plan_rows(cfg, counts, write):
     """One row per `(provider, plan)` in `counts`, named as `config · subscriptions` names the
     provider (company_name), then the plan, or alone, `plan not read yet`, where the plan is not
-    known; its price a month in the config's currency (money.price, `amount`), with `your price`
-    when kept under `[money.paid]` (money.typed), else `no price in` the currency, its logins
-    counted where more than one.  Enter on a plan's row opens a field for what you pay a month
-    in that currency, written to `[money.paid.<currency>.<provider>]` at once through `write`,
-    or empty takes it out; a row with no plan stays one that only shows.  Then `In all`, each
-    price times its logins, the logins of a row with no price `not counted`.  None where
-    `counts` is empty."""
+    known; its price a month in the config's currency (money.price, written by usage.amount),
+    with `your price` when kept under `[money.paid]` (money.typed), else `no price in` the
+    currency, its logins counted where more than one.  Enter on a plan's row opens a field for
+    what you pay a month in that currency, written to `[money.paid.<currency>.<provider>]` at
+    once through `write`, or empty takes it out; a row with no plan stays one that only shows.
+    Then `In all`, each price times its logins, the logins of a row with no price `not counted`.
+    None where `counts` is empty."""
     code, rows, total, missed = money.currency(cfg), [], 0, 0
 
     def take(provider, plan):
@@ -6593,24 +6593,15 @@ def plan_rows(cfg, counts, write):
             total += decimal.Decimal(str(price)) * count    # exact, as cents written add up
         said = ("plan not read yet" if on is None
                 else f"no price in {CURRENCY_NAMES[code]}" if price is None
-                else amount(code, price))
+                else f"{usage.amount(code, price)} a month")
         parts = [said, *(["your price"] if yours is not None else []),
                  *([f"{count} logins"] if count > 1 else [])]
         rows.append((company_name(cfg, provider) + ("" if on is None else f" · {on}"),
                      " · ".join(parts), None if on is None else take(provider, on)))
     if rows:
-        rows.append(("In all", amount(code, total) + (
+        rows.append(("In all", f"{usage.amount(code, total)} a month" + (
             f" · {missed} login{'s' if missed > 1 else ''} not counted" if missed else ""), None))
     return rows
-
-
-def amount(code, value):
-    """`$200 a month`, `$19.99 a month`: `value` after the sign of currency `code`, or without
-    UTF-8 after its ISO code as money_value's, `EUR 18 a month`; whole where it is whole, else
-    to the cent."""
-    value = decimal.Decimal(str(value))
-    digits = f"{value:,.{0 if value == value.to_integral_value() else 2}f}"
-    return (f"{usage.SIGNS[code]}{digits}" if terminal.utf8() else f"{code} {digits}") + " a month"
 
 
 def machines_value():
