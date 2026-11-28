@@ -79,7 +79,8 @@ def unavailable(harness, seat=False, provider=None, account=None):
                                       dict) and "apiKey" not in keys
         except (OSError, ValueError):
             pass
-    token = manifest.get("worker_token", {}).get("file")
+    # a saved worker token that answered no is broken, but a seat never runs on one
+    token = None if seat else manifest.get("worker_token", {}).get("file")
     broken = (not missing or (os.path.lexists(missing[2]) and not settings)
               or (token and os.path.lexists(config.SECRETS / token)))
     return why, bool(broken)
