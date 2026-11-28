@@ -7,9 +7,9 @@ meters' line is the one a screen opened on the new reading shows.  The other's r
 while the first glides glides too, a later frame showing both between their old readings and
 their new; a key pressed half way shows the new reading at once; one `empty until …` counts up
 from under its reading, and one that becomes empty shows `empty until …` in the first draw after.
-One meter a line, at 26 columns, a line whose meter is still is at rest while the other's glides,
-though that reading sizes every label; and a reading a short screen showed at once, nothing
-moving there, stays as it is once the screen grows taller.
+One meter a line, at 26 columns, where the other's reading sizes every label, a line whose glide
+is over is at rest while the other glides on; and a reading a short screen showed at once,
+nothing moving there, stays as it is once the screen grows taller.
 
 Black-box as tests/test_key_a_usage_meter_glides.py is: the program `AK_BIN` names, in a person's
 terminal (tests/fixtures/akterm.py), its clock held through `AK_MOTION_CLOCK`, what the pane is
@@ -183,6 +183,7 @@ class MeterGlidesOnConfig(unittest.TestCase):
         self.at(home, 1002.72)                  # the first's glide over, the other's not
         self.assertEqual({row for row in self.after(term, "30% left", since) if "30% left" in row},
                          {rest})
+        term.wait(lambda screen: 70 < int(re.findall(r"(\d+)% left", screen)[-1]) < 100, bound=10)
 
     def test_a_reading_a_short_screen_showed_at_once_stays_as_it_grows(self):
         home = self.home(20)
