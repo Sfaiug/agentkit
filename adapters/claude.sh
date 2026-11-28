@@ -489,19 +489,22 @@ auth)
       exit 0 ;;
     esac
   }
+  # "No credentials" only where nothing is saved, in the Keychain or the file.  A check leaves
+  # out a harness whose login this host lacks and fails one whose saved login is broken
+  # (`contract.unavailable`), and nothing but these words tells it of a Keychain entry.
   tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
-    || tok=$(cat "$CREDS" 2>/dev/null) || tok=
-  case "$tok" in *accessToken*) ;; *)
+    || tok=$(cat "$CREDS" 2>/dev/null) || {
     echo "claude: no OAuth credentials in $CREDS and no CLAUDE_CODE_OAUTH_TOKEN; run /login" >&2
-    exit 1 ;;
-  esac
+    exit 1; }
   # Present is not enough: these credentials are a pair the seat refreshes, and the whole
   # point of asking is whether this one is still good.  Without jq the question cannot be
   # answered at all, so it is not answered -- exit 2 is no answer, and the loop carries on
   # as it did before this verb existed rather than parking every run on a missing tool.
-  command -v jq >/dev/null || {
+  # What names no token at all is a `no` with or without jq.
+  case "$tok" in *accessToken*) command -v jq >/dev/null || {
     echo "claude: credentials present ($CREDS) but jq is missing, so no expiry could be read" >&2
-    exit 2; }
+    exit 2; } ;;
+  esac
   # The key itself, not the word: a file that is not JSON at all, or that spells the name
   # with nothing behind it, is a `no` and never a token nobody looked inside.
   key=$(printf '%s' "$tok" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
