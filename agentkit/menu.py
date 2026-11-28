@@ -3509,7 +3509,7 @@ def your_runs_screen(cfg, session, selected):
     if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
         terminal.doing("config · your runs · reading what your runs did")
     runs, _, paid = matrix.counted(cfg)
-    mine = own.by_role(runs["teams"], matrix.team_now(cfg, selected))
+    mine = own.by_role(runs["teams"], matrix.team_now(cfg, selected), runs["seats"])
     title, note, clock = f"config · your runs · {session or NEW_SEATS}", "", motion.Clock(page=True)
     keys = terminal.keys("p models", "esc back", enter=None, move=False)
     while True:

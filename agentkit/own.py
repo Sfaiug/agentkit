@@ -78,7 +78,7 @@ NOTE = ["answers in: half its turns take no longer",
         "usage also as a share of one login's week on its plan"]
 
 
-def by_role(teams, now, seats=()):
+def by_role(teams, now, seats):
     """{"team", "orchestrator", "executor", "reviewer"} off the ledger's `teams`, the team now
     `now`, {role: [(name, effort or None)]} in the order held, and `seats`, `ledger.counted`'s
     per-seat counts.  `team` sums the teams all three of whose roles are the team now's; a role's

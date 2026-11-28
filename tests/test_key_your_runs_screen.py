@@ -13,9 +13,10 @@ from fixtures.akbin import REAL_TMUX
 from fixtures.akboards import ENV, boards, lines
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
-from test_key_models_own_tables import FOLDED, OWN, TEAMS, home_of
+from test_key_models_own_tables import FOLDED, NOTE, NOTE_100, OWN, TEAMS, home_of
 
 KEYS, HEAD = "  p models   esc back", "agentkit · config · your runs · new seats"
+AT_100 = [*OWN[:-len(NOTE)], *NOTE_100]      # `ak models` on 100 cells, as the screen draws it
 body_lines = lambda shown: shown[2:max((i for i, l in enumerate(shown) if l), default=2) - 1]
 last_line = lambda shown: next((l for l in reversed(shown) if l), "")
 
@@ -39,7 +40,7 @@ class YourRunsScreen(unittest.TestCase):
         term.keys("r")
         shown = lines(term.wait(lambda s: "p models" in s and "REVIEWER" in s))
         self.assertTrue(shown[0].startswith(HEAD), shown[0])
-        self.assertEqual((body_lines(shown), last_line(shown)), (OWN, KEYS))
+        self.assertEqual((body_lines(shown), last_line(shown)), (AT_100, KEYS))
         state = self.home.path / ".agentkit/state"
         self.assertEqual([n for n in ("boards.json", "matrix.json") if (state / n).exists()], [])
         for rows, want in ((12, lambda s: "Your team now:" in s and "p models" in s and "REVIEWER" not in s),
@@ -47,11 +48,11 @@ class YourRunsScreen(unittest.TestCase):
             term.resize(100, rows)
             part = lines(term.wait(want))
             self.assertTrue(part[0].startswith(HEAD), part[0])
-            self.assertEqual((body_lines(part), last_line(part)), (OWN[:len(body_lines(part))], KEYS))
+            self.assertEqual((body_lines(part), last_line(part)), (AT_100[:len(body_lines(part))], KEYS))
         # Over a seat, a click on `r your runs` opens that seat's page and folds at 40 cells
         Seat(self.home, "acme-fix", model="nova",
              record={"orchestrator": "nova", "workers": ["bolt"], "reviewers": ["crux"]})
-        seat_term, c_shown = self.open_c(size=(40, 40), seat="acme-fix")
+        seat_term, c_shown = self.open_c(size=(40, 50), seat="acme-fix")
         row, col = next((i + 1, l.index("r your runs") + 1) for i, l in enumerate(c_shown) if "r your runs" in l)
         seat_term.type(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m")
         folded = lines(seat_term.wait(lambda s: "p models" in s and "week on its plan" in s))
