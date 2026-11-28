@@ -5,9 +5,9 @@ red.  A confirmed failure moves the search earlier.  It fixes, at once as they f
 target's tip with it alone too and pass on its bare tip; the tests run alone on the top rebuilt without it, and passing there, that top, checked whole, lands with every stack under it
 in the same pass.  An inconclusive step gets its whole check, as without them.  No stack below
 the first holding a red test's file runs it; a test named by no file runs there, and a suite
-naming it not there passes it, unless the run moved its checkout, and a probe on a suite helper
-passes it only on names the helper handed back.  A probe silence stopped before it ended them
-is red in them, as one failing them is.
+naming it not there passes it, unless it named it run and failed too or the run moved its
+checkout, and a probe on a suite helper passes it only on names the helper handed back.  A
+probe silence stopped before it ended them is red in them, as one failing them is.
 
 Offline: real Git and checks, the suite a shell runner that runs only those asked for and
 names each it runs and each that fails, sandbox records, fake processes and wakes; a helper's
@@ -231,6 +231,13 @@ class AProbePassesOnlyOnWhatItsHelperHandsBack(test_lander.LanderFixture, unitte
 
     def test_a_test_its_piece_names_not_there_passes(self):
         self.assertIs(self.probe(GONE + "exit 1"), True)
+
+    def test_a_test_named_not_there_that_ran_and_failed_is_red(self):
+        red = 'echo test_new.sh >> "$AK_RAN"; echo test_new.sh >> "$AK_FAILED"; ' + GONE + "exit 1"
+        self.assertIs(self.probe(red), False)
+        answer = land._check_tests(self.directory, self.state, self.scratch, "tree", red, "1/1",
+                                   ["test_new.sh"], lambda _: None)
+        self.assertEqual(answer["fix"]["tests"], ["test_new.sh"])
 
     def test_names_the_helper_does_not_hand_back_prove_nothing(self):
         red = 'echo t_tax >> "$AK_RAN"; echo t_tax >> "$AK_FAILED"; ' + GONE + "exit 1"
