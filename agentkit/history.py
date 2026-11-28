@@ -1624,12 +1624,11 @@ def slot_waits(since, until):
 
 
 def first_review_sizes():
-    """For `Limits`' line limits, the words under each (menu.lines_said) and the orchestrator's
-    bars (menu.size_chart) the same runs: of those REAL_WORK counts that ended with a verdict on
-    the work (`record.JUDGED`), (builds, own pull requests), each (started_at, first_review_lines,
-    passed) in start order: a build is no own pull request and reviews none, passed in round 1;
-    an own pull request (kind `seat PR` or own_orchestrator set) is a change's runs, its biggest
-    first review, one merged in round 1 -- a pass need not merge, as with --no-merge."""
+    """For `Limits`' line limits, the words under each (menu.lines_said): of the runs REAL_WORK
+    counts that ended with a verdict on the work (`record.JUDGED`), (builds, own pull requests),
+    each (first_review_lines, passed): a build is no own pull request and reviews none, passed in
+    round 1; an own pull request (kind `seat PR` or own_orchestrator set) is a change's runs, its
+    biggest first review, one merged in round 1 -- a pass need not merge, as with --no-merge."""
     _ensure_migrated()        # a history from before runs had a kind holds sized runs too
     own = "(kind IS 'seat PR' OR COALESCE(own_orchestrator, '') <> '')"
     # REAL_WORK last: it reads a run's record, which the columns spare most rows
@@ -1639,18 +1638,18 @@ def first_review_sizes():
             connection = _connect(readonly=True)
             try:
                 return (connection.execute(
-                            "SELECT started_at, first_review_lines, rounds_used IS 1 AND "
+                            "SELECT first_review_lines, rounds_used IS 1 AND "
                             "final_state IS 'pass' FROM runs WHERE first_review_lines IS NOT NULL "
                             # a change that landed on its checks had no first review to weigh
                             "AND NOT COALESCE(no_review, 0) "
                             f"AND NOT {own} AND COALESCE(\"change\", '') NOT LIKE '%#%' AND run_id "
-                            f"NOT LIKE '%-review-pr-%' AND {counted} ORDER BY started_at",
+                            f"NOT LIKE '%-review-pr-%' AND {counted}",
                             record.JUDGED).fetchall(),
                         connection.execute(
-                            "SELECT MIN(started_at), MAX(first_review_lines), "
+                            "SELECT MAX(first_review_lines), "
                             "MAX(changed_lines IS NOT NULL AND rounds_used IS 1) FROM runs "
                             f"WHERE {own} AND {counted} GROUP BY COALESCE(\"change\", run_id) "
-                            "HAVING MAX(first_review_lines) IS NOT NULL ORDER BY 1",
+                            "HAVING MAX(first_review_lines) IS NOT NULL",
                             record.JUDGED).fetchall())
             finally:
                 connection.close()

@@ -19,8 +19,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX
 from test_key_limits_first_issues_table import paid_home
-from test_key_limits_size_charts import opened
-from test_key_limits_size_table import drawn, wider
+from test_key_limits_size_table import drawn, opened, wider
 from test_key_models_json_counts_tasks_by_team import FAILED, run
 
 HEADING = ("What your tasks took, by the review rounds they went through · last 30 days",)

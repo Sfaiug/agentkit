@@ -21,10 +21,13 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
-from test_key_limits_size_charts import MODELS, opened
+from fixtures.akterm import SERVER, Terminal
 from test_key_models_json_counts_tasks_by_team import FAILED, history, run
 from test_key_models_json_run_usage import TABLES
 from test_key_models_json_week_meters import DAY, HOUR, NOW, THEN
+
+MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
+          "astra": {"harness": "codex", "effort": "high"}}
 
 # (first review's lines, tasks live, tasks) filling three sizes: each task spends 1 h build,
 # 0.5 h review, 0.25 h checks and 2 h waiting (360 + 720 + 1080 + 5040 = 7200 s)
@@ -70,6 +73,25 @@ def drawn(body, heading=(HEADING,)):
         shown = [line.rstrip() for line in screen.split("\n")]
         return any(shown[at:at + len(block)] == block for at in range(len(shown)))
     return shows
+
+
+def opened(case, home, row, size=(100, 40)):
+    """`config · limits` from `c`, in a window of its own, the pointer on `row`."""
+    term = Terminal(home, size=size, env={"NO_COLOR": "1"})
+    case.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
+                    server=SERVER)
+    term.wait("esc leave")
+    term.keys("c")
+    term.wait("r recommended")
+    term.keys(*["j"] * 7)     # Limits is the eighth row, the two models first.
+    term.wait("› Limits")
+    term.keys("Enter")
+    term.wait("› Review rounds")
+    term.keys(*["j"] * {"Review rounds": 0, "Max lines per executor task": 1,
+                        "Max lines per orchestrator task": 2,
+                        "Findings that end a run for rescoping": 4}[row])
+    term.wait(f"› {row}")
+    return term
 
 
 def open_at(case, limit, size=(100, 40), tasks=TASKS):
