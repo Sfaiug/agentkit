@@ -133,7 +133,7 @@ def by_role(teams, now, seats):
     return own
 
 
-def lines(own, cfg, room, paid):
+def lines(own, cfg, room, paid, at=None):
     """`own` (`by_role`) as `ak models` draws it on `room` cells, its plans costing what `paid`
     (`money.month`'s) says: a line on the team now (`spent` among its clauses), then a table a
     role of its rows in `own`'s order under its role's COLUMNS, each in use marked as
@@ -142,7 +142,9 @@ def lines(own, cfg, room, paid):
     saying what the short headings count.  The name and LEAD's columns are sized once for the
     three tables, to stand under each other, each other column for its own; where a table passes
     the edge every row folds, no column headed: its model's line, then its numbers indented, each
-    after its column's name, wrapped between two of them."""
+    after its column's name, wrapped between two of them.  The lines, and each row's as
+    menu.matrix_page reads them, {line: ((role, its number in `own[role]`), [])}; row `at` is
+    highlighted, every line of it (`highlighted`)."""
     team, tasks = own["team"], own["team"]["tasks"]
     said = [f"{team['live']} of {tasks} tasks went live", *(
         [f"{per_live(team)} per task live", f"{per_live(team, ['waiting'])} of it waiting",
@@ -152,6 +154,7 @@ def lines(own, cfg, room, paid):
     shown = menu.packed(re.split(r"(?<=[,:]) ", f"Your team now: {', '.join(said)}")
                         if tasks else ["Your team now has no task yet"], " ", room)
     marks = ("●○", "■□") if terminal.utf8() else ("*.", "#-")
+    places = {}
     tables = {role: [((marks[role != "orchestrator"][0], "accent") if row["in_use"] else
                       (marks[role != "orchestrator"][1], "dim"), named(cfg, row),
                       numbers(row, COLUMNS[role], paid)) for row in own[role]] for role in ROLES}
@@ -172,16 +175,25 @@ def lines(own, cfg, room, paid):
         shown += ["", word] if folded else ["", word + " " * (
             name + 2 - terminal.cells(WORDS[role])) + terminal.styled(
                 columns(COLUMNS[role], sized), "muted")]
-        for (mark, kind), model, texts in rows:
+        for number, ((mark, kind), model, texts) in enumerate(rows):
             if folded:
                 first, *rest = hung(f"{mark} {model}", room)
                 rest += told(zip(COLUMNS[role], texts), room)
             else:
                 first, rest = f"{mark} {terminal.pad(model, name - 2)}  {columns(texts, sized)}", []
-            shown += [terminal.styled(mark, kind) + first[len(mark):], *rest]
+            row = [terminal.styled(mark, kind) + first[len(mark):], *rest]
+            places.update((len(shown) + line, ((role, number), [])) for line in range(len(row)))
+            shown += [highlighted(line) if at == (role, number) else line for line in row]
     shown += ["", *(terminal.styled(line, "muted")
                     for line in menu.packed(NOTE, terminal.separator(), room))]
-    return shown
+    return shown, places
+
+
+def highlighted(line):
+    """A line of the highlighted row as every screen draws one (terminal.highlight), its mark kept
+    in the column another screen's `›` takes, so bold where no colour is drawn (NO_COLOR), as
+    there that `›` alone shows one elsewhere."""
+    return terminal.highlight(line, False) if terminal.colour_depth() else f"\033[1m{line}\033[0m"
 
 
 def per_live(counts, parts=HOURS):

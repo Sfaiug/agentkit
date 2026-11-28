@@ -3504,26 +3504,49 @@ def packed(parts, gap, room):
 def your_runs_screen(cfg, session, selected):
     """`r your runs` on `c`, `config · your runs · <seat>` or `· new seats`: the lines
     `ak models` prints for `selected`'s team now (own.lines), read as `config · limits` reads
-    history (matrix.counted) and asking no board.  `p` opens the company list; Esc goes back."""
+    history (matrix.counted) and asking no board.  ↑/↓, k/j and the wheel move the highlight
+    through the models' rows, from the first, and a click or the pointer onto one, the pointer
+    off them putting it out; the page follows it no further than it must (matrix_page), but to
+    the team line on the first row and the note on the last, at any size, and one too short for
+    any of their lines keeps its header, as `p`'s note keeps its start.  Before any run no row is
+    one to move to, and the page reads as it did with no highlight.  `p` opens the company list;
+    Esc goes back."""
     from . import own     # here, not at the top: own imports menu
     if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
         terminal.doing("config · your runs · reading what your runs did")
     runs, _, paid = matrix.counted(cfg)
     mine = own.by_role(runs["teams"], matrix.team_now(cfg, selected), runs["seats"])
     title, note, clock = f"config · your runs · {session or NEW_SEATS}", "", motion.Clock(page=True)
-    keys = terminal.keys("p models", "esc back", enter=None, move=False)
+
+    def page(at):
+        """The lines with row `at` highlighted, and where each row is once a run has been."""
+        lines, places = own.lines(mine, cfg, terminal.layout_width(), paid, at)
+        return lines, places if runs["teams"] else {}
+    rows = list(dict.fromkeys(row for row, _ in page(None)[1].values()))
+    keys = terminal.keys("p models", "esc back", enter=None, move=("move",) if rows else False)
+    here, top = next(iter(rows), None), 0
     while True:
-        lines, said = own.lines(mine, cfg, terminal.layout_width(), paid), note_lines(note)
-        room = max(0, page_room((), keys))
-        body = [*lines[:room - len(said)], *said] if len(said) <= room else said[1:1 + room]
-        spots = terminal.frame(title, body, keys, drawn=lambda: clock.drawn((), None))
+        lines, places = page(None if terminal.away() else here)
+        said, room = note_lines(note), max(0, page_room((), keys))
+        if rows:      # a row both first and last shows the team line, as the page opens
+            top = {rows[-1]: len(lines), rows[0]: 0}.get(here, top)
+        top, held = matrix_page(lines, places, here, top, said, keys)[0], max(0, room - len(said))
+        body = [*lines[top:top + held], *said] if len(said) <= room else said[1:1 + room]
+        spots = terminal.frame(title, body, keys, places=page_places(places, top, held),
+                               drawn=lambda: clock.drawn((), None))
         key = terminal.read_key() if clock.wait() is None else moving(clock, timeout=TICK)
-        if key is None or key.name == "point":
+        if key is None:
+            continue
+        act = key.char if key.name == "char" else key.name
+        if act in ("click", "point") and (spot := terminal.under(key, spots)).what is not None:
+            here = spot.what
+        elif act == "click":
+            act = {"esc": "back"}.get(spot.cell, spot.cell or "")
+        elif (step := terminal.step(key)) and rows:
+            here = rows[min(max(rows.index(here) + step, 0), len(rows) - 1)]
+        if act == "point":
             continue
         clock.settle()
-        act = key.char if key.name == "char" else key.name
-        if act == "click" and (spot := terminal.under(key, spots)).what is None:
-            act = {"esc": "back"}.get(spot.cell, spot.cell or "")
         note = ""
         if act in ("esc", "eof", "back"):
             return
