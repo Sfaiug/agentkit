@@ -227,10 +227,11 @@ def seat_token_usage(entry, cursor):
     filed by the response id agy gave the call (11), dated when its step finished (metadata 8)
     else began (1): its uncached input (2), cached input (5) and output, thinking inside (3),
     each 0 where left out as a protocol buffer leaves a 0, under the model its number (1) names.
-    agy writes no cache.  An older store's compaction keeps its usage only at metadata 28 -> 2,
-    laid out as 9 less the model's number."""
+    agy writes no cache.  An older store's compaction keeps its counts only at metadata 28 -> 2,
+    laid out as 9 less the model's number, so its model is 9's where 9 numbers one."""
     metadata, names = entry
     usage, older = field(metadata, 9), field(field(metadata, 28), 2)
+    model = names.get(field(usage, 1, VARINT))
     if older and not any(field(usage, kind, VARINT) for kind in (2, 5, 3)):
         usage = older
     call = decoded(field(usage, 11))
@@ -239,8 +240,7 @@ def seat_token_usage(entry, cursor):
     fresh, cached, output = (field(usage, kind, VARINT) or 0 for kind in (2, 5, 3))
     at = timestamp(field(metadata, 8))
     counts = [fresh, 0, cached, output]
-    return (timestamp(field(metadata, 1)) if at is None else at, call, sum(counts),
-            names.get(field(usage, 1, VARINT)), counts)
+    return (timestamp(field(metadata, 1)) if at is None else at, call, sum(counts), model, counts)
 
 
 def prompt(entry):
