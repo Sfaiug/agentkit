@@ -58,7 +58,7 @@ class ChecksBorrowASubscriptionsLogin(LentLogins):
         whose login at `usual` is at `own`, acme's place, instead, or there too with `keep`."""
         (self.caller / ".agentkit").mkdir(exist_ok=True)
         (self.caller / ".agentkit/config.toml").write_text(CONFIG.format(provider))
-        (self.caller / own).parent.mkdir(parents=True)
+        (self.caller / own).parent.mkdir(parents=True, exist_ok=True)
         (self.caller / own).write_bytes((self.caller / usual).read_bytes())
         if not keep:
             (self.caller / usual).unlink()
@@ -94,6 +94,16 @@ class ChecksBorrowASubscriptionsLogin(LentLogins):
 
     def test_a_usual_login_beside_a_listed_one_is_lent_and_counted_as_ever(self):
         self.assert_counted(self.smoke("google", place(""), place("acme"), keep=True), "")
+
+    def test_agys_first_run_answers_go_beside_the_listed_account_lent(self):
+        # Answered on both logins: the usual one, signed out, is not the one borrowed.
+        answers = [f".gemini/antigravity-cli{of}/cache/onboarding.json" for of in ("-acme", "")]
+        for name in answers:
+            (self.caller / name).parent.mkdir(parents=True)
+            (self.caller / name).write_text("{}")
+        home = self.smoke("google", place(""), place("acme"))
+        self.assertEqual([str(path.relative_to(home)) for path in home.rglob("onboarding.json")],
+                         answers[:1])
 
     def test_checks_3_and_3a_spend_the_listed_account_not_the_usual_tokens(self):
         token = self.caller / ".agentkit/secrets/claude_oauth_token"

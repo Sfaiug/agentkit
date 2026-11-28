@@ -94,19 +94,32 @@ class ChecksLendLoginsThatCannotRenew(LentLogins):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assert_lent_copies(self.root / "smoke/home")
 
-    def test_the_smoke_home_holds_agys_first_run_answers_for_each_of_its_logins(self):
-        answers = [f".gemini/antigravity-cli{of}/cache/onboarding.json" for of in ("", "-acme")]
-        for name in answers:
-            (self.caller / name).parent.mkdir(parents=True)
-            (self.caller / name).write_text('{"onboardingComplete": true}')
+    def test_the_smoke_home_holds_agys_first_run_answers_for_the_login_it_lent(self):
+        answers = ".gemini/antigravity-cli/cache/onboarding.json"
+        (self.caller / answers).parent.mkdir()
+        (self.caller / answers).write_text('{"onboardingComplete": true}')
+        # A profile the suite does not borrow is never read: its broken answers end nothing.
+        unlent = self.caller / ".gemini/antigravity-cli-acme/cache/onboarding.json"
+        unlent.parent.mkdir(parents=True)
+        unlent.symlink_to("gone.json")
         setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("# A bounded way")]
-        result = subprocess.run(["/bin/bash", "-c", setup + "\nsmoke_home\n"],
-                                env={**self.env, "WORK": str(self.root / "smoke")},
-                                text=True, capture_output=True, timeout=120)
+
+        def smoke_home(work):
+            return subprocess.run(["/bin/bash", "-c", setup + "\nsmoke_home\n"],
+                                  env={**self.env, "WORK": str(self.root / work)},
+                                  text=True, capture_output=True, timeout=120)
+
+        result, home = smoke_home("smoke"), self.root / "smoke/home"
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        for name in answers:
-            self.assertEqual(json.loads((self.root / "smoke/home" / name).read_text()),
-                             {"onboardingComplete": True})
+        self.assertEqual({str(path.relative_to(home)): json.loads(path.read_text())
+                          for path in home.rglob("onboarding.json")},
+                         {answers: {"onboardingComplete": True}})
+        # The lent login's answers out of reach are there and broken, never absent.
+        (self.caller / answers).parent.chmod(0)
+        self.addCleanup((self.caller / answers).parent.chmod, 0o700)
+        result = smoke_home("unreached")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"cannot read {self.caller / answers}", result.stderr)
 
     def test_the_module_returns_when_the_first_login_it_lent_lapses(self):
         home, taken = self.root / "lent", self.root / "taken/.config/opencode/opencode.json"

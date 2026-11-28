@@ -145,7 +145,7 @@ smoke_home() {
   # One with no usual login lends instead a subscription the caller's config lists by name,
   # its last line says which, and the check's config lists it below.  Reading the caller's
   # config is setup's alone: SMOKE_CALLER_HOME says so.
-  local path source target caller_config caller_gh caller_account caller_state lent
+  local path source target caller_config caller_gh caller_account caller_state lent answered
   SMOKE_CALLER_HOME=$HOME
   caller_config=${XDG_CONFIG_HOME:-$HOME/.config}
   caller_state=${XDG_STATE_HOME:-$HOME/.local/state}
@@ -173,15 +173,16 @@ smoke_home() {
   # Its service receipt authenticates catalog probes without a second server fighting for
   # the host's port. A copy keeps a sandbox update from replacing the host's receipt.
   # agy shows its first-run pages (`Choose your color scheme`, its terms) once to a login, and a
-  # seat left at them takes no line of ak's: the caller's answers go beside each login of its.
-  answered=()
-  for source in "$SMOKE_CALLER_HOME"/.gemini/antigravity-cli*/cache/onboarding.json; do
-    answered+=("$source:${source#"$SMOKE_CALLER_HOME/"}")
+  # seat left at them takes no line of ak's: the caller's answers go beside the login lent.
+  # Only that login's are read, so no profile the suite does not borrow can end it.
+  for path in "$HOME"/.gemini/antigravity-cli*/antigravity-oauth-token; do
+    [ -f "$path" ] || continue
+    answered=${path#"$HOME/"}; answered=${answered%/*}/cache/onboarding.json
   done
   for path in "$caller_account:.claude.json" "$SMOKE_CALLER_HOME/.gitconfig:.gitconfig" \
               "$caller_gh/config.yml:.config/gh/config.yml" \
               "$caller_state/opencode/service.json:.local/state/opencode/service.json" \
-              "${answered[@]}"; do
+              ${answered:+"$SMOKE_CALLER_HOME/$answered:$answered"}; do
     source=${path%:*}; target="$HOME/${path##*:}"
     smoke_source "$source" || continue
     mkdir -p -- "${target%/*}" && cp -p -- "$source" "$target" || exit 1
