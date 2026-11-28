@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import SUITE, LanderFixture
-from agentkit import config, gitcall, history, land, record, run
+from agentkit import config, gitcall, land, record, run
 
 IMAGE = {"site.png": "teal\n"}
 
@@ -33,10 +33,8 @@ class ARefusedLooksVerdict(LanderFixture, unittest.TestCase):
 
     def member(self, name, *args, **kw):
         directory = super().member(name, *args, **kw)
-        history.start_run(name, repo=str(self.repo))
-        head = record.read_state(directory)["review"]["head_sha"]
-        with history.check((directory, 1, "chosen", head), SUITE, 0) as ended:
-            ended["exit"] = 0
+        with record.record(directory) as current:
+            current["review"] = {**current["review"], "chosen_passed": True}
         return directory
 
     def check(self, cmds, cwd, log_path, *args, **kw):

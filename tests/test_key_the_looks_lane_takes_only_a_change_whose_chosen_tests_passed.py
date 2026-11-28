@@ -7,7 +7,8 @@ on it before it goes live.  In a project where a landing on record was red on a 
 change of prose alone, its review running that test, lands with no whole suite started, its merge
 ending with `Looks-Alone-Tree: <tree>`.  The same change in a project where its review chooses no
 test, no landing red on record and no test edited, lands only through the whole suite, its merge
-ending with `Suite-Passed-Tree: <tree>`.
+ending with `Suite-Passed-Tree: <tree>` — even where an older lander saved a verdict of looks
+alone (`waiting_on` holding `land` and `looks`) for that reviewed run before it resumed.
 
 Black-box, on the fixtures of that key: the program `AK_BIN` names delivers a run fakeadapter.py
 scripts, merged by fakegh.py's GitHub, on a host whose readings are injected (AK_HOST_READINGS):
@@ -15,9 +16,11 @@ busy, where a whole suite measured at 40 minutes waits for company, for the chan
 were chosen; idle for the other, so the whole suite it waits for runs.
 """
 
+import fcntl
 import json
 from pathlib import Path
 import sys
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -62,6 +65,40 @@ class TheLooksLaneTakesOnlyAChangeWhoseChosenTestsPassed(unittest.TestCase):
         tree, message = self.deliver(line, quick.IDLE)
         self.assertEqual(line.whole(), 1, line.runs())
         self.assertNotIn(("alone", ""), line.runs())
+        self.assertTrue(message.endswith(f"\n\nSuite-Passed-Tree: {tree}"), message)
+
+    def test_a_saved_looks_verdict_with_no_chosen_tests_merges_only_after_the_whole_suite(self):
+        line = self.line(**{"news.md": NEWS + "More news.\n"})
+        home = line.home
+        GitHub(home).grant(line.rig.slug, "WRITE")
+        akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
+        fakeadapter.install(home, claude={**fakeadapter.WORK, "write": {"news.md": NEWS},
+                                          "commit": "trim the news"}, codex="pass")
+        done = home.ak("run", "--bg", str(taskfile.write(home, line.rig.path, "Trim the news",
+                                                         done_when=("test -s news.md",))))
+        self.assertEqual(done.code, 0, done.out + done.err)
+        run_dir, = taskfile.runs(home)
+        deadline = time.monotonic() + 300
+        while not ("line" in (state := quick.record(run_dir)).get("waiting_on", {})
+                   and not state.get("pid")):
+            self.assertLess(time.monotonic(), deadline, state)
+            time.sleep(0.2)
+        self.assertFalse(state["review"].get("no_review"), state)
+        self.assertNotIn("land", state["waiting_on"], state)
+        turn = run_dir.parent / state["waiting_on"]["line"]
+        with turn.with_suffix(".lander.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            state = quick.record(run_dir)
+            state["waiting_on"].update(land=state["review"]["tree_sha"], looks=True, after={})
+            (run_dir / "run.json").write_text(json.dumps(state))
+        home.env["AK_HOST_READINGS"] = json.dumps(quick.IDLE)
+        done = home.ak("run", "resume", run_dir.name, timeout=300)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertTrue(quick.record(run_dir).get("merged"), quick.record(run_dir))
+        self.assertEqual(line.whole(), 1, line.runs())
+        self.assertNotIn(("alone", ""), line.runs())
+        tree = line.rig.origin("rev-parse", "main^{tree}")
+        message = line.rig.origin("log", "-1", "--format=%B", "main").rstrip()
         self.assertTrue(message.endswith(f"\n\nSuite-Passed-Tree: {tree}"), message)
 
 

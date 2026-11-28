@@ -156,7 +156,6 @@ class AChangeOfLooksAloneLandsOnItsQuickChecks(unittest.TestCase):
         state["review"].update(head_sha=head, passed_head_sha=head,
                                tree_sha=git("-C", str(clone), "rev-parse", "HEAD^{tree}"))
         (line.members[1] / "run.json").write_text(json.dumps(state))
-        line.chosen(line.members[1], head)
         self.land(line)
         self.assertEqual(self.checked(line), (0, [False, True]), line.runs())
 

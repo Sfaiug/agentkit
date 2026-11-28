@@ -113,6 +113,7 @@ class ChosenNotRepeated(unittest.TestCase):
         self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["PASS"])
         self.assertEqual(self.notes["green"], ["review", CHOSEN, "review", "suite whole"])
         self.assertEqual(self.checks(run_dir, "chosen"), [(0,)])
+        self.assertNotIn("chosen_passed", state["review"])
         self.assertNotIn("$ python3 suite.py", (run_dir / "round-1/donewhen.log").read_text())
         self.assertIn("not running again", (run_dir / "log.txt").read_text())
 
@@ -137,6 +138,7 @@ class ChosenNotRepeated(unittest.TestCase):
         self.assertIn("suite whole", self.notes["same"][:-2])
         self.assertEqual(self.checks(run_dir, "done-when"), [(0,)])
         self.assertEqual(self.checks(run_dir, "chosen"), [(0,)])
+        self.assertTrue(state["review"].get("chosen_passed"))
 
 
 if __name__ == "__main__":

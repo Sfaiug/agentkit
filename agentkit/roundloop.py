@@ -535,8 +535,9 @@ def chosen_tests(lp, named, head):
     six runs' rounds in a quarter of an hour.  Where its go named each as not there and none as
     run, and passed all else its tree holds (`gate.passes_what_it_holds`), its tree holds none of
     them: it answers None, neither pass nor fail, the PASS standing as for a review that chose
-    none, and its red row keeps the change off the looks-alone lane (`land.check_line`), as
-    nothing ran.  A stop in it leaves the review to ask again.
+    none, and answering None leaves `chosen_passed` unset, keeping the change off the
+    looks-alone lane (`land.check_line`), as nothing ran.  A stop in it leaves the review to ask
+    again.
     """
     from . import gate  # here, not at the top: it reaches run
     return gate.run_done_when(
@@ -1584,6 +1585,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         overridden = "; ".join(["the reviewer said PASS while done-when is failing", *checks])
         lp.log(f"WARN {overridden}; overriding to FAIL")
     checkout_changed = checkout_changed or moved()
+    chosen_passed = False
     if verdict == "PASS" and not checkout_changed:
         failed_log = None
         if lp.state.get("review_pr") and not lp.state.get("own_pr") and getattr(lp, "cmds", None):
@@ -1599,6 +1601,9 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         elif named := round_tests.chosen(lp):
             head = validation.get("head_sha")
             if history.check_passed(Path(lp.run_dir).name, "chosen", head):
+                # Still passes the review without re-running, but withholds `chosen_passed`:
+                # no row of `history.checks` says which tests a go was handed, so a green row
+                # from an older re-run handed none cannot be told from one that ran its tests.
                 lp.log(f"chosen tests: already passed on {head[:12]}; not running again")
             else:
                 passed, more = chosen_tests(lp, named, head)
@@ -1606,7 +1611,9 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                 (lp.round_dir / "donewhen.log").write_text(dw_log)
                 if lp.state.get("review_pr"):
                     restore_review_checkout(lp, "tests")
-                if passed is False:
+                if passed is True:
+                    chosen_passed = True
+                elif passed is False:
                     failed_log = more
         if failed_log is not None:
             verdict = "FAIL"
@@ -1652,6 +1659,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     lp.state["review"] = {"executor": lp.executor, "executor_provider": exec_provider,
                           "reviewer": lp.reviewer, "reviewer_provider": review_provider,
                           "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
+                          **({"chosen_passed": True} if verdict == "PASS" and chosen_passed else {}),
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
     transitions.drop_error_retry(lp.state, episode=True)
