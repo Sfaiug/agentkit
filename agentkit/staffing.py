@@ -71,11 +71,13 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
                  if n != current and config.model(cfg, n)["provider"] not in refused]
         review_order = [] if off else ready_order(cfg, providers, review_list, role="reviewer",
                                                   draw=draw)
+        writers = head_writers(state)
         pair = ((order[0], None) if off and order else
                 best_pair(cfg, order, [n for n in review_order
-                                      if config.model(cfg, n)["provider"] not in refused]))
+                                      if config.model(cfg, n)["provider"] not in refused],
+                          writers=writers))
         if pair is None:
-            pair = best_pair(cfg, order, review_order)
+            pair = best_pair(cfg, order, review_order, writers=writers)
         if pair is not None:
             new, reviewer = pair
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -489,7 +491,7 @@ def pair_tier(cfg, executor, reviewer, lineup=None):
     return 0
 
 
-def best_pair(cfg, executors, reviewers, allow_self=True):
+def best_pair(cfg, executors, reviewers, allow_self=True, writers=()):
     """The pair every automatic pick takes: tier first, then executor order, then reviewer.
 
     Both lists are already in pick order (`usage.pick_order`), so the first pair in tier
@@ -497,11 +499,18 @@ def best_pair(cfg, executors, reviewers, allow_self=True):
     the executor reviewing itself.  A pick that stopped at the first executor would keep a
     worse tier while a better pair is ready.  None when no pair forms -- or only a
     self-review when `allow_self` is off, which a flake waits out.
+
+    `writers` built the work before this pick: a replacement builder's reviewer reviews their
+    part too (`head_writers`), so a pair's tier is its reviewer's highest `pair_tier` beside
+    the executor and each of them.
     """
     best, key, (lineup, _) = None, None, matrix.listed()
+    earlier = known(cfg, writers)
     for ei, executor in enumerate(executors or []):
         for ri, reviewer in enumerate(reviewers or []):
             tier = pair_tier(cfg, executor, reviewer, lineup)
+            if tier is not None:
+                tier = max([tier, *(pair_tier(cfg, one, reviewer, lineup) for one in earlier)])
             if tier is None or (tier == 2 and not allow_self):
                 continue
             found = (tier, ei, ri)
@@ -573,7 +582,7 @@ def note_handover(state, before, why, rnd, to=None, reason="dry"):
 
 
 def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, reviewers=None,
-                  allow_self=True):
+                  allow_self=True, writers=()):
     """(executor, reviewer) for work whose provider has run dry, or turns.Exhausted when none is left.
 
     Both roles are re-picked as one pair (`best_pair`), so tier beats the draw: a
@@ -590,7 +599,8 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
     so only a provider that cannot run the work settles for one.  With review on, the
     executor is one the run's reviewers of another lab can review while one of its builders is
     (`ready_order`'s `reviewed_by`), as at launch.  Neither role's pick reads a name on a
-    provider in `dry`.  `log` hears the executor's pick.
+    provider in `dry`.  `log` hears the executor's pick.  The pair is weighed beside
+    `writers`, the models that built the work so far (`best_pair`).
     """
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     workers, review_list = config.pair_marks(cfg, workers, reviewers)
@@ -605,7 +615,7 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
     if reviewer is False and order:
         return order[0], None
     review_order = ready_order(cfg, providers, review_list, role="reviewer", repo=repo)
-    pair = best_pair(cfg, order, review_order, allow_self=allow_self)
+    pair = best_pair(cfg, order, review_order, allow_self=allow_self, writers=writers)
     if pair is not None:
         return pair
     raise turns.QuotaDry(f"nothing is left to execute with a legal reviewer: "
@@ -639,7 +649,8 @@ def hand_executor(lp, why, detail, dry):
         new, reviewer = next_executor(lp.cfg, providers, dry,
                                       False if record.review_off(lp.state) else lp.reviewer, lp.log,
                                       lp.state.get("repo"), workers, reviewers,
-                                      allow_self=why != "transient")
+                                      allow_self=why != "transient",
+                                      writers=head_writers(lp.state))
     except (turns.Exhausted, config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         new = None
     rnd = started_round(lp.run_dir, lp.state)
@@ -768,7 +779,10 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
             group, reviewers = [*workers, writer], reviewers if reviewers is not None else workers
         return pick_models(cfg, providers, executor, reviewer, log, resuming=True, quiet=True,
                            repo=repo, workers=group, reviewers=reviewers, draw=draw)
-    pair = best_pair(cfg, order, review_order)
+    # the tick hands the config of now: an earlier builder renamed since launch is weighed as the
+    # model the run recorded, as its review reads it
+    pair = best_pair(config.as_launched(cfg, state), order, review_order,
+                     writers=head_writers(state))
     # a pair only that pick leaves out is waited for: its executor can run here, so nothing is
     # asked of the saved one; else, as before that pick, one the config dropped is refused by
     # name, and one whose harness cannot run where no pair is left
