@@ -1075,9 +1075,18 @@ class Harness:
     # --- what seats and headless turns spent ---------------------------------
 
     def seat_token_sources(self, record):
-        """Usage logs for this seat and its children; None means no reader is available."""
+        """Usage logs for this seat and its children, each a path, filed under the record's
+        login, or a (path, login) pair naming the login its usage was spent on; None means no
+        reader is available."""
         hook = self._hook("seat_token_sources")
         return hook(record) if hook else None
+
+    def seat_token_entries(self, source):
+        """Each entry of that usage source for `seat_token_usage`, the source read whole each
+        time, where it is no log of lines, as a database is; None where it is one, as by
+        default.  OSError where it cannot be read."""
+        hook = self._hook("seat_token_entries")
+        return hook(source) if hook else None
 
     def seat_token_usage(self, entry, cursor):
         """One log entry's (time, unique event id, tokens, model, [input, cache write, cache
