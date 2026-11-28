@@ -14,7 +14,10 @@ again the same way.  A handover's picks of both roles read nobody on a provider 
 the work (`staffing.next_executor`), so a refused subscription keeps no payg one out of either,
 and a resume's leaves out the executor it skips before the rule reads the list
 (`staffing.resume_models`).  A launch whose pick is still empty waits without claiming a full
-meter it never read.
+meter it never read.  A replacement builder's pair is weighed beside every model that built
+before it (`staffing.best_pair`'s `writers`): a reviewer of an earlier builder's lab rates as
+that lab's, an earlier builder as the builder's own model, in the tick's handover
+(`staffing.handover_executor`) and a resume picking its builder anew alike.
 
 Offline: an invented config on two invented providers, fake meters, a throwaway HOME.
 """
@@ -213,6 +216,52 @@ class ReviewersBesideWriters(Sandbox):
         with self.assertRaises(config.Error):
             staffing.pick_models(self.cfg, self.providers, None, "opus", None, quiet=True,
                                  workers=["opus", "astra"], reviewers=["opus"])
+
+
+class ReplacementBesideEarlierBuilders(Sandbox):
+    """a1 and a2 of one lab, b1 and c1 each of another."""
+
+    def setUp(self):
+        super().setUp()
+        self.cfg = {"defaults": {"orchestrator": "a1", "workers": ["a1", "b1", "c1"]},
+                    "models": {}, "providers": {"acme": {}, "beta": {}, "gamma": {}}}
+        for name, provider in (("a1", "acme"), ("a2", "acme"), ("b1", "beta"), ("c1", "gamma")):
+            self.cfg["models"][name] = {"harness": "test", "model": f"{name}-1",
+                                        "effort": "high", "provider": provider}
+        self.providers = meters(acme=10, beta=10, gamma=10)
+
+    def test_a_pairs_tier_is_its_reviewers_highest_beside_the_builder_and_each_writer(self):
+        def pair(executors, reviewers, **kwargs):
+            return staffing.best_pair(self.cfg, executors, reviewers, **kwargs)
+
+        self.assertEqual(pair(["c1"], ["a2", "b1"]), ("c1", "a2"))
+        self.assertEqual(pair(["c1"], ["a2", "b1"], writers=["a1"]), ("c1", "b1"))
+        self.assertEqual(pair(["c1"], ["b1", "a2"]), ("c1", "b1"))
+        self.assertEqual(pair(["c1"], ["b1", "a2"], writers=["b1"]), ("c1", "a2"))
+        # the first builder leaves only a reviewer of a1's lab or itself; the next leaves b1
+        self.assertEqual(pair(["b1", "c1"], ["a2", "b1"], writers=["a1"]), ("c1", "b1"))
+        # one pair left is taken whatever its tier, but no self-review where that is refused
+        self.assertEqual(pair(["c1"], ["b1"], writers=["b1"]), ("c1", "b1"))
+        self.assertIsNone(pair(["c1"], ["b1"], writers=["b1"], allow_self=False))
+        self.assertEqual(pair(["c1"], ["a2", "b1"], writers=["retired"]), ("c1", "a2"))
+
+    def test_two_stalls_in_a_row_hand_the_work_back_to_the_builder_a1_can_review(self):
+        state = {"executor": "b1", "reviewer": "a1", "workers": ["a1", "b1", "c1"],
+                 "reviewers": ["a1", "b1"]}
+        with patch.object(staffing, "collect_usage", return_value=self.providers):
+            self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "c1")
+            self.assertEqual(state["reviewer"], "a1")
+            self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "b1")
+        self.assertEqual(state["reviewer"], "a1")
+        self.assertEqual([(move["from"], move["to"]) for move in state["executor_history"]],
+                         [("b1", "c1"), ("c1", "b1")])
+
+    def test_a_resume_picking_anew_takes_a_reviewer_of_no_builders_lab(self):
+        state = {"step": "executor", "executor": "a1", "reviewer": "b1",
+                 "workers": ["a1", "b1", "c1"], "reviewers": ["a2", "b1"]}
+        self.assertEqual(staffing.resume_models(self.cfg, self.providers, state), ("a1", "b1"))
+        self.assertEqual(staffing.resume_models(self.cfg, self.providers, state, skip=("a1",)),
+                         ("c1", "b1"))
 
 
 class UnlistedModelLab(Sandbox):
