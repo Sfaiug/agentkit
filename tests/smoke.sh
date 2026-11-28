@@ -1423,21 +1423,7 @@ retrylaunch retry-review work dead    # reviewer never comes back -> fall back t
 
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
-  PYTHONPATH="$REPO" python3 - "$@" <<'PYTHON'
-import sys
-from agentkit import config
-sys.path.insert(0, str(config.REPO / "tests"))
-from check4_pair import login
-from check_harness_contract import unavailable
-# Asked about the login the check runs, as check 3 asks: a lent subscription's own, by name.
-cfg = config.load()
-entry = config.model(cfg, sys.argv[1])
-why, broken = unavailable(entry["harness"], seat="seat" in sys.argv[2:],
-                          account=login(cfg, entry["provider"]))
-if why:
-    print(why)
-sys.exit(int(broken))
-PYTHON
+  python3 "$REPO/tests/check_harness_contract.py" --unavailable "$@"
 }
 skip_unavailable() {   # skip_unavailable <check labels> <required models...>
   local checks=$1 model why

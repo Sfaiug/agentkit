@@ -9,6 +9,12 @@ the windows are judged on, the host's by default; tests/smoke.sh's check 3 names
 `--counts FILE`, which takes the counts and the calls made in place of the last lines and keeps
 each refusal in that snapshot.  tests/check_harness_contract.py runs this of the program
 `AK_BIN` names.
+
+`ak contract --unavailable MODEL [seat]` is only the question the check asks of each harness
+first, about MODEL's: it prints why a check cannot run MODEL here, or nothing, and exits 1 where
+a saved login is broken, 0 where the harness or its login is just not on this host.  `seat` asks
+about the seat's own login in place of a turn's.  tests/smoke.sh asks so before each check that
+needs the model.
 """
 
 import argparse
@@ -295,8 +301,18 @@ def main(argv):
     parser.add_argument("harness", nargs="?")
     parser.add_argument("--snapshot", type=Path, default=config.STATE / "usage.json")
     parser.add_argument("--counts", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--unavailable", nargs="+", metavar="MODEL", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     cfg, host_home = config.load(), os.environ.get("SMOKE_CALLER_HOME") or Path.home()
+    if args.unavailable:
+        model, *who = args.unavailable
+        entry = config.model(cfg, model)
+        # Asked about the login the check runs, as `check` asks: a lent subscription's own, by name.
+        why, broken = unavailable(entry["harness"], seat="seat" in who,
+                                  account=login(cfg, entry["provider"]))
+        if why:
+            print(why)
+        return int(broken)
     with tempfile.TemporaryDirectory(prefix=".ak-test-contract-", dir=config.REPO) as tmp:
         root = Path(tmp)
         snapshot = args.snapshot
