@@ -2181,12 +2181,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         def line(name, moving, counted=None):
             row, span = bars[name]
             grow_line(clock, row, out[row - 1], span, moving, counted)
-        # As it opens each seat's line grows to its length, row after row, and on through the
-        # draws until it has -- the read that lands as it opens draws the screen again at once --
-        # each from its own start, until news moves the line instead.
+        # As it opens each seat's line grows to its length, row after row, and each meter in the
+        # grid with a share left fills from empty beside them, on through the draws until they
+        # have -- the read that lands as it opens draws the screen again at once -- each from its
+        # own start, until news moves it instead.
         if clock.grows is None:
-            clock.grows = {name: motion.moment() + n * motion.STAGGER
-                           for n, name in enumerate(bars)}
+            began = motion.moment()
+            clock.grows = {name: began + n * motion.STAGGER for n, name in enumerate(bars)}
+            if grid and motion.movable():
+                clock.grows.update({key: began for key, shown in readings if shown and shown[0]})
         for name, began in clock.grows.items():
             if name in bars:
                 line(name, lambda cells: motion.growing(cells, began), (0, began, motion.GROW))
@@ -2223,36 +2226,43 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 if shown == "done" and key[1] in bars:
                     clock.grows.pop(key[1], None)
                     line(key[1], lambda cells: motion.sweeping(cells, since))
-        # Each gliding meter is news of `clock.look` alone (nothing kept on `clock`), as a seat's
-        # line is: timed from the draw that saw the change, a reading landing mid-glide gliding
-        # from the reading the draw before was gliding to, a draw at a new width before a resize
-        # is noticed gliding on at that width where both draws have a grid there, arrows leaving
-        # it gliding, and `Clock.settle`/`Clock.forget` ending it; where motion is off nothing
-        # glides (`clock.start`).  A meter this draw shows at once is settled in `seen` so a
-        # later draw never revives a change it already jumped to.
+        # Each gliding meter is news of `clock.look` alone, and each growing meter an entry of
+        # `clock.grows`, ended by the first news for its subscription: a reading landing mid-grow
+        # or mid-glide glides from the reading before, a draw at a new width before a resize is
+        # noticed glides on where both draws have a grid there, arrows leave it moving, and
+        # `Clock.settle`/`Clock.forget` end it; where motion is off nothing moves (`clock.start`).
+        # A meter this draw shows at once is settled in `seen` so a later draw never revives a
+        # change it already jumped to.
         moment = motion.moment()
         glides = {}
-        if (grid and prev and motion.movable() and usage_lines(
-                cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev)):
+        if grid and motion.movable():
+            could_glide = bool(prev and usage_lines(
+                cfg, layout, rows=[], ending=[(None, None, None)] * len(prev), cells=prev))
             for n, (key, shown) in enumerate(readings):
-                since, before = news.get(key, (None, None))
-                if gliding(shown, before) and since + motion.GLIDE > moment:
-                    at_now = meter_at(shown[0], since, before, moment)
-                    probe = [*cells[:n], (*cells[n][:2], *at_now), *cells[n + 1:]]
-                    if usage_lines(cfg, layout, rows=rows, ending=ending, cells=probe):
-                        glides[n] = since, before
+                if key in news:
+                    since, before = news[key]
+                    if could_glide and gliding(shown, before) and since + motion.GLIDE > moment:
+                        at_now = meter_at(shown[0], since, before, moment)
+                        probe = [*cells[:n], (*cells[n][:2], *at_now), *cells[n + 1:]]
+                        if usage_lines(cfg, layout, rows=rows, ending=ending, cells=probe):
+                            glides[n] = since, before, motion.GLIDE
+                elif (began := clock.grows.get(key)) is not None:
+                    if shown and shown[0] and began + motion.GROW > moment:
+                        glides[n] = began, (0, "0% left"), motion.GROW
         for n, (key, shown) in enumerate(readings):
+            if key in news or n not in glides:
+                clock.grows.pop(key, None)
             if n not in glides and key in news:
                 clock.seen[key] = (shown, None, None)
         if glides:
-            until = max(since for since, _ in glides.values()) + motion.GLIDE
+            until = max(since + took for since, _, took in glides.values())
 
             def grid_at(when):
                 if when >= until:
                     return [terminal.cleared(text)
                             for text in out[grid - 1:grid - 1 + len(meters)]]
-                shown = [(*cell[:2], *meter_at(cell[2], *glides[n], when)) if n in glides else cell
-                         for n, cell in enumerate(cells)]
+                shown = [(*cell[:2], *meter_at(cell[2], *glides[n][:2], when, glides[n][2]))
+                         if n in glides else cell for n, cell in enumerate(cells)]
                 return [terminal.cleared(text) for text in usage_lines(
                     cfg, layout, lit=pointed, rows=rows, ending=ending, cells=shown)]
 
@@ -2981,11 +2991,12 @@ def usage_cells(cfg, now=None, rows=None):
     return found
 
 
-def meter_at(left, since, before, now):
-    """(left, said), as `usage_cells` says them, of a meter gliding (`gliding`) to `left` from
-    `before` at `now`, eased in GLIDE seconds from `since`, and `before` while that is 0."""
+def meter_at(left, since, before, now, took=motion.GLIDE):
+    """(left, said), as `usage_cells` says them, of a meter moving (`gliding`, or growing in as
+    ak opens) to `left` from `before` at `now`, eased in `took` seconds from `since`, and `before`
+    while that is 0."""
     first = before[0] or 0
-    shown = round(first + (left - first) * motion.eased((now - since) / motion.GLIDE))
+    shown = round(first + (left - first) * motion.eased((now - since) / took))
     return (shown, f"{shown}% left") if shown else before
 
 
@@ -3067,8 +3078,12 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cell
     if not found:
         return []
     columns, room = columns or usage_columns(width), min(COLUMN, width - 2)
+    def bar(left, said):
+        return bool(left) or left == 0 and said.endswith("% left")
+
     # what a cell says beside its label: its meter at the least, four cells, then its share
-    said_room = max(terminal.cells(said) + (6 if left else 0) for _, _, left, said in found)
+    said_room = max(terminal.cells(said) + (6 if bar(left, said) else 0)
+                    for _, _, left, said in found)
     label_room = min(12, room - 2 - said_room,
                      max(terminal.cells(terminal.plain(label)) for _, label, _, _ in found))
     if label_room < 1:
@@ -3083,7 +3098,7 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None, cell
             warn = ending[number - 1][0]
             shown = terminal.cut(terminal.plain(label), label_room)
             text = shown + " " * (label_room - terminal.cells(shown) + 2)
-            if not left:     # no meter: `empty until`, or why there is none, or the credits
+            if not bar(left, said):     # no meter: `empty until`, or why there is none, or credits
                 text += (terminal.styled(said, "amber") if warn
                          else terminal.styled(said, "dim") if left is None else said)
             else:
