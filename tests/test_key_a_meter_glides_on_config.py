@@ -177,8 +177,8 @@ class MeterGlidesOnConfig(unittest.TestCase):
         self.written(home, term, 30)
         self.at(home, 1002.35)
         self.written(home, term, 30, 100, "100% left")      # the reading that sizes the labels
-        rest, = [line for line in self.opened(self.home(30, 100), (26, 40)).screen().splitlines()
-                 if "30% left" in line]
+        fresh = self.opened(self.home(30, 100), (26, 40))
+        rest, = [line for line in fresh.screen().splitlines() if "30% left" in line]
         since = term.raw.stat().st_size
         self.at(home, 1002.72)                  # the first's glide over, the other's not
         self.assertEqual({row for row in self.after(term, "30% left", since) if "30% left" in row},
