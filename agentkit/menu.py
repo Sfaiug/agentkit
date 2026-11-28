@@ -3548,8 +3548,9 @@ def your_runs_screen(cfg, session, selected, held, providers):
     the last, at any size, and one too short for any of their lines keeps its header, as `p`'s
     note keeps its start.  Space, or a click on its mark, on a builder's or a reviewer's row
     does what Space does on its model's mark for that role on `c` (flip_mark), `providers`
-    being `c`'s, on the marks as the page shows them: a model config.toml offers no more, or
-    holds off (matrix.off), as the save reads it, is refused naming it.  Once
+    being `c`'s, the way the page's mark says, over config.toml and the marks as the key comes:
+    a model config.toml then offers no more, or holds off (matrix.off), or as the save reads it,
+    is refused naming it, nothing applied, and one marked so since is left so.  Once
     taken, the page counts for the team as it now is, the history read once, and the highlight
     stays on the model: on its row in use where it runs at another effort, else on its row,
     kept though no task or use holds it.  `p` opens the company list; Esc goes back.  Its config is held as `c` holds its
@@ -3565,7 +3566,6 @@ def your_runs_screen(cfg, session, selected, held, providers):
 def _your_runs(cfg, session, selected, held, providers):
     """your_runs_screen's page over `cfg`, read until Esc."""
     from . import own     # here, not at the top: own imports menu
-    marks_read(cfg, session, selected)      # the marks as `cfg` holds them, which Space flips
     if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
         terminal.doing("config · your runs · reading what your runs did")
     runs, _, paid = matrix.counted(cfg)
@@ -3628,10 +3628,16 @@ def _your_runs(cfg, session, selected, held, providers):
             def refused(now):       # this row's model as config.toml `now` holds it
                 return (f"{shown} is no longer in the config" if name not in config.offered(now)
                         else f"{shown} is {matrix.OFF}" if name in matrix.off(now) else "")
-            try:    # the marks this page shows, never one read since and not drawn yet
-                note = flip_mark(cfg, session, selected, held, name, column, providers, ask,
-                                 refused=refused)
-            except Changed:     # another window saved config.toml since this page read it
+
+            def using():        # whether the marks `selected` holds use it in this role
+                return name in dict(matrix.team_now(cfg, selected)[here[0]])
+            drawn = using()
+            cfg = holding(cfg)      # config.toml and the marks as they now stand, as `c` reads them
+            marks_read(cfg, session, selected)
+            try:    # the page's mark says which way: one another window made since stays
+                note = (flip_mark(cfg, session, selected, held, name, column, providers, ask,
+                                  refused=refused) if using() == drawn else refused(cfg))
+            except Changed:     # another window saved config.toml since it was read
                 cfg = holding(cfg)
                 note = refused(cfg) or CHANGED
             cfg = holding(cfg)      # as saved, or as another window left them, as `c` reads them
