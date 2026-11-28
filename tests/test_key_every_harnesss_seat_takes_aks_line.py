@@ -15,7 +15,8 @@ import threading
 import unittest
 
 TESTS = Path(__file__).resolve().parent
-REPO, FIXTURES = TESTS.parent, TESTS / "fixtures"
+REPO = TESTS.parent
+FIXTURES = TESTS / "fixtures"
 sys.path.insert(0, str(TESTS))
 from fixtures.akbin import AK, REAL_TMUX, Home  # noqa: E402
 from fixtures.akpane import stamp  # noqa: E402
@@ -28,7 +29,8 @@ SCRIPT = "\n".join(["set -uo pipefail",
                     SMOKE[SMOKE.index("model_unavailable()"):SMOKE.index("reprobe()")],
                     SMOKE[SMOKE.index("spent_until()"):SMOKE.index("skip_refused()")],
                     SMOKE[SMOKE.index("# --- 6h:"):SMOKE.index("# --- 6e:")]])
-PROMPT, WORKING = "claude-prompt-pane.txt", "claude-working-pane.txt"
+PROMPT = "claude-prompt-pane.txt"
+WORKING = "claude-working-pane.txt"
 SEATS = {"claude": PROMPT, "muse": "muse-working-pane.txt"}    # the screen each seat opens on
 ABSENT = ("codex", "grokbuild", "antigravity", "opencode")      # whose program is not there
 
