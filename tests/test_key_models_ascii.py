@@ -1,6 +1,5 @@
 """Where stdout takes ASCII alone, `ak models` prints in ASCII: `, ` sets apart the parts of a
-usage cell, whose money takes its currency's ISO code, and the first two clauses of the note
-under the tables.
+usage cell, whose money takes its currency's ISO code, and the parts of the note under the tables.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_own_tables.py sets it
 up, in the C locale with Python's UTF-8 mode and locale coercion off, and in a UTF-8 locale
@@ -42,8 +41,11 @@ class ModelsAscii(unittest.TestCase):
                 shown = self.models(home, 120, env)
                 self.assertTrue(next(line for line in shown if line.startswith(
                     "* Acme Nova 7 Plus")).endswith("  EUR 0.15, 0.4%"), shown)
-                self.assertEqual(shown[-2:], [
-                    "reviews and issues: per task, time and usage: per task that went live,",
+                self.assertEqual(shown[-3:], [
+                    "answers in: half its turns take no longer, "
+                    "left out: what you asked for that a finished job lacked, per check",
+                    "reviews and issues: per task",
+                    "time and usage: per task that went live, "
                     "usage also as a share of one login's week on its plan"])
 
 

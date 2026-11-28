@@ -4,9 +4,10 @@ launched now records.  A team of the last 30 days (`runs`, tests/
 test_key_models_json_counts_tasks_by_team.py) has a role of the team now's where its model there
 is one held for that role, at the effort held or at none recorded, a blank being none.  A role's
 rows: a model at an effort that did that role in a team whose two other roles are both the team
-now's, summing those teams (their `usage` role by role and plan by plan, exact); each model held
-its row at its effort now, in use, zeros and empty usage where it did nothing; those in use first
-in the order held, then most tasks, name and effort, none last.
+now's, summing those teams (their `usage` role by role and plan by plan, exact), each orchestrator
+row also carrying its `turns`, `turn_seconds`, `checks` and `gaps` from `runs.seats`; each model
+held its row at its effort now, in use, zeros and empty usage where it did nothing; those in use
+first in the order held, then most tasks, name and effort, none last.
 `team` sums the teams all three of whose roles are the team now's.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
@@ -27,7 +28,7 @@ from fixtures import akconfig, fakeadapter, meters
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, boards
 from test_key_models_json_counts_tasks_by_team import FAILED, history, run
-from test_key_models_json_run_usage import EMPTY, TABLES
+from test_key_models_json_run_usage import EMPTY, IDLE, TABLES
 from test_key_models_json_week_meters import DAY, HOUR, NOW, THEN
 
 # Each run nova high, bolt max, crux, as RUN in the key of the tasks by team, an hour of build,
@@ -67,6 +68,10 @@ def row(name, effort, in_use, tasks, live, first_pass=None, reviews=None, issues
             **summed(tasks, live, first_pass, reviews, issues, **extra)}
 
 
+def orch(*args, **extra):
+    return {**row(*args, **extra), **IDLE}
+
+
 def own_of(runs, reviews, findings=None):
     with Home() as home:
         fakeadapter.install(home, claude="pass", codex="pass")
@@ -90,8 +95,8 @@ class ModelsJsonOwnRows(unittest.TestCase):
         # and fix-cli; fix-menu was never reviewed
         self.assertEqual(own["team"], summed(6, 3, 5, 5))
         self.assertEqual(own["orchestrator"], [
-            row("nova", "high", True, 5, 2, 4, 4), row("nova", None, False, 1, 1),
-            row("sage", "high", False, 1, 1)])
+            orch("nova", "high", True, 5, 2, 4, 4), orch("nova", None, False, 1, 1),
+            orch("sage", "high", False, 1, 1)])
         # flux built for echo alone, and bolt's build for echo is in none of bolt's rows; dune,
         # held, did nothing
         self.assertEqual(own["executor"], [
@@ -122,7 +127,7 @@ class ModelsJsonOwnRows(unittest.TestCase):
         own = json.loads(done.out)["own"]
         self.assertEqual(own["team"], summed(3, 2, 1, 5, 6))
         self.assertEqual(own["orchestrator"], [
-            row("nova", "high", True, 2, 1, 1, 3, 4), row("nova", None, False, 1, 1, 0, 2, 2)])
+            orch("nova", "high", True, 2, 1, 1, 3, 4), orch("nova", None, False, 1, 1, 0, 2, 2)])
         self.assertEqual(own["executor"], [
             row("dune", "low", True, 0, 0), row("bolt", "max", True, 3, 2, 1, 5, 6)])
         self.assertEqual(own["reviewer"], [
@@ -141,8 +146,8 @@ class ModelsJsonOwnRows(unittest.TestCase):
         own = json.loads(done.out)["own"]
         self.assertEqual(own["team"], summed(2, 2, disputed=3, taken_back=2))
         self.assertEqual(own["orchestrator"], [
-            row("nova", "high", True, 1, 1, disputed=2, taken_back=1),
-            row("nova", None, False, 1, 1, disputed=1, taken_back=1)])
+            orch("nova", "high", True, 1, 1, disputed=2, taken_back=1),
+            orch("nova", None, False, 1, 1, disputed=1, taken_back=1)])
         self.assertEqual(own["executor"], [
             row("dune", "low", True, 0, 0), row("bolt", "max", True, 2, 2, disputed=3,
                                                 taken_back=2)])
@@ -220,11 +225,11 @@ class ModelsJsonOwnRows(unittest.TestCase):
                 "reviewer": {"points": {"brine": {"Plus": 2}, "acme": {"Max": 1}}, "unrated": 0}}
         self.assertEqual(own["team"], summed(2, 2, usage=both))
         self.assertEqual(own["orchestrator"], [
-            row("nova", "high", True, 1, 1, usage={
+            orch("nova", "high", True, 1, 1, usage={
                 "orchestrator": {"points": {"acme": {"Max": 5}}, "unrated": 1_000},
                 "executor": {"points": {"brine": {"Plus": 3.33333}}, "unrated": 500},
                 "reviewer": {"points": {"brine": {"Plus": 2}}, "unrated": 0}}),
-            row("nova", None, False, 1, 1, usage={
+            orch("nova", None, False, 1, 1, usage={
                 "orchestrator": {"points": {}, "unrated": 0},
                 "executor": {"points": {"brine": {"Plus": 6.66667}}, "unrated": 1_500},
                 "reviewer": {"points": {"acme": {"Max": 1}}, "unrated": 0}})])
