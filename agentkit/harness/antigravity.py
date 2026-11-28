@@ -37,6 +37,7 @@ LAUNCH_ENV = "AGENTKIT_ANTIGRAVITY_LAUNCH"
 # write agy never reports
 TOKEN_KINDS = ("input_tokens", "cache_read_tokens", "output_tokens")
 SOURCE = "antigravity-hook"   # `id_source`: a conversation the seat's own agy took a prompt in
+VARINT = 0                    # the wire type of a protocol buffer's number, as `field` reads it
 PROC = Path("/proc")
 
 
@@ -181,6 +182,60 @@ def turn_usage(out):
         return None
     fresh, cached, output = map(sum, zip(*calls))
     return None, False, {launched_model(out): (fresh, 0, cached, output)}
+
+
+def seat_token_sources(record):
+    """The store of each conversation the seat had on agy, each it left (`claim`) under the login
+    it was left on and the one it owns (`owned`): every model call keeps its usage in a step of
+    its own there (`seat_token_entries`), and /clear may leave one between two readings.  An
+    entry kept without a login was left on the record's (`notify.left`)."""
+    login = record.get("account")
+    had = [(was.get("conversation"), was.get("account", login)) for was in record.get("left") or ()
+           if isinstance(was, dict) and was.get("harness") == "antigravity"]
+    return [(found, account) for conversation, account in [*had, (owned(record), login)]
+            if (found := store(conversation))]
+
+
+def seat_token_entries(path):
+    """Each model call's step of that store, read whole, as (its metadata, the name of each
+    model the store numbers): a generation's `gen_metadata` names its model at 1 -> 19, beside
+    the number (1 -> 4 -> 1) a call's usage names it by (`seat_token_usage`).  OSError where
+    any of it cannot be read: a call is filed once, so never without the names beside it."""
+    try:
+        with contextlib.closing(sqlite3.connect(f"{Path(path).absolute().as_uri()}?mode=ro",
+                                                uri=True)) as db:
+            calls = db.execute("SELECT metadata FROM steps WHERE step_type = ? ORDER BY idx",
+                               (MODEL,)).fetchall()
+            # after the calls, so a generation written meanwhile names its call; an older store
+            # keeps no table of them
+            kept = db.execute("SELECT 1 FROM sqlite_master WHERE name = 'gen_metadata'").fetchone()
+            named = db.execute("SELECT data FROM gen_metadata").fetchall() if kept else ()
+    except sqlite3.Error as exc:
+        raise OSError(f"cannot read {path}: {exc}") from exc
+    names = {}
+    for data, in named:
+        generation = field(data, 1)
+        if name := decoded(field(generation, 19)):
+            names[field(field(generation, 4), 1, VARINT)] = name
+    return [(metadata, names) for metadata, in calls]
+
+
+def seat_token_usage(entry, cursor):
+    """A model call's usage, its step's metadata 9 (a failed call keeps none, or an empty one),
+    filed by the response id agy gave the call (11), dated when its step finished (metadata 8)
+    else began (1): its uncached input (2), cached input (5) and output, thinking inside (3),
+    each 0 where left out as a protocol buffer leaves a 0, under the model its number (1) names.
+    agy writes no cache."""
+    metadata, names = entry
+    usage = field(metadata, 9)
+    call = decoded(field(usage, 11))
+    if not call:
+        return None
+    fresh, cached, output = (field(usage, kind, VARINT) or 0 for kind in (2, 5, 3))
+    at = timestamp(field(metadata, 8))
+    counts = [fresh, 0, cached, output]
+    return (timestamp(field(metadata, 1)) if at is None else at, call, sum(counts),
+            names.get(field(usage, 1, VARINT)), counts)
 
 
 def prompt(entry):
@@ -451,25 +506,28 @@ def there(path):
     return True
 
 
-def field(message, number):
-    """That length-delimited field of a protocol buffer message, as bytes, or None: its first."""
-    return next(fields(message, number), None)
+def field(message, number, wire=2):
+    """That field of a protocol buffer message, its first, or None: a length-delimited one (wire
+    type 2) as bytes, a varint (VARINT) as its number."""
+    return next(fields(message, number, wire), None)
 
 
-def fields(message, number):
-    """Each length-delimited field of that number in a protocol buffer message, as bytes, in
-    order, up to where it no longer reads."""
+def fields(message, number, wire=2):
+    """Each field of that number and wire type in a protocol buffer message, in order, up to
+    where it no longer reads: a length-delimited one as bytes, a varint as its number."""
     at = 0
     try:
         while isinstance(message, bytes) and at < len(message):
             key, at = varint(message, at)
             if key & 7 == 2:
                 size, at = varint(message, at)
-                if key >> 3 == number and at + size <= len(message):
+                if key == number << 3 | wire and at + size <= len(message):
                     yield message[at:at + size]
                 at += size
             elif key & 7 == 0:
-                at = varint(message, at)[1]
+                value, at = varint(message, at)
+                if key == number << 3 | wire:
+                    yield value
             elif key & 7 in (1, 5):
                 at += 8 if key & 7 == 1 else 4
             else:

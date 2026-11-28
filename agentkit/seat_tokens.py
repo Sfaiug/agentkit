@@ -77,86 +77,74 @@ def read(since, until):
                 missing.append(f"{name} ({plugin.name or 'unknown harness'})")
                 continue
             for path in sources:
+                path, login = path if isinstance(path, tuple) else (path, seat.get("account"))
                 path = str(Path(path).resolve())
                 owners[path], marks[path] = name, orchestrating(cfg, seat)
                 db.execute("INSERT INTO seat_sources VALUES (?, ?, ?, '{}', ?) ON CONFLICT(path) "
                            "DO UPDATE SET repo = excluded.repo, account = excluded.account",
                            (path, plugin.name, Path(seat.get("repo") or "").name,
-                            seat.get("account") or config.DEFAULT_ACCOUNT))
+                            login or config.DEFAULT_ACCOUNT))
         # Keep reading known conversations after a clear, rename, harness change or seat removal.
         for source, adapter, repo, saved, account in db.execute(
                 "SELECT * FROM seat_sources").fetchall():
             cursor = json.loads(saved)
             cursor["source"] = source
             orchestrator, effort = marks.get(source, (None, None))
+            plugin = harness.load(adapter)
             try:
-                with Path(source).open("rb") as stream:
-                    stat = os.fstat(stream.fileno())
-                    identity = [stat.st_dev, stat.st_ino]
-                    offset = cursor.get("offset", 0)
-                    if cursor.get("identity") != identity or offset > stat.st_size:
-                        offset = 0
-                    stream.seek(offset)
-                    plugin = harness.load(adapter)
-                    while stream.tell() < stat.st_size:
-                        line = stream.readline(stat.st_size - stream.tell())
-                        if not line.endswith(b"\n"):
-                            break       # the harness may still be writing this line
-                        start, offset = offset, stream.tell()
-                        place = f"{source}:{start}"
-                        try:
-                            entry = json.loads(line)
-                        except ValueError:
+                whole = plugin.seat_token_entries(source)
+                entries = (lines(source, cursor) if whole is None
+                           else ((f"{source}:{n}", entry) for n, entry in enumerate(whole)))
+                for place, entry in entries:
+                    # An entry SQLite cannot hold, a lone surrogate or a number past its
+                    # integers or a float, raises before it writes; the entries after it go on.
+                    try:
+                        at, key, seconds = plugin.seat_turn(entry) or (None,) * 3
+                        if (at := harness.moment(at)) is not None:
+                            # As first filed: a file read again from its start changes no turn.
+                            db.execute("INSERT OR IGNORE INTO seat_turns VALUES "
+                                       "(?, ?, ?, ?, ?, ?, ?)",
+                                       (f"{adapter}:{key or place}", repo, float(at), seconds,
+                                        account, orchestrator, effort))
+                    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+                        pass
+                    kept = dict(cursor)
+                    try:
+                        usage = plugin.seat_token_usage(entry, cursor)
+                        if usage is None:
                             continue
-                        # A line SQLite cannot hold, a lone surrogate or a number past its
-                        # integers or a float, raises before it writes; the lines after it go on.
-                        try:
-                            at, key, seconds = plugin.seat_turn(entry) or (None,) * 3
-                            if (at := harness.moment(at)) is not None:
-                                # As first filed: a file read again from its start changes no turn.
-                                db.execute("INSERT OR IGNORE INTO seat_turns VALUES "
-                                           "(?, ?, ?, ?, ?, ?, ?)",
-                                           (f"{adapter}:{key or place}", repo, float(at), seconds,
-                                            account, orchestrator, effort))
-                        except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
-                            pass
-                        kept = dict(cursor)
-                        try:
-                            usage = plugin.seat_token_usage(entry, cursor)
-                            if usage is None:
-                                continue
-                            at, key, tokens, model, counts = usage
-                            if ((at := harness.moment(at)) is not None
-                                    and isinstance(tokens, int) and tokens >= 0):
-                                counts = counts or [None] * 4
-                                # A repeat counting more replaces all its line set, so the counts,
-                                # model, login, dollars and orchestrating stay those of the line
-                                # that set the tokens.
-                                db.execute("INSERT INTO seat_usage VALUES "
-                                           "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                                           "ON CONFLICT(event) DO UPDATE SET "
-                                           "tokens = excluded.tokens, account = excluded.account, "
-                                           "model = excluded.model, input = excluded.input, "
-                                           "cache_write = excluded.cache_write, "
-                                           "cache_read = excluded.cache_read, "
-                                           "output = excluded.output, "
-                                           "listed_usd = excluded.listed_usd, "
-                                           "orchestrator = excluded.orchestrator, "
-                                           "effort = excluded.effort "
-                                           "WHERE excluded.tokens > tokens",
-                                           (f"{adapter}:{key or place}", repo, at, tokens, account,
-                                            model, *counts, priced(model, counts), orchestrator,
-                                            effort))
-                                continue
-                        except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
-                            pass
-                        # A line filing no row moves the cursor by nothing: a running count then
-                        # grows from the last line filed.
-                        cursor.clear()
-                        cursor.update(kept)
-                    cursor.update(identity=identity, offset=offset)
-                    db.execute("UPDATE seat_sources SET cursor = ? WHERE path = ?",
-                               (json.dumps(cursor), source))
+                        at, key, tokens, model, counts = usage
+                        if ((at := harness.moment(at)) is not None
+                                and isinstance(tokens, int) and tokens >= 0):
+                            counts = counts or [None] * 4
+                            # A repeat counting more replaces all its line set, so the counts,
+                            # model, login, dollars and orchestrating stay those of the line
+                            # that set the tokens.  A source read whole is met again at every
+                            # reading: its entries stay as first filed, as a turn does.
+                            db.execute("INSERT INTO seat_usage VALUES "
+                                       "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                                       "ON CONFLICT(event) DO UPDATE SET "
+                                       "tokens = excluded.tokens, account = excluded.account, "
+                                       "model = excluded.model, input = excluded.input, "
+                                       "cache_write = excluded.cache_write, "
+                                       "cache_read = excluded.cache_read, "
+                                       "output = excluded.output, "
+                                       "listed_usd = excluded.listed_usd, "
+                                       "orchestrator = excluded.orchestrator, "
+                                       "effort = excluded.effort "
+                                       "WHERE excluded.tokens > tokens AND ?",
+                                       (f"{adapter}:{key or place}", repo, at, tokens, account,
+                                        model, *counts, priced(model, counts), orchestrator,
+                                        effort, whole is None))
+                            continue
+                    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+                        pass
+                    # A line filing no row moves the cursor by nothing: a running count then
+                    # grows from the last line filed.
+                    cursor.clear()
+                    cursor.update(kept)
+                db.execute("UPDATE seat_sources SET cursor = ? WHERE path = ?",
+                           (json.dumps(cursor), source))
             except OSError:
                 if source in owners:
                     missing.append(f"{owners[source]} ({adapter})")
@@ -165,3 +153,27 @@ def read(since, until):
         return rows, sorted(set(missing))
 
     return history._write(collect) or ([], ["seat usage unreadable"])
+
+
+def lines(source, cursor):
+    """(where it starts, its entry) of each whole line of that log past the cursor, the cursor
+    moved past them all once all are given: the log read from its start where another file is at
+    its path or it shrank."""
+    with Path(source).open("rb") as stream:
+        stat = os.fstat(stream.fileno())
+        identity = [stat.st_dev, stat.st_ino]
+        offset = cursor.get("offset", 0)
+        if cursor.get("identity") != identity or offset > stat.st_size:
+            offset = 0
+        stream.seek(offset)
+        while stream.tell() < stat.st_size:
+            line = stream.readline(stat.st_size - stream.tell())
+            if not line.endswith(b"\n"):
+                break       # the harness may still be writing this line
+            start, offset = offset, stream.tell()
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            yield f"{source}:{start}", entry
+        cursor.update(identity=identity, offset=offset)
