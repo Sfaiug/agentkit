@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, run, staffing, turns  # noqa: E402
+from agentkit import config, run, staffing  # noqa: E402
 
 
 class TransientHandover(unittest.TestCase):
@@ -209,26 +209,27 @@ class TransientHandover(unittest.TestCase):
         self.assertEqual(sleeps, [60, 300])
         self.assertEqual(lp.reviewer, "alpha")
 
-    def test_flake_then_silence_waits_for_the_spare_on_another_provider(self):
-        # two flakes wait without consuming the only spare: when the reviewer then stays
-        # silent twice, the review waits for it, on another provider than the executor's,
-        # rather than going to the executor's own model
+    def test_flake_then_silence_still_falls_back_to_self_review(self):
+        # two flakes wait without consuming the only spare: when the reviewer then
+        # stays silent twice, the executor's own model still reviews
         lp = self.loop(executor="charlie", reviewer="alpha", reviewers=["alpha", "charlie"])
         calls, fake = self.worker([
             (1, "API Error: 500 Internal server error\n", "sess-r"),
             (1, "Overloaded: the provider is busy\n", "sess-r"),
             (0, "No verdict yet.\n", "sess-r"),
             (0, "Still thinking.\n", "sess-r"),
+            (0, "VERDICT: PASS\n\n## Findings\n- none\n", "sess-c"),
         ])
         sleeps = []
         with patch.object(run.worker, "call", side_effect=submitting(fake)), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
-                patch.object(staffing, "collect_usage", return_value=self.providers), \
-                self.assertRaises(turns.Exhausted):
-            run.review(lp, "Work done.", True, "$ true\n[exit 0]")
-        self.assertEqual([args[1] for args in calls], ["alpha", "alpha", "alpha", "alpha"])
+                patch.object(staffing, "collect_usage", return_value=self.providers):
+            verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")
+        self.assertEqual(verdict, "PASS")
+        self.assertEqual([args[1] for args in calls],
+                         ["alpha", "alpha", "alpha", "alpha", "charlie"])
         self.assertEqual(sleeps, [60, 300])
-        self.assertEqual(lp.reviewer, "alpha")
+        self.assertEqual(lp.reviewer, "charlie")
 
 
 if __name__ == "__main__":

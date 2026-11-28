@@ -5,6 +5,7 @@ import json
 import os
 from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -159,7 +160,17 @@ sys.exit(1)
         # A test with no spare leaves the executor out as well: its own model reviews
         # as the last choice.
         self.order = [self.executor, self.reviewer, self.spare]
-        self.stack.enter_context(patch.object(usage, "pick_order", side_effect=lambda cfg, *a, **k: list(self.order)))
+        (config.HOME / "config.toml").write_text(re.sub(
+            r"(?m)^workers = .*$", f"workers = {json.dumps(self.order)}",
+            (REPO / "config.default.toml").read_text(), count=1))
+        self.cfg = config.load()
+
+        def picked(cfg, providers, workers=None, skip=(), **_kw):
+            # a fixed order, of the names the pick is handed alone, as the real pick keeps to them
+            return [name for name in self.order
+                    if (workers is None or name in workers) and name not in skip]
+
+        self.stack.enter_context(patch.object(usage, "pick_order", side_effect=picked))
 
     def script(self, path, body):
         path.write_text(f"#!{sys.executable}\n{scripted(body)}")

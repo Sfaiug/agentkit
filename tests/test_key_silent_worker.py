@@ -1,7 +1,8 @@
 """An executor without a closing goes to checks and review; a reviewer still owes a verdict.
 
-A reviewer is asked once more in its own conversation, then the review goes to the next model;
-with none left on another provider than the writer's, it waits for the reviewer.
+A reviewer is asked once more in its own conversation, then the review goes to the next marked
+reviewer that has not failed this round (including the writer's own model last); with none
+left, it waits for the reviewer.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
 on a project from gitrig.py, a config from akconfig.py, a task from taskfile.py and scripted
 harnesses from fakeadapter.py.
@@ -27,13 +28,14 @@ CLOSINGS = ("done", "blocked", "not-needed")
 class Silence:
     """One --no-merge run of opus executing and astra reviewing, scripted by `steps`."""
     steps = {}
+    reviewers = None
 
     @classmethod
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.rig = Rig(cls.home, "widgets")
-        akconfig.write(cls.home, ["opus", "astra"])
+        akconfig.write(cls.home, ["opus", "astra"], reviewers=cls.reviewers)
         cls.fakes = fakeadapter.install(cls.home, **cls.steps)
         task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
         cls.done = cls.home.ak("run", str(task), "--no-merge", timeout=300)
@@ -118,6 +120,7 @@ class ReviewerSilentTwice(Silence, unittest.TestCase):
     # Words but no verdict, both times: the ask is answered, just not with a hand-in.  Resumed,
     # a verdict.
     steps = {"claude": "work", "codex": [{"final": "Looks fine."}] * 2 + ["pass"]}
+    reviewers = ["astra"]
 
     @classmethod
     def setUpClass(cls):
@@ -136,8 +139,7 @@ class ReviewerSilentTwice(Silence, unittest.TestCase):
         self.assertEqual([call["role"] for call in self.asked], ["reviewer", "reviewer"])
 
     def test_the_review_waits_for_it_and_its_verdict_on_the_resume_decides(self):
-        # No other model is left on another provider than opus's, so the run waits for astra
-        # rather than opus reviewing its own work.
+        # astra is alone marked to review, so the run waits for it.
         self.assertEqual(self.ran.code, 1, self.ran.out + self.ran.err)
         self.assertEqual((self.parked["state"], self.parked["reviewer"]), ("exhausted", "astra"))
         self.assert_passed_in_one_round()
@@ -145,6 +147,29 @@ class ReviewerSilentTwice(Silence, unittest.TestCase):
         self.assertEqual((self.state["executor"], self.state["reviewer"]), ("opus", "astra"))
         self.assertEqual(self.state["review"]["reviewer"], "astra")
         self.assertIn("executor: opus   reviewer: astra",
+                      (self.run_dir / "result.md").read_text().splitlines())
+
+
+class ReviewerSilentTwiceFallsBackToWriter(Silence, unittest.TestCase):
+    # opus is marked to review too: once astra has answered twice without a verdict, opus
+    # reviews in the same round and the run passes in one round.
+    steps = {"claude": ["work", "pass"], "codex": {"final": "Looks fine."}}
+
+    def test_a_reviewer_silent_twice_is_asked_no_third_time(self):
+        self.assertEqual(self.log.count("reviewer astra gave no verdict; asking once more"), 1,
+                         self.log)
+        self.assertEqual(self.fakes["codex"].n, 2)
+        self.assertEqual([call["role"] for call in self.fakes["codex"].runs()],
+                         ["reviewer", "reviewer"])
+
+    def test_the_review_goes_to_the_next_model_and_its_verdict_decides(self):
+        self.assert_passed_in_one_round()
+        # No other marked reviewer is left, so the executor's own reviews in the same round.
+        self.assertEqual([call["role"] for call in self.fakes["claude"].runs()],
+                         ["executor", "reviewer"])
+        self.assertEqual((self.state["executor"], self.state["reviewer"]), ("opus", "opus"))
+        self.assertEqual(self.state["review"]["reviewer"], "opus")
+        self.assertIn("executor: opus   reviewer: opus",
                       (self.run_dir / "result.md").read_text().splitlines())
 
 

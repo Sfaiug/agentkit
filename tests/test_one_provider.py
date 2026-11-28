@@ -473,9 +473,8 @@ class OneProvider(unittest.TestCase):
         self.assertEqual(self.fallback(lp, "gamma"), ["gamma", "gamma", "delta"])
 
     def test_silent_fallback_uses_same_company_where_no_other_can_run_and_ignores_stale_opt_out(self):
-        # gamma, the one spare on the other company, is waited for while it can run here with
-        # usage left
-        # (tests/test_key_a_review_waits_for_another_provider.py)
+        # gamma, the one spare on the other company, cannot run here, so the fallback goes to
+        # the executor's company and ignores the stale opt-out
         lp = self.loop(reviewer="gamma", reviewers=["gamma", "alpha", "beta", "delta"])
         self.cfg["models"]["delta"]["provider"] = "a"
         self.cfg["models"]["gamma"]["harness"] = "other"

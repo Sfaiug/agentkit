@@ -76,9 +76,13 @@ sys.exit(1)
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         self.providers = {}
         self.eligible = config.offered(self.cfg)
+        self.reviewers = None
         self.stack.enter_context(patch.object(usage, "collect", side_effect=lambda cfg: self.providers))
-        self.stack.enter_context(patch.object(config, "selection",
-                                              side_effect=lambda cfg, seat=None: {"workers": self.eligible}))
+        self.stack.enter_context(patch.object(
+            config, "selection",
+            side_effect=lambda cfg, seat=None: (
+                {"workers": self.eligible} if self.reviewers is None
+                else {"workers": self.eligible, "reviewers": self.reviewers})))
         self.available("anthropic", "openai", "meta")
         adapters = self.root / "adapters"
         adapters.mkdir()
@@ -244,14 +248,13 @@ sys.exit(row["code"])
         self.assertEqual(code, 1)
         self.assertEqual(state["state"], "exhausted")
         self.assert_undelivered(state)
-        # spent, astra and spark, on other providers than opus, are waited for: fable and opus
-        # are never asked
-        self.assertEqual([r["model"] for r in self.calls("reviewer")], ["astra", "spark"])
+        self.assertEqual([r["model"] for r in self.calls("reviewer")],
+                         ["astra", "spark", "fable", "opus"])
         waits = [c.args[0] for c in self.sleep.call_args_list
                  if c.args and c.args[0] in turns.TRANSIENT_BACKOFF]
         self.assertEqual(waits, [])
         artifacts = {p: p.read_text() for p in directory.glob("round-1/reviewer*/final.md")}
-        self.assertEqual(len(artifacts), 2)
+        self.assertEqual(len(artifacts), 4)
         self.respond({})
         self.assertEqual(run.cmd_resume([directory.name]), 0)
         self.assertEqual(len(self.calls("executor")), 1)
@@ -260,7 +263,9 @@ sys.exit(row["code"])
 
     def test_fable_executor_resumes_review_from_its_seat_with_more_rounds(self):
         self.eligible = ["opus", "astra", "spark", "fable"]
-        config.save_session(self.cfg, "fable-seat", "fable", self.eligible)
+        self.reviewers = ["astra", "spark"]
+        config.save_session(self.cfg, "fable-seat", "fable", self.eligible,
+                            {"reviewers": self.reviewers})
         self.providers["anthropic"]["meters"] = [
             {"name": "weekly_all", "used": 80, "pace": 30, "exhausted": False},
             {"name": "weekly_scoped", "used": 53, "pace": 3, "exhausted": False}]
@@ -268,8 +273,7 @@ sys.exit(row["code"])
                   "spark": [{"code": 1, "text": "usage limit reached"}],
                   "opus": [{"code": 1, "text": "Usage limit reached"}],
                   "fable": [{"code": 1, "text": "Usage limit reached"}]}
-        # Every legal reviewer refuses; astra and spark, on other providers than fable, are its
-        # only fallbacks.
+        # Both marked reviewers refuse, leaving spark saved on the parked run.
         self.respond(failed)
         # named outside the seat: a seat's launch names no model
         code, directory, state = self.launch("--exec", "fable")
@@ -278,10 +282,11 @@ sys.exit(row["code"])
             self.assertEqual(code, 1)
             self.assertEqual(state["state"], "exhausted")
             self.assertEqual(state["executor"], "fable")
+            self.assertEqual(state["reviewer"], "spark")
             self.assertIn("fable", config.active_session(self.cfg)["workers"])
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable"])
             # The preference is gone by resume; the review is still pending, so the executor
-            # stays and so does spark, the reviewer it was left with, on another provider.
+            # stays and so does spark, the reviewer it was left with, while astra is ready too.
             self.providers["anthropic"]["meters"][1]["used"] = 80
             fail_then_pass = [
                 {"code": 0, "text": "VERDICT: FAIL\nFix the remaining finding."},
