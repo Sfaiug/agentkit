@@ -429,13 +429,23 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                         except (OSError, ValueError, TypeError, AttributeError):
                             answered = False
                     try:
-                        if answered:
-                            better = best_pair(cfg, [executor], order)
-                        else:
-                            exec_order = ready_order(cfg, providers, workers, None, repo=repo,
-                                                     reviewers=reviewers, quiet=True,
-                                                     skip=backoff)
-                            better = best_pair(cfg, exec_order, order)
+                        as_launched = config.as_launched(cfg, state)
+                        writers = head_writers(state)
+                        review_list = reviewers if reviewers is not None else workers
+                        failed = ((state.get("review_pending") or {}).get("failed") or ()
+                                  if answered else ())
+                        review_order = (
+                            (ready_order(as_launched, providers, review_list, role="reviewer",
+                                         repo=repo, writers=writers, skip=failed,
+                                         quiet=True) if failed else [])
+                            or ready_order(as_launched, providers, review_list, role="reviewer",
+                                           repo=repo, writers=writers, quiet=True))
+                        exec_order = ([executor] if answered else
+                                      ready_order(as_launched, providers, workers, None,
+                                                  repo=repo, reviewers=reviewers,
+                                                  writers=writers, reviewed_by=review_order,
+                                                  quiet=True, skip=backoff))
+                        better = best_pair(as_launched, exec_order, review_order, writers=writers)
                     except (config.Error, OSError, ValueError, KeyError, TypeError,
                             AttributeError):
                         better = None

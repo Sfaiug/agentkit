@@ -147,9 +147,9 @@ def takers(cfg, providers, workers=None, role="executor", reviewers=None, writer
     picked then from different."  So a subscription of a writer's lab keeps no payg reviewer
     of another out.  An executor's pick given `reviewed_by`, the reviewer marks of its run,
     leaves out the same way every executor with no reviewer of them at `pair_tier` 0 that is
-    not off, unready or barred, while another has one: the pick is the one a run marking only
-    those executors gets.  A pick either rule leaves empty is made again of those it left out
-    (`ready_order`).
+    not off, unready or barred (and, with `writers`, at `pair_tier` 0 beside each of them too),
+    while another has one: the pick is the one a run marking only those executors gets.  A pick
+    either rule leaves empty is made again of those it left out (`ready_order`).
     """
     return _takers(cfg, providers, workers, role, reviewers, writers, reviewed_by)[:2]
 
@@ -166,9 +166,9 @@ def _takers(cfg, providers, workers=None, role="executor", reviewers=None, write
         skip = {name: why for name, why in skip.items() if why}
     if role == "reviewer":
         skip.update((name, why) for name in offered if (why := barred_reviewer(cfg, name)))
-    writers = known(cfg, writers) if role == "reviewer" else []
+    writers = known(cfg, writers)
     by_lab = []
-    if writers or (role == "executor" and reviewed_by is not None):
+    if (role == "reviewer" and writers) or (role == "executor" and reviewed_by is not None):
         # read here, once: `pick_order` then reads only what the other role leaves of it
         workers = usage.marked(cfg, workers, role, reviewers)
         off, (lineup, _) = matrix.off(cfg), matrix.listed()
@@ -177,12 +177,14 @@ def _takers(cfg, providers, workers=None, role="executor", reviewers=None, write
             return [name for name in names
                     if name in offered and name not in skip and name not in off]
 
-        if writers:
+        if role == "reviewer":
             far = [name for name in ready(workers)
                    if all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)]
             why = f"a reviewer of another lab than {', '.join(writers)} is marked: {', '.join(far)}"
         else:
-            reviews = [name for name in ready(reviewed_by) if not barred_reviewer(cfg, name)]
+            reviews = [name for name in ready(reviewed_by)
+                       if not barred_reviewer(cfg, name)
+                       and all(pair_tier(cfg, writer, name, lineup) == 0 for writer in writers)]
             far = [name for name in ready(workers)
                    if any(pair_tier(cfg, name, reviewer, lineup) == 0 for reviewer in reviews)]
             why = f"a marked reviewer of another lab can review {', '.join(far)}"
@@ -502,18 +504,21 @@ def best_pair(cfg, executors, reviewers, allow_self=True, writers=()):
 
     `writers` built the work before this pick: a replacement builder's reviewer reviews their
     part too (`head_writers`), so a pair's tier is its reviewer's highest `pair_tier` beside
-    the executor and each of them.
+    the executor and each of them; ties within a tier prefer the pair's own lower `pair_tier`
+    before the draw, so a non-self pair still beats a saved self-review when only a past
+    writer can review.
     """
     best, key, (lineup, _) = None, None, matrix.listed()
     earlier = known(cfg, writers)
     for ei, executor in enumerate(executors or []):
         for ri, reviewer in enumerate(reviewers or []):
-            tier = pair_tier(cfg, executor, reviewer, lineup)
-            if tier is not None:
-                tier = max([tier, *(pair_tier(cfg, one, reviewer, lineup) for one in earlier)])
-            if tier is None or (tier == 2 and not allow_self):
+            own = pair_tier(cfg, executor, reviewer, lineup)
+            if own is None:
                 continue
-            found = (tier, ei, ri)
+            tier = max([own, *(pair_tier(cfg, one, reviewer, lineup) for one in earlier)])
+            if tier == 2 and not allow_self:
+                continue
+            found = (tier, own, ei, ri)
             if key is None or found < key:
                 key, best = found, (executor, reviewer)
     return best
