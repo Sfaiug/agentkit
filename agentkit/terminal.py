@@ -1539,9 +1539,13 @@ def pointer():
 
 
 def pointer_spot(spots=None):
-    """The `Spot` of a screen's `spots`, by default the screen up's (`lit`), the pointer is on;
-    an empty one while a key has the highlight, or before the pointer moved."""
-    return under(_POINTER, _SPOTS if spots is None else spots) if _POINTER else Spot()
+    """The `Spot` of a screen's `spots`, by default the screen up's (`lit`), the pointer is on
+    and lights; an empty one while a key has the highlight, before the pointer moved, or while
+    it rests on another than its move or click was answered on (`_POINTED`): a draw -- a resize
+    -- moved that under the still pointer, telling the screen nothing, so its highlight and its
+    keys stay where they were till the pointer next lands (`read_key`)."""
+    spot = under(_POINTER, _SPOTS if spots is None else spots) if _POINTER else Spot()
+    return spot if spot[:2] == _POINTED[:2] else Spot()
 
 
 def lit(lines, spots):
@@ -1560,7 +1564,8 @@ def lit(lines, spots):
     on = pointer_spot(_SPOTS).what
     _SHOWN = _PAINTED = lines = list(lines)
     _SPOTS, pointed = spots, pointer_spot(spots)
-    if (_HELD is None and on is not None and pointed.what is None
+    # off the answered spot onto nothing of its row, not onto another cell a draw moved there
+    if (_HELD is None and on is not None and under(_POINTER, spots).what is None
             and spots.get(_POINTER.row, (None,))[0] == on):
         _HELD, _POINTER = (_POINTER._replace(name="point"), time.monotonic()), None
     if (pointed.cell is None or isinstance(pointed.cell, tuple)

@@ -13,8 +13,8 @@ pointer, the owner (10 Nov): "it looks and feels like you can press it, but you 
 cell so drawn takes the click, all of it, its padding too, and what no
 click acts on -- a model's name on `c`, the arrows' words on the key line -- is not lit, the
 pointer there as on blank space; a key of the key line is lit as its text with a cell before and
-after.  A row a draw moves under the still pointer, or moves lit from under it, is lit as
-the pointer next lands on it, and alone.  Black-box: the program `AK_BIN` names runs in a
+after.  A row, a key or a cell a draw moves under the still pointer, or moves lit from under
+it, is lit as the pointer next lands on it, and alone, the keys acting on what is lit till then.  Black-box: the program `AK_BIN` names runs in a
 person's terminal that sets no background (tests/fixtures/akterm.py), over seats
 (tests/fixtures/akseat.py) and faked harnesses (tests/fixtures/fakeadapter.py), each cell judged
 by how it looks once the screen rests (tests/fixtures/aklooks.py); the pointer's moves and
@@ -34,6 +34,7 @@ from fixtures.aklooks import SGR, looks, plain
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 from fixtures.draws import draws
+from test_key_models_own_tables import MODELS
 
 SELECTION, BLACK = "48;2;8;48;93", "48;2;0;0;0"     # the black theme's selection, background
 COMES = "48;2;39;100;166"       # ... and where the highlight comes (tests/test_highlight_glows.py)
@@ -299,6 +300,50 @@ class OneHighlight(unittest.TestCase):
         self.term.type(point(col, row))
         shown = self.rest(lambda shown: col in lit_rows(shown).get(row, []))
         self.assertEqual([at for at, columns in lit_rows(shown).items() if col in columns], [row])
+
+    def test_a_key_a_resize_moves_under_the_still_pointer_is_lit_as_it_next_lands_alone(self):
+        shown = self.config()
+        (col, _), (_, row) = self.row(shown, "esc back"), self.row(shown, "Done check")
+        self.term.type(point(col + 1, row))
+        self.calm(lambda shown: starts(shown, "› Done check", row))
+        self.term.resize(WIDTH, row + 2)            # the key line rises under the still pointer
+        shown = self.calm(lambda shown: "esc back" in plain(shown[row - 1]))
+        self.assertEqual([plain(shown[at - 1]).split()[:3] for at in lit_rows(shown)],
+                         [["›", "Done", "check"]])
+        self.term.type(point(col + 2, row))
+        shown = self.calm(lambda shown: col + 2 in lit_rows(shown).get(row, []))
+        self.assertEqual(list(lit_rows(shown)), [row])
+
+    def test_a_mark_a_resize_moves_under_the_still_pointer_is_not_what_space_sets(self):
+        akconfig.write(self.home, {**MODELS, "echo": {**MODELS["echo"], "label": "Echo Model"}},
+                       orchestrator="nova", workers=["bolt"], reviewers=["crux"])
+        self.term = Terminal(self.home, size=(77, 40), env={"COLORTERM": "truecolor"})
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
+                        "sleep 86400", server=SERVER)
+        self.rest(lambda shown: any(MAIN_KEYS in plain(line) for line in shown))
+        self.term.keys("c")
+        _, row = self.row(self.rest(lambda shown: starts(shown, "› Acme Nova")), "Echo Model")
+        self.term.type(point(43, row))                  # on Echo's reviewer mark
+        self.calm(lambda shown: 43 in lit_rows(shown).get(row, []))
+        self.term.resize(78, 40)                        # its builder mark comes under the pointer
+        shown = self.calm(lambda shown: len(plain(shown[1]).rstrip()) == 78)
+        lit = lit_rows(shown)[row]
+        self.assertNotIn(43, lit)
+        self.assertEqual(lit, list(range(lit[0], lit[0] + len(lit))))      # one cell, as it was
+        self.term.keys("Space")
+        self.rest(lambda shown: "echo" in akconfig.read(self.home)["defaults"]["reviewers"])
+        self.assertEqual(akconfig.read(self.home)["defaults"]["workers"], ["bolt"])
+
+    def test_a_meter_a_resize_moves_under_the_still_pointer_leaves_the_act_lit(self):
+        self.chatgpt()
+        self.term.resize(WIDTH, 10)
+        col, row = self.row(self.calm(lambda shown: any(ACT in plain(line) for line in shown)),
+                            ACT)
+        self.term.type(point(col + 2, row))
+        self.calm(lambda shown: col + 2 in lit_rows(shown).get(row, []))
+        self.term.resize(WIDTH, 40)                 # ChatGPT's meter comes under the pointer
+        shown = self.calm(lambda shown: starts(shown, "› ChatGPT", row))
+        self.assertEqual(lit_rows(shown), {row + 1: list(range(col - 1, col + len(ACT) + 1))})
 
     def test_an_act_filling_a_narrow_line_is_lit_on_that_line_alone(self):
         self.chatgpt()

@@ -57,14 +57,15 @@ class UsageStaysOnTop(Sandbox):
         return terminal.ANSI.sub("", out.getvalue().replace("\033[K", "")).split("\n")[:-1], drawn
 
     def point(self, width, height, label, rows=None):
-        """The screen with one seat and the pointer on `label`'s cell of the grid, its usage
-        read from `rows` when they are handed in, one reading a call."""
+        """The screen with one seat and the pointer's move onto `label`'s cell of the grid
+        answered, its usage read from `rows` when they are handed in, one reading a call."""
         _, drawn = self.draw(width, height, seats=1)
         number = [terminal.plain(shown) for _, shown, _, _ in menu.usage_rows(self.cfg)
                   ].index(label) + 1
         row, column = next((row, first) for row, (_, places, *_) in drawn["spots"].items()
                            for first, _, cell, *_ in places if cell == ("usage", number))
-        with patch.object(terminal, "_POINTER", terminal.Key("point", "", column, row)), \
+        key = terminal.Key("point", "", column, row)
+        with patch.multiple(terminal, _POINTER=key, _POINTED=terminal.under(key, drawn["spots"])), \
                 patch.object(menu, "usage_rows", side_effect=rows or menu.usage_rows):
             return self.draw(width, height, seats=1)[0]
 
