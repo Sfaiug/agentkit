@@ -48,15 +48,12 @@ class YourRunsScreen(unittest.TestCase):
             part = lines(term.wait(want))
             self.assertTrue(part[0].startswith(HEAD), part[0])
             self.assertEqual((body_lines(part), last_line(part)), (OWN[:len(body_lines(part))], KEYS))
-        term.keys("Escape")
-        term.wait("r your runs")
         # Over a seat, a click on `r your runs` opens that seat's page and folds at 40 cells
         Seat(self.home, "acme-fix", model="nova",
              record={"orchestrator": "nova", "workers": ["bolt"], "reviewers": ["crux"]})
         seat_term, c_shown = self.open_c(size=(40, 40), seat="acme-fix")
-        row = next(i for i, line in enumerate(c_shown) if "r your runs" in line)
-        col = c_shown[row].index("r your runs") + 1
-        seat_term.type(f"\x1b[<0;{col};{row + 1}M\x1b[<0;{col};{row + 1}m")
+        row, col = next((i + 1, l.index("r your runs") + 1) for i, l in enumerate(c_shown) if "r your runs" in l)
+        seat_term.type(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m")
         folded = lines(seat_term.wait(lambda s: "p models" in s and "week on its plan" in s))
         self.assertTrue(folded[0].startswith("agentkit · your runs · acme-fix"), folded[0])
         self.assertEqual(body_lines(folded), FOLDED)

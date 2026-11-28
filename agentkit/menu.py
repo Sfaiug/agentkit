@@ -3514,16 +3514,16 @@ def your_runs_screen(cfg, session, selected):
     keys = terminal.keys("p models", "esc back", enter=None, move=False)
     while True:
         lines, said = own.lines(mine, cfg, terminal.layout_width(), paid), note_lines(note)
-        spots = terminal.frame(title, [*lines[:max(0, page_room(said, keys))], *said], keys,
-                               drawn=lambda: clock.drawn((), None))
+        room = max(0, page_room((), keys))
+        spots = terminal.frame(title, [*lines[:max(0, room - len(said))], *(said[-room:] if room else ())],
+                               keys, drawn=lambda: clock.drawn((), None))
         key = terminal.read_key() if clock.wait() is None else moving(clock, timeout=TICK)
         if key is None or key.name == "point":
             continue
         clock.settle()
         act = key.char if key.name == "char" else key.name
-        if act == "click":
-            spot = terminal.under(key, spots)
-            act = {"esc": "back"}.get(spot.cell, spot.cell or "") if spot.what is None else ""
+        if act == "click" and (spot := terminal.under(key, spots)).what is None:
+            act = {"esc": "back"}.get(spot.cell, spot.cell or "")
         note = ""
         if act in ("esc", "eof", "back"):
             return
@@ -3654,9 +3654,10 @@ def company_list(cfg, title):
         if act == "back":
             # by the lineup's rows, so releases without a score go too, and a company it lacks stays
             lineup, found = matrix.listed()
+            had = matrix.companies(cfg, lineup)
             on = {r["maker"] for r in lineup if r["release"] in found and r["release"] not in off}
-            gone = {r["maker"] for r in lineup if r["maker"] in yours and r["maker"] not in on}
-            return models_listed(cfg, [maker for maker in yours if maker not in gone],
+            gone = {r["maker"] for r in lineup if r["maker"] in had and r["maker"] not in on}
+            return models_listed(cfg, [m for m in matrix.company_order(cfg, lineup) if m in had - gone],
                                  off - {row["release"] for row in lineup if row["maker"] in gone}
                                  ) if gone else ""
         if act == "a" or act == "enter" and here == ADD_COMPANY:
