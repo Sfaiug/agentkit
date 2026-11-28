@@ -94,6 +94,20 @@ class ChecksLendLoginsThatCannotRenew(LentLogins):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assert_lent_copies(self.root / "smoke/home")
 
+    def test_the_smoke_home_holds_agys_first_run_answers_for_each_of_its_logins(self):
+        answers = [f".gemini/antigravity-cli{of}/cache/onboarding.json" for of in ("", "-acme")]
+        for name in answers:
+            (self.caller / name).parent.mkdir(parents=True)
+            (self.caller / name).write_text('{"onboardingComplete": true}')
+        setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("# A bounded way")]
+        result = subprocess.run(["/bin/bash", "-c", setup + "\nsmoke_home\n"],
+                                env={**self.env, "WORK": str(self.root / "smoke")},
+                                text=True, capture_output=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for name in answers:
+            self.assertEqual(json.loads((self.root / "smoke/home" / name).read_text()),
+                             {"onboardingComplete": True})
+
     def test_the_module_returns_when_the_first_login_it_lent_lapses(self):
         home, taken = self.root / "lent", self.root / "taken/.config/opencode/opencode.json"
         taken.parent.mkdir(parents=True)

@@ -172,9 +172,16 @@ smoke_home() {
   # both update their config locally, OpenCode its service receipt.
   # Its service receipt authenticates catalog probes without a second server fighting for
   # the host's port. A copy keeps a sandbox update from replacing the host's receipt.
+  # agy shows its first-run pages (`Choose your color scheme`, its terms) once to a login, and a
+  # seat left at them takes no line of ak's: the caller's answers go beside each login of its.
+  answered=()
+  for source in "$SMOKE_CALLER_HOME"/.gemini/antigravity-cli*/cache/onboarding.json; do
+    answered+=("$source:${source#"$SMOKE_CALLER_HOME/"}")
+  done
   for path in "$caller_account:.claude.json" "$SMOKE_CALLER_HOME/.gitconfig:.gitconfig" \
               "$caller_gh/config.yml:.config/gh/config.yml" \
-              "$caller_state/opencode/service.json:.local/state/opencode/service.json"; do
+              "$caller_state/opencode/service.json:.local/state/opencode/service.json" \
+              "${answered[@]}"; do
     source=${path%:*}; target="$HOME/${path##*:}"
     smoke_source "$source" || continue
     mkdir -p -- "${target%/*}" && cp -p -- "$source" "$target" || exit 1
