@@ -13,8 +13,8 @@ pointer, the owner (10 Nov): "it looks and feels like you can press it, but you 
 cell so drawn takes the click, all of it, its padding too, and what no
 click acts on -- a model's name on `c`, the arrows' words on the key line -- is not lit, the
 pointer there as on blank space; a key of the key line is lit as its text with a cell before and
-after.  A row a draw moves under the still pointer, or moves lit from under it, is lit as
-the pointer next lands on it, and alone.  Black-box: the program `AK_BIN` names runs in a
+after.  A row or a key a draw moves under the still pointer, or moves lit from under it, is
+lit as the pointer next lands on it, and alone.  Black-box: the program `AK_BIN` names runs in a
 person's terminal that sets no background (tests/fixtures/akterm.py), over seats
 (tests/fixtures/akseat.py) and faked harnesses (tests/fixtures/fakeadapter.py), each cell judged
 by how it looks once the screen rests (tests/fixtures/aklooks.py); the pointer's moves and
@@ -299,6 +299,19 @@ class OneHighlight(unittest.TestCase):
         self.term.type(point(col, row))
         shown = self.rest(lambda shown: col in lit_rows(shown).get(row, []))
         self.assertEqual([at for at, columns in lit_rows(shown).items() if col in columns], [row])
+
+    def test_a_key_a_resize_moves_under_the_still_pointer_is_lit_as_it_next_lands_alone(self):
+        shown = self.config()
+        (col, _), (_, row) = self.row(shown, "esc back"), self.row(shown, "Done check")
+        self.term.type(point(col + 1, row))
+        self.calm(lambda shown: starts(shown, "› Done check", row))
+        self.term.resize(WIDTH, row + 2)            # the key line rises under the still pointer
+        shown = self.calm(lambda shown: "esc back" in plain(shown[row - 1]))
+        self.assertEqual([plain(shown[at - 1]).split()[:3] for at in lit_rows(shown)],
+                         [["›", "Done", "check"]])
+        self.term.type(point(col + 2, row))
+        shown = self.calm(lambda shown: col + 2 in lit_rows(shown).get(row, []))
+        self.assertEqual(list(lit_rows(shown)), [row])
 
     def test_an_act_filling_a_narrow_line_is_lit_on_that_line_alone(self):
         self.chatgpt()
