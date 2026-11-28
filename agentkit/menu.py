@@ -3515,8 +3515,8 @@ def your_runs_screen(cfg, session, selected):
     while True:
         lines, said = own.lines(mine, cfg, terminal.layout_width(), paid), note_lines(note)
         room = max(0, page_room((), keys))
-        spots = terminal.frame(title, [*lines[:max(0, room - len(said))], *(said[-room:] if room else ())],
-                               keys, drawn=lambda: clock.drawn((), None))
+        body = [*lines[:room - len(said)], *said] if len(said) <= room else said[1:1 + room]
+        spots = terminal.frame(title, body, keys, drawn=lambda: clock.drawn((), None))
         key = terminal.read_key() if clock.wait() is None else moving(clock, timeout=TICK)
         if key is None or key.name == "point":
             continue
