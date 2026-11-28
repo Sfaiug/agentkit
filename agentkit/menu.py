@@ -764,7 +764,7 @@ def fade_out(clock, rows):
     returning once they are background: a page calls this between the answer and the act, so
     its list never holds a row that has gone.
 
-    Hides a row still coming up (`motion.fading`) leaving from as far as it has come, settling
+    Hides reading them as they stand (terminal.standing), what still moves on them too, settling
     and clearing the clock, mixing text and highlight backgrounds into the screen's background,
     the frame loop, ending at once on a resize meanwhile without reading a key, and doing
     nothing where nothing can move (`motion.movable`).
@@ -772,24 +772,24 @@ def fade_out(clock, rows):
     if not motion.movable():
         return
     terminal.asked_again()          # a resize the last draw answered is none meanwhile
-    screen, began, still = terminal.on_screen(), motion.moment(), lambda _, line: line
-    leaving = [(row, (clock.effects.get((row, 1)) or still)(began, screen[row - 1]))
-               for row in rows if 0 < row <= len(screen)]
+    leaving = terminal.standing(rows)
     if not leaving:
         return
     clock.settle()
     clock.clear()
-    size, shown, due = (terminal.width(), terminal.height()), {}, 0
+    began, shown, due = motion.moment(), {}, 0
     while not terminal.resized(due):
         now, step = motion.moment(), time.monotonic()
         done, amount = now >= began + motion.LEAVES, motion.eased((now - began) / motion.LEAVES)
         out = ""
-        for row, line in leaving:
-            text = "" if done else terminal.fade(line, amount, backs=True)
+        for row, line, since in leaving:
+            parts = [] if done else [(1, terminal.cleared(line)), *since]
+            text = "".join(f"\033[{row};{column}H{terminal.fade(part, amount, backs=True)}"
+                           for column, part in parts) or f"\033[{row};1H\033[K"
             if shown.get(row) != text:
                 shown[row] = text
-                out += f"\033[{row};1H{terminal.cleared(text)}"
-        if (terminal.width(), terminal.height()) != size:
+                out += text
+        if terminal.resized(0):
             return                  # resized while it was made: no frame at the old layout
         terminal.over(out)
         if done:

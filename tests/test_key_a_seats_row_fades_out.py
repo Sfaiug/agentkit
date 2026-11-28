@@ -1,9 +1,10 @@
 """A past session removed from `past sessions` fades out where it stood before it goes: `x` on
 `theta` over `beta` and `Remove` picked, part way through `motion.LEAVES` `theta`'s row and the
 card under it stand as they were, each in an ink and background between its own and the screen's
-background, `beta`'s row as it was; past it no line names `theta` and `beta` has its row.  A card
-still coming up leaves from as far as it has come; a key typed meanwhile is read after; a resize
-the card answered ends nothing, one meanwhile the fade at once.  At 8 colours nothing fades.
+background, `beta`'s row as it was; past it no line names `theta` and `beta` has its row.  What
+still moves -- the card coming up, its highlight -- leaves from where it stood; a key typed
+meanwhile is read after; a resize the card answered ends nothing, one meanwhile the fade at once.
+At 8 colours nothing fades.
 
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) on the
 injected motion clock (tests/fixtures/clock.py), each update it writes read by `pipe-pane`.
@@ -46,10 +47,10 @@ def between(colour, start, end):
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ARemovedPastSessionFadesOut(unittest.TestCase):
-    def removing(self, env, early=False, resized=False):
-        """`Remove` picked on `theta`'s card in a terminal with `env`: by Enter once the card is
-        at rest, `resized` after two resizes it was drawn anew for, or `early` by a click while
-        it still comes up.  The screen's looks as the pick found them."""
+    def removing(self, env, how="rest"):
+        """`Remove` picked on `theta`'s card in a terminal with `env`, `how`: by Enter at `rest`,
+        `resized` after two resizes it was drawn anew for, or as the highlight still `moves` onto
+        it; or by a click as the card still `rises`.  The screen's looks as the pick found them."""
         self.home = Home()
         self.addCleanup(self.home.close)
         checkout = self.home.path / "code/acme"
@@ -71,7 +72,7 @@ class ARemovedPastSessionFadesOut(unittest.TestCase):
         self.at(OPENED)
         self.term.keys("x")
         self.term.wait("› ✓ Keep")
-        if early:                       # by a click on it, the card part way up
+        if how == "rises":              # part way up
             self.at(OPENED + FADE / 2)
             before = self.shows(lambda rows: between(rgb(look(rows, "Remove theta")), *(
                 rgb(look(rows, "beta"), ground) for ground in (38, 48))))
@@ -81,11 +82,16 @@ class ARemovedPastSessionFadesOut(unittest.TestCase):
         else:
             self.term.keys("Down")
             self.term.wait("› × Remove")
-            self.at(PICKED)
-            for width in (105, 110) if resized else ():     # the second read as nothing moves
-                self.term.resize(width, 30)
-                self.term.wait("─" * width)
-            before, pick = self.shows(self.rest), "\r"
+            if how == "moves":          # from Keep, at the clock's first frame of it
+                before = self.shows(lambda rows: rgb(look(rows, "✓ Keep"), 48)
+                                    != rgb(look(rows, "beta"), 48))
+            else:
+                self.at(PICKED)
+                for width in (105, 110) if how == "resized" else ():    # the last, nothing moving
+                    self.term.resize(width, 30)
+                    self.term.wait("─" * width)
+                before = self.shows(self.rest)
+            pick = "\r"
         self.raw = self.home.root / "raw"
         self.raw.touch()
         self.home.tmux("pipe-pane", "-t", self.term.pane, f"cat >{self.raw}", server=SERVER)
@@ -148,14 +154,17 @@ class ARemovedPastSessionFadesOut(unittest.TestCase):
         after = self.term.wait(lambda screen: "theta" not in screen and KEYS in screen)
         self.assertIn("beta", after.split("\n")[self.row(before, "theta")])
 
-    def test_a_card_still_coming_up_leaves_from_as_far_as_it_has_come(self):
-        before = self.removing({"COLORTERM": "truecolor"}, early=True)
-        self.term.wait(self.begun)
-        shown = looks(self.term.screen(colours=True))
-        self.assertEqual(look(shown, "Remove theta"), look(before, "Remove theta"))
+    def test_what_still_moves_leaves_from_where_it_stood(self):
+        for how in ("rises", "moves"):
+            with self.subTest(how):
+                before = self.removing({"COLORTERM": "truecolor"}, how)
+                self.term.wait(self.begun)
+                shown = looks(self.term.screen(colours=True))
+                for text in ("Remove theta", "✓ Keep", "× Remove"):
+                    self.assertEqual(look(shown, text), look(before, text), text)
 
     def test_a_key_typed_meanwhile_is_read_after_and_a_resize_ends_it_at_once(self):
-        before = self.removing({"COLORTERM": "truecolor"}, resized=True)
+        before = self.removing({"COLORTERM": "truecolor"}, "resized")
         theta = self.row(before, "theta")
         self.term.wait(self.begun)
         self.at(PICKED + LEAVES / 2)

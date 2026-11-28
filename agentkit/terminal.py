@@ -884,6 +884,7 @@ _UNSEEN = False    # the key read last was pressed while it was (`unseen`)
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
 _PAINTED = []
+_OVER = {}         # ... and what frames wrote on it since, {(row, column): text} in writing order
 _POINTED = Spot()  # ... the `Spot` it was on when its move or click was last answered
 TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
@@ -1783,9 +1784,20 @@ def over(frame, rows=""):
     if rows or frame:
         sys.stdout.write(f"{HOLD}{rows}{frame}{RELEASE}")
         sys.stdout.flush()
-    for row in map(int, re.findall(r"\x1b\[(\d+);\d+H", frame) if _UP else ()):
-        if row <= len(_UP):
+    for row, column, text in re.findall(r"\x1b\[(\d+);(\d+)H((?:(?!\x1b\[\d+;\d+H).)*)", frame,
+                                        re.S):
+        row, column = int(row), int(column)
+        if _UP and row <= len(_UP):
             _UP[row - 1] = None
+        _OVER.pop((row, column), None)      # its last write after all it wrote over
+        _OVER[row, column] = text
+
+
+def standing(rows):
+    """Each of screen `rows` (from 1) that is up as it stands: (row, its line as last drawn
+    (`on_screen`), what frames wrote on it since, each (column, text) in writing order)."""
+    return [(row, _PAINTED[row - 1], [(column, text) for (at, column), text in _OVER.items()
+                                      if at == row]) for row in rows if 0 < row <= len(_PAINTED)]
 
 
 def written(lines, frame="", rising=False, screen=None):
@@ -1807,6 +1819,7 @@ def written(lines, frame="", rising=False, screen=None):
     # a row a line wraps onto is no row of its own: once it is one again, it is written
     _UP = None if _UP is None else [starts.get(row) for row in range(1, len(lines) + 1)]
     _UP_OF = screen
+    _OVER.clear()           # every row a frame wrote on is written anew (`over`)
     over(frame, text)
 
 
