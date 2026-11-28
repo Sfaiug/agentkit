@@ -3047,21 +3047,34 @@ def meter_lit(line, shown, moved):
     """A move's start (matrix_key): one light crosses the bar of `line`, a meter's of
     `usage_lines` drawn one to a line with a bar (`barred`), from `since` (`motion.sweeping`, as
     a seat's line just done), and the rest of `shown`, the screen's drawing of that line, as
-    drawn, `moved()` told of each draw it moves.  The line is one cell, its first, so a glide's
-    start there takes it (Clock.start)."""
+    drawn, `moved(began)` told when the light begins on each draw it moves.  Where a glide is
+    already running on the line (`Clock.cells`), it plays until its end and the light begins
+    there, padded to the drawn row's width before clearing any longer glide frame so the
+    pointer's light on the cell stays; with no glide, the line is as long as at rest."""
     def start(clock, row, since, _):
+        if since + motion.SWEEP <= motion.moment():
+            return
+        glide = clock.cells.get((row, 1))
+        began = glide[1] if glide else since
         # the bar is the run before its share, which ends the line: no label reaches there
         plain = terminal.ANSI.sub("", line)
         found = re.search(r"(\S+)  \d+% left$", plain)
         written = terminal.cell_texts(shown)
         first = len(terminal.cell_texts(plain[:found.start(1)]))
-        cells, until = motion.sweeping(written[first:first + len(found[1])], since)
+        cells, until = motion.sweeping(written[first:first + len(found[1])], began)
         head, tail = "".join(written[:first]), "".join(written[first + len(cells):])
-        # as long as the line at rest, so no clear past it takes the pointer's light off its cell
-        clock.start([(row, 1)], lambda now: head + "".join(cell(now) for cell in cells) + tail,
-                    until)
-        if (row, 1) in clock.cells:     # not where nothing moves, nor once it has crossed
-            moved()
+        screen = terminal.on_screen()
+        pad = " " * max(0, (terminal.cells(screen[row - 1]) if 0 < row <= len(screen) else 0)
+                        - terminal.cells(shown))
+
+        def at(now):
+            if glide and now < began:
+                return glide[0](now)
+            lit = head + "".join(cell(now) for cell in cells) + tail
+            return terminal.cleared(lit + pad) if glide else lit
+        clock.start([(row, 1)], at, until)
+        if clock.cells.get((row, 1)) == (at, until):  # not where nothing moves, nor once crossed
+            moved(began)
     return start
 
 
@@ -5047,8 +5060,8 @@ def config_subscriptions(cfg, keyboard, number=None):
     running one, the key line naming it.  One an act adds is asked whose it is (logins.renewed),
     then pointed at.  It comes up as `c` does as it opens, and the pointed row's lines come up
     under it as the line under the menu's highlighted row does; back from what an act or an add
-    drew, it is drawn as it is, a light crossing the meter of one a reset was just spent on
-    (meter_lit).  The act lit (`on`) is kept by what it is, so one going from under
+    drew, it is drawn as it is, one a reset was just spent on gliding to its new reading before
+    a light crosses its bar (meter_lit).  The act lit (`on`) is kept by what it is, so one going from under
     it lights nothing in its place, and is at rest while the pointer lights its row's own cell,
     the label, meter and share.  A meter glides to a new reading on its line as drawn here
     (`meter_moves`).
@@ -5073,7 +5086,7 @@ def _subscriptions(cfg, keyboard, whose):
     """config_subscriptions' page over `cfg`, read until Esc."""
     here = ("sub", next((number for number, sub in enumerate(usage_rows(cfg), 1)
                          if subscription(sub) == whose), 1))
-    opened, on, top, said = None, None, 0, ""
+    opened, on, top, said, seen = None, None, 0, "", None
     clock = motion.Clock(page=True)
     while True:
         subs, width = usage_rows(cfg), terminal.layout_width()
@@ -5106,7 +5119,7 @@ def _subscriptions(cfg, keyboard, whose):
         # its whole cell, a cell of its row, the pointer lights as any cell (-1, no act)
         own = [(*usage_cell(width, 0), -1)] if meters else []
         owned = terminal.pointer_spot().cell == -1      # the pointer on one, as last drawn
-        body, places, acts, moves, spots, lights = [], {}, {}, [], [], set()
+        body, places, acts, moves, spots, lights = [], {}, {}, [], [], {}
         for number, (sub, line) in enumerate(zip(subs, drawn), 1):
             name, _, prov, _ = sub
             if number == 1 or subs[number - 2][0] != name:
@@ -5117,11 +5130,6 @@ def _subscriptions(cfg, keyboard, whose):
             places[len(body)] = (("sub", number), [*own, *row])
             spots.append(len(body))
             body.append(lined(number, line))
-            # lit by a reset spent on it, before its meter's moves: a glide on its line takes it
-            spent = ("spent", subscription(sub))
-            if meters and barred(*cells[number - 1][2:]):
-                moves.append((len(body) - 1, spent, None,
-                              meter_lit(line, body[-1], lambda spent=spent: lights.add(spent))))
             if number != lit:
                 continue
             # its limits but the resets in hand, its row's to say, or with no room its login's line
@@ -5135,8 +5143,12 @@ def _subscriptions(cfg, keyboard, whose):
                 body.append(shown)
             # its acts, email and plan from the one read of the logins its meter was drawn by
             ends, email, plan = ending[number - 1]
-            acts = dict(subscription_acts(cfg, keyboard, sub, ends,
-                                          lambda spent=spent: clock.touch(spent)))
+
+            def on_spent(login=subscription(sub)):
+                clock.touch(("spent", login))
+                if (was := (seen or {}).get(("usage", login))) is not None:
+                    clock.seen = {("usage", login): (was[0], None, None)}
+            acts = dict(subscription_acts(cfg, keyboard, sub, ends, on_spent))
             on = on if on in acts else None
             plan = harness_plugin(logins.harness(cfg, name)).plan_name(plan)
             kind = "amber" if ends else "dim"
@@ -5153,6 +5165,13 @@ def _subscriptions(cfg, keyboard, whose):
             moves += meter_moves(subs, cells, spots, lambda shown: {
                 spot: lined(number, line, held if shown != cells else beside)
                 for number, (spot, line) in enumerate(zip(spots, meters_at(shown)), 1)})
+            # lit by a reset spent on it, after its meter's moves so a running glide goes first
+            for sub, cell, spot, line in zip(subs, cells, spots, drawn):
+                if barred(*cell[2:]):
+                    spent = ("spent", subscription(sub))
+                    moves.append((spot, spent, None, meter_lit(
+                        line, body[spot],
+                        lambda began, spent=spent: lights.__setitem__(spent, began))))
         body.append("")
         places[len(body)] = (("row", "add"), [])
         add = "  + add a subscription"
@@ -5164,10 +5183,10 @@ def _subscriptions(cfg, keyboard, whose):
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
                                               top, said, keys, timeout=STIR, marks=0,
                                               clock=clock, moves=moves)
-        # a spend's light is the page back's, kept while each draw moves it: a draw leaving it
-        # unmoved, its bar off the page or nothing moving, ends it, so no later draw (a resize)
-        # starts it, nor over a glide
-        clock.touched = {key: since for key, since in clock.touched.items()
+        # a spend's light is the page back's, kept while each draw moves it, news from when any
+        # glide on its line ends: a draw leaving it unmoved, its bar off the page or nothing
+        # moving, ends it, so no later draw (a resize) starts it late
+        clock.touched = {key: lights.get(key, since) for key, since in clock.touched.items()
                          if key[0] != "spent" or key in lights}
         if clicked == -1:             # a subscription's own cell, lit by the pointer: no act
             clicked = None
@@ -5185,7 +5204,7 @@ def _subscriptions(cfg, keyboard, whose):
         elif (act == "enter" or clicked is not None) and (on in acts or here[0] == "row"):
             def signed(rows):     # a provider's only login is its usual one, listed or not
                 return [(name, account or config.DEFAULT_ACCOUNT) for name, _, _, account in rows]
-            before = signed(subs)
+            before, seen = signed(subs), clock.seen
             clock.forget()            # a card or a sign-in: the page back is drawn as it is
             said = (acts[on]() if here[0] == "sub"
                     else config_add_provider(cfg, keyboard)) or ""
