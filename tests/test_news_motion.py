@@ -73,7 +73,6 @@ class Menu(Sandbox):
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
         self.words, self.tasks, self.notices, self.live = {}, {}, [], None
-        self.cache(used=20)
         self.now = 1000.0                   # the menu's clock: still but for the waits it runs
         clock = Clock(self.sleep)
         clock.monotonic = lambda: self.now
@@ -356,7 +355,7 @@ class NewsMotion(Menu):
             self.assertGreater(timeout, motion.FRAME)       # and no wait for a frame
         # and a menu opened again draws what it finds, as it is
         self.words["fix-api"] = "done"
-        self.cache(used=20)
+        (config.STATE / "usage.json").unlink(missing_ok=True)
         waits, _ = self.run_menu([])
         self.assertEqual(len(waits), 1)
         self.assertNotRegex(waits[0][2], r"\x1b\[\d+;\d+H")

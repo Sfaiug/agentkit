@@ -47,7 +47,7 @@ class MeterGlides(unittest.TestCase):
         fakeadapter.install(home, claude="pass")
         akconfig.write(home, {"fable": "claude"}, providers={
             "anthropic": {"mode": "subscription", "accounts": ["default", "two"]}})
-        clock.standing(home, "AK_MOTION_CLOCK", 1000.0)
+        clock.standing(home, "AK_MOTION_CLOCK", 999.0)
         self.read(home, one, two)
         return home
 
@@ -80,6 +80,9 @@ class MeterGlides(unittest.TestCase):
         cache = home.path / ".agentkit/state/usage.json"
         term.wait(lambda _: all("probe_error" in login for login in json.loads(
             cache.read_text())["providers"]["anthropic"]["accounts"].values()))
+        # past the opening grow-in (`motion.GROW`), so the screen starts at rest at 1000.0
+        self.at(home, 1000.0)
+        term.wait(lambda screen: not re.search(r"(?<!\d)0% left", screen), bound=10)
         term.raw = home.root / f"raw{term.pane.strip('%')}"
         named = shlex.quote(str(term.raw)).replace("%", "%%").replace("#", "##")
         piped = home.tmux("pipe-pane", "-O", "-t", term.pane, f"cat >>{named}", server=SERVER)
