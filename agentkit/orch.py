@@ -169,7 +169,8 @@ def seat_models(cfg):
     out = {name: matrix.OFF for name in names if name in off}
     harness = {name: cfg["models"][name]["harness"] for name in names if name not in out}
     # one look a harness, so its models agree however an install moves meanwhile
-    installed = {each: config.harness_present(each) for each in set(harness.values())}
+    live = versions.live()
+    installed = {each: config.harness_present(each, live) for each in set(harness.values())}
     missing = {name: f"{harness[name]} is not installed" for name in harness
                if not installed[harness[name]]}
     if len(out) + len(missing) < len(names):
@@ -186,13 +187,13 @@ def refuse_start(cfg, model, providers, prompting=True):
     """The account a new seat on `model` opens on (`opening_account`), refusing one that
     cannot open here in `create`'s order: no working seat login, `model` off
     (`matrix.refuse_off`), then its harness not installed (`config.harness_present`) -- a seat
-    on that one opens a pane saying only that the harness ended.  Asked by `create` and its
-    previews once the name is free and the model is known, before anything is saved or started
-    for the seat; a move asks `orch.move`."""
+    on that one opens a pane saying only that the harness ended.  Asked by `create`, `ensure`
+    and `create`'s previews once the name is free and the model is known, before anything is
+    saved or started for the seat; a move asks `orch.move`."""
     account = opening_account(cfg, model, providers, prompting)
     harness = config.model(cfg, model)["harness"]
     matrix.refuse_off(cfg, model)
-    if not config.harness_present(harness):
+    if not config.harness_present(harness, versions.live()):
         raise config.Error(f"{model}: {harness} is not installed on this machine; "
                            f"./install.sh, run in a terminal, installs it")
     return account
@@ -5200,7 +5201,7 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
     else:
         model, reason, workers = select(cfg, providers, prompting=False)
     # The usual login when none answers, as this seat always opened: it has a question to take.
-    account = opening_account(cfg, model, providers, True)
+    account = refuse_start(cfg, model, providers, True)
     extra = {"cwd": str(seat_cwd()), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     cmd, conversation = fresh_command(cfg, model, seat=name, account=account, cwd=seat_cwd(),
