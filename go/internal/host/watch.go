@@ -89,8 +89,9 @@ func (w Watch) Stop(ctx context.Context) (context.Context, func() string) {
 					cancel()
 					return
 				}
-				// the next look as a limit is reached, never up to a second past it: a bound live as
-				// the silence reached its limit could have ended by then, and its silence counted
+				// the next look as a limit is reached, never up to a second past it, however long this
+				// look took: a bound live as the silence reached its limit could have ended by then,
+				// and its silence counted
 				next := watchEvery
 				if w.Silence > 0 {
 					next = min(next, w.Silence-min(now.Sub(last), now.Sub(held)))
@@ -98,7 +99,7 @@ func (w Watch) Stop(ctx context.Context) (context.Context, func() string) {
 				if w.Ceiling > 0 {
 					next = min(next, w.Ceiling-now.Sub(started))
 				}
-				look.Reset(next)
+				look.Reset(time.Until(now.Add(next)))
 			}
 		}
 	}()

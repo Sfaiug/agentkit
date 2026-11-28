@@ -33,10 +33,17 @@ func TestAWatchSaysWhatEndedItsContext(t *testing.T) {
 }
 
 func TestABoundLiveAsTheSilenceReachesItsLimitHoldsItOff(t *testing.T) {
-	const silence = 1050 * time.Millisecond // reached just after a look, a second before the next
-	end := time.Now().Add(1950 * time.Millisecond)
+	const silence = 2050 * time.Millisecond // reached just after a look, a second before the next
+	end := time.Now().Add(2900 * time.Millisecond)
+	reads := 0
 	var stopped time.Time
-	ctx, ended := Watch{Silence: silence, Heard: Written(filepath.Join(t.TempDir(), "activity")),
+	ctx, ended := Watch{Silence: silence,
+		Heard: func() any {
+			if reads++; reads == 2 {
+				time.Sleep(950 * time.Millisecond) // the look before the limit's, slow as on a busy host
+			}
+			return nil
+		},
 		Declared: func(now float64) bool { return now < float64(end.UnixNano())/1e9 },
 		Before:   func() { stopped = time.Now() }}.Stop(context.Background())
 	<-ctx.Done()
