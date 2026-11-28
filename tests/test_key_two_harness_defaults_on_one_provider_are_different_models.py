@@ -12,6 +12,9 @@ mist and echo marked to review:
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on the
 fixtures of tests/test_key_a_default_model_is_no_other_lab_than_its_sibling.py.
+
+Two harnesses running one explicit model id on one provider stay one model, whatever makers a
+lineup written by hand names for it (the owner, 28 Nov 2026: "Leave it"; `staffing.same_model`).
 """
 
 import json
