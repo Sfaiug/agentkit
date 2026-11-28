@@ -715,10 +715,11 @@ def asking(clock, around, going=lambda: None, title=""):
     (`framed`, and `draw` on the ak screen).  Its frames are drawn while the answer is waited for
     (`moving`), `going()`'s fetch looked at, and a key, not the pointer, ends them, answered as
     it is read on the card as it was drawn: one that keeps it draws it at rest, as a resize
-    does, and no more of it is drawn after one that answers.  With nothing to draw, a key, a
-    resize or the fetch landing alone is waited for, as on a page that draws nothing more.  Its
-    highlight comes up with it, and news that moves the card, a count landing, moves the
-    highlight with it (`motion.Clock.hold`): only a key or the pointer moves it on the card.
+    does, and no more of it is drawn after one that answers, nor fades where it stood
+    (`motion.Clock.lift`).  With nothing to draw, a key, a resize or the fetch landing alone is
+    waited for, as on a page that draws nothing more.  Its highlight comes up with it, and news
+    that moves the card, a count landing, moves the highlight with it (`motion.Clock.hold`):
+    only a key or the pointer moves it on the card.
     When `doing` is given and `answer` is picked on a taken terminal, `terminal.doing` puts the
     screen up again with `title` then `doing` in the header before the caller's work runs."""
     def wait():
@@ -737,7 +738,9 @@ def asking(clock, around, going=lambda: None, title=""):
         clock.swept = None
         clock.touch(("asked",))
         clock.hold()
-        if not terminal.confirm(question, meaning, answer, around, wait):
+        answered = terminal.confirm(question, meaning, answer, around, wait)
+        clock.lift()        # the card is gone, and what it lit by its place alone with it
+        if not answered:
             return False
         if doing and terminal.taken():
             terminal.doing(" · ".join(filter(None, (title, doing))))

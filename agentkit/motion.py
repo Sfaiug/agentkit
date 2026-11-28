@@ -537,14 +537,14 @@ class Clock:
         seconds; where it left, on what is still there, from where it was into the background in
         LEAVES: at rest on a screen up first or at another size, and where nothing can;
         after `hold`, where it comes too."""
+        if self.held:   # what it lit by a place alone may be there still or have moved off
+            self.lift()
         was, self.lights, glows, self.glows = self.lights, terminal.lights(), self.glows, {}
         size, self.size = self.size, (terminal.width(), terminal.height())
         held, self.held = self.held, False
         if self.up is None or not moves or size != self.size:
             return
-        if held:        # what it lit by a place alone may be there still or have moved off
-            was, glows = ({what: one for what, one in old.items() if what[0] is not None}
-                          for old in (was, glows))
+        if held:
             was.update(self.lights)
         for what, spans in self.lights.items():
             glow = glows.get(what)
@@ -561,6 +561,13 @@ class Clock:
             still = [span for span in glow[4] if terminal.held(*span[:2]) == (what, span[3])]
             if still:
                 self.glows[what] = *glow[:4], still
+
+    def lift(self):
+        """What the highlight lit by its place alone (terminal.held) is not what the next draw
+        finds there: it neither stays nor fades where it stood -- a card answered (menu.asking),
+        and gone from under it."""
+        self.lights, self.glows = ({what: one for what, one in old.items() if what[0] is not None}
+                                   for old in (self.lights, self.glows))
 
     def rest(self):
         """A key: where the highlight moves, its last frame to write before anything else."""
