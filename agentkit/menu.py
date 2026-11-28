@@ -7597,6 +7597,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 "n new", f"n new   x {'close' if word == 'done' else 'stop'}", 1)
             actions = ("n", "c") + ("p",) * past + ("x",) * (word is not None)
             drawn = {} if keyboard.take() else None
+            if drawn is not None and terminal.follow(ask=framed):
+                clock.forget()
             listed = (keys if drawn is None else BORN_KEYS if newborn
                       else terminal.keys(keys, enter="open"))
             page, pages = draw(cfg, found, listed, page, BORN if newborn else cursor, drawn,
@@ -7636,7 +7638,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                     # while the seat is made, no key read
                     if dry_run:
                         keyboard.give()   # it only says what it would start
-                    elif back:            # from the models screen: the ak screen under it again
+                    elif terminal.follow() or back:   # new shades or back from models: drawn anew
                         draw(cfg, found, listed, page, BORN, {}, look=False,
                              groups=born_groups(groups, newborn), updating=updating,
                              pointing=pointing, doing="starting")
@@ -7688,12 +7690,15 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                     more, until = None, time.monotonic() + 0.5
                     while more is None and time.monotonic() < until:
                         more = moving(clock, timeout=until - time.monotonic())
-                        if more is not None and more.name == "point":    # cuts no wait short
+                        pointed = more is not None and more.name == "point"
+                        if pointed:                                      # cuts no wait short
                             spot, more = terminal.under(more, drawn["spots"]), None
                             cursor, pointing = spot.what or cursor, spot.what is not None
                         if more is None and time.monotonic() < until:
                             # a resize or the pointer: drawn anew, so the dots breathe on where
                             # they now are
+                            if terminal.follow(ask=not pointed):
+                                clock.forget()
                             page, pages = draw(cfg, found, listed, page, cursor, drawn,
                                                look=False, groups=groups, clock=clock,
                                                updating=updating, pointing=pointing)
