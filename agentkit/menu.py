@@ -3550,9 +3550,9 @@ def your_runs_screen(cfg, session, selected, held, providers):
     does what Space does on its model's mark for that role on `c` (flip_mark), `providers`
     being `c`'s, over config.toml and the marks read again as the key comes (marks_read): a
     model the config offers no more, or holds off (matrix.off), is refused naming it.  Once
-    taken, the page counts for the team as it now is, the history read once, every row it showed
-    kept, and the highlight stays on the model: on its row in use where it runs at another
-    effort.  `p` opens the company list; Esc goes back.  Its config is held as `c` holds its
+    taken, the page counts for the team as it now is, the history read once, and the highlight
+    stays on the model: on its row in use where it runs at another effort, else on its row,
+    kept though no task or use holds it.  `p` opens the company list; Esc goes back.  Its config is held as `c` holds its
     own (holding), and what was held before is held again after."""
     global _held
     outer, _held = _held, (cfg, NOT_READ)
@@ -3575,8 +3575,8 @@ def _your_runs(cfg, session, selected, held, providers):
         return own.lines(mine, cfg, terminal.layout_width(), paid, at)
 
     def team(kept=None):
-        """The tables of the team now, `kept`'s rows among them, and the rows the highlight
-        moves through."""
+        """The tables of the team now, row `kept` (by_role's) among them, and the rows the
+        highlight moves through."""
         mine = own.by_role(runs["teams"], matrix.team_now(cfg, held_over(cfg, selected, held)),
                            runs["seats"], kept)
         return mine, list(dict.fromkeys(row for row, _ in page(mine, None)[1].values()))
@@ -3629,8 +3629,8 @@ def _your_runs(cfg, session, selected, held, providers):
                     else f"{shown} is {matrix.OFF}" if name in matrix.off(cfg)
                     else flip_mark(cfg, session, selected, held, name, column, providers, ask))
             if not note:
-                mine, rows = team(mine)
-                # on the model it was on: its row in use, else this one, which a row kept is
+                mine, rows = team({here[0]: [row]})
+                # on the model it was on: its row in use, else this one, kept
                 here = (here[0], min((not other["in_use"], other["effort"] != row["effort"],
                                       number) for number, other in enumerate(mine[here[0]])
                                      if other["name"] == name)[2])

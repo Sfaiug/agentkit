@@ -89,9 +89,9 @@ def by_role(teams, now, seats, kept=None):
     "disputed", "taken_back", "hours", "usage"} sum the teams their model at their effort (None
     where not recorded) did that role in, each orchestrator row also carrying its `turns`,
     `turn_seconds`, `checks` and `gaps` from `seats`, each held model with its row at its effort
-    now, in use where that effort is recorded, and each row `kept`, a former `by_role`'s, has at
-    its model and effort, so a page's row stays while it is open: those in use first, in the
-    order held, then most tasks, name and effort, None last."""
+    now, in use where that effort is recorded, and a row at each model and effort of `kept`'s,
+    {role: [a former `by_role`'s rows]}, so a page's row stays while it is open: those in use
+    first, in the order held, then most tasks, name and effort, None last."""
     def ours(team, role):
         did = team[role]
         return any(did["name"] == name and recorded(did["effort"]) in (None, effort)
