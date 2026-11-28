@@ -15,6 +15,7 @@ import errno
 import fcntl
 import os
 import signal
+import struct
 import subprocess
 import sys
 import termios
@@ -49,9 +50,12 @@ def parse_args(argv):
     return options, command
 
 
-def copy_winsize(source_fd, pty_fd):
+def copy_winsize(source_fd, pty_fd, widest):
+    """The harness's terminal as large as the owner's, no wider than its `[terminal] widest`."""
     try:
         size = fcntl.ioctl(source_fd, termios.TIOCGWINSZ, b"\0" * 8)
+        rows, columns, *pixels = struct.unpack("4H", size)
+        size = struct.pack("4H", rows, min(columns, widest or columns), *pixels)
         fcntl.ioctl(pty_fd, termios.TIOCSWINSZ, size)
     except OSError:
         pass
@@ -188,6 +192,7 @@ def run(options, command):
         # has the seat looked at again
         drawn_mono, moving = time.monotonic(), False
         looks = seat_looks(options.harness)
+        widest = config.manifest(options.harness).get("terminal", {}).get("widest")
 
         def output(_data):
             nonlocal drawn_mono, moving
@@ -200,7 +205,7 @@ def run(options, command):
             nonlocal resize_pending, child_status
             if resize_pending:
                 if terminal_fd is not None:
-                    copy_winsize(terminal_fd, master_fd)
+                    copy_winsize(terminal_fd, master_fd, widest)
                 resize_pending = False
             if child_status is None:
                 waited_pid, wait_status = os.waitpid(child_pid, os.WNOHANG)

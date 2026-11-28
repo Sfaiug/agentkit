@@ -39,13 +39,14 @@ def typed(cfg, provider, plan, paid="USD"):
     return _price(table.get(plan), positive=True) if isinstance(table, dict) else None
 
 
-def parse(text):
-    """`text` as a price a month: digits, with at most two more after one `.`, above zero and at
-    most MAX_PRICE, int where whole else float; None for anything else."""
+def parse(text, most=MAX_PRICE):
+    """`text` as a price a month, or with `most` 100 a `vat` percent: digits, with at most two
+    more after one `.`, above zero and at most `most`, int where whole else float; None for
+    anything else."""
     if not isinstance(text, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,2})?", text):
         return None
     value = decimal.Decimal(text)
-    if not (0 < value <= MAX_PRICE):
+    if not (0 < value <= most):
         return None
     return int(value) if value == value.to_integral_value() else float(value)
 
