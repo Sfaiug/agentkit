@@ -1435,10 +1435,7 @@ sys.path.insert(0, str(config.REPO / "tests"))
 from check4_pair import login
 from check_harness_contract import unavailable
 # Asked about the login the check runs, as check 3 asks: a lent subscription's own, by name,
-# and with SMOKE_LOGIN=seat, as a check that opens a seat runs, its seat's.  A login the caller
-# holds but this home was not lent is none here, never a broken one: only its own `auth` tells
-# a dead login from one its harness renews (Grok's as it starts), and Claude's renews it to
-# answer, which no check may do in the caller's home (lend.first_lapse).
+# and with SMOKE_LOGIN=seat, as a check that opens a seat runs, its seat's.
 cfg = config.load()
 entry = config.model(cfg, sys.argv[1])
 why, broken = unavailable(entry["harness"], seat=os.environ.get("SMOKE_LOGIN") == "seat",
@@ -2104,9 +2101,9 @@ fi
 fi
 
 # --- 6h: a seat of every harness takes ak's line ---------------------------
-# Not a dry run either: the first model of each harness the config offers (smoke_home's, the
-# caller's choice) opens a seat as 6d's does, and tests/probe_seat.py proves there that ak's
-# longest line is sent and its turn reads as working, then done.  A harness whose screen changed
+# Not a dry run either: the first model of each harness the suite's config offers opens a seat
+# as 6d's does, and tests/probe_seat.py proves there that ak's longest line is sent and its turn
+# reads as working, then done.  A harness whose screen changed
 # under ak leaves ak's lines unsent, and ak keeps a harness upgrade only where this suite fails
 # nothing new: each harness is a label of its own, as check 3's are.  This seat makes a model
 # request.
@@ -2126,6 +2123,7 @@ for FIRST in $FIRSTS; do
   [ "$PROBERC" = 0 ] || WHY="$(head -1 "$WORK/probe-$MODEL.log") (exit $PROBERC)"
   if tm has-session -t "=smoke-$MODEL" 2>/dev/null || [ -e "$HOME/.agentkit/state/session-smoke-$MODEL.json" ]; then
     WHY="${WHY:+$WHY; }seat smoke-$MODEL or its record is still there after two stops"
+    tm kill-session -t "=smoke-$MODEL" 2>/dev/null
   fi
   if [ -z "$WHY" ]; then
     ok_call "6h $HARNESS: $MODEL's seat took ak's longest line, read working on it, and came back to its prompt"
