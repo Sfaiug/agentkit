@@ -9,8 +9,8 @@ boxed check may write, in the project's Git storage (`Line.runs`).  Each
 member is a reviewed branch off main and a run directory (`run.json`, `task.md`) parked in the
 line, in join order, numbered with the members of every line in its Home.  Host readings are
 injected (`AK_HOST_READINGS`), and a woken member's resume refuses at once (a worker's worker's
-run), so a verdict stays on its record to be read.  Each member's review ran its chosen tests
-green on its head (`Line.chosen`), as a reviewer's PASS runs them.
+run), so a verdict stays on its record to be read.  Each member's review says its chosen tests
+ran green (`chosen_passed`), as a reviewer's PASS records them.
 
     from fixtures.akline import Line
     line = Line({"t/ok.sh": "true\\n"})
@@ -19,11 +19,8 @@ green on its head (`Line.chosen`), as a reviewer's PASS runs them.
     line.close()
 """
 
-import contextlib
 import hashlib
 import json
-import sqlite3
-import time
 
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
@@ -43,10 +40,6 @@ for t in $tests; do
 done
 exit $code
 """
-# ak's `checks` table as it makes it, for a chosen go put on record before ak's first row
-CHECKS = ("CREATE TABLE IF NOT EXISTS checks (run_id TEXT, round INTEGER, kind TEXT, command TEXT, "
-          "tree TEXT, place TEXT, exit INTEGER, requested_at REAL, started_at REAL, "
-          "finished_at REAL, rerun INTEGER)")
 
 
 def rules(suite):
@@ -82,21 +75,10 @@ class Line:
             "repo": str(self.rig.path), "worktree": str(self.rig.path), "branch": f"ak/{name}",
             "base": "origin/main", "target": "main", "base_sha": self.base,
             "merge_method": "squash",
-            "review": {"verdict": "PASS", "done_when": True, "passed_head_sha": head,
-                       "head_sha": head, "tree_sha": tree},
+            "review": {"verdict": "PASS", "done_when": True, "chosen_passed": True,
+                       "passed_head_sha": head, "head_sha": head, "tree_sha": tree},
             "waiting_on": {"line": self.line, "joined": n}}))
-        self.chosen(directory, head)
         self.members.append(directory)
-
-    def chosen(self, directory, head):
-        """Put on ak's record that the tests the review of the member in `directory` chose ended
-        green on `head`: its `chosen` check, one row in the Home's history.db."""
-        with contextlib.closing(sqlite3.connect(self.home.path / ".agentkit" / "history.db")) as db:
-            db.execute(CHECKS)
-            db.execute("INSERT INTO checks (run_id, round, kind, command, tree, exit, started_at, "
-                       "finished_at, rerun) VALUES (?, 1, 'chosen', ?, ?, 0, ?, ?, 0)",
-                       (directory.name, SUITE, head, time.time(), time.time()))
-            db.commit()
 
     @property
     def cost(self):

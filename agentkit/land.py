@@ -746,18 +746,22 @@ def check_line(turn, log=lambda _: None):
                 # Changes of looks alone go behind the deliveries, ahead of every member
                 # waiting for its verdict: each gets its own (`_looks`) before any suite starts.
                 # That runs only the tests a change brings and its task's `# once` commands, so a
-                # member is one only where the tests a reviewer's PASS runs
-                # (`roundloop.chosen_tests`) ended green on the commit that review passed: where
-                # its review chose none, nothing would have run before it went live (owner, 13 Nov
-                # 2026: "always fully tested before going live").  Any other lands through the
-                # whole suite, as a PASS without review does whatever its head holds: a go there
-                # is an earlier review's, never its own PASS's.
+                # member is one only where its review's record holds `chosen_passed`, set only by
+                # `roundloop._review` when that PASS itself ran its chosen tests green (owner,
+                # 13 Nov 2026: "always fully tested before going live").  No commit is asked
+                # about in `history.checks`: once ak rebases a change after PASS keeping its
+                # review (`integrate`, `deliver.land_from_line`), `head_sha` is the new commit
+                # while the `chosen` row sits under the old one -- measured on 27 Nov 2026 in
+                # logs of runs whose chosen tests ended green, 33 of 66 and 48 of 109 on two
+                # busy projects (3 of 31 on two quiet ones) were rebased right after their PASS.
+                # Every rebase keeping a review copies its record whole, while a fresh review
+                # replaces it and `pending_review` drops it, and a PASS without review never
+                # sets it.
                 ready = {saved["review"]["head_sha"]: member for member, saved in members[index:]
                          if saved.get("state") == "waiting" and not record.process_active(saved)
                          and (saved.get("review") or {}).get("verdict") == "PASS"
-                         and not saved["review"].get("no_review")
-                         and not {"land", "fix"} & saved["waiting_on"].keys()
-                         and history.check_passed(member, "chosen", saved["review"]["head_sha"])}
+                         and saved["review"].get("chosen_passed")
+                         and not {"land", "fix"} & saved["waiting_on"].keys()}
                 # a head from a clone of its own is fetched as it is asked about: only on a
                 # target that lets any change of looks alone through
                 states = dict(members)
