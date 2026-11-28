@@ -777,7 +777,7 @@ def fade_out(clock, rows):
         return
     clock.settle()
     clock.clear()
-    began, shown, due = motion.moment(), {}, 0
+    began, size, shown, due = motion.moment(), (terminal.width(), terminal.height()), {}, 0
     while not terminal.resized(due):
         now, step = motion.moment(), time.monotonic()
         done, amount = now >= began + motion.LEAVES, motion.eased((now - began) / motion.LEAVES)
@@ -789,8 +789,8 @@ def fade_out(clock, rows):
             if shown.get(row) != text:
                 shown[row] = text
                 out += text
-        if terminal.resized(0):
-            return                  # resized while it was made: no frame at the old layout
+        if terminal.resized(0) or (terminal.width(), terminal.height()) != size:
+            return                  # resized, by a signal or not: no frame at the old layout
         terminal.over(out)
         if done:
             clock.last = time.monotonic()

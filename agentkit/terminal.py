@@ -884,7 +884,7 @@ _UNSEEN = False    # the key read last was pressed while it was (`unseen`)
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
 _PAINTED = []
-_OVER = {}         # ... and what frames wrote on it since, {(row, column): text} in writing order
+_OVER = []         # ... and what frames wrote on it since, (row, first, last cell, text) in order
 _POINTED = Spot()  # ... the `Spot` it was on when its move or click was last answered
 TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
@@ -1789,14 +1789,16 @@ def over(frame, rows=""):
         row, column = int(row), int(column)
         if _UP and row <= len(_UP):
             _UP[row - 1] = None
-        _OVER.pop((row, column), None)      # its last write after all it wrote over
-        _OVER[row, column] = text
+        last = float("inf") if "\033[K" in text else column + cells(text) - 1
+        _OVER[:] = [one for one in _OVER    # gone once all of it is written over
+                    if not (one[0] == row and column <= one[1] and one[2] <= last)]
+        _OVER.append((row, column, last, text))
 
 
 def standing(rows):
     """Each of screen `rows` (from 1) that is up as it stands: (row, its line as last drawn
     (`on_screen`), what frames wrote on it since, each (column, text) in writing order)."""
-    return [(row, _PAINTED[row - 1], [(column, text) for (at, column), text in _OVER.items()
+    return [(row, _PAINTED[row - 1], [(column, text) for at, column, _, text in _OVER
                                       if at == row]) for row in rows if 0 < row <= len(_PAINTED)]
 
 
