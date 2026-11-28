@@ -489,11 +489,14 @@ auth)
       exit 0 ;;
     esac
   }
-  # "No credentials" only where nothing is saved, in the Keychain or the file.  A check leaves
-  # out a harness whose login this host lacks and fails one whose saved login is broken
-  # (`contract.unavailable`), and nothing but these words tells it of a Keychain entry.
+  # A check leaves out a harness whose login this host lacks and fails one whose saved login
+  # is broken (`contract.unavailable`).  It can see whether the file named here is there, and
+  # nothing but these words tells it of the Keychain, so they are said only where the
+  # Keychain holds no entry either: one whose password macOS will not hand over is saved,
+  # and is read on as carrying no token.
   tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
-    || tok=$(cat "$CREDS" 2>/dev/null) || {
+    || tok=$(cat "$CREDS" 2>/dev/null) \
+    || security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || {
     echo "claude: no OAuth credentials in $CREDS and no CLAUDE_CODE_OAUTH_TOKEN; run /login" >&2
     exit 1; }
   # Present is not enough: these credentials are a pair the seat refreshes, and the whole
