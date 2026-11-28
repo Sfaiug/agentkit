@@ -106,7 +106,7 @@ news pulses, settles, nudges, meters glide, highlights glow in. Each takes
 one time (`motion.py`):
 
 - **Coming up:** a row's line, page, card, screens opening.
-- **Fading out:** a left highlight, a removed row.
+- **Fading out:** left highlights, removed rows and cards.
 - **Filling:** a mark, an effort's cell.
 - **A light passing:** a done line, an effort's top word.
 - **A light going round,** a breath: a line with no plan, a waiting rule.

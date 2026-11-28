@@ -5624,11 +5624,12 @@ def config_remove_provider(cfg, picked):
     """`− remove` under a row of `Subscriptions` (subscription_acts): `picked`, its subscription as
     (provider, account, label), `Remove <provider> and its models?` for its provider's last
     one, `Remove <subscription>?` for any other, the usual login too, asked under its name,
-    `Keep` picked and Esc keeping it.  config.remove_provider takes a provider's table, its
-    models and their places in [defaults], and with its table goes its meter; a subscription
-    leaves only the provider's `accounts`.  Once saved, the subscription that went is signed out
-    on this machine (_signed_out).  The last provider is refused without asking.  What to say
-    under the screen, or "".
+    `Keep` picked and Esc keeping it, `Remove` fading the card out (fade_out) before it goes.
+    config.remove_provider takes a provider's table, its models and their places in
+    [defaults], and with its table goes its meter; a subscription leaves only the provider's
+    `accounts`.  Once saved, the subscription that went is signed out on this machine
+    (_signed_out).  The last provider is refused without asking.  What to say under the
+    screen, or "".
     """
     (name, account, label), title = picked, f"config · {picked[2]}"
     # a provider listing no subscription has its usual login alone
@@ -5637,12 +5638,15 @@ def config_remove_provider(cfg, picked):
         return "the config needs one provider"
     shown = config.provider_name(cfg, name) if last else label
     question, means = REMOVE_PROVIDER_ASK if last else REMOVE_SUBSCRIPTION_ASK
-    clock = motion.Clock()            # the page's own: the card on it comes up
+    clock, leaving = motion.Clock(), []     # the page's own: the card on it comes up
 
     def asked(card, keys):
-        return framed(clock, title, card, 0, card, keys)
+        top = framed(clock, title, card, 0, card, keys)
+        leaving[:] = range(top, top + len(card))
+        return top
     if not asking(clock, asked)(question.format(shown), means, "Remove"):
         return ""
+    fade_out(clock, leaving)
     before, harness = copy.deepcopy(cfg), logins.harness(cfg, name)
     try:
         if last:
