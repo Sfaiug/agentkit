@@ -7,6 +7,9 @@ meters' line is the one a screen opened on the new reading shows.  The other's r
 while the first glides glides too, a later frame showing both between their old readings and
 their new; a key pressed half way shows the new reading at once; one `empty until …` counts up
 from under its reading, and one that becomes empty shows `empty until …` in the first draw after.
+One meter a line, at 26 columns, a line whose meter is still is at rest while the other's glides,
+though that reading sizes every label; and a reading a short screen showed at once, nothing
+moving there, stays as it is once the screen grows taller.
 
 Black-box as tests/test_key_a_usage_meter_glides.py is: the program `AK_BIN` names, in a person's
 terminal (tests/fixtures/akterm.py), its clock held through `AK_MOTION_CLOCK`, what the pane is
@@ -69,9 +72,9 @@ class MeterGlidesOnConfig(unittest.TestCase):
         moment.with_suffix(".new").write_text(repr(seconds))
         moment.with_suffix(".new").replace(moment)
 
-    def opened(self, home):
+    def opened(self, home, size=(100, 40)):
         """`c` up in a terminal, come up whole, the menu's first probe landed, its pane piped."""
-        term = Terminal(home, size=(100, 40), env={"COLORTERM": "truecolor"})
+        term = Terminal(home, size=size, env={"COLORTERM": "truecolor"})
         self.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")
@@ -94,20 +97,21 @@ class MeterGlidesOnConfig(unittest.TestCase):
             "utf-8", "replace")
         return [CSI.sub("", row) for update in UPDATE.findall(out) for row in ROW.split(update)]
 
-    def written(self, home, term, one, two=70):
-        """`one` and `two` read: the rows written from the first draw showing them on."""
+    def written(self, home, term, one, two=70, said=None):
+        """`one` and `two` read: the rows from the first written since that says `said`, by
+        default the first login's new reading, on."""
         since = term.raw.stat().st_size if term.raw.exists() else 0
         self.read(home, one, two)
-        said = (f"{one}% left" if one else "empty until", f"{two}% left")
+        return self.after(term, said or (f"{one}% left" if one else "empty until"), since)
+
+    def after(self, term, said, since):
+        """Once a row written from byte `since` says `said`: the rows from that one on."""
         deadline = time.monotonic() + 30
-        while True:
-            rows = self.rows(term, since)
-            first = next((n for n, row in enumerate(rows) if all(part in row for part in said)),
-                         None)
-            if first is not None:
-                return rows[first:]
+        while not any(said in row for row in self.rows(term, since)):
             self.assertLess(time.monotonic(), deadline, term.screen())
             time.sleep(0.03)
+        rows = self.rows(term, since)
+        return rows[next(n for n, row in enumerate(rows) if said in row):]
 
     def line(self, term, colours=False):
         line, = [line for line in term.screen(colours=True).splitlines()
@@ -143,7 +147,7 @@ class MeterGlidesOnConfig(unittest.TestCase):
         self.written(home, term, 30)
         self.at(home, 1003.2)
         self.between(term, (OWN, 30, 80))
-        self.written(home, term, 30, 40)            # the other's lands while the first glides
+        self.written(home, term, 30, 40, "40% left")    # the other's, as the first glides
         self.at(home, 1003.2 + GLIDE / 2)
         self.between(term, (OWN, 30, 80), (OTHER, 40, 70))
         term.keys("Down")                           # half way: at once at the new readings
@@ -165,6 +169,37 @@ class MeterGlidesOnConfig(unittest.TestCase):
         term.wait(lambda _: "80% left" in self.line(term), bound=10)
         self.assertFalse([row for row in self.written(home, term, 0) if OWN.search(row)])
         self.assertIn("Claude I   empty until", self.line(term))
+
+    def test_at_one_meter_a_line_a_still_line_is_at_rest_as_the_other_glides(self):
+        home = self.home(80)
+        term = self.opened(home, (26, 40))
+        self.at(home, 1002)
+        self.written(home, term, 30)
+        self.at(home, 1002.35)
+        self.written(home, term, 30, 100, "100% left")      # the reading that sizes the labels
+        rest, = [line for line in self.opened(self.home(30, 100), (26, 40)).screen().splitlines()
+                 if "30% left" in line]
+        since = term.raw.stat().st_size
+        self.at(home, 1002.72)                  # the first's glide over, the other's not
+        self.assertEqual({row for row in self.after(term, "30% left", since) if "30% left" in row},
+                         {rest})
+
+    def test_a_reading_a_short_screen_showed_at_once_stays_as_it_grows(self):
+        home = self.home(20)
+        term = self.opened(home)
+        term.keys("Up", "Up")                   # onto Claude I's meter, which a short page keeps
+        term.wait(lambda screen: any(line.strip() == "Claude I" for line in screen.splitlines()))
+        term.resize(100, 7)                     # as tall as the terminal: nothing moves
+        term.wait(lambda screen: "20% left" in screen and "Version " in screen
+                  and "Fable" not in screen)
+        self.at(home, 1002)
+        self.written(home, term, 80)
+        self.at(home, 1002 + GLIDE / 2)
+        since = term.raw.stat().st_size
+        term.resize(100, 40)
+        self.after(term, "Subscriptions", since)
+        self.assertEqual({found[2] for row in self.rows(term, since) if (found := OWN.search(row))},
+                         {"80"})
 
 
 if __name__ == "__main__":

@@ -2955,26 +2955,35 @@ def meter_moves(rows, cells, lines, drawing):
     and its reading, of `usage_cells`' `cells` of `rows`, its value.  Meter n is on line
     `lines[n]` of those `drawing(cells)` draws, {line: text}.  The meters gliding in one draw
     are its moves' together, each start animating its line whole till the last of them on it
-    ends, each frame the page's drawing with every one at its reading then -- the line at rest
-    where that draws other lines, or one wider than the screen -- so no frame can fail."""
+    ends, each frame the page's drawing with every one at its reading then: the line at rest
+    where that draws other lines, a line whose meters are still other than at rest -- a narrow
+    screen sizes every label to the longest reading -- or one wider than the screen, so no
+    frame can fail and none moves what is still.  A meter shown at once is settled
+    (`Clock.seen`), so no later draw that can move, as a short screen grown taller, revives it."""
     rest, glides = drawing(cells), {}
 
     def frame(line, when):
+        moving = {lines[n] for n, (since, _) in glides.items() if when < since + motion.GLIDE}
         drawn = drawing([(*cell[:2], *meter_at(cell[2], *glides[n], when)) if n in glides
                          else cell for n, cell in enumerate(cells)])
-        fits = drawn.keys() == rest.keys() and terminal.cells(drawn[line]) <= terminal.width()
-        return terminal.cleared(drawn[line] if fits else rest[line])
+        fits = drawn.keys() == rest.keys() and all(
+            terminal.cells(text) <= terminal.width() and (at in moving or text == rest[at])
+            for at, text in drawn.items())
+        return terminal.cleared((drawn if fits else rest)[line])
 
-    def start(n):
-        def begin(clock, row, since, before):
-            if gliding(cells[n][2:], before):
+    def move(n, key, value):
+        def start(clock, row, since, before):
+            if (motion.movable() and gliding(value, before)
+                    and since + motion.GLIDE > motion.moment()):
                 glides[n] = since, before
+            else:
+                clock.seen[key] = value, None, None
             ends = [glides[m][0] + motion.GLIDE for m in glides if lines[m] == lines[n]]
             if ends:
                 clock.start([(row, 1)], lambda when: frame(lines[n], when), max(ends))
-        return begin
-    return [(line, ("usage", subscription(row)), cell[2:], start(n))
-            for n, (row, cell, line) in enumerate(zip(rows, cells, lines))]
+        return lines[n], key, value, start
+    return [move(n, ("usage", subscription(row)), cell[2:]) for n, (row, cell) in
+            enumerate(zip(rows, cells))]
 
 
 METER = 10        # cells of a subscription's meter on the ak screen
