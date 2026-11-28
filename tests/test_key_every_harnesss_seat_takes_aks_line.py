@@ -1,21 +1,24 @@
 """The live suite opens a seat of every harness and proves it takes ak's line: check 6h.
 
 Block 6h's own lines, cut from tests/smoke.sh with the helpers it calls, run in an answer-key
-Home whose adapters are fakes (AGENTKIT_ADAPTER_DIR) that open seats on tests/fixtures/akpane.py:
-Claude's shows its prompt, works on the line it is given and comes back to it; Muse's shows only
-its working screen, so it never reads at its prompt and the probe waits its whole wait for that;
-every other harness's program is missing.
+Home whose adapters are fakes (AGENTKIT_ADAPTER_DIR).  Claude's and Muse's open seats on
+tests/fixtures/akpane.py: Claude's shows its prompt and, once a line is entered there, its
+working screen until the probe has read it, then its prompt again; Muse's shows only its working
+screen, so it never reads at its prompt and the probe waits its whole wait for that.  Every other
+harness's manifest names a program at a path nothing is at, whatever this host has installed.
 """
 
 from pathlib import Path
 import shlex
 import sys
+import threading
 import unittest
 
 TESTS = Path(__file__).resolve().parent
-REPO = TESTS.parent
+REPO, FIXTURES = TESTS.parent, TESTS / "fixtures"
 sys.path.insert(0, str(TESTS))
 from fixtures.akbin import AK, REAL_TMUX, Home  # noqa: E402
+from fixtures.akpane import stamp  # noqa: E402
 import suite_shares  # noqa: E402
 
 SMOKE = (TESTS / "smoke.sh").read_text()
@@ -25,51 +28,31 @@ SCRIPT = "\n".join(["set -uo pipefail",
                     SMOKE[SMOKE.index("model_unavailable()"):SMOKE.index("reprobe()")],
                     SMOKE[SMOKE.index("spent_until()"):SMOKE.index("skip_refused()")],
                     SMOKE[SMOKE.index("# --- 6h:"):SMOKE.index("# --- 6e:")]])
-# A seat's harness: SCREEN shows IDLE; once a line is entered there, WORKING a while, then IDLE.
-HARNESS = """import sys, threading, time
-from pathlib import Path
-sys.path.insert(0, sys.argv[5])
-import akpane
-screen, typed, idle, working = map(Path, sys.argv[1:5])
-def show(shown):
-    screen.with_suffix(".swap").write_text(shown.read_text())
-    screen.with_suffix(".swap").replace(screen)
-def answer():
-    while not typed.with_name(typed.name + ".lines").exists():
-        time.sleep(0.05)
-    show(working)
-    time.sleep(5)
-    show(idle)
-show(idle)
-threading.Thread(target=answer, daemon=True).start()
-akpane.main(screen, typed)
-"""
-SEATS = {"claude": ("claude-prompt-pane.txt", "claude-working-pane.txt"),
-         "muse": ("muse-working-pane.txt", "muse-working-pane.txt")}
-MISSING = ("codex", "grok", "agy", "opencode")    # the programs of the other harnesses
+PROMPT, WORKING = "claude-prompt-pane.txt", "claude-working-pane.txt"
+SEATS = {"claude": PROMPT, "muse": "muse-working-pane.txt"}    # the screen each seat opens on
+ABSENT = ("codex", "grokbuild", "antigravity", "opencode")      # whose program is not there
+
+
+def show(screen, name):
+    """Put fixture `name` in a pane's screen file whole, as its harness's next frame."""
+    swap = screen.with_suffix(".swap")
+    swap.write_bytes((FIXTURES / name).read_bytes())
+    swap.replace(screen)
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class EveryHarnesssSeatTakesAksLine(unittest.TestCase):
     def test_each_harness_passes_fails_or_skips_alone_and_leaves_no_seat(self):
-        with Home() as home:
-            adapters, panes = home.root / "adapters", home.root / "panes"
-            adapters.mkdir()
-            panes.mkdir()
-            harness = home.root / "harness.py"
-            harness.write_text(HARNESS)
-            for name, (idle, working) in SEATS.items():
-                command = shlex.join([sys.executable, str(harness), str(panes / f"{name}.txt"),
-                                      str(panes / f"{name}.typed"), str(TESTS / "fixtures" / idle),
-                                      str(TESTS / "fixtures" / working), str(TESTS / "fixtures")])
-                adapter = adapters / f"{name}.sh"
-                adapter.write_text("#!/bin/sh\ncase $1 in\n  auth) echo 'a fake login'; exit 0 ;;\n"
-                                   f"  interactive) echo {shlex.quote(command)}; exit 0 ;;\n"
-                                   "esac\nexit 2\n")
-                adapter.chmod(0o755)
-            for program in MISSING:
-                (home.bin / program).unlink()
-            done = self.check(home, AGENTKIT_ADAPTER_DIR=str(adapters))
+        with Home(tmux_log=True) as home:
+            adapters = self.adapters(home)
+            stop = threading.Event()
+            turn = threading.Thread(target=self.turn, args=(home, stop))
+            turn.start()
+            try:
+                done = self.check(home, AGENTKIT_ADAPTER_DIR=str(adapters))
+            finally:
+                stop.set()
+                turn.join(30)
             said = done.out + done.err
             lines = done.out.splitlines()
             self.assertIn("PASS  6h claude: fable's seat took ak's longest line", done.out, said)
@@ -77,10 +60,11 @@ class EveryHarnesssSeatTakesAksLine(unittest.TestCase):
             self.assertEqual(len(muse), 1, said)
             self.assertTrue(muse[0].startswith("FAIL  6h muse: step 1: did not read at_prompt "
                                                "with an empty composer"), said)
-            for name in ("codex", "grokbuild", "antigravity", "opencode"):
+            for name in ABSENT:
                 with self.subTest(harness=name):
                     skipped = [line for line in lines if line.startswith(f"SKIP  6h {name}: ")]
                     self.assertEqual(len(skipped), 1, said)
+                    self.assertIn("is not installed", skipped[0])
                     self.assertIn("not on this host", skipped[0])
             self.assertEqual((home.root / "failed").read_text().splitlines(), ["6h muse"])
             for model in ("fable", "spark"):
@@ -88,6 +72,48 @@ class EveryHarnesssSeatTakesAksLine(unittest.TestCase):
                     self.assertNotEqual(home.tmux("has-session", "-t", f"=smoke-{model}").code, 0)
                     self.assertFalse(
                         (home.path / f".agentkit/state/session-smoke-{model}.json").exists())
+
+    def adapters(self, home):
+        """The fake adapters: a seat on akpane.py for each of SEATS, and for each of ABSENT a
+        manifest whose program is a path nothing is at."""
+        adapters, panes = home.root / "adapters", home.root / "panes"
+        adapters.mkdir()
+        panes.mkdir()
+        for name, screen in SEATS.items():
+            show(panes / f"{name}.txt", screen)
+            command = shlex.join([sys.executable, str(FIXTURES / "akpane.py"),
+                                  str(panes / f"{name}.txt"), str(panes / f"{name}.typed")])
+            adapter = adapters / f"{name}.sh"
+            adapter.write_text("#!/bin/sh\ncase $1 in\n  auth) echo 'a fake login'; exit 0 ;;\n"
+                               f"  interactive) echo {shlex.quote(command)}; exit 0 ;;\n"
+                               "esac\nexit 2\n")
+            adapter.chmod(0o755)
+        for harness in ABSENT:
+            (adapters / f"{harness}.toml").write_text(
+                f'[update]\nversion = ["{home.root / "absent" / harness}"]\n')
+        return adapters
+
+    def turn(self, home, stop):
+        """Claude's turn on the line entered in its seat: the working screen until the probe has
+        read it there, then the prompt.  Of the captures logged once the pane has drawn it, at
+        most one is the send's and the next is step 3's, so a third means step 3 has read it, as
+        tests/test_key_a_seat_proves_it_takes_aks_line.py counts."""
+        screen, typed = home.root / "panes/claude.txt", home.root / "panes/claude.typed"
+        captures = lambda: sum("capture-pane" in call for call in home.calls("tmux"))
+        while not typed.with_name("claude.typed.lines").exists():
+            if stop.wait(0.05):
+                return
+        show(screen, WORKING)
+        drawn = lambda: stamp((FIXTURES / WORKING).read_bytes(), typed.stat().st_size)
+        while home.tmux("display-message", "-p", "-t", "=smoke-fable:",
+                        "#{pane_title}").out.rstrip("\n") != drawn():
+            if stop.wait(0.05):
+                return
+        target = captures() + 3
+        while captures() < target:
+            if stop.wait(0.05):
+                return
+        show(screen, PROMPT)
 
     def check(self, home, **env):
         """Run block 6h in `home`, the labels it fails written to `home.root / "failed"`."""

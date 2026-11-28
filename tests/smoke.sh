@@ -1203,7 +1203,6 @@ newrepo() {
 }
 newseat() {   # newseat <check> <model>: seat smoke-<model>, opened as a person opens one
   local repo; repo=$(newrepo "$1-$2")
-  tm kill-session -t "=smoke-$2" 2>/dev/null    # a seat a previous, interrupted smoke left
   ( cd "$repo" && typed $'\n' ak orch --model "$2" "smoke-$2" )
 }
 echo "workdir: $WORK"
@@ -2103,35 +2102,37 @@ fi
 # --- 6h: a seat of every harness takes ak's line ---------------------------
 # Not a dry run either: the first model of each harness the suite's config offers opens a seat
 # as 6d's does, and tests/probe_seat.py proves there that ak's longest line is sent and its turn
-# reads as working, then done.  A harness whose screen changed
-# under ak leaves ak's lines unsent, and ak keeps a harness upgrade only where this suite fails
-# nothing new: each harness is a label of its own, as check 3's are.  This seat makes a model
-# request.
-FIRSTS=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import config
+# reads as working, then done.  A harness whose screen changed under ak leaves ak's lines
+# unsent, and ak keeps a harness upgrade only where this suite fails nothing new: each harness
+# is a label of its own, as check 3's are.  A model's name may hold any character, so each comes
+# NUL-ended, with its seat's as `ak orch` spells it.  This seat makes a model request.
+PYTHONPATH="$REPO" python3 -c 'from agentkit import config, orch
 cfg, firsts = config.load(), {}
 for name in config.offered(cfg):
     firsts.setdefault(cfg["models"][name]["harness"], name)
-print(*(f"{harness}={name}" for harness, name in firsts.items()))') || no "6h: the config's models could not be read"
-for FIRST in $FIRSTS; do
-  HARNESS=${FIRST%%=*} MODEL=${FIRST#*=}
+for harness, name in firsts.items():
+    print(harness, name, orch.session_name(f"smoke-{name}"), sep="\0", end="\0")' >"$WORK/6h-seats" ||
+  no "6h: the config's models could not be read"
+while IFS= read -r -d '' -u 3 HARNESS && IFS= read -r -d '' -u 3 MODEL &&
+      IFS= read -r -d '' -u 3 SEAT; do
   SMOKE_LOGIN=seat skip_spent "6h $HARNESS" "$MODEL" && continue
-  newseat 6h "$MODEL" >"$WORK/seat-6h-$MODEL.log" 2>&1
-  python3 "$REPO/tests/probe_seat.py" "smoke-$MODEL" >"$WORK/probe-$MODEL.log" 2>&1
+  newseat 6h "$MODEL" >"$WORK/seat-6h-$HARNESS.log" 2>&1
+  python3 "$REPO/tests/probe_seat.py" "$SEAT" >"$WORK/probe-$HARNESS.log" 2>&1
   PROBERC=$? WHY=""
-  ak orch stop "smoke-$MODEL" >>"$WORK/seat-6h-$MODEL.log" 2>&1
-  ak orch stop "smoke-$MODEL" >>"$WORK/seat-6h-$MODEL.log" 2>&1
-  [ "$PROBERC" = 0 ] || WHY="$(head -1 "$WORK/probe-$MODEL.log") (exit $PROBERC)"
-  if tm has-session -t "=smoke-$MODEL" 2>/dev/null || [ -e "$HOME/.agentkit/state/session-smoke-$MODEL.json" ]; then
-    WHY="${WHY:+$WHY; }seat smoke-$MODEL or its record is still there after two stops"
-    tm kill-session -t "=smoke-$MODEL" 2>/dev/null
+  ak orch stop "$SEAT" >>"$WORK/seat-6h-$HARNESS.log" 2>&1
+  ak orch stop "$SEAT" >>"$WORK/seat-6h-$HARNESS.log" 2>&1
+  [ "$PROBERC" = 0 ] || WHY="$(head -1 "$WORK/probe-$HARNESS.log") (exit $PROBERC)"
+  if tm has-session -t "=$SEAT" 2>/dev/null || [ -e "$HOME/.agentkit/state/session-$SEAT.json" ]; then
+    WHY="${WHY:+$WHY; }seat $SEAT or its record is still there after two stops"
+    tm kill-session -t "=$SEAT" 2>/dev/null
   fi
   if [ -z "$WHY" ]; then
     ok_call "6h $HARNESS: $MODEL's seat took ak's longest line, read working on it, and came back to its prompt"
   else
     no "6h $HARNESS: $WHY"
-    tail -n +2 "$WORK/probe-$MODEL.log" | sed 's/^/      /'
+    tail -n +2 "$WORK/probe-$HARNESS.log" | sed 's/^/      /'
   fi
-done
+done 3<"$WORK/6h-seats"
 
 # --- 6e: a subscription Codex is given no model of ours (offline) ----------
 if codex_model_flag_check >"$WORK/codex-mflag.log" 2>&1; then
