@@ -74,7 +74,8 @@ COLUMNS = {"orchestrator": {**LEAD, "answers in": answers_in, "left out": left_o
                         "false alarms": share("taken_back", "issues"), **last("reviewer")}}
 # What COLUMNS' short headings count, said once under the tables, set apart as parts of a line
 # are (terminal.separator)
-NOTE = ["answers in: half its turns take no longer",
+NOTE = ["tasks: those done with the models you use now in the other two roles",
+        "answers in: half its turns take no longer",
         "left out: what you asked for that a finished job lacked, per check",
         "reviews and issues: per task",
         "time and usage: per task that went live, "

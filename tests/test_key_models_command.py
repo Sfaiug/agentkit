@@ -24,6 +24,7 @@ OWN = ["Your team now has no task yet", "",
        "■ Acme Mid 5 low      0", "■ Bolt 3 low          0", "",
        "REVIEWER          tasks  went live  issues  false alarms  time  usage",
        "■ Acme Mid 5 low      0", "■ Bolt 3 low          0", "",
+       "tasks: those done with the models you use now in the other two roles",
        "answers in: half its turns take no longer",
        "left out: what you asked for that a finished job lacked, per check · "
        "reviews and issues: per task",

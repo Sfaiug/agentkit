@@ -62,17 +62,20 @@ HEADS = {"ORCHESTRATOR": "tasks  went live  answers in  left out  time  usage",
 # The team now: the first two teams, 23 of 44 live, 121 hours, 44 of them waiting
 TEAM = ["Your team now: 23 of 44 tasks went live,", "5.3 h per task live, 1.9 h of it waiting"]
 # Under the last table: what the short headings count, wide, on 100 cells and on 40
-NOTE = ["answers in: half its turns take no longer · "
-        "left out: what you asked for that a finished job lacked, per check",
+NOTE = ["tasks: those done with the models you use now in the other two roles · "
+        "answers in: half its turns take no longer",
+        "left out: what you asked for that a finished job lacked, per check · "
         "reviews and issues: per task",
         "time and usage: per task that went live, "
         "usage also as a share of one login's week on its plan"]
-NOTE_100 = ["answers in: half its turns take no longer",
+NOTE_100 = ["tasks: those done with the models you use now in the other two roles",
+            "answers in: half its turns take no longer",
             "left out: what you asked for that a finished job lacked, per check · "
             "reviews and issues: per task",
             "time and usage: per task that went live, "
             "usage also as a share of one login's week on its plan"]
-NOTE_FOLDED = ["answers in: half its turns take no", "longer",
+NOTE_FOLDED = ["tasks: those done with the models you", "use now in the other two roles",
+               "answers in: half its turns take no", "longer",
                "left out: what you asked for that a", "finished job lacked, per check",
                "reviews and issues: per task",
                "time and usage: per task that went live,",

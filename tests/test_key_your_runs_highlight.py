@@ -81,13 +81,13 @@ class YourRunsHighlight(unittest.TestCase):
         self.page(AT_100[4:5], AT_100, "Down")
 
     def test_on_a_short_page_the_last_row_shows_the_note_and_the_first_the_team(self):
-        # 12 of the 17 lines on 18 rows, 6 on 12, 2 on 8: the first row is line 3, the last 12
+        # 12 of the 18 lines on 18 rows, 6 on 12, 2 on 8: the first row is line 3, the last 12
         self.open((100, 18))
         rows = [line for line in AT_100 if line.startswith(("●", "○", "■", "□"))]
         self.page(rows[:1], AT_100[:12])
-        self.page(rows[-1:], AT_100[5:], *["Down"] * (len(rows) - 1))
+        self.page(rows[-1:], AT_100[-12:], *["Down"] * (len(rows) - 1))
         self.term.resize(100, 12)
-        self.page(rows[-1:], AT_100[11:])
+        self.page(rows[-1:], AT_100[-6:])
         self.page(rows[:1], AT_100[:6], *["Up"] * (len(rows) - 1))
         for height, body in ((8, AT_100[2:4]), (12, AT_100[:6])):
             self.term.resize(100, height)
