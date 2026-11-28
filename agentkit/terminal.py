@@ -1540,12 +1540,8 @@ def pointer():
 
 def pointer_spot(spots=None):
     """The `Spot` of a screen's `spots`, by default the screen up's (`lit`), the pointer is on;
-    an empty one while a key has the highlight, before the pointer moved, or while it rests on
-    another than its move or click was answered on: a draw -- a resize -- moved that under the
-    still pointer, telling the screen nothing, so its highlight stays where it was and the
-    pointer lights nothing till it next lands (`read_key`)."""
-    spot = under(_POINTER, _SPOTS if spots is None else spots) if _POINTER else Spot()
-    return spot if spot[:2] == _POINTED[:2] else Spot()
+    an empty one while a key has the highlight, or before the pointer moved."""
+    return under(_POINTER, _SPOTS if spots is None else spots) if _POINTER else Spot()
 
 
 def lit(lines, spots):
@@ -1559,6 +1555,9 @@ def lit(lines, spots):
     A row drawn again on its line no longer reaching the still pointer -- a click shrank its
     cell -- is the pointer moved off it, held for `read_key` to answer, and `show` draws that;
     till then the pointer is on nothing drawn, so no move within one spot lets that one go.
+    Any other cell a draw -- a resize -- moved under the still pointer is not lit: the screen,
+    told nothing, keeps its highlight and its keys where the move was answered (`_POINTED`),
+    and the pointer lights that cell as it next lands (`read_key`).
     """
     global _SPOTS, _SHOWN, _PAINTED, _HELD, _POINTER
     on = pointer_spot(_SPOTS).what
@@ -1567,7 +1566,7 @@ def lit(lines, spots):
     if (_HELD is None and on is not None and pointed.what is None
             and spots.get(_POINTER.row, (None,))[0] == on):
         _HELD, _POINTER = (_POINTER._replace(name="point"), time.monotonic()), None
-    if (pointed.cell is None or isinstance(pointed.cell, tuple)
+    if (pointed.cell is None or isinstance(pointed.cell, tuple) or pointed[:2] != _POINTED[:2]
             or _CARD and pointed.what is not None or not 0 < _POINTER.row <= len(lines)):
         return lines
     _PAINTED = [*lines[:_POINTER.row - 1],
