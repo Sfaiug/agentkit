@@ -263,6 +263,19 @@ class ReplacementBesideEarlierBuilders(Sandbox):
         self.assertEqual(staffing.resume_models(self.cfg, self.providers, state, skip=("a1",)),
                          ("c1", "b1"))
 
+    def test_a_resume_on_the_config_of_now_weighs_a_renamed_builder_as_the_run_recorded_it(self):
+        # as the tick resumes it (`watch.resume_exhausted`): a1 built, then d1, refused since
+        self.cfg["models"]["d1"] = {"harness": "test", "model": "d1-1", "effort": "high",
+                                    "provider": "delta"}
+        self.cfg["providers"]["delta"] = {}
+        state = {"step": "executor", "executor": "d1", "reviewer": "b1",
+                 "workers": ["b1", "c1", "d1", "a1"], "reviewers": ["a2", "b1"],
+                 "models": dict(self.cfg["models"]),
+                 "executor_history": [{"from": "a1", "to": "d1", "reason": "dry"}]}
+        self.cfg["models"]["renamed"] = self.cfg["models"].pop("a1")
+        self.assertEqual(staffing.resume_models(self.cfg, self.providers, state, skip=("d1",)),
+                         ("c1", "b1"))
+
 
 class UnlistedModelLab(Sandbox):
     def setUp(self):

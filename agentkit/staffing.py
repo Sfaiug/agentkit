@@ -779,7 +779,10 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
             group, reviewers = [*workers, writer], reviewers if reviewers is not None else workers
         return pick_models(cfg, providers, executor, reviewer, log, resuming=True, quiet=True,
                            repo=repo, workers=group, reviewers=reviewers, draw=draw)
-    pair = best_pair(cfg, order, review_order, writers=head_writers(state))
+    # the tick hands the config of now: an earlier builder renamed since launch is weighed as the
+    # model the run recorded, as its review reads it
+    pair = best_pair(config.as_launched(cfg, state), order, review_order,
+                     writers=head_writers(state))
     # a pair only that pick leaves out is waited for: its executor can run here, so nothing is
     # asked of the saved one; else, as before that pick, one the config dropped is refused by
     # name, and one whose harness cannot run where no pair is left
