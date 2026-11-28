@@ -29,8 +29,9 @@ from . import LAUNCHER, issued
 
 # `steps.step_type`, and where each keeps its words in its payload: a user input's text, and
 # a planner response's answer -- its thinking (3) and tool calls (7) are fields beside that.
-# A question card `ask_question` put up keeps its answer in its own step (`answers`).
-USER, MODEL, CARD = 14, 15, 132
+# A question card `ask_question` put up keeps its answer in its own step (`answers`), and a
+# compaction, one more model call, its usage in its own (`seat_token_usage`).
+USER, MODEL, CARD, COMPACTION = 14, 15, 132, 23
 WORDS = {USER: ("user", 19, 2), MODEL: ("model", 20, 1)}
 LAUNCH_ENV = "AGENTKIT_ANTIGRAVITY_LAUNCH"
 # what a model call's `usage` counts, in the order a `turn_usage` row keeps them, less the cache
@@ -197,15 +198,16 @@ def seat_token_sources(record):
 
 
 def seat_token_entries(path):
-    """Each model call's step of that store, read whole, as (its metadata, the name of each
-    model the store numbers): a generation's `gen_metadata` names its model at 1 -> 19, beside
-    the number (1 -> 4 -> 1) a call's usage names it by (`seat_token_usage`).  OSError where
-    any of it cannot be read: a call is filed once, so never without the names beside it."""
+    """Each step of that store keeping a model call's usage, a compaction's as well, read whole,
+    as (its metadata, the name of each model the store numbers): a generation's `gen_metadata`
+    names its model at 1 -> 19, beside the number (1 -> 4 -> 1) a call's usage names it by
+    (`seat_token_usage`).  OSError where any of it cannot be read: a call is filed once, so
+    never without the names beside it."""
     try:
         with contextlib.closing(sqlite3.connect(f"{Path(path).absolute().as_uri()}?mode=ro",
                                                 uri=True)) as db:
-            calls = db.execute("SELECT metadata FROM steps WHERE step_type = ? ORDER BY idx",
-                               (MODEL,)).fetchall()
+            calls = db.execute("SELECT metadata FROM steps WHERE step_type IN (?, ?) ORDER BY idx",
+                               (MODEL, COMPACTION)).fetchall()
             # after the calls, so a generation written meanwhile names its call; an older store
             # keeps no table of them
             kept = db.execute("SELECT 1 FROM sqlite_master WHERE name = 'gen_metadata'").fetchone()
@@ -225,17 +227,20 @@ def seat_token_usage(entry, cursor):
     filed by the response id agy gave the call (11), dated when its step finished (metadata 8)
     else began (1): its uncached input (2), cached input (5) and output, thinking inside (3),
     each 0 where left out as a protocol buffer leaves a 0, under the model its number (1) names.
-    agy writes no cache."""
+    agy writes no cache.  An older store's compaction keeps its counts only at metadata 28 -> 2,
+    laid out as 9 less the model's number, so its model is 9's where 9 numbers one."""
     metadata, names = entry
-    usage = field(metadata, 9)
+    usage, older = field(metadata, 9), field(field(metadata, 28), 2)
+    model = names.get(field(usage, 1, VARINT))
+    if older and not any(field(usage, kind, VARINT) for kind in (2, 5, 3)):
+        usage = older
     call = decoded(field(usage, 11))
     if not call:
         return None
     fresh, cached, output = (field(usage, kind, VARINT) or 0 for kind in (2, 5, 3))
     at = timestamp(field(metadata, 8))
     counts = [fresh, 0, cached, output]
-    return (timestamp(field(metadata, 1)) if at is None else at, call, sum(counts),
-            names.get(field(usage, 1, VARINT)), counts)
+    return (timestamp(field(metadata, 1)) if at is None else at, call, sum(counts), model, counts)
 
 
 def prompt(entry):
