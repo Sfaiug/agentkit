@@ -334,6 +334,17 @@ class OneHighlight(unittest.TestCase):
         self.rest(lambda shown: "echo" in akconfig.read(self.home)["defaults"]["reviewers"])
         self.assertEqual(akconfig.read(self.home)["defaults"]["workers"], ["bolt"])
 
+    def test_a_meter_a_resize_moves_under_the_still_pointer_leaves_the_act_lit(self):
+        self.chatgpt()
+        self.term.resize(WIDTH, 10)
+        col, row = self.row(self.calm(lambda shown: any(ACT in plain(line) for line in shown)),
+                            ACT)
+        self.term.type(point(col + 2, row))
+        self.calm(lambda shown: col + 2 in lit_rows(shown).get(row, []))
+        self.term.resize(WIDTH, 40)                 # ChatGPT's meter comes under the pointer
+        shown = self.calm(lambda shown: starts(shown, "› ChatGPT", row))
+        self.assertEqual(lit_rows(shown), {row + 1: list(range(col - 1, col + len(ACT) + 1))})
+
     def test_an_act_filling_a_narrow_line_is_lit_on_that_line_alone(self):
         self.chatgpt()
         self.term.resize(len(ACT) + 4, 40)          # the act, past the indent, fills the line
