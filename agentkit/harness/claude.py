@@ -132,17 +132,11 @@ def seat_token_usage(entry, cursor):
 
 def seat_turn(entry):
     """The turn whose end Claude Code wrote down with the length it timed."""
-    if (not isinstance(entry, dict) or entry.get("type") != "system"
-            or entry.get("subtype") != "turn_duration"):
-        return None
-    length = entry.get("durationMs")
-    try:
-        seconds = length / 1000
-    except (TypeError, OverflowError):      # no number, or an integer whose seconds no float holds
-        return None
-    # the sign of the length itself: a negative one this small has seconds of -0.0
-    if type(length) is not bool and 0 <= length and seconds < math.inf:
-        return entry.get("timestamp"), entry.get("uuid"), seconds
+    from . import seconds
+    if (isinstance(entry, dict) and entry.get("type") == "system"
+            and entry.get("subtype") == "turn_duration"
+            and (length := seconds(entry.get("durationMs"))) is not None):
+        return entry.get("timestamp"), entry.get("uuid"), length
 
 
 def turn_usage(out):

@@ -329,6 +329,16 @@ def seat_token_usage(entry, cursor):
                 list(_by_type(grown)) if known else None)
 
 
+def seat_turn(entry):
+    """The turn whose end Codex wrote down with the length it timed."""
+    from . import seconds
+    payload = entry.get("payload")
+    if (entry.get("type") == "event_msg" and isinstance(payload, dict)
+            and payload.get("type") == "task_complete"
+            and (length := seconds(payload.get("duration_ms"))) is not None):
+        return entry.get("timestamp"), payload.get("turn_id"), length
+
+
 def prompt(entry):
     """The owner's words one rollout line holds, or None for anything else."""
     # Response items also contain rules and environment text with the user role.
