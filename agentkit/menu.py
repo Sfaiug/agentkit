@@ -3049,9 +3049,11 @@ def meter_lit(line, shown, moved):
     a seat's line just done), and the rest of `shown`, the screen's drawing of that line, as
     drawn, `moved(began)` told when the light begins on each draw it moves.  Where a glide is
     already running on the line (`Clock.cells`), it plays until its end and the light begins
-    there; with no glide, the line is as long as at rest, so no clear past it takes the pointer's
-    light off its cell."""
+    there, padded to the drawn row's width before clearing any longer glide frame so the
+    pointer's light on the cell stays; with no glide, the line is as long as at rest."""
     def start(clock, row, since, _):
+        if since + motion.SWEEP <= motion.moment():
+            return
         glide = clock.cells.get((row, 1))
         began = glide[1] if glide else since
         # the bar is the run before its share, which ends the line: no label reaches there
@@ -3061,12 +3063,15 @@ def meter_lit(line, shown, moved):
         first = len(terminal.cell_texts(plain[:found.start(1)]))
         cells, until = motion.sweeping(written[first:first + len(found[1])], began)
         head, tail = "".join(written[:first]), "".join(written[first + len(cells):])
+        screen = terminal.on_screen()
+        pad = " " * max(0, (terminal.cells(screen[row - 1]) if 0 < row <= len(screen) else 0)
+                        - terminal.cells(shown))
 
         def at(now):
             if glide and now < began:
                 return glide[0](now)
             lit = head + "".join(cell(now) for cell in cells) + tail
-            return terminal.cleared(lit) if glide else lit
+            return terminal.cleared(lit + pad) if glide else lit
         clock.start([(row, 1)], at, until)
         if clock.cells.get((row, 1)) == (at, until):  # not where nothing moves, nor once crossed
             moved(began)
