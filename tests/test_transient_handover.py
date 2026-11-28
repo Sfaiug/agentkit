@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, run, staffing  # noqa: E402
+from agentkit import config, run, staffing, turns  # noqa: E402
 
 
 class TransientHandover(unittest.TestCase):
@@ -206,6 +206,26 @@ class TransientHandover(unittest.TestCase):
             verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")
         self.assertEqual(verdict, "PASS")
         self.assertEqual([args[1] for args in calls], ["alpha"] * 3)
+        self.assertEqual(sleeps, [60, 300])
+        self.assertEqual(lp.reviewer, "alpha")
+
+    def test_flake_then_silence_waits_when_alone_marked(self):
+        # two flakes wait without ending the round; when the reviewer alone marked then stays
+        # silent twice, the review waits for it
+        lp = self.loop(executor="charlie", reviewer="alpha", reviewers=["alpha"])
+        calls, fake = self.worker([
+            (1, "API Error: 500 Internal server error\n", "sess-r"),
+            (1, "Overloaded: the provider is busy\n", "sess-r"),
+            (0, "No verdict yet.\n", "sess-r"),
+            (0, "Still thinking.\n", "sess-r"),
+        ])
+        sleeps = []
+        with patch.object(run.worker, "call", side_effect=submitting(fake)), \
+                patch.object(run.time, "sleep", side_effect=sleeps.append), \
+                patch.object(staffing, "collect_usage", return_value=self.providers), \
+                self.assertRaises(turns.Exhausted):
+            run.review(lp, "Work done.", True, "$ true\n[exit 0]")
+        self.assertEqual([args[1] for args in calls], ["alpha", "alpha", "alpha", "alpha"])
         self.assertEqual(sleeps, [60, 300])
         self.assertEqual(lp.reviewer, "alpha")
 
