@@ -50,8 +50,9 @@ class ARemovedLoginFadesOut(unittest.TestCase):
         self.term.wait("› Fable 5.1")
         self.to("Subscriptions")
         self.term.keys("Enter")
-        self.term.wait(lambda screen: title(screen) == PAGE)
+        self.term.wait("+ add a subscription")
         self.at(OPENED)
+        self.term.wait(lambda screen: title(screen) == PAGE)
         self.to("Claude II")
         self.term.keys("Right", "Right", "Enter")          # `− remove`, last on its line
         self.term.wait("› ✓ Keep")
