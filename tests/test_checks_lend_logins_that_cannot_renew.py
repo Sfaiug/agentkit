@@ -94,32 +94,44 @@ class ChecksLendLoginsThatCannotRenew(LentLogins):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assert_lent_copies(self.root / "smoke/home")
 
-    def test_the_smoke_home_holds_agys_first_run_answers_for_the_login_it_lent(self):
+    def test_the_smoke_home_holds_agys_first_run_answers_for_each_of_its_logins(self):
+        profile = self.caller / ".gemini/antigravity-cli"
         answers = ".gemini/antigravity-cli/cache/onboarding.json"
-        (self.caller / answers).parent.mkdir()
-        (self.caller / answers).write_text('{"onboardingComplete": true}')
-        # A profile the suite does not borrow is never read: its broken answers end nothing.
-        unlent = self.caller / ".gemini/antigravity-cli-acme/cache/onboarding.json"
-        unlent.parent.mkdir(parents=True)
-        unlent.symlink_to("gone.json")
+        answered = '{"onboardingComplete": true}'
+        (profile / "cache").mkdir()
+        (self.caller / answers).write_text(answered)
+        self.addCleanup((profile / "cache").chmod, 0o700)
+        # A profile the checks do not run agy on is never read: its broken answers end nothing.
+        other = self.caller / ".gemini/antigravity-cli-acme/cache/onboarding.json"
+        other.parent.mkdir(parents=True)
+        other.symlink_to("gone.json")
         setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("# A bounded way")]
 
-        def smoke_home(work):
-            return subprocess.run(["/bin/bash", "-c", setup + "\nsmoke_home\n"],
-                                  env={**self.env, "WORK": str(self.root / work)},
-                                  text=True, capture_output=True, timeout=120)
+        def smoke_home(work, **env):
+            """smoke_home's exit for the suite `work`, what it said, the answers its home holds."""
+            result = subprocess.run(["/bin/bash", "-c", setup + "\nsmoke_home\n"],
+                                    env={**self.env, **env, "WORK": str(self.root / work)},
+                                    text=True, capture_output=True, timeout=120)
+            home = self.root / work / "home"
+            return (result.returncode, result.stdout + result.stderr,
+                    {str(path.relative_to(home)): path.read_text()
+                     for path in home.rglob("onboarding.json")})
 
-        result, home = smoke_home("smoke"), self.root / "smoke/home"
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual({str(path.relative_to(home)): json.loads(path.read_text())
-                          for path in home.rglob("onboarding.json")},
-                         {answers: {"onboardingComplete": True}})
-        # The lent login's answers out of reach are there and broken, never absent.
-        (self.caller / answers).parent.chmod(0)
-        self.addCleanup((self.caller / answers).parent.chmod, 0o700)
-        result = smoke_home("unreached")
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn(f"cannot read {self.caller / answers}", result.stderr)
+        code, said, held = smoke_home("token")
+        self.assertEqual((code, held), (0, {answers: answered}), said)
+        # Out of reach, a login's answers are there and broken, never absent.
+        (profile / "cache").chmod(0)
+        code, said, held = smoke_home("unreached")
+        self.assertEqual(code, 1, said)
+        self.assertIn(f"cannot read {self.caller / answers}", said)
+        # Signed out, the usual login is none of the suite's: its answers are not read.
+        (profile / "antigravity-oauth-token").unlink()
+        code, said, held = smoke_home("signed-out")
+        self.assertEqual((code, held), (0, {}), said)
+        # A key the suite inherits is a login too: agy signs in on the usual one with it.
+        (profile / "cache").chmod(0o700)
+        code, said, held = smoke_home("key", GEMINI_API_KEY="fixture-key")
+        self.assertEqual((code, held), (0, {answers: answered}), said)
 
     def test_the_module_returns_when_the_first_login_it_lent_lapses(self):
         home, taken = self.root / "lent", self.root / "taken/.config/opencode/opencode.json"

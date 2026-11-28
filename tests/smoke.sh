@@ -173,9 +173,13 @@ smoke_home() {
   # Its service receipt authenticates catalog probes without a second server fighting for
   # the host's port. A copy keeps a sandbox update from replacing the host's receipt.
   # agy shows its first-run pages (`Choose your color scheme`, its terms) once to a login, and a
-  # seat left at them takes no line of ak's: the caller's answers go beside the login lent.
-  # Only that login's are read, so no profile the suite does not borrow can end it.
-  for path in "$HOME"/.gemini/antigravity-cli*/antigravity-oauth-token; do
+  # seat left at them takes no line of ak's: the caller's answers go beside the login the checks
+  # run agy on.  That is a subscription's lent by name, else the usual one where its adapter's
+  # `auth seat` finds a login here, the token lent or a key the suite inherits.  No other
+  # profile's are read, so none the checks leave alone can end the suite.
+  AGENTKIT_ACCOUNT= "$REPO/adapters/antigravity.sh" auth seat >/dev/null 2>&1 &&
+    answered=.gemini/antigravity-cli/cache/onboarding.json
+  for path in "$HOME"/.gemini/antigravity-cli-*/antigravity-oauth-token; do
     [ -f "$path" ] || continue
     answered=${path#"$HOME/"}; answered=${answered%/*}/cache/onboarding.json
   done
