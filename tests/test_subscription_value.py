@@ -1,6 +1,7 @@
-"""`price` on a provider's table is what each of its subscriptions costs a month, in whatever its
-owner pays in, and `ak usage --json` carries it as `price`, null without one.  Offline, on
-invented readings in a temporary HOME.
+"""Each subscription shows its monthly price beside its week: `ak usage`'s `a month` column stands
+after `holds`.  `price` on a provider's table is what each of its subscriptions costs a month, in
+whatever its owner pays in, and `ak usage --json` carries it as `price`, null without one.
+Offline, on invented readings in a temporary HOME.
 """
 
 from contextlib import redirect_stdout
@@ -25,6 +26,9 @@ class SubscriptionValue(Sandbox):
         (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": now, "providers": {
             provider: {"provider": provider, "meters": [week], "error": None, "resets": 0.0,
                        "probed_at": now} for provider in ("anthropic", "openai")}}))
+
+    def test_a_month_stands_after_the_week(self):
+        self.assertEqual(usage.HEADERS[usage.HEADERS.index("holds") + 1], "a month")
 
     def test_usage_json_carries_the_price(self):
         self.cfg["providers"]["anthropic"]["price"] = 200
