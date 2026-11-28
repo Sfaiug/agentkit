@@ -179,6 +179,14 @@ smoke_home() {
     smoke_source "$source" || continue
     mkdir -p -- "${target%/*}" && cp -p -- "$source" "$target" || exit 1
   done
+  # agy shows its first-run pages once to a login, and a seat left at them takes no line of
+  # ak's: the caller's answers come along. One that cannot be read is left behind and ends
+  # nothing, as a home without it shows those pages and passes no check for lacking it.
+  for source in "$SMOKE_CALLER_HOME"/.gemini/antigravity-cli*/cache/onboarding.json; do
+    target="$HOME/${source#"$SMOKE_CALLER_HOME/"}"
+    [ -f "$source" ] && [ -r "$source" ] && mkdir -p -- "${target%/*}" &&
+      cp -- "$source" "$target" || :
+  done
   # The owner's webhook, from the environment or its file, is check 5's alone, in a HOME of its
   # own: anything in this HOME may speak, a seat on a tmux server whose environment was never
   # this command's too, and the sink diverting what was aimed at the owner fails the gate.
