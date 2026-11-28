@@ -464,7 +464,9 @@ class Clock:
                                    for key, (value, _, _) in self.seen.items()}
         self.touched, self.glows = {}, {}
         self.opened = None if self.opened is None else -math.inf
-        self.grows = None if self.grows is None else {}
+        if self.grows:
+            self.grows = {key: began for key, began in self.grows.items()
+                          if isinstance(key, str)}
 
     def hold(self):
         """The next draw moves the highlight with what it is on, not by a key -- a card coming up
@@ -574,7 +576,9 @@ class Clock:
         screen that has opened is up (`rise`)."""
         self.seen, self.touched, self.up, self.glows, self.swept = None, {}, None, {}, None
         self.opened = None if self.opened is None else -math.inf
-        self.grows = None if self.grows is None else {}
+        if self.grows:
+            self.grows = {key: began for key, began in self.grows.items()
+                          if isinstance(key, str)}
 
     def wait(self):
         """Seconds until the next frame is due, or None while nothing animates."""

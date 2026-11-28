@@ -169,8 +169,8 @@ class AHoveredMeterNamesItsAccount(unittest.TestCase):
             drawn = {}
             for line in rows:
                 text = plain(line)
-                for label in re.findall(r"Claude [IV]+(?=  )", text) if METER.search(text) else ():
-                    drawn[label] = ink(line[text.index("━", text.index(label + "  "))][1])
+                for found in re.finditer(r"(Claude [IV]+) +(━)[━╸─]*  \d+% left", text):
+                    drawn[found[1]] = ink(line[found.start(2)][1])
             note = next((line for line in rows if plain(line).startswith("  Claude I  login")),
                         None)
             amber = note and ink(note[plain(note).index(EMAIL)][1])
