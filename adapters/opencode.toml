@@ -122,6 +122,11 @@ state = "asking"
 [stop]
 enforce = "nudge"
 
+# OpenCode 2.4.2 draws a sidebar in a terminal wider than 120 columns, a screen no rule below
+# reads: tools/idle-compact.py tells a seat's OpenCode a terminal no wider than this.
+[terminal]
+widest = 120
+
 [screen]
 # fullmatch against a bottom line: the input box, whose edges are `┃` and `╹` and whose
 # model line reads `Build auto · mimo-v2.6-pro MiMo · high`.  The dialog that replaces it is
