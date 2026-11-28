@@ -405,6 +405,18 @@ def _bind(own, writable, homes=()):
     return args, overlaid
 
 
+def inside(argv):
+    """The command a box `command` built runs, off the words a process table shows of it: those
+    after bwrap's own, up to `--`, and after the supervisor's an out dir adds.  Any other as given."""
+    if argv[:1] != ["bwrap"] or "--" not in argv:
+        return argv
+    argv = argv[argv.index("--") + 1:]
+    if len(argv) > 4 and Path(argv[4]).name == PROCESSES:
+        argv = argv[5:]
+        return argv[1:] if argv[:1] == ["--drain"] else argv
+    return argv
+
+
 @contextmanager
 def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(), hidden=(),
             home_overlay=False, drain=False):

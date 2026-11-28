@@ -154,7 +154,7 @@ class Ladder(unittest.TestCase):
     def test_the_launching_seat_is_told_once_how_to_resume_it(self):
         name = self.run_dir.name
         line, = self.told
-        # what it names as the step is left out: it is the box's command line, not the step
+        # what it names as the step is left out: Go's tick names a boxed turn by its bwrap line
         self.assertTrue(line.startswith(f"run {name} stalled three times at "), line)
         self.assertTrue(line.endswith(f"; parked: ak run resume {name}"), line)
         # a later tick tells it no more: its open line is another matter (`continue`)

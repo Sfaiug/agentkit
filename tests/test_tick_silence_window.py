@@ -26,8 +26,8 @@ class V5AG(unittest.TestCase):
     def spawn_loop(self, child_argv, **kw):
         return _v5x.V5X.spawn_loop(self, child_argv, **kw)
 
-    def spawn_worker(self, reviewer=False):
-        return _v5x.V5X.spawn_worker(self, reviewer=reviewer)
+    def spawn_worker(self):
+        return _v5x.V5X.spawn_worker(self)
 
     def gate_sleep(self):
         """A harmless done-when gate: a `bash -c` shell kept alive by a sleeping child."""

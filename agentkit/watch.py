@@ -6606,21 +6606,24 @@ def is_worker_cmd(args, cfg=None):
 def step_for_run(run_dir, state, pid, cfg=None):
     """(kind, step, child, argv) off the loop's own process tree.
 
-    `worker` is an executor turn, `reviewer` a reviewer turn -- its out-dir argument carries
-    `round-N/reviewer` -- and `done-when` the gate; `none` means the loop has no child.
+    `worker` is an executor turn, `reviewer` a reviewer turn -- the loop records the step before
+    either, so no path a turn is handed reads as its role -- and `done-when` the gate; `none`
+    means the loop has no child.  A turn and a gate alike run in a box, so each is told by what
+    its box runs (`box.inside`).
     """
     children = loop_children(pid)
     if not children:
         return "none", "no child", None, []
     child, args = sorted(children, key=lambda pair: pair[0])[0]
-    if is_worker_cmd(args, cfg):
-        if any("/reviewer" in arg for arg in args):
+    command = box.inside(args)
+    if is_worker_cmd(command, cfg):
+        if state.get("step") == "reviewer":
             return "reviewer", f"reviewer: {state.get('reviewer') or 'reviewer'}", child, args
         return "worker", f"worker: {state.get('executor') or 'worker'}", child, args
-    if len(args) >= 3 and Path(args[0]).name == "bash" and args[1] == "-c":
-        cmd = args[2].strip()
+    if len(command) >= 3 and Path(command[0]).name == "bash" and command[1] == "-c":
+        cmd = command[2].strip()
     else:
-        cmd = " ".join(args).strip() or "(unknown command)"
+        cmd = " ".join(command).strip() or "(unknown command)"
     return "done-when", f"done-when: {cmd[:200]}", child, args
 
 

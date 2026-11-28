@@ -45,7 +45,8 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
     already refused this piece of work.
     Later re-picks follow the normal order; this preference applies only at handover.
     With review on, the executor is one the run's reviewers of another lab can review while
-    one of its builders is (`ready_order`'s `reviewed_by`), as at launch.
+    one of its builders is (`ready_order`'s `reviewed_by`), as at launch, read among the builders
+    left once the current one and those on a refused provider are skipped.
     """
     off = record.review_off(state)
     if not off:
@@ -66,9 +67,11 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
         providers = collect_usage(cfg)
         reviewers = run_reviewers(cfg, state)
         workers, review_list = config.pair_marks(cfg, run_workers(cfg, state), reviewers)
-        order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers,
-                                        reviewed_by=None if off else review_list, draw=draw)
-                 if n != current and config.model(cfg, n)["provider"] not in refused]
+        # before the pick reads them: the stalled one and a refused provider's keep nobody out
+        skip = {current, *(n for n in known(cfg, workers)
+                           if config.model(cfg, n)["provider"] in refused)}
+        order = ready_order(cfg, providers, workers, log, reviewers=reviewers,
+                            reviewed_by=None if off else review_list, skip=skip, draw=draw)
         review_order = [] if off else ready_order(cfg, providers, review_list, role="reviewer",
                                                   draw=draw)
         writers = head_writers(state)
