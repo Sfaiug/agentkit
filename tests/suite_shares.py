@@ -235,7 +235,7 @@ HEADERS = re.compile(r"^# --- (?:(\w+):)?[^\n]*\n", re.MULTILINE)
 # These blocks read fixtures, shell variables or functions made by an earlier block.
 DEPENDENCIES = (
     ("retry_start", "9"),
-    ("1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d", "31d"),
+    ("1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d", "6h", "31d"),
     ("6f", "6g"), ("7", "7b"), ("12", "12b"), ("16", "33"),
     ("20", "20b", "20c", "20d", "20e", "20f", "20g", "35"),
     ("21", "22"), ("23", "23b"), ("25", "25b"),
@@ -246,13 +246,13 @@ DEPENDENCIES = (
 # check and reaches nothing beyond loopback.  Their offline twins run at landing: 19 the delivery
 # path, 41 and 8a-8f the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
 LIVE_CHECKS = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d", "6f", "6g",
-               "31a", "31d", "52"}
+               "6h", "31a", "31d", "52"}
 # The live checks that may start a model turn, or read the run one made (4b, 4c, 4d): a harness
 # call, an `ak run`, or an `ak usage` (1) or a seat's pick (6, 6b, 6d), which reads meters some
 # harnesses read with a turn, as Muse's is once its reading has run out.  Asked with
 # AK_LIVE_NO_MODEL_CALLS=1, a run leaves them out, so a host checks new code without its logins
 # paying turns for it.
-MODEL_CALLS = {"1", "3", "3a", "4", "4b", "4c", "4d", "6", "6b", "6d", "31d"}
+MODEL_CALLS = {"1", "3", "3a", "4", "4b", "4c", "4d", "6", "6b", "6d", "6h", "31d"}
 # The checks that read the checkout alone and take seconds: tests/landing.py runs them first in
 # every share and stops there when one fails; every_file.py leaves them to it.
 STATIC_CHECKS = ("test_dead_code", "test_boundaries", "test_modules_say_what_they_are", "test_docs",
