@@ -82,7 +82,7 @@ def opened(case, home, row, size=(100, 40)):
                     server=SERVER)
     term.wait("esc leave")
     term.keys("c")
-    term.wait("r recommended")
+    term.wait("r your runs")
     term.keys(*["j"] * 7)     # Limits is the eighth row, the two models first.
     term.wait("› Limits")
     term.keys("Enter")
