@@ -3566,6 +3566,7 @@ def your_runs_screen(cfg, session, selected, held, providers):
 def _your_runs(cfg, session, selected, held, providers):
     """your_runs_screen's page over `cfg`, read until Esc."""
     from . import own     # here, not at the top: own imports menu
+    marks_read(cfg, session, selected)      # as `c` reads them before a draw: one saved since in
     if terminal.taken():      # seconds on a home with months of runs, no key read meanwhile
         terminal.doing("config · your runs · reading what your runs did")
     runs, _, paid = matrix.counted(cfg)
@@ -3629,14 +3630,12 @@ def _your_runs(cfg, session, selected, held, providers):
                 return (f"{shown} is no longer in the config" if name not in config.offered(now)
                         else f"{shown} is {matrix.OFF}" if name in matrix.off(now) else "")
 
-            def using():        # whether the marks `selected` holds use it in this role
-                return name in dict(matrix.team_now(cfg, selected)[here[0]])
-            drawn = using()
+            drawn = copy.deepcopy(selected)     # which way: one another window made since stays
             cfg = holding(cfg)      # config.toml and the marks as they now stand, as `c` reads them
             marks_read(cfg, session, selected)
-            try:    # the page's mark says which way: one another window made since stays
-                note = (flip_mark(cfg, session, selected, held, name, column, providers, ask,
-                                  refused=refused) if using() == drawn else refused(cfg))
+            try:
+                note = flip_mark(cfg, session, selected, held, name, column, providers, ask,
+                                 refused=refused, shown=drawn)
             except Changed:     # another window saved config.toml since it was read
                 cfg = holding(cfg)
                 note = refused(cfg) or CHANGED
@@ -6323,20 +6322,22 @@ def for_selected(cfg, scope):
 
 
 def flip_mark(cfg, session, selected, held, model, column, providers, ask, born=False,
-              refused=lambda cfg: ""):
+              refused=lambda cfg: "", shown=None):
     """Space on `model`'s mark `column` (orch.role_mark's) on `c` and on `your runs` alike, the
     one place deciding whose marks it flips: seat `session`'s (session_mark), the born row's
     (born_mark) or new seats' (defaults_mark).  What `refused` says of `cfg` refuses it before
     anything is applied, and of the config a seat's save reads again.  A pick applies what the
     seat's page holds, `held`, first, as closing does, asking on `ask` (apply_held), what that
-    could not do refusing it, and flips the marks as drawn (held_over); the orchestrator's own
-    picks none.  What to say under the rows, or ""."""
+    could not do refusing it, and flips the marks as drawn (held_over), `shown` where the page
+    drew others than `selected`: a model they use is taken out, one they do not put in, either
+    left as it is if so already; the orchestrator's own picks none.  What to say under the
+    rows, or ""."""
     # A mark is made at once and never held for the close: holding one failed review four times
     # over a config, login or record changing under the page, and the owner, 21 Nov 2026, asked
     # whether to drop it: "Keep marks instant".
     if note := refused(cfg):
         return note
-    drawn = held_over(cfg, selected, held)
+    drawn = held_over(cfg, shown or selected, held)
     if held and (column or model != selected["orchestrator"]) and (
             note := apply_held(cfg, (session, selected), held, ask, providers)):
         return note
@@ -6344,15 +6345,15 @@ def flip_mark(cfg, session, selected, held, model, column, providers, ask, born=
         return session_mark(cfg, session, drawn, model, column, providers, ask, refused)
     if born:
         return born_mark(cfg, selected, model, column, providers)
-    return defaults_mark(cfg, selected, model, column)
+    return defaults_mark(cfg, selected, model, column, shown)
 
 
-def defaults_mark(cfg, selected, model, column):
-    """Act on one of new seats' marks, `selected` being [defaults]: saved at once
-    (defaults_saved) and into `cfg` and `selected`, no open seat changing.  What to
-    say under the rows, or ""."""
+def defaults_mark(cfg, selected, model, column, shown=None):
+    """Act on one of new seats' marks, `selected` being [defaults], flipped as `shown` draws
+    them (orch.role_mark): saved at once (defaults_saved) and into `cfg` and `selected`, no
+    open seat changing.  What to say under the rows, or ""."""
     # a new seat's crew is read as it is made (orch.default_crew), so no meter refuses one now
-    changed, note = orch.role_mark(cfg, selected, model, column, {})
+    changed, note = orch.role_mark(cfg, selected, model, column, {}, shown=shown)
     if note or changed == selected:
         return note
     return defaults_saved(cfg, selected, changed, copy.deepcopy(cfg))
